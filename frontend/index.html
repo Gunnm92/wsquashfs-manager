@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>wsquashfs-manager</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font-family: system-ui, sans-serif; margin: 0; background: #14161a; color: #d8dbe0; }
+  header { padding: 1rem 1.5rem; border-bottom: 1px solid #2a2e35; display: flex; gap: 1rem; align-items: center; }
+  h1 { font-size: 1.1rem; margin: 0; }
+  main { padding: 1.5rem; max-width: 1200px; margin: 0 auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  th, td { text-align: left; padding: 0.5rem 0.7rem; border-bottom: 1px solid #2a2e35; }
+  th { color: #8b919c; font-weight: 500; }
+  tr:hover td { background: #1c1f25; }
+  .badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 4px; font-size: 0.75rem; background: #2a2e35; }
+  .badge.warn { background: #5a4620; }
+  button { background: #2d6cdf; color: white; border: 0; padding: 0.4rem 0.9rem; border-radius: 6px; cursor: pointer; }
+  .muted { color: #8b919c; }
+</style>
+</head>
+<body>
+<header>
+  <h1>wsquashfs-manager</h1>
+  <span id="status" class="muted"></span>
+  <button onclick="load(true)">Rescanner</button>
+</header>
+<main>
+  <table>
+    <thead>
+      <tr>
+        <th>Nom</th><th>Système</th><th>Taille</th><th>Version</th><th>Type</th>
+        <th>Runner</th><th>Manettes</th><th>Commande</th><th>Extras</th>
+        <th>Sauvegardes</th><th>État</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+</main>
+<script>
+const fmt = (b) => b > 1e9 ? (b/1e9).toFixed(1)+" Go" : b > 1e6 ? (b/1e6).toFixed(0)+" Mo" : (b/1e3).toFixed(0)+" Ko";
+
+async function load(refresh) {
+  const r = await fetch("/api/library" + (refresh ? "?refresh=true" : ""));
+  if (!r.ok) { document.getElementById("status").textContent = "erreur API " + r.status; return; }
+  const items = await r.json();
+  document.getElementById("status").textContent = items.length + " images";
+  const rows = items.map(i => `<tr>
+    <td>${i.name}</td>
+    <td>${i.system ?? ""}</td>
+    <td>${fmt(i.size)}</td>
+    <td>${i.version ?? '<span class="muted">—</span>'}</td>
+    <td><span class="badge">${i.type}</span></td>
+    <td>${i.runner === "default" ? '<span class="muted">défaut</span>' : i.runner + (i.wine ? " " + i.wine : i.proton ? " " + i.proton : "")}</td>
+    <td>${i.hidraw ? "HIDRAW" : i.xinput ? "XInput" : '<span class="muted">—</span>'}</td>
+    <td>${i.cmd ?? '<span class="muted">—</span>'}</td>
+    <td>${(i.extras || []).join(", ") || '<span class="muted">—</span>'}</td>
+    <td>${i.saves_present ? fmt(i.saves_size) : '<span class="muted">—</span>'}</td>
+    <td>${i.state !== "ok" ? `<span class="badge warn">${i.state}</span>` : '<span class="muted">ok</span>'}</td>
+  </tr>`).join("");
+  document.getElementById("rows").innerHTML = rows || '<tr><td colspan="11" class="muted">aucune image — WSQUASHFS_MGR_ROMS_DIRS ?</td></tr>';
+}
+load(false);
+</script>
+</body>
+</html>

@@ -1,0 +1,172 @@
+# Règles « tel fichier → tel réglage » (SPEC § 2.5)
+# Éditable, versionné avec l'application. Évaluées dans l'ordre.
+#
+# `when` : conditions (toutes doivent être vraies)
+#   file: glob           — un fichier correspond
+#   all_files: [globs]   — tous les fichiers présents
+#   imports: [dlls]      — toutes les DLL importées par l'exécutable
+#   imports_any: [dlls]  — au moins une DLL importée
+#   not_imports: [dlls]  — aucune de ces DLL importée
+#   prefix: batocera|proton|other|none
+#   exe_bits: 32|64
+#   large_address_aware: true|false
+#   strings_any: [str]   — chaînes trouvées dans l'exécutable
+#   exe_name_glob: glob
+#
+# `then` : une clé, un fichier à ajouter, ou un avertissement
+# `confidence` : high | medium | low
+rules:
+  - name: dxvk-d3d
+    when:
+      imports_any: [d3d9, d3d10, d3d10core, d3d11, dxgi]
+    then:
+      key: DXVK
+      value: "1"
+    justification: "rendu Vulkan ; wined3d = rendu logiciel sous NVIDIA"
+    confidence: high
+
+  - name: vkd3d-d3d12
+    when:
+      imports: [d3d12]
+    then:
+      key: VKD3D
+      value: "1"
+    justification: "Direct3D 12 via Vulkan (ex. Pinball FX)"
+    confidence: high
+
+  - name: d7vk-ddraw
+    when:
+      imports: [ddraw]
+    then:
+      key: D7VK
+      value: "1"
+    justification: "jeux DirectDraw"
+    confidence: high
+
+  - name: opengl-seul
+    when:
+      imports: [opengl32]
+      imports_any: [opengl32]
+      not_imports: [d3d9, d3d10, d3d11, dxgi, d3d12, ddraw]
+    then:
+      warning: "OpenGL seul : DXVK n'aurait pas d'effet"
+    justification: "rendu OpenGL natif"
+    confidence: high
+
+  - name: xinput
+    when:
+      imports_any: [xinput1_3, xinput1_4, xinput9_1_0]
+    then:
+      warning: "import XInput détecté : mode XInput (pas de HIDRAW)"
+    justification: "manette via XInput par défaut"
+    confidence: high
+
+  - name: hidraw-sony
+    when:
+      file: "*/libScePad*.dll"
+    then:
+      key: HIDRAW
+      value: "1"
+      warning: "DualSense détecté (libScePad) : proposer HIDRAW=1 à vérifier"
+    justification: "ex. Until Dawn ; à refuser si steam_api présent (règle suivante)"
+    confidence: medium
+
+  - name: steam-api-pas-hidraw
+    when:
+      file: "*/steam_api*.dll"
+    then:
+      warning: "steam_api présent : support DualSense probablement via Steam Input, ne pas forcer HIDRAW"
+    justification: "ex. The Devil in Me, Street Fighter V"
+    confidence: medium
+
+  - name: exe-32-bit-limite
+    when:
+      exe_bits: 32
+      large_address_aware: false
+    then:
+      warning: "exécutable 32 bits sans large address aware : limite de 2 Go"
+    justification: "rien de spécial depuis la correction de la pile ; ex. GTI Club"
+    confidence: high
+
+  - name: konami-fakeping
+    when:
+      file: "*/libavs-win32.dll"
+      imports: [dinput8]
+    then:
+      file: "drive_c/game/fakeping/dinput8.dll"
+      key: ENV
+      value: "WINEDLLOVERRIDES=\"dinput8\"=n"
+      warning: "relais fakeping à ajouter (dinput8) : vérifier DllOverrides"
+    justification: "Konami e-amusement ; ex. Yu-Gi-Oh! DT6, GTI Club"
+    confidence: medium
+
+  - name: tekno-d3dx9-43
+    when:
+      exe_name_glob: "*TeknoParrot*"
+      file: "*/d3dx9_43.dll"
+    then:
+      warning: "d3dx9_43 natif (Microsoft) dans le prefix : mettre \"*d3dx9_43\"=\"builtin\" dans le registre"
+    justification: "Yu-Gi-Oh! DT6"
+    confidence: medium
+
+  - name: tekno-ancien
+    when:
+      exe_name_glob: "*TeknoParrot*"
+      file: "*/TeknoParrot.dll"
+    then:
+      warning: "TeknoParrot ancien : proposer la mise à jour (anti-débogage)"
+    justification: "ex. Yu-Gi-Oh! ; comparer la version à la référence"
+    confidence: medium
+
+  - name: jvs-emu
+    when:
+      file: "*/JVSEmu*.dll"
+    then:
+      warning: "JVSEmu détecté : manette obligatoire au lancement"
+    justification: "ex. GTI Club"
+    confidence: high
+
+  - name: demul-pistolet
+    when:
+      file: "*/DemulShooter.exe"
+    then:
+      warning: "pistolet Demul : vérifier config.ini (périphérique d'origine)"
+    justification: "ex. Castlevania"
+    confidence: high
+
+  - name: prefix-proton
+    when:
+      prefix: proton
+    then:
+      key: PROTON
+      value: "depuis config_info (remplie par le moteur d'analyse)"
+    justification: "prefix Proton → Proton de même version (défaut du lanceur)"
+    confidence: high
+
+  - name: prefix-batocera-win32
+    when:
+      prefix: batocera
+      arch: win32
+    then:
+      key: ARCH
+      value: "win32"
+    justification: "system.reg #arch=win32"
+    confidence: high
+
+  - name: sauvegardes-batocera
+    when:
+      prefix: batocera
+      file: "*/Documents/My Games/*"
+    then:
+      key: SAVEDIR
+      value: "(chemin des sauvegardes, à confirmer)"
+    justification: "sauvegardes connues sur prefix Batocera"
+    confidence: medium
+
+  - name: env-winedlloversides
+    when:
+      strings_any: []
+    then:
+      warning: "ENV= contenant WINEDLLOVERRIDES : refuser, proposer l'équivalent registre"
+    justification: "écraserait les réglages DLL du lanceur"
+    confidence: high

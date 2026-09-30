@@ -1,0 +1,1 @@
+"""wsquashfs-manager — backend FastAPI."""
