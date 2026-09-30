@@ -39,8 +39,14 @@ class Settings(BaseSettings):
     # Rétention des .old (None = manuelle, sinon N jours)
     old_retention_days: int | None = None
 
-    # Accès
-    host: str = "0.0.0.0"
+    # Profondeur du scan sous chaque dossier roms/ : roms/<système>/<jeu>
+    # (+ un niveau de sous-dossier). rglob sur tout l'array serait très lent.
+    scan_max_depth: int = 3
+
+    # Accès. Écoute locale par défaut : sans mot de passe, l'API (qui
+    # modifiera les images) ne doit pas être ouverte au réseau. Pour l'ouvrir,
+    # poser host=0.0.0.0 ET un mot de passe.
+    host: str = "127.0.0.1"
     port: int = 8765
     password: str = ""                 # vide = sans auth (à décider, SPEC §7)
 
@@ -53,8 +59,9 @@ class Settings(BaseSettings):
     # Utilisateur sous lequel exécuter les outils (propriétaire des images)
     tool_user: str = "arcade"
 
-    # Options mksquashfs : équivalent de --pack du lanceur
-    mksquashfs_opts: list[str] = ["-comp", "zstd", "-Xcompression-level", "19"]
+    # Options mksquashfs : identiques à --pack du lanceur (zstd, niveau par
+    # défaut) — le niveau 19 allongeait nettement les reconstructions.
+    mksquashfs_opts: list[str] = ["-comp", "zstd"]
 
 
 def get_settings() -> Settings:

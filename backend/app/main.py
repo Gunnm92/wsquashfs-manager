@@ -11,13 +11,16 @@ import secrets
 import time
 from pathlib import Path
 
+from typing import Literal
+
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 from .config import Settings, get_settings
 from .models import ImageInfo, Task, TaskStatus
 from .services import scan
+from .services.autorun import Autorun
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
 RULES_FILE = Path(__file__).resolve().parent.parent / "rules" / "rules.yaml"
@@ -31,15 +34,23 @@ _tasks: dict[str, Task] = {}
 
 # ------------------------------------------------------------------- auth
 
+def _same(a: str | bytes, b: str) -> bool:
+    """Comparaison à temps constant (compare_digest refuse les str non ASCII)."""
+    return secrets.compare_digest(a if isinstance(a, bytes) else a.encode(), b.encode())
+
+
 @app.middleware("http")
 async def simple_auth(request: Request, call_next):
     if not _settings.password:
         return await call_next(request)
     if request.url.path.startswith("/static/") or request.url.path in ("/", "/login"):
         return await call_next(request)
-    token = request.headers.get("x-wsfs-token", "")
-    if not secrets.compare_digest(token, _settings.password):
-        raise HTTPException(status_code=401, detail="mot de passe invalide")
+    # Starlette décode les en-têtes en latin-1 : on retrouve les octets reçus
+    # (mot de passe UTF-8 accentué)
+    token = request.headers.get("x-wsfs-token", "").encode("latin-1")
+    # Une HTTPException levée dans un middleware donnerait une erreur 500
+    if not _same(token, _settings.password):
+        return JSONResponse({"detail": "mot de passe invalide"}, status_code=401)
     return await call_next(request)
 
 
@@ -51,7 +62,7 @@ class LoginReq(BaseModel):
 def login(req: LoginReq):
     if not _settings.password:
         return {"token": ""}
-    if not secrets.compare_digest(req.password, _settings.password):
+    if not _same(req.password, _settings.password):
         raise HTTPException(status_code=401)
     return {"token": req.password}
 
@@ -78,25 +89,25 @@ def library(refresh: bool = False):
     return scan.scan_all(_settings, force=refresh)
 
 
-@app.get("/api/images/{name}")
-def image_detail(name: str):
-    results = scan.scan_all(_settings)
-    for info in results:
-        if info.name == name:
-            return info
-    raise HTTPException(status_code=404, detail=f"image inconnue : {name}")
+# Les images sont désignées par leur identifiant « <système>/<nom> » en
+# paramètre (?id=) : deux systèmes peuvent avoir une image du même nom, et
+# l'identifiant contient un « / ».
+
+@app.get("/api/image")
+def image_detail(id: str):
+    return _find_image(id)
 
 
 # ------------------------------------------------------------- autorun
 
-@app.get("/api/images/{name}/autorun")
-def autorun_raw(name: str):
+@app.get("/api/image/autorun")
+def autorun_raw(id: str):
     """Lecture brute de l'autorun (sans monter : unsquashfs -cat)."""
-    info = _find_image(name)
-    from .services.autorun import Autorun
+    info = _find_image(id)
     text = scan._read_autorun_from_image(_settings, info.path)
     if text is None:
-        return {"found": False, "text": "", "lines": [], "eol": None, "issues": []}
+        return {"found": False, "text": "", "lines": [], "eol": None,
+                "items": [], "unknown_keys": []}
     a = Autorun.parse(text)
     return {
         "found": True,
@@ -110,27 +121,28 @@ def autorun_raw(name: str):
 
 class AutorunEdit(BaseModel):
     lines: list[str]
-    eol: str = "\r\n"
+    eol: Literal["\r\n", "\n"] = "\r\n"
 
 
-@app.post("/api/images/{name}/autorun")
-def autorun_edit(name: str, body: AutorunEdit):
+@app.post("/api/image/autorun")
+def autorun_edit(id: str, body: AutorunEdit):
     """Écriture de l'autorun → crée une tâche de reconstruction (aperçu requis
     avant, SPEC § 2.4 : à implémenter avec la file)."""
-    info = _find_image(name)
-    from .services.autorun import Autorun
-    a = Autorun.parse(Autorun(lines=body.lines, eol=body.eol).render())
+    info = _find_image(id)
+    a = Autorun(lines=body.lines, eol=body.eol)
     issues = a.validate()
-    task_id = _new_task("edit_autorun", info.name)
+    task_id = _new_task("edit_autorun", info.id)
     # TODO: lancer la reconstruction via la file (SPEC § 3.1)
     return {"task": task_id, "issues": issues}
 
 
-def _find_image(name: str) -> ImageInfo:
+def _find_image(image_id: str) -> ImageInfo:
+    # scan_all ne relit que les images modifiées (cache) ; un index en
+    # mémoire viendra avec la surveillance des dossiers.
     for info in scan.scan_all(_settings):
-        if info.name == name:
+        if info.id == image_id:
             return info
-    raise HTTPException(status_code=404, detail=f"image inconnue : {name}")
+    raise HTTPException(status_code=404, detail=f"image inconnue : {image_id}")
 
 
 # ------------------------------------------------------------- file de tâches

@@ -5,9 +5,15 @@ Conventions identiques au lanceur (SPEC § 3.2) :
 - première occurrence retenue ;
 - le `\r` final de ligne est retiré à la lecture ;
 - la réécriture est LIGNE À LIGNE : commentaires (REM, #), ordre des lignes,
-  fins de ligne (CRLF/LF détectées) et espaces sont conservés ;
+  fins de ligne (CRLF/LF détectées, présence ou non d'un saut de ligne final)
+  et espaces sont conservés ;
 - une clé modifiée garde sa place ; une clé ajoutée va en fin de fichier ;
 - les clés inconnues sont signalées mais non bloquées (Batocera les ignore).
+
+`DIR=` et `CMD=` sont interprétés comme le lanceur : guillemets retirés de
+`DIR`, `\\` → `/`, composants `.` ignorés, casse ignorée ; l'exécutable de
+`CMD` est le texte entre guillemets s'il commence par un guillemet, sinon le
+premier mot.
 """
 
 from __future__ import annotations
@@ -26,11 +32,37 @@ KNOWN_KEYS = {
 _KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
 
 
+def unquote(value: str) -> str:
+    """Retire une paire de guillemets entourant la valeur (comme `unquote` du
+    lanceur, utilisé pour DIR/SAVEDIR/SAVEFILES)."""
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        return value[1:-1]
+    return value
+
+
+def normalize_path(value: str) -> str:
+    """Chemin d'autorun → forme comparable à la liste des fichiers de l'image :
+    guillemets retirés, `\\` → `/`, composants vides et `.` ignorés, minuscules."""
+    parts = unquote(value.strip()).replace("\\", "/").split("/")
+    return "/".join(p for p in parts if p not in ("", ".")).lower()
+
+
+def exe_from_cmd(cmd: str) -> str:
+    """Exécutable de `CMD=`, comme le lanceur : texte entre guillemets si la
+    commande commence par un guillemet, sinon le premier mot."""
+    cmd = cmd.strip()
+    m = re.match(r'^"([^"]+)"', cmd)
+    if m:
+        return m.group(1)
+    return cmd.split()[0] if cmd else ""
+
+
 @dataclass
 class Autorun:
     """Contenu d'un autorun, ligne à ligne."""
     lines: list[str] = field(default_factory=list)   # sans le caractère de fin de ligne
     eol: str = "\r\n"                                # "\r\n" ou "\n" (détecté)
+    trailing_eol: bool = True                        # saut de ligne après la dernière ligne
 
     # ------------------------------------------------------------------ read
 
@@ -38,31 +70,30 @@ class Autorun:
     def parse(cls, data: bytes | str) -> "Autorun":
         if isinstance(data, bytes):
             data = data.decode("utf-8", errors="replace")
-        raw_lines = data.splitlines()
-        # Détection de CRLF : la majorité des lignes se terminant par \r
-        # (après splitlines sur le texte brut) → CRLF.
-        text = data
-        crlf = len(text.splitlines(keepends=True)) > 0 and all(
-            line.endswith("\r\n") for line in text.splitlines(keepends=True) if line
-        ) if text else False
-        eol = "\r\n" if crlf else "\n"
-        lines = [ln[:-1] if ln.endswith("\r") else ln for ln in text.split("\n") if ln or True]
-        # Suppression de la dernière ligne vide due au \n final
-        if lines and lines[-1] == "" and not text.endswith("\r"):
-            lines = lines[:-1]
-        return cls(lines=lines, eol=eol)
+        if not data:
+            return cls(lines=[], eol="\r\n", trailing_eol=True)
+        # Fin de ligne majoritaire (un fichier CRLF sans saut de ligne final
+        # reste CRLF ; un fichier mixte prend la fin la plus fréquente).
+        crlf = data.count("\r\n")
+        lf_only = data.count("\n") - crlf
+        eol = "\r\n" if crlf > lf_only else "\n"
+        trailing = data.endswith("\n")
+        lines = [ln[:-1] if ln.endswith("\r") else ln for ln in data.split("\n")]
+        if trailing:
+            lines = lines[:-1]          # élément vide après le dernier \n
+        return cls(lines=lines, eol=eol, trailing_eol=trailing)
 
     def get(self, key: str) -> str | None:
         """Première occurrence de la clé (comme le lanceur)."""
         for line in self.lines:
             m = _KEY_RE.match(line)
             if m and m.group(1) == key:
-                return m.group(2).rstrip("\r")
+                return m.group(2)
         return None
 
     def all(self, key: str) -> list[str]:
         return [
-            m.group(2).rstrip("\r")
+            m.group(2)
             for line in self.lines
             if (m := _KEY_RE.match(line)) and m.group(1) == key
         ]
@@ -73,7 +104,7 @@ class Autorun:
         for i, line in enumerate(self.lines, start=1):
             m = _KEY_RE.match(line)
             if m:
-                out.append((m.group(1), m.group(2).rstrip("\r"), i))
+                out.append((m.group(1), m.group(2), i))
         return out
 
     def keys(self) -> set[str]:
@@ -107,42 +138,47 @@ class Autorun:
         return removed
 
     def render(self) -> str:
-        return self.eol.join(self.lines) + (self.eol if self.lines else "")
+        if not self.lines:
+            return ""
+        return self.eol.join(self.lines) + (self.eol if self.trailing_eol else "")
 
     # ------------------------------------------------------------- validation
 
     @staticmethod
     def is_comment(line: str) -> bool:
         stripped = line.lstrip()
-        return stripped.startswith("REM") or stripped.startswith("#")
+        return stripped.upper().startswith("REM") or stripped.startswith("#")
 
     def validate(self, file_paths: set[str] | None = None) -> list[dict]:
-        """Validations (SPEC § 2.2). `file_paths` = fichiers de l'image (casse
-        insensible), pour vérifier DIR= et CMD=. Retourne une liste de
-        {level: warn|error, message}."""
+        """Validations (SPEC § 2.2).
+
+        `file_paths` : fichiers de l'image, chemins relatifs à sa racine (sans
+        `squashfs-root/`), pour vérifier DIR= et CMD= sans tenir compte de la
+        casse. Les dossiers sont déduits des chemins de fichiers. Sans liste,
+        seules les vérifications de forme sont faites.
+        Retourne une liste de {level: warn|error, message}."""
         issues: list[dict] = []
-        lower_files = {p.lower() for p in (file_paths or set())}
+        files = {normalize_path(p) for p in (file_paths or set())}
+        dirs = {"/".join(p.split("/")[:i]) for p in files for i in range(1, p.count("/") + 1)}
+        dirs.add("")                    # racine
 
         d = self.get("DIR")
         c = self.get("CMD")
+        d_norm = normalize_path(d) if d is not None else ""
         if d is None:
             issues.append({"level": "warn", "message": "DIR= absent"})
-        elif file_paths is not None and lower_files and f"{d.lower()}/" not in {
-            p + "/" for p in lower_files if "/" in p
-        }:
+        elif files and d_norm not in dirs:
             issues.append({"level": "warn", "message": f"DIR={d} n'existe pas dans l'image"})
 
         if c is None:
             issues.append({"level": "warn", "message": "CMD= absent"})
-        elif file_paths is not None and lower_files:
-            exe = c.split()[0]
-            base = exe.lower()
-            if d:
-                candidate = f"{d.lower()}/{base}"
-                if candidate not in lower_files and base not in lower_files:
-                    issues.append(
-                        {"level": "warn", "message": f"exécutable {exe} introuvable (casse ignorée)"}
-                    )
+        elif files:
+            exe = exe_from_cmd(c)
+            target = normalize_path(f"{d_norm}/{exe}" if d_norm else exe)
+            if exe and target not in files:
+                issues.append(
+                    {"level": "warn", "message": f"exécutable {exe} introuvable (casse ignorée)"}
+                )
 
         env = self.get("ENV") or ""
         if "WINEDLLOVERRIDES" in env:
