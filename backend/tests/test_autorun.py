@@ -124,3 +124,43 @@ def test_validate_unknown_key_warns_not_blocks():
     issues = a.validate()
     assert any("clé inconnue : MONKEY" in i["message"] for i in issues)
     assert all(i["level"] == "warn" for i in issues)
+
+
+# ------------------------------------------------------ corrections de la revue
+
+def test_crlf_without_final_newline_is_preserved():
+    text = "DIR=Game\r\nCMD=game.exe"
+    a = Autorun.parse(text)
+    assert a.eol == "\r\n"
+    assert a.get("CMD") == "game.exe"
+    assert a.render() == text
+
+
+def test_mixed_eol_keeps_majority():
+    a = Autorun.parse("A=1\r\nB=2\r\nC=3\n")
+    assert a.eol == "\r\n"
+
+
+def test_empty_autorun_renders_empty():
+    assert Autorun.parse("").render() == ""
+
+
+def _path_issues(issues):
+    return [i for i in issues if "introuvable" in i["message"] or "n'existe pas" in i["message"]]
+
+
+def test_quoted_cmd_with_spaces_validates():
+    a = Autorun.parse('DIR=My Game\nCMD="Game Launcher.exe" -w\n')
+    files = {"My Game/Game Launcher.exe"}
+    assert not _path_issues(a.validate(files))
+
+
+def test_dir_backslashes_and_quotes_are_normalised():
+    a = Autorun.parse('DIR="drive_c\\Games\\GTI\\"\nCMD=gti.exe\n')
+    files = {"drive_c/games/gti/GTI.EXE"}
+    assert not _path_issues(a.validate(files))
+
+
+def test_missing_exe_is_reported():
+    a = Autorun.parse("DIR=Game\nCMD=absent.exe\n")
+    assert _path_issues(a.validate({"Game/game.exe"}))

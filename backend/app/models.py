@@ -26,7 +26,7 @@ class RunnerKind(str, Enum):
 class ImageState(str, Enum):
     OK = "ok"
     IN_USE = "in_use"         # monté / lancé
-    MODIFIED = "modified"     # différé depuis le scan (à relire)
+    MODIFIED = "modified"     # modifié depuis le scan (à relire)
     HAS_OLD = "has_old"       # .old présent
 
 
@@ -38,6 +38,7 @@ class AutorunKey(BaseModel):
 
 
 class ImageInfo(BaseModel):
+    id: str = ""                   # "<système>/<nom>" : le nom seul n'est pas unique
     path: Path
     name: str
     system: str | None = None      # dossier roms/<système>
@@ -49,7 +50,7 @@ class ImageInfo(BaseModel):
     wine: str | None = None
     proton: str | None = None
     hidraw: bool | None = None
-    xinput: bool = False
+    xinput: bool = False           # vrai si HIDRAW n'est pas à 1 (mode par défaut)
     cmd: str | None = None
     dir: str | None = None
     dxvk: bool = False

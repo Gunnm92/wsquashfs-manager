@@ -30,6 +30,17 @@ wsquashfs-manager/
 └── deploy/              # service systemd / conteneur
 ```
 
+## Accès
+
+Par défaut l'API n'écoute que sur `127.0.0.1:<port>`. Pour l'ouvrir au réseau,
+poser **à la fois** `WSQUASHFS_MGR_HOST=0.0.0.0` et
+`WSQUASHFS_MGR_PASSWORD=…` (jeton à passer dans l'en-tête `x-wsfs-token`) :
+l'application lit et réécrit les images.
+
+Les images sont désignées par leur identifiant `<système>/<nom>`
+(`GET /api/image?id=arcade/gticlub`), deux systèmes pouvant contenir une image
+du même nom.
+
 ## Décisions en attente (SPEC § 7)
 
 1. Web ou bureau — **web** recommandé.
@@ -40,5 +51,6 @@ wsquashfs-manager/
 
 ## Dépendances système
 
-`squashfs-tools` (mksquashfs/unsquashfs), `squashfuse`, `fuse-overlayfs`,
-`wine`, `dos2unix`.
+`squashfs-tools` (mksquashfs/unsquashfs), `squashfuse`, `fuse-overlayfs`.
+Wine n'est pas nécessaire : l'analyse des exécutables et du registre se fait
+en Python, et les fins de ligne de l'autorun sont gérées par l'application.
