@@ -5,63 +5,1261 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>wsquashfs-manager</title>
 <style>
-  :root { color-scheme: dark; }
-  body { font-family: system-ui, sans-serif; margin: 0; background: #14161a; color: #d8dbe0; }
-  header { padding: 1rem 1.5rem; border-bottom: 1px solid #2a2e35; display: flex; gap: 1rem; align-items: center; }
-  h1 { font-size: 1.1rem; margin: 0; }
-  main { padding: 1.5rem; max-width: 1200px; margin: 0 auto; }
-  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-  th, td { text-align: left; padding: 0.5rem 0.7rem; border-bottom: 1px solid #2a2e35; }
-  th { color: #8b919c; font-weight: 500; }
-  tr:hover td { background: #1c1f25; }
-  .badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 4px; font-size: 0.75rem; background: #2a2e35; }
-  .badge.warn { background: #5a4620; }
-  button { background: #2d6cdf; color: white; border: 0; padding: 0.4rem 0.9rem; border-radius: 6px; cursor: pointer; }
-  .muted { color: #8b919c; }
+:root {
+  color-scheme: dark;
+  --bg: #14161a; --panel: #1a1d22; --raised: #22262d; --line: #2c313a;
+  --text: #d8dbe0; --muted: #8b919c; --accent: #3b7cf0; --accent-2: #2d6cdf;
+  --ok: #4caf7d; --warn: #e0bb75; --warn-bg: #4a3b1c; --err: #e57373; --err-bg: #4a2224;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans-serif; }
+button, select, input, textarea { font: inherit; color: inherit; }
+button { border: 0; border-radius: 6px; background: var(--accent-2); padding: .4rem .8rem; cursor: pointer; }
+button:hover { background: var(--accent); }
+button.secondary { background: var(--raised); }
+button.secondary:hover { background: #2d323b; }
+button.danger { background: #8e3b3b; }
+button:disabled { opacity: .5; cursor: default; }
+select, input, textarea { background: var(--raised); border: 1px solid var(--line); border-radius: 6px; padding: .35rem .5rem; }
+textarea { font: 12px/1.5 var(--mono); width: 100%; resize: vertical; }
+h1, h2, h3 { margin: 0; font-weight: 600; }
+h1 { font-size: 1.05rem; } h2 { font-size: 1rem; } h3 { font-size: .9rem; margin: 1rem 0 .4rem; color: var(--muted); }
+.muted { color: var(--muted); }
+.mono { font-family: var(--mono); font-size: 12px; }
+.row { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+.spacer { flex: 1; }
+
+header { display: flex; align-items: center; gap: .8rem; padding: .7rem 1.2rem; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); z-index: 5; }
+main { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; padding: 1rem 1.2rem 14rem; }
+main.with-detail { grid-template-columns: minmax(0, 1fr) 460px; }
+@media (max-width: 1100px) { main.with-detail { grid-template-columns: 1fr; } }
+
+.toolbar { margin-bottom: .7rem; }
+.toolbar input[type=search] { min-width: 14rem; }
+.selection { background: #1d2a40; border: 1px solid #2d4570; border-radius: 6px; padding: .4rem .7rem; margin-bottom: .7rem; }
+
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; }
+th, td { padding: .4rem .5rem; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 500; white-space: nowrap; cursor: pointer; user-select: none; position: sticky; top: 0; background: var(--bg); }
+th.nosort { cursor: default; }
+th .dir { font-size: .7rem; }
+tbody tr { cursor: pointer; }
+tbody tr:hover td { background: var(--panel); }
+tbody tr.current td { background: #1d2a40; }
+td.cmd { max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 12px; }
+td.num { text-align: right; white-space: nowrap; }
+
+.badge { display: inline-block; border-radius: 4px; padding: .05rem .4rem; font-size: .75rem; background: var(--raised); white-space: nowrap; }
+.badge.warn { background: var(--warn-bg); color: var(--warn); }
+.badge.err { background: var(--err-bg); color: var(--err); }
+.badge.ok { background: #1f3a2c; color: var(--ok); }
+.badge.info { background: #1d2a40; color: #8fb4f5; }
+
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 1rem; }
+#detail { position: sticky; top: 3.6rem; align-self: start; max-height: calc(100vh - 5rem); overflow-y: auto; }
+.tabs { display: flex; gap: .2rem; border-bottom: 1px solid var(--line); margin: .8rem 0; }
+.tabs button { background: none; border-radius: 6px 6px 0 0; color: var(--muted); padding: .4rem .7rem; }
+.tabs button.active { color: var(--text); background: var(--raised); }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: .3rem .8rem; margin: 0; }
+dt { color: var(--muted); } dd { margin: 0; overflow-wrap: anywhere; }
+.notice { border-radius: 6px; padding: .6rem .7rem; margin: .6rem 0; }
+.notice.warn { background: var(--warn-bg); color: var(--warn); }
+.notice.err { background: var(--err-bg); color: var(--err); }
+.notice.info { background: #1d2a40; color: #b8cdf5; }
+ul.issues { margin: .4rem 0; padding-left: 1.2rem; color: var(--warn); }
+ul.issues li.error { color: var(--err); }
+
+.form-grid { display: grid; grid-template-columns: max-content 1fr; gap: .35rem .6rem; align-items: center; }
+.form-grid label { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.form-grid label.set { color: var(--text); }
+.form-grid input { width: 100%; font-family: var(--mono); font-size: 12px; }
+.form-grid .help { grid-column: 2; font-size: .75rem; color: var(--muted); margin-top: -.25rem; }
+
+.files { max-height: 50vh; overflow: auto; font: 12px/1.5 var(--mono); white-space: pre; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: .5rem; }
+
+#tasks { position: fixed; left: 0; right: 0; bottom: 0; background: var(--panel); border-top: 1px solid var(--line); z-index: 6; }
+#tasks .head { padding: .5rem 1.2rem; cursor: pointer; }
+#tasks .body { max-height: 32vh; overflow-y: auto; padding: 0 1.2rem .8rem; }
+#tasks.collapsed .body { display: none; }
+.task { border-top: 1px solid var(--line); padding: .45rem 0; }
+.task .log { font: 11px/1.4 var(--mono); color: var(--muted); white-space: pre-wrap; margin: .3rem 0 0; display: none; }
+.task.open .log { display: block; }
+progress { width: 10rem; height: .55rem; accent-color: var(--accent); }
+
+dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 1.2rem; width: min(980px, 95vw); max-height: 90vh; }
+dialog::backdrop { background: rgba(0, 0, 0, .6); }
+dialog.small { width: min(460px, 95vw); }
+.op { display: grid; grid-template-columns: 9rem 11rem 1fr auto; gap: .5rem; margin-bottom: .5rem; align-items: start; }
+.op textarea { min-height: 6rem; }
+.diff { font: 12px/1.45 var(--mono); white-space: pre-wrap; margin: .3rem 0; }
+.diff .add { color: var(--ok); } .diff .del { color: var(--err); text-decoration: line-through; }
+.preview-item { border-top: 1px solid var(--line); padding: .5rem 0; }
+.views { display: flex; gap: .2rem; margin-left: 1rem; }
+.views button { background: none; color: var(--muted); }
+.views button.active { background: var(--raised); color: var(--text); }
+dialog.wide { width: min(1200px, 97vw); }
+.card { border: 1px solid var(--line); border-radius: 8px; padding: .8rem; margin: .7rem 0; background: var(--bg); }
+.card.off { opacity: .55; }
+.card .cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .8rem; margin-top: .5rem; }
+@media (max-width: 900px) { .card .cols { grid-template-columns: 1fr; } }
+.card textarea { min-height: 7rem; }
+.card select { max-width: 100%; }
+.items { font-size: .8rem; margin: .3rem 0; padding-left: 1rem; }
+.items li.default { color: var(--muted); }
+.conf-high { color: var(--ok); } .conf-medium { color: var(--warn); } .conf-low { color: var(--err); }
+pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; border-radius: 6px; max-height: 8rem; overflow: auto; white-space: pre-wrap; }
+.sticky-bottom { position: sticky; bottom: -1.2rem; background: var(--panel); padding: .7rem 0; border-top: 1px solid var(--line); }
 </style>
 </head>
 <body>
 <header>
   <h1>wsquashfs-manager</h1>
+  <div class="views" id="views">
+    <button data-view="images" class="active">Images</button>
+    <button data-view="folders">Dossiers à empaqueter</button>
+  </div>
   <span id="status" class="muted"></span>
-  <button onclick="load(true)">Rescanner</button>
+  <span class="spacer"></span>
+  <button class="secondary" id="btn-config" title="Dossiers roms/ à scanner">Réglages</button>
+  <button class="secondary" id="btn-refresh" title="Relit toutes les images, cache ignoré">Rescanner</button>
 </header>
-<main>
-  <table>
-    <thead>
-      <tr>
-        <th>Nom</th><th>Système</th><th>Taille</th><th>Version</th><th>Type</th>
-        <th>Runner</th><th>Manettes</th><th>Commande</th><th>Extras</th>
-        <th>Sauvegardes</th><th>État</th>
-      </tr>
-    </thead>
-    <tbody id="rows"></tbody>
-  </table>
-</main>
-<script>
-const fmt = (b) => b > 1e9 ? (b/1e9).toFixed(1)+" Go" : b > 1e6 ? (b/1e6).toFixed(0)+" Mo" : (b/1e3).toFixed(0)+" Ko";
 
-async function load(refresh) {
-  const r = await fetch("/api/library" + (refresh ? "?refresh=true" : ""));
-  if (!r.ok) { document.getElementById("status").textContent = "erreur API " + r.status; return; }
-  const items = await r.json();
-  document.getElementById("status").textContent = items.length + " images";
-  const rows = items.map(i => `<tr>
-    <td>${i.name}</td>
-    <td>${i.system ?? ""}</td>
-    <td>${fmt(i.size)}</td>
-    <td>${i.version ?? '<span class="muted">—</span>'}</td>
-    <td><span class="badge">${i.type}</span></td>
-    <td>${i.runner === "default" ? '<span class="muted">défaut</span>' : i.runner + (i.wine ? " " + i.wine : i.proton ? " " + i.proton : "")}</td>
-    <td>${i.hidraw ? "HIDRAW" : i.xinput ? "XInput" : '<span class="muted">—</span>'}</td>
-    <td>${i.cmd ?? '<span class="muted">—</span>'}</td>
-    <td>${(i.extras || []).join(", ") || '<span class="muted">—</span>'}</td>
-    <td>${i.saves_present ? fmt(i.saves_size) : '<span class="muted">—</span>'}</td>
-    <td>${i.state !== "ok" ? `<span class="badge warn">${i.state}</span>` : '<span class="muted">ok</span>'}</td>
-  </tr>`).join("");
-  document.getElementById("rows").innerHTML = rows || '<tr><td colspan="11" class="muted">aucune image — WSQUASHFS_MGR_ROMS_DIRS ?</td></tr>';
+<main id="main">
+  <section>
+    <div class="toolbar row">
+      <input type="search" id="f-search" placeholder="Rechercher un jeu, une commande…">
+      <select id="f-system"></select>
+      <select id="f-type"></select>
+      <select id="f-runner"></select>
+      <select id="f-pad">
+        <option value="">Toutes manettes</option><option value="hidraw">HIDRAW</option><option value="xinput">XInput</option>
+      </select>
+      <select id="f-special">
+        <option value="">Tous états</option><option value="noversion">Sans version</option>
+        <option value="old">Avec .old</option><option value="inuse">En cours</option>
+        <option value="noautorun">Sans autorun</option>
+      </select>
+    </div>
+    <div class="selection row" id="selection" hidden>
+      <span id="sel-count"></span>
+      <button id="btn-mass">Modifier l'autorun…</button>
+      <button id="btn-files">Fichiers / registre…</button>
+      <button class="secondary" id="btn-verify">Vérifier</button>
+      <button class="secondary" id="btn-mass-validate">Valider les .old</button>
+      <button class="secondary" id="btn-saves-reset">Réinitialiser les sauvegardes</button>
+      <button class="secondary" id="btn-sel-clear">Désélectionner</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr id="thead"></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <aside id="detail" class="panel" hidden>
+    <div class="row">
+      <div><h2 id="d-title"></h2><span id="d-id" class="muted mono"></span></div>
+      <span class="spacer"></span>
+      <button class="secondary" id="d-close">Fermer</button>
+    </div>
+    <div id="d-old"></div>
+    <div class="tabs" id="d-tabs">
+      <button data-tab="info" class="active">Infos</button>
+      <button data-tab="autorun">Autorun</button>
+      <button data-tab="files">Fichiers</button>
+      <button data-tab="history">Historique</button>
+    </div>
+    <div data-pane="info">
+      <dl id="d-info"></dl>
+      <div class="row" style="margin-top:.8rem">
+        <button class="secondary" id="d-verify">Vérifier l'intégrité</button>
+        <button class="secondary" id="d-saves-reset">Réinitialiser les sauvegardes</button>
+      </div>
+    </div>
+    <div data-pane="autorun" hidden>
+      <p id="a-note" class="muted"></p>
+      <div class="tabs" id="a-tabs">
+        <button data-atab="form" class="active">Formulaire</button>
+        <button data-atab="raw">Texte brut</button>
+      </div>
+      <div data-apane="form"><div class="form-grid" id="a-form"></div></div>
+      <div data-apane="raw" hidden><textarea id="a-editor" rows="16" spellcheck="false"></textarea></div>
+      <div class="row" style="margin-top:.6rem">
+        <label class="muted">Fins de ligne
+          <select id="a-eol"><option value="crlf">CRLF</option><option value="lf">LF</option></select>
+        </label>
+        <span class="spacer"></span>
+        <button class="secondary" id="a-reset">Annuler</button>
+        <button class="secondary" id="a-check">Vérifier</button>
+        <button id="a-save">Reconstruire</button>
+      </div>
+      <ul class="issues" id="a-issues"></ul>
+      <div id="a-result"></div>
+    </div>
+    <div data-pane="files" hidden>
+      <input type="search" id="files-q" placeholder="Rechercher un fichier (casse ignorée)" style="width:100%">
+      <p class="muted" id="files-count"></p>
+      <div class="files" id="files-list"></div>
+    </div>
+    <div data-pane="history" hidden><div id="d-history"></div></div>
+  </aside>
+</main>
+
+<main id="folders-main" hidden>
+  <section>
+    <p class="muted">Dossiers <code>*.pc</code> et <code>*.wine</code> des dossiers roms/ : analyse, autorun proposé et justifié, puis empaquetage en <code>.wsquashfs</code> (renommage en <code>.wine</code>, vérification) dans la file de tâches.</p>
+    <div class="toolbar row">
+      <input type="search" id="g-search" placeholder="Rechercher un dossier…">
+      <select id="g-system"></select>
+      <select id="g-state">
+        <option value="">Tous</option><option value="todo">À empaqueter</option>
+        <option value="noautorun">Sans autorun</option><option value="done">Déjà empaquetés</option>
+      </select>
+    </div>
+    <div class="selection row" id="g-selection" hidden>
+      <span id="g-count"></span>
+      <button id="g-review">Analyser et empaqueter…</button>
+      <button class="secondary" id="g-delete">Supprimer les dossiers déjà empaquetés</button>
+      <button class="secondary" id="g-clear">Désélectionner</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th class="nosort"><input type="checkbox" id="g-all"></th><th>Système</th><th>Dossier</th><th>Type</th><th>Autorun</th><th>Image</th><th>Tâche</th></tr></thead>
+        <tbody id="g-rows"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<dialog id="dlg-pack" class="wide">
+  <div class="row"><h2>Empaqueter <span id="p-count"></span> dossier(s)</h2><span class="spacer"></span><span id="p-progress" class="muted"></span></div>
+  <p class="muted">Chaque proposition est justifiée et modifiable ; rien n'est écrit dans les dossiers (l'autorun choisi est injecté dans l'image). Les dossiers décochés sont ignorés.</p>
+  <div id="p-cards"></div>
+  <div class="sticky-bottom row">
+    <label><input type="checkbox" id="p-rename" checked> Renommer <code>.pc</code> en <code>.wine</code></label>
+    <label title="Seulement après vérification de l'image"><input type="checkbox" id="p-delete"> Supprimer le dossier après vérification</label>
+    <span class="spacer"></span>
+    <button class="secondary" data-close>Fermer</button>
+    <button id="p-run" disabled>Empaqueter</button>
+  </div>
+  <div id="p-result"></div>
+</dialog>
+
+<section id="tasks" class="collapsed">
+  <div class="head row" id="tasks-head">
+    <strong>Tâches</strong><span id="tasks-summary" class="muted"></span>
+    <span class="spacer"></span>
+    <button class="secondary" id="tasks-clear">Effacer l'historique</button>
+  </div>
+  <div class="body" id="tasks-list"></div>
+</section>
+
+<dialog id="dlg-login" class="small">
+  <form method="dialog" id="login-form">
+    <h2>Connexion</h2>
+    <p class="muted">L'application réécrit les images : un mot de passe est requis.</p>
+    <input type="password" id="login-pw" autocomplete="current-password" style="width:100%" required>
+    <p id="login-err" class="notice err" hidden></p>
+    <div class="row" style="margin-top:.8rem"><span class="spacer"></span><button>Se connecter</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-config" class="small">
+  <h2>Dossiers roms/ à scanner</h2>
+  <p class="muted">Un chemin par ligne (ex. /userdata/roms). Une variable d'environnement WSQUASHFS_MGR_ROMS_DIRS reste prioritaire.</p>
+  <textarea id="cfg-dirs" rows="5"></textarea>
+  <dl id="cfg-info" style="margin-top:.8rem"></dl>
+  <p id="cfg-err" class="notice err" hidden></p>
+  <div class="row" style="margin-top:.8rem"><span class="spacer"></span>
+    <button class="secondary" data-close>Fermer</button><button id="cfg-save">Enregistrer</button></div>
+</dialog>
+
+<dialog id="dlg-mass">
+  <h2>Modifier l'autorun de <span id="m-count"></span> image(s)</h2>
+  <p class="muted">Les opérations s'appliquent dans l'ordre, à l'autorun tel qu'il sera au moment de la reconstruction. Variables : <code>{name}</code> (nom de l'image), <code>{system}</code>.</p>
+  <div id="m-ops"></div>
+  <div class="row">
+    <button class="secondary" id="m-add">+ Opération</button>
+    <span class="spacer"></span>
+    <button class="secondary" data-close>Fermer</button>
+    <button class="secondary" id="m-preview">Aperçu</button>
+    <button id="m-run" disabled>Lancer</button>
+  </div>
+  <div id="m-result"></div>
+</dialog>
+
+<dialog id="dlg-files">
+  <h2>Fichiers et registre de <span id="f-count"></span> image(s)</h2>
+  <p class="muted">Sources : chemins de fichiers <strong>sur le serveur</strong>. Variables : <code>{exe_dir}</code> et <code>{exe_name}</code> (exécutable de CMD, casse de l'image), <code>{name}</code>, <code>{system}</code>.
+    Une valeur de registre est aussi posée dans la couche de sauvegardes du jeu si elle contient le fichier (Wine le réécrit à chaque partie).</p>
+  <div class="row" style="margin-bottom:.6rem">
+    <button class="secondary" id="f-preset-fakeping" title="dinput8.dll à côté de l'exécutable + DllOverrides propre à l'exécutable">Préréglage : relais fakeping</button>
+  </div>
+  <div id="f-ops"></div>
+  <div class="row">
+    <button class="secondary" data-add="copy">+ Ajouter un fichier</button>
+    <button class="secondary" data-add="delete">+ Supprimer</button>
+    <button class="secondary" data-add="reg">+ Valeur de registre</button>
+    <span class="spacer"></span>
+    <button class="secondary" data-close>Fermer</button>
+    <button class="secondary" id="f-preview">Aperçu</button>
+    <button id="f-run" disabled>Lancer</button>
+  </div>
+  <div id="f-result"></div>
+</dialog>
+
+<datalist id="known-keys"></datalist>
+
+<script>
+"use strict";
+
+// ------------------------------------------------------------------ état
+
+const state = {
+  items: [], byId: new Map(), selected: new Set(), current: null,
+  sort: { key: "name", dir: 1 }, keys: [], tasks: [],
+  autorun: null,          // dernière lecture de l'autorun de la fiche
+};
+const $ = (id) => document.getElementById(id);
+const el = (tag, props = {}, ...children) => {
+  const node = Object.assign(document.createElement(tag), props);
+  node.append(...children.filter((c) => c !== null && c !== undefined && c !== false));
+  return node;
+};
+const badge = (text, kind = "") => el("span", { className: `badge ${kind}`, textContent: text });
+const size = (n) => n >= 1e9 ? `${(n / 1e9).toFixed(1)} Go` : n >= 1e6 ? `${(n / 1e6).toFixed(0)} Mo`
+  : n >= 1e3 ? `${(n / 1e3).toFixed(0)} Ko` : `${n} o`;
+const when = (t) => t ? new Date(t * 1000).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "";
+const storage = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { v === null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch { /* navigation privée */ } },
+};
+
+// ------------------------------------------------------------------ API
+
+let loginWaiters = null;
+
+async function api(path, { method = "GET", body } = {}) {
+  const headers = { "x-wsfs-token": storage.get("wsfs-token") || "" };
+  if (body !== undefined) headers["content-type"] = "application/json";
+  const response = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  if (response.status === 401 && path !== "/login") {
+    await askLogin();
+    return api(path, { method, body });
+  }
+  const data = await response.json().catch(() => ({}));
+  if (response.status === 404 && data.detail === "Not Found") {
+    // Route inconnue (pas une image inconnue) : le serveur sert une ancienne
+    // version de l'API alors que la page, elle, est à jour.
+    throw new Error("API introuvable : le serveur tourne sur une ancienne version, le redémarrer.");
+  }
+  if (!response.ok) {
+    const detail = Array.isArray(data.detail) ? data.detail.map((d) => d.msg).join(" ; ") : data.detail;
+    throw new Error(detail || `erreur ${response.status}`);
+  }
+  return data;
 }
-load(false);
+
+function askLogin() {
+  if (!loginWaiters) {
+    loginWaiters = [];
+    $("login-err").hidden = true;
+    $("dlg-login").showModal();
+  }
+  return new Promise((resolve) => loginWaiters.push(resolve));
+}
+
+$("login-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    const { token } = await api("/login", { method: "POST", body: { password: $("login-pw").value } });
+    storage.set("wsfs-token", token);
+    $("dlg-login").close();
+    const waiters = loginWaiters || [];
+    loginWaiters = null;
+    waiters.forEach((resolve) => resolve());
+  } catch (error) {
+    $("login-err").textContent = error.message;
+    $("login-err").hidden = false;
+  }
+});
+$("dlg-login").addEventListener("cancel", (event) => event.preventDefault());
+
+// ------------------------------------------------------------------ bibliothèque
+
+const TYPES = { wine_batocera: "prefix Wine", wine_proton: "prefix Proton", wine_other: "autre prefix",
+  game_only: "jeu seul", unknown: "inconnu" };
+const STATES = { ok: ["ok", "ok"], in_use: ["en cours", "err"], modified: ["tâche", "info"], has_old: [".old", "warn"] };
+
+const COLUMNS = [
+  { key: "select", label: "", nosort: true },
+  { key: "name", label: "Nom" },
+  { key: "system", label: "Système" },
+  { key: "size", label: "Taille", num: true },
+  { key: "version", label: "Version" },
+  { key: "type", label: "Type" },
+  { key: "runner", label: "Runner", value: (i) => runnerLabel(i) },
+  { key: "pad", label: "Manettes", value: (i) => i.hidraw ? "HIDRAW" : "XInput" },
+  { key: "cmd", label: "Commande" },
+  { key: "extras", label: "Extras", value: (i) => (i.extras || []).join(", ") },
+  { key: "saves_size", label: "Sauvegardes", num: true },
+  { key: "state", label: "État" },
+];
+
+const runnerLabel = (i) => i.runner === "default" ? "défaut" : [i.runner, i.wine || i.proton || ""].join(" ").trim();
+
+async function loadLibrary(refresh = false) {
+  $("status").textContent = refresh ? "scan en cours…" : "chargement…";
+  try {
+    state.items = await api(`/api/library${refresh ? "?refresh=true" : ""}`);
+  } catch (error) {
+    $("status").textContent = `erreur : ${error.message}`;
+    return;
+  }
+  state.byId = new Map(state.items.map((i) => [i.id, i]));
+  for (const id of [...state.selected]) if (!state.byId.has(id)) state.selected.delete(id);
+  fillFilter("f-system", "Tous systèmes", state.items.map((i) => i.system).filter(Boolean));
+  fillFilter("f-type", "Tous types", state.items.map((i) => i.type), TYPES);
+  fillFilter("f-runner", "Tous runners", state.items.map(runnerLabel));
+  $("status").textContent = `${state.items.length} images`;
+  renderTable();
+  if (state.current && state.byId.has(state.current.id)) {
+    state.current = state.byId.get(state.current.id);
+    renderDetailHeader();
+  }
+}
+
+function fillFilter(id, label, values, names = {}) {
+  const node = $(id), keep = node.value;
+  node.replaceChildren(new Option(label, ""), ...[...new Set(values)].sort().map((v) => new Option(names[v] || v, v)));
+  node.value = keep;
+}
+
+function filtered() {
+  const q = $("f-search").value.trim().toLowerCase();
+  const system = $("f-system").value, type = $("f-type").value, runner = $("f-runner").value;
+  const pad = $("f-pad").value, special = $("f-special").value;
+  return state.items.filter((i) =>
+    (!q || [i.name, i.cmd, i.dir, i.version].some((v) => v && v.toLowerCase().includes(q)))
+    && (!system || i.system === system) && (!type || i.type === type) && (!runner || runnerLabel(i) === runner)
+    && (!pad || (pad === "hidraw") === (i.hidraw === true))
+    && (special !== "noversion" || !i.version) && (special !== "old" || i.has_old)
+    && (special !== "inuse" || i.state === "in_use") && (special !== "noautorun" || !i.cmd));
+}
+
+function sorted(items) {
+  const col = COLUMNS.find((c) => c.key === state.sort.key);
+  const value = col.value || ((i) => i[col.key]);
+  return [...items].sort((a, b) => {
+    const x = value(a) ?? "", y = value(b) ?? "";
+    const cmp = typeof x === "number" && typeof y === "number" ? x - y
+      : String(x).localeCompare(String(y), "fr", { numeric: true, sensitivity: "base" });
+    return cmp * state.sort.dir;
+  });
+}
+
+function renderTable() {
+  const visible = sorted(filtered());
+  const allSelected = visible.length > 0 && visible.every((i) => state.selected.has(i.id));
+  $("thead").replaceChildren(...COLUMNS.map((col) => {
+    if (col.key === "select") {
+      const box = el("input", { type: "checkbox", checked: allSelected, title: "Tout sélectionner (filtre actuel)" });
+      box.onchange = () => { visible.forEach((i) => box.checked ? state.selected.add(i.id) : state.selected.delete(i.id)); renderTable(); };
+      return el("th", { className: "nosort" }, box);
+    }
+    const th = el("th", { textContent: col.label },
+      state.sort.key === col.key ? el("span", { className: "dir", textContent: state.sort.dir > 0 ? " ▲" : " ▼" }) : null);
+    th.onclick = () => { state.sort = { key: col.key, dir: state.sort.key === col.key ? -state.sort.dir : 1 }; renderTable(); };
+    return th;
+  }));
+
+  const rows = visible.map((i) => {
+    const box = el("input", { type: "checkbox", checked: state.selected.has(i.id) });
+    box.onclick = (event) => event.stopPropagation();
+    box.onchange = () => { box.checked ? state.selected.add(i.id) : state.selected.delete(i.id); renderSelection(); };
+    const [stateLabel, stateKind] = STATES[i.state] || [i.state, ""];
+    const row = el("tr", { className: state.current?.id === i.id ? "current" : "" },
+      el("td", {}, box),
+      el("td", { textContent: i.name }),
+      el("td", { textContent: i.system || "—" }),
+      el("td", { className: "num", textContent: size(i.size) }),
+      el("td", {}, i.version ? i.version : badge("—")),
+      el("td", { textContent: TYPES[i.type] || i.type }),
+      el("td", {}, i.runner === "default" ? el("span", { className: "muted", textContent: "défaut" }) : runnerLabel(i)),
+      el("td", {}, i.hidraw ? badge("HIDRAW", "info") : el("span", { className: "muted", textContent: "XInput" })),
+      el("td", { className: "cmd", textContent: i.cmd || "—", title: i.cmd || "" }),
+      el("td", {}, ...(i.extras || []).map((e) => badge(e))),
+      el("td", { className: "num" }, i.saves_present ? size(i.saves_size) : el("span", { className: "muted", textContent: "—" })),
+      el("td", {}, badge(stateLabel, stateKind)));
+    row.onclick = () => openDetail(i.id);
+    return row;
+  });
+  if (!rows.length) {
+    const hint = state.items.length ? "aucune image pour ces filtres" : "aucune image — configurer les dossiers roms/ (bouton « Réglages »)";
+    rows.push(el("tr", {}, el("td", { colSpan: COLUMNS.length, className: "muted", textContent: hint })));
+  }
+  $("rows").replaceChildren(...rows);
+  renderSelection();
+}
+
+function renderSelection() {
+  const n = state.selected.size;
+  $("selection").hidden = n === 0;
+  $("sel-count").textContent = `${n} image(s) sélectionnée(s)`;
+}
+
+for (const id of ["f-search", "f-system", "f-type", "f-runner", "f-pad", "f-special"]) $(id).addEventListener("input", renderTable);
+$("btn-refresh").onclick = () => loadLibrary(true);
+$("btn-sel-clear").onclick = () => { state.selected.clear(); renderTable(); };
+
+// ------------------------------------------------------------------ fiche
+
+async function openDetail(id) {
+  state.current = state.byId.get(id);
+  $("main").classList.add("with-detail");
+  $("detail").hidden = false;
+  renderTable();
+  renderDetailHeader();
+  showTab("info");
+  await loadAutorun();
+}
+
+function renderDetailHeader() {
+  const i = state.current;
+  $("d-title").textContent = i.name;
+  $("d-id").textContent = i.id;
+  const info = [
+    ["Fichier", i.path], ["Taille", size(i.size)], ["Modifiée", when(i.mtime)],
+    ["Version", i.version || "non renseignée"], ["Type", TYPES[i.type] || i.type],
+    ["Runner", runnerLabel(i)], ["Manettes", i.hidraw ? "HIDRAW" : "XInput"],
+    ["Dossier", i.dir || "—"], ["Commande", i.cmd || "—"],
+    ["DXVK / VKD3D", `${i.dxvk ? "oui" : "non"} / ${i.vkd3d ? "oui" : "non"}`],
+    ["Extras", (i.extras || []).join(", ") || "—"],
+    ["Sauvegardes", i.saves_present ? size(i.saves_size) : "aucune"],
+  ];
+  $("d-info").replaceChildren(...info.flatMap(([k, v]) => [el("dt", { textContent: k }), el("dd", { textContent: v })]));
+  $("d-saves-reset").disabled = !i.saves_present;
+
+  const old = $("d-old");
+  old.replaceChildren();
+  if (i.state === "in_use") old.append(el("div", { className: "notice err", textContent: "Jeu en cours : aucune reconstruction possible." }));
+  if (i.has_old) {
+    const keep = el("button", { textContent: "Valider (supprimer l'ancienne)" });
+    const back = el("button", { className: "secondary", textContent: "Revenir à l'ancienne" });
+    keep.onclick = () => oldAction("validate", "Supprimer définitivement l'ancienne image (.old) ?");
+    back.onclick = () => oldAction("restore", "Remplacer l'image actuelle par l'ancienne (.old) ? La reconstruction sera perdue.");
+    old.append(el("div", { className: "notice warn" },
+      el("div", { textContent: "Une ancienne version (.old) est conservée : vérifier le jeu, puis valider ou revenir en arrière." }),
+      el("div", { className: "row", style: "margin-top:.5rem" }, keep, back)));
+  }
+}
+
+async function oldAction(action, question) {
+  if (!confirm(question)) return;
+  try {
+    await api(`/api/image/old/${action}?id=${encodeURIComponent(state.current.id)}`, { method: "POST" });
+    await loadLibrary();
+    await loadAutorun();
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+function showTab(name) {
+  for (const b of $("d-tabs").children) b.classList.toggle("active", b.dataset.tab === name);
+  for (const pane of document.querySelectorAll("[data-pane]")) pane.hidden = pane.dataset.pane !== name;
+  if (name === "files") loadFiles();
+  if (name === "history") renderHistory();
+}
+$("d-tabs").onclick = (event) => event.target.dataset.tab && showTab(event.target.dataset.tab);
+$("d-close").onclick = () => { $("detail").hidden = true; $("main").classList.remove("with-detail"); state.current = null; renderTable(); };
+
+// ------------------------------------------------------------------ autorun : texte ⇄ formulaire
+// Mêmes règles que le serveur (services/autorun.py) : clé en début de ligne,
+// première occurrence retenue ; une clé modifiée garde sa place, une clé
+// ajoutée va en fin de fichier ; vider un champ retire la clé.
+
+const KEY_RE = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/;
+
+function editorLines() {
+  const raw = $("a-editor").value.replace(/\r\n/g, "\n");
+  const trailing = raw.endsWith("\n");
+  const content = trailing ? raw.slice(0, -1) : raw;
+  return { lines: content ? content.split("\n") : [], trailing };
+}
+
+function setEditorLines(lines, trailing) {
+  $("a-editor").value = lines.join("\n") + (trailing && lines.length ? "\n" : "");
+}
+
+function getKey(lines, key) {
+  for (const line of lines) {
+    const m = KEY_RE.exec(line);
+    if (m && m[1] === key) return m[2];
+  }
+  return null;
+}
+
+function setKey(key, value) {
+  let { lines, trailing } = editorLines();
+  const index = lines.findIndex((line) => KEY_RE.exec(line)?.[1] === key);
+  if (value === "") {
+    lines = lines.filter((line) => KEY_RE.exec(line)?.[1] !== key);
+  } else if (index >= 0) {
+    lines[index] = `${key}=${value}`;
+  } else {
+    lines.push(`${key}=${value}`);
+    if (lines.length === 1) trailing = true;
+  }
+  setEditorLines(lines, trailing);
+  syncForm();
+}
+
+function buildForm() {
+  const grid = $("a-form");
+  grid.replaceChildren();
+  for (const { key, help, values } of state.keys) {
+    const input = el("input", { id: `k-${key}`, placeholder: "—", autocomplete: "off" });
+    if (values.length) {
+      const list = el("datalist", { id: `v-${key}` }, ...values.map((v) => new Option(v, v)));
+      grid.append(list);
+      input.setAttribute("list", list.id);
+    }
+    input.addEventListener("change", () => setKey(key, input.value.trim()));
+    grid.append(el("label", { htmlFor: input.id, textContent: key, title: help }), input,
+      el("div", { className: "help", textContent: help }));
+  }
+}
+
+function syncForm() {
+  const { lines } = editorLines();
+  for (const { key } of state.keys) {
+    const value = getKey(lines, key);
+    const input = $(`k-${key}`);
+    if (document.activeElement !== input) input.value = value ?? "";
+    input.previousElementSibling.classList.toggle("set", value !== null);
+  }
+  const unknown = [...new Set(lines.map((l) => KEY_RE.exec(l)?.[1]).filter((k) => k && !state.keys.some((x) => x.key === k)))];
+  $("a-note").textContent = unknown.length
+    ? `Clés non reconnues (conservées, ignorées par Batocera) : ${unknown.join(", ")}`
+    : (state.autorun?.found ? "Modifier le formulaire ou le texte brut, vérifier, puis reconstruire." : "Pas d'autorun dans l'image : il sera créé.");
+}
+
+$("a-editor").addEventListener("input", syncForm);
+$("a-tabs").onclick = (event) => {
+  const tab = event.target.dataset.atab;
+  if (!tab) return;
+  for (const b of $("a-tabs").children) b.classList.toggle("active", b.dataset.atab === tab);
+  for (const pane of document.querySelectorAll("[data-apane]")) pane.hidden = pane.dataset.apane !== tab;
+};
+
+async function loadAutorun() {
+  const id = state.current.id;
+  $("a-issues").replaceChildren();
+  $("a-result").replaceChildren();
+  try {
+    const data = await api(`/api/image/autorun?id=${encodeURIComponent(id)}`);
+    if (state.current?.id !== id) return;
+    state.autorun = data;
+    $("a-editor").value = data.text.replace(/\r\n/g, "\n");
+    $("a-eol").value = data.eol === "\n" ? "lf" : "crlf";
+  } catch (error) {
+    state.autorun = null;
+    $("a-editor").value = "";
+    $("a-result").append(el("div", { className: "notice err", textContent: `Lecture impossible : ${error.message}` }));
+  }
+  syncForm();
+}
+
+function autorunBody() {
+  const { lines, trailing } = editorLines();
+  return {
+    lines, trailing_eol: trailing || !state.autorun?.found,
+    eol: $("a-eol").value === "crlf" ? "\r\n" : "\n",
+    encoding: state.autorun?.encoding || "utf-8",
+    base_sha: state.autorun?.sha ?? null,
+  };
+}
+
+function showIssues(list) {
+  $("a-issues").replaceChildren(...list.map((x) => el("li", { className: x.level, textContent: x.message })));
+}
+
+$("a-reset").onclick = loadAutorun;
+$("a-check").onclick = async () => {
+  try {
+    const data = await api(`/api/image/autorun/preview?id=${encodeURIComponent(state.current.id)}`, { method: "POST", body: autorunBody() });
+    showIssues(data.issues);
+    $("a-result").replaceChildren(el("div", { className: "notice info",
+      textContent: !data.changed ? "Aucun changement." : data.issues.length ? "Avertissements ci-dessus (non bloquants)." : "Aucun problème détecté." }));
+  } catch (error) {
+    $("a-result").replaceChildren(el("div", { className: "notice err", textContent: error.message }));
+  }
+};
+$("a-save").onclick = async () => {
+  if (!confirm("Reconstruire l'image avec cet autorun ? L'original sera conservé en .old jusqu'à validation.")) return;
+  try {
+    const data = await api(`/api/image/autorun?id=${encodeURIComponent(state.current.id)}`, { method: "POST", body: autorunBody() });
+    showIssues(data.issues);
+    $("a-result").replaceChildren(el("div", { className: "notice info", textContent: "Reconstruction ajoutée à la file de tâches." }));
+    openTasks();
+    refreshTasks();
+  } catch (error) {
+    $("a-result").replaceChildren(el("div", { className: "notice err", textContent: error.message }));
+  }
+};
+
+// ------------------------------------------------------------------ fichiers, historique
+
+let filesTimer = null;
+async function loadFiles() {
+  const id = state.current.id, q = $("files-q").value.trim();
+  $("files-count").textContent = "lecture…";
+  try {
+    const data = await api(`/api/image/files?id=${encodeURIComponent(id)}&q=${encodeURIComponent(q)}`);
+    if (state.current?.id !== id) return;
+    $("files-count").textContent = q ? `${data.matches} sur ${data.total} entrées` : `${data.total} entrées`;
+    $("files-list").textContent = data.files.join("\n") + (data.matches > data.files.length ? `\n… (${data.matches - data.files.length} de plus)` : "");
+  } catch (error) {
+    $("files-count").textContent = error.message;
+  }
+}
+$("files-q").addEventListener("input", () => { clearTimeout(filesTimer); filesTimer = setTimeout(loadFiles, 250); });
+
+function renderHistory() {
+  if (!state.current) return;
+  const tasks = state.tasks.filter((t) => t.image === state.current.id);
+  $("d-history").replaceChildren(...(tasks.length ? tasks.map(taskNode) : [el("p", { className: "muted", textContent: "Aucune opération enregistrée." })]));
+}
+
+// ------------------------------------------------------------------ tâches
+
+const TASK_STATES = { pending: ["en attente", "info"], running: ["en cours", "warn"], done: ["terminée", "ok"],
+  failed: ["échec", "err"], cancelled: ["annulée", ""] };
+
+function taskNode(t) {
+  const [label, kind] = TASK_STATES[t.status];
+  const node = el("div", { className: "task" });
+  const head = el("div", { className: "row" },
+    badge(label, kind),
+    el("strong", { textContent: t.image || t.kind }),
+    el("span", { className: "muted", textContent: t.title }),
+    t.status === "running" ? el("progress", { value: t.progress, max: 1 }) : null,
+    t.status === "running" ? el("span", { className: "muted", textContent: `${t.phase} ${Math.round(t.progress * 100)} %` }) : null,
+    t.error ? el("span", { className: "muted", style: "color:var(--err)", textContent: t.error }) : null,
+    el("span", { className: "spacer" }),
+    el("span", { className: "muted", textContent: when(t.created_at) }));
+  if (t.status === "pending" || t.status === "running") {
+    const cancel = el("button", { className: "secondary", textContent: "Annuler" });
+    cancel.onclick = async (event) => {
+      event.stopPropagation();
+      try { await api(`/api/tasks/${t.id}/cancel`, { method: "POST" }); } catch (error) { alert(error.message); }
+      refreshTasks();
+    };
+    head.append(cancel);
+  }
+  head.onclick = () => node.classList.toggle("open");
+  node.append(head, el("pre", { className: "log", textContent: t.log.join("\n") }));
+  return node;
+}
+
+let tasksTimer = null;
+let activeBefore = new Set();
+async function refreshTasks() {
+  clearTimeout(tasksTimer);
+  try {
+    state.tasks = await api("/api/tasks");
+  } catch {
+    tasksTimer = setTimeout(refreshTasks, 10000);
+    return;
+  }
+  const active = state.tasks.filter((t) => t.status === "pending" || t.status === "running");
+  const opened = new Set([...document.querySelectorAll("#tasks-list .task.open")].map((n) => n.dataset.id));
+  $("tasks-list").replaceChildren(...state.tasks.slice(0, 100).map((t) => {
+    const node = taskNode(t);
+    node.dataset.id = t.id;
+    if (opened.has(t.id)) node.classList.add("open");
+    return node;
+  }));
+  const failed = state.tasks.filter((t) => t.status === "failed").length;
+  $("tasks-summary").textContent = active.length ? `${active.length} active(s)` : state.tasks.length ? "aucune active" : "";
+  if (failed) $("tasks-summary").textContent += ` · ${failed} en échec`;
+  // Une tâche vient de se terminer : l'image a changé
+  const nowActive = new Set(active.map((t) => t.id));
+  if ([...activeBefore].some((id) => !nowActive.has(id))) {
+    await loadLibrary();
+    if (state.current) await loadAutorun();
+    if (!$("folders-main").hidden) loadFolders();
+  }
+  activeBefore = nowActive;
+  if (state.current && !$("detail").hidden) renderHistory();
+  tasksTimer = setTimeout(refreshTasks, active.length ? 1500 : 10000);
+}
+const openTasks = () => $("tasks").classList.remove("collapsed");
+$("tasks-head").onclick = (event) => { if (event.target.tagName !== "BUTTON") $("tasks").classList.toggle("collapsed"); };
+$("tasks-clear").onclick = async () => { await api("/api/tasks/finished", { method: "DELETE" }); refreshTasks(); };
+
+// ------------------------------------------------------------------ dossiers
+
+$("btn-config").onclick = async () => {
+  const cfg = await api("/api/config");
+  $("cfg-dirs").value = cfg.roms_dirs.join("\n");
+  $("cfg-info").replaceChildren(...[
+    ["Sauvegardes", cfg.saves_dir], ["Temporaire", cfg.tmp_dir], ["Reconstruction", cfg.rebuild_mode],
+    ["Rétention .old", cfg.old_retention_days == null ? "manuelle" : `${cfg.old_retention_days} jours`],
+  ].flatMap(([k, v]) => [el("dt", { textContent: k }), el("dd", { textContent: v })]));
+  $("cfg-err").hidden = true;
+  $("dlg-config").showModal();
+};
+$("cfg-save").onclick = async () => {
+  try {
+    await api("/api/config/roms_dirs", { method: "PUT", body: { roms_dirs: $("cfg-dirs").value.split("\n") } });
+    $("dlg-config").close();
+    loadLibrary();
+  } catch (error) {
+    $("cfg-err").textContent = error.message;
+    $("cfg-err").hidden = false;
+  }
+};
+for (const button of document.querySelectorAll("[data-close]")) button.onclick = () => button.closest("dialog").close();
+
+// ------------------------------------------------------------------ actions en masse
+
+function opRow(op = { op: "set", key: "", value: "" }) {
+  const kind = el("select", {}, new Option("Poser / modifier", "set"), new Option("Retirer", "remove"), new Option("Remplacer tout", "replace"));
+  const key = el("input", { placeholder: "CLÉ", value: op.key || "" });
+  key.setAttribute("list", "known-keys");
+  const value = el("input", { placeholder: "valeur", value: op.value || "" });
+  const template = el("textarea", { placeholder: "CMD=…\nDIR=…\nGAME_VERSION=…", value: op.template || "" });
+  const remove = el("button", { className: "secondary", textContent: "✕", title: "Retirer l'opération" });
+  const row = el("div", { className: "op" }, kind, key, value, remove);
+  const update = () => {
+    const replace = kind.value === "replace";
+    key.hidden = replace;
+    value.hidden = replace;
+    value.style.visibility = kind.value === "remove" ? "hidden" : "";   // garde la grille alignée
+    if (replace && !template.isConnected) row.insertBefore(template, remove);
+    if (!replace) template.remove();
+    if (replace) row.style.gridTemplateColumns = "9rem 1fr auto";
+    else row.style.gridTemplateColumns = "";
+    $("m-run").disabled = true;
+  };
+  kind.value = op.op;
+  kind.onchange = update;
+  for (const input of [key, value, template]) input.addEventListener("input", () => { $("m-run").disabled = true; });
+  remove.onclick = () => { row.remove(); $("m-run").disabled = true; };
+  row.read = () => kind.value === "replace" ? { op: "replace", template: template.value }
+    : kind.value === "remove" ? { op: "remove", key: key.value.trim() }
+    : { op: "set", key: key.value.trim(), value: value.value };
+  update();
+  return row;
+}
+
+const massBody = () => ({ ids: [...state.selected], ops: [...$("m-ops").children].map((row) => row.read()) });
+
+$("btn-mass").onclick = () => {
+  $("m-count").textContent = state.selected.size;
+  if (!$("m-ops").children.length) $("m-ops").append(opRow());
+  $("m-result").replaceChildren();
+  $("m-run").disabled = true;
+  $("dlg-mass").showModal();
+};
+$("m-add").onclick = () => $("m-ops").append(opRow());
+
+function lineDiff(before, after) {
+  const a = (before || "").replace(/\r\n/g, "\n").split("\n").filter(Boolean);
+  const b = after.replace(/\r\n/g, "\n").split("\n").filter(Boolean);
+  const out = el("div", { className: "diff" });
+  for (const line of a) if (!b.includes(line)) out.append(el("div", { className: "del", textContent: `- ${line}` }));
+  for (const line of b) if (!a.includes(line)) out.append(el("div", { className: "add", textContent: `+ ${line}` }));
+  return out;
+}
+
+$("m-preview").onclick = async () => {
+  $("m-result").replaceChildren(el("p", { className: "muted", textContent: "Calcul de l'aperçu…" }));
+  try {
+    const data = await api("/api/mass/autorun/preview", { method: "POST", body: massBody() });
+    const items = data.items.map((item) => {
+      const head = el("div", { className: "row" }, el("strong", { textContent: item.name || item.id }));
+      if (item.error) head.append(badge(item.error, "err"));
+      else if (!item.changed) head.append(badge("inchangé"));
+      else if (item.blocked) head.append(badge(item.blocked, "warn"));
+      else head.append(badge("à reconstruire", "ok"));
+      const node = el("div", { className: "preview-item" }, head);
+      if (item.changed) node.append(lineDiff(item.before, item.after));
+      if (item.issues?.length) node.append(el("ul", { className: "issues" }, ...item.issues.map((x) => el("li", { textContent: x.message }))));
+      return node;
+    });
+    const space = data.space.map((s) => el("div", { className: `notice ${s.needed > s.free ? "err" : "info"}`,
+      textContent: `${s.path} : ${size(s.needed)} nécessaires (anciennes images gardées en .old), ${size(s.free)} libres` }));
+    $("m-result").replaceChildren(el("h3", { textContent: `${data.ready} image(s) à reconstruire` }), ...space, ...items);
+    $("m-run").disabled = data.ready === 0;
+    $("m-run").textContent = `Lancer ${data.ready} reconstruction(s)`;
+  } catch (error) {
+    $("m-result").replaceChildren(el("div", { className: "notice err", textContent: error.message }));
+  }
+};
+
+$("m-run").onclick = async () => {
+  try {
+    const data = await api("/api/mass/autorun", { method: "POST", body: massBody() });
+    const skipped = data.skipped.map((s) => el("li", { textContent: `${s.id} : ${s.reason}` }));
+    $("m-result").replaceChildren(el("div", { className: "notice info", textContent: `${data.tasks.length} tâche(s) créée(s).` }),
+      ...(skipped.length ? [el("ul", { className: "issues" }, ...skipped)] : []));
+    $("m-run").disabled = true;
+    openTasks();
+    refreshTasks();
+  } catch (error) {
+    $("m-result").replaceChildren(el("div", { className: "notice err", textContent: error.message }));
+  }
+};
+
+$("btn-mass-validate").onclick = async () => {
+  const ids = [...state.selected].filter((id) => state.byId.get(id)?.has_old);
+  if (!ids.length) { alert("Aucune image sélectionnée n'a de .old."); return; }
+  if (!confirm(`Supprimer définitivement l'ancienne version de ${ids.length} image(s) ?`)) return;
+  const data = await api("/api/mass/old/validate", { method: "POST", body: { ids } });
+  if (data.skipped.length) alert(data.skipped.map((s) => `${s.id} : ${s.reason}`).join("\n"));
+  loadLibrary();
+};
+
+// ------------------------------------------------------------------ fichiers et registre en masse
+
+function fileOpRow(kind, values = {}) {
+  const input = (placeholder, value = "", style = "") => el("input", { placeholder, value, style });
+  const remove = el("button", { className: "secondary", textContent: "✕", title: "Retirer l'opération" });
+  let row, read;
+  if (kind === "copy") {
+    const dest = input("destination dans l'image, ex. {exe_dir}/dinput8.dll", values.dest);
+    const source = input("fichier source sur le serveur, ex. /config/tools/dinput8.dll", values.source);
+    row = el("div", { className: "op", style: "grid-template-columns:9rem 1fr 1fr auto" },
+      el("div", {}, badge("ajouter", "ok")), dest, source, remove);
+    read = () => ({ copy: { dest: dest.value.trim(), source: source.value.trim() } });
+  } else if (kind === "delete") {
+    const path = input("chemin dans l'image", values.path);
+    row = el("div", { className: "op", style: "grid-template-columns:9rem 1fr auto" }, el("div", {}, badge("supprimer", "err")), path, remove);
+    read = () => ({ delete: path.value.trim() });
+  } else {
+    const file = el("select", {}, new Option("user.reg", "user.reg"), new Option("system.reg", "system.reg"));
+    file.value = values.file || "user.reg";
+    const key = input("clé, ex. Software\\Wine\\DllOverrides", values.key);
+    const name = input("nom", values.name, "max-width:9rem");
+    const value = input("valeur", values.value, "max-width:11rem");
+    row = el("div", { className: "op", style: "grid-template-columns:9rem 1fr auto auto auto" },
+      file, key, name, value, remove);
+    read = () => ({ reg: { file: file.value, key: key.value.trim(), name: name.value.trim(), value: value.value } });
+  }
+  remove.onclick = () => { row.remove(); $("f-run").disabled = true; };
+  row.addEventListener("input", () => { $("f-run").disabled = true; });
+  row.read = read;
+  return row;
+}
+
+function filesBody() {
+  const body = { ids: [...state.selected], copy: [], delete: [], reg: [] };
+  for (const row of $("f-ops").children) {
+    const [kind, value] = Object.entries(row.read())[0];
+    body[kind].push(value);
+  }
+  return body;
+}
+
+$("btn-files").onclick = () => {
+  $("f-count").textContent = state.selected.size;
+  $("f-result").replaceChildren();
+  $("f-run").disabled = true;
+  $("dlg-files").showModal();
+};
+for (const button of document.querySelectorAll("[data-add]")) {
+  button.onclick = () => { $("f-ops").append(fileOpRow(button.dataset.add)); $("f-run").disabled = true; };
+}
+$("f-preset-fakeping").onclick = () => {
+  const source = prompt("Chemin de dinput8.dll (relais fakeping compilé) sur le serveur :", storage.get("wsfs-fakeping") || "");
+  if (source === null) return;
+  storage.set("wsfs-fakeping", source.trim());
+  $("f-ops").replaceChildren(
+    fileOpRow("copy", { dest: "{exe_dir}/dinput8.dll", source: source.trim() }),
+    fileOpRow("reg", { file: "user.reg", key: "Software\\Wine\\AppDefaults\\{exe_name}\\DllOverrides", name: "dinput8", value: "native,builtin" }));
+  $("f-run").disabled = true;
+};
+
+const ACTIONS = { add: ["ajouté", "ok"], replace: ["remplacé", "warn"], delete: ["supprimé", "err"], reg: ["registre", "info"], same: ["identique", ""] };
+
+$("f-preview").onclick = async () => {
+  $("f-result").replaceChildren(el("p", { className: "muted", textContent: "Calcul de l'aperçu…" }));
+  try {
+    const data = await api("/api/mass/files/preview", { method: "POST", body: filesBody() });
+    const items = data.items.map((item) => {
+      const head = el("div", { className: "row" }, el("strong", { textContent: item.name || item.id }));
+      if (item.error) head.append(badge(item.error, "err"));
+      else if (!item.changed) head.append(badge("inchangé"));
+      else if (item.blocked) head.append(badge(item.blocked, "warn"));
+      else head.append(badge("à appliquer", "ok"));
+      const node = el("div", { className: "preview-item" }, head);
+      for (const a of item.actions || []) {
+        const [label, kind] = ACTIONS[a.action] || [a.action, ""];
+        node.append(el("div", { className: "row mono" }, badge(label, kind), a.path, el("span", { className: "muted", textContent: a.detail })));
+      }
+      if (item.warnings?.length) node.append(el("ul", { className: "issues" }, ...item.warnings.map((w) => el("li", { textContent: w }))));
+      return node;
+    });
+    const space = data.space.map((s) => el("div", { className: `notice ${s.needed > s.free ? "err" : "info"}`,
+      textContent: `${s.path} : ${size(s.needed)} nécessaires (anciennes images gardées en .old), ${size(s.free)} libres` }));
+    $("f-result").replaceChildren(el("h3", { textContent: `${data.ready} image(s) à modifier` }), ...space, ...items);
+    $("f-run").disabled = data.ready === 0;
+    $("f-run").textContent = `Lancer ${data.ready} tâche(s)`;
+  } catch (error) {
+    $("f-result").replaceChildren(el("div", { className: "notice err", textContent: error.message }));
+  }
+};
+
+$("f-run").onclick = async () => {
+  try {
+    const data = await api("/api/mass/files", { method: "POST", body: filesBody() });
+    const skipped = data.skipped.map((s) => el("li", { textContent: `${s.id} : ${s.reason}` }));
+    $("f-result").replaceChildren(el("div", { className: "notice info", textContent: `${data.tasks.length} tâche(s) créée(s).` }),
+      ...(skipped.length ? [el("ul", { className: "issues" }, ...skipped)] : []));
+    $("f-run").disabled = true;
+    openTasks();
+    refreshTasks();
+  } catch (error) {
+    $("f-result").replaceChildren(el("div", { className: "notice err", textContent: error.message }));
+  }
+};
+
+// ------------------------------------------------------------------ vérification, sauvegardes
+
+function reportSkipped(skipped) {
+  if (skipped.length) alert(skipped.map((s) => `${s.id} : ${s.reason}`).join("\n"));
+}
+
+async function verify(ids) {
+  const data = await api("/api/mass/verify", { method: "POST", body: { ids } });
+  reportSkipped(data.skipped);
+  openTasks();
+  refreshTasks();
+}
+
+async function resetSaves(ids) {
+  const names = ids.filter((id) => state.byId.get(id)?.saves_present);
+  if (!names.length) { alert("Aucune image sélectionnée n'a de sauvegardes."); return; }
+  if (!confirm(`Réinitialiser les sauvegardes de ${names.length} jeu(x) ? Elles sont renommées en <jeu>.avant-<date>, pas supprimées.`)) return;
+  const data = await api("/api/mass/saves/reset", { method: "POST", body: { ids: names } });
+  reportSkipped(data.skipped);
+  await loadLibrary();
+}
+
+$("d-verify").onclick = () => verify([state.current.id]).catch((error) => alert(error.message));
+$("d-saves-reset").onclick = () => resetSaves([state.current.id]).catch((error) => alert(error.message));
+$("btn-verify").onclick = () => verify([...state.selected]).catch((error) => alert(error.message));
+$("btn-saves-reset").onclick = () => resetSaves([...state.selected]).catch((error) => alert(error.message));
+
+// ------------------------------------------------------------------ vues
+
+function showView(name) {
+  for (const b of $("views").children) b.classList.toggle("active", b.dataset.view === name);
+  $("main").hidden = name !== "images";
+  $("folders-main").hidden = name !== "folders";
+  storage.set("wsfs-view", name);
+  if (name === "folders") loadFolders();
+}
+$("views").onclick = (event) => event.target.dataset.view && showView(event.target.dataset.view);
+
+// ------------------------------------------------------------------ dossiers à empaqueter
+
+const folders = { items: [], selected: new Set() };
+
+async function loadFolders() {
+  try {
+    folders.items = await api("/api/folders");
+  } catch (error) {
+    $("g-rows").replaceChildren(el("tr", {}, el("td", { colSpan: 7, className: "muted", textContent: error.message })));
+    return;
+  }
+  const ids = new Set(folders.items.map((f) => f.id));
+  for (const id of [...folders.selected]) if (!ids.has(id)) folders.selected.delete(id);
+  fillFilter("g-system", "Tous systèmes", folders.items.map((f) => f.system).filter(Boolean));
+  renderFolders();
+}
+
+function visibleFolders() {
+  const q = $("g-search").value.trim().toLowerCase(), system = $("g-system").value, st = $("g-state").value;
+  return folders.items.filter((f) => (!q || f.folder.toLowerCase().includes(q)) && (!system || f.system === system)
+    && (st !== "todo" || !f.image_exists) && (st !== "done" || f.image_exists)
+    && (st !== "noautorun" || !f.has_autorun));
+}
+
+function renderFolders() {
+  const visible = visibleFolders();
+  $("g-all").checked = visible.length > 0 && visible.every((f) => folders.selected.has(f.id));
+  $("g-rows").replaceChildren(...visible.map((f) => {
+    const box = el("input", { type: "checkbox", checked: folders.selected.has(f.id) });
+    box.onchange = () => { box.checked ? folders.selected.add(f.id) : folders.selected.delete(f.id); renderFolderSelection(); };
+    return el("tr", {},
+      el("td", {}, box), el("td", { textContent: f.system || "—" }), el("td", { textContent: f.folder }),
+      el("td", {}, badge(`.${f.kind}`)),
+      el("td", {}, f.has_autorun ? badge("présent", "ok") : badge("absent", "warn")),
+      el("td", {}, f.image_exists ? badge("déjà empaqueté", "info") : el("span", { className: "muted", textContent: "—" })),
+      el("td", {}, f.task ? badge(f.task === "running" ? "en cours" : "en attente", "warn") : ""));
+  }));
+  if (!visible.length) $("g-rows").append(el("tr", {}, el("td", { colSpan: 7, className: "muted", textContent: "aucun dossier *.pc / *.wine" })));
+  renderFolderSelection();
+}
+
+function renderFolderSelection() {
+  $("g-selection").hidden = folders.selected.size === 0;
+  $("g-count").textContent = `${folders.selected.size} dossier(s) sélectionné(s)`;
+}
+
+for (const id of ["g-search", "g-system", "g-state"]) $(id).addEventListener("input", renderFolders);
+$("g-all").onchange = () => { visibleFolders().forEach((f) => $("g-all").checked ? folders.selected.add(f.id) : folders.selected.delete(f.id)); renderFolders(); };
+$("g-clear").onclick = () => { folders.selected.clear(); renderFolders(); };
+
+$("g-delete").onclick = async () => {
+  const ids = folders.items.filter((f) => folders.selected.has(f.id) && f.image_exists).map((f) => f.id);
+  if (!ids.length) { alert("Aucun dossier sélectionné n'a encore son image .wsquashfs."); return; }
+  if (!confirm(`Supprimer DÉFINITIVEMENT ${ids.length} dossier(s) déjà empaqueté(s) ? L'image de chacun est vérifiée avant.`)) return;
+  const data = await api("/api/folders/delete", { method: "POST", body: { ids } });
+  reportSkipped(data.skipped);
+  loadFolders();
+};
+
+// Revue : une carte par dossier, analysée l'une après l'autre
+const review = { cards: [] };
+
+function confidence(level) {
+  return el("span", { className: `conf-${level}`, textContent: { high: "sûr", medium: "probable", low: "incertain" }[level] || level });
+}
+
+function renderCard(card) {
+  const r = card.report, node = card.node;
+  const include = el("input", { type: "checkbox", checked: card.include, disabled: card.sent });
+  include.onchange = () => { card.include = include.checked; node.classList.toggle("off", !card.include); updatePackButton(); };
+  const head = el("div", { className: "row" }, include, el("strong", { textContent: card.folder.folder }),
+    badge(r.prefix === "none" ? "jeu seul" : `prefix ${r.prefix}${r.arch ? " " + r.arch : ""}`),
+    r.engine ? badge(r.engine, "info") : null,
+    el("span", { className: "muted", textContent: `${size(r.size)} · ${r.file_count} fichiers` }),
+    card.folder.image_exists ? badge("image déjà présente", "err") : null,
+    card.sent ? badge("envoyé dans la file", "ok") : null);
+  node.replaceChildren(head);
+  node.classList.toggle("off", !card.include);
+
+  const choice = el("div", { className: "row" });
+  const radio = (value, label, disabled = false) => {
+    const input = el("input", { type: "radio", name: `src-${card.folder.id}`, value, checked: card.source === value, disabled });
+    input.onchange = () => { card.source = value; renderCard(card); updatePackButton(); };
+    return el("label", {}, input, ` ${label}`);
+  };
+  choice.append(radio("existing", "Autorun existant", !r.existing), radio("generated", "Autorun proposé"),
+    el("span", { className: "muted", textContent: `recommandé : ${r.recommended === "existing" ? "existant" : "proposé"}` }));
+  node.append(choice);
+
+  const left = el("div"), right = el("div");
+  if (card.source === "existing" && r.existing) {
+    left.append(el("pre", { className: "bat", textContent: r.existing.text }));
+    if (r.existing.issues.length) left.append(el("ul", { className: "issues" }, ...r.existing.issues.map((i) => el("li", { className: i.level, textContent: i.message }))));
+  } else {
+    const select = el("select", {}, ...r.candidates.map((c) => new Option(`${c.path}  (score ${c.score}${c.bits ? `, ${c.bits} bits` : ""}${c.version ? `, v${c.version}` : ""})`, c.path)));
+    select.value = r.chosen || "";
+    select.onchange = () => analyzeCard(card, select.value);
+    const text = el("textarea", { value: card.text, spellcheck: false });
+    text.oninput = () => { card.text = text.value; updatePackButton(); };
+    left.append(r.candidates.length ? el("label", { className: "muted" }, "Exécutable : ", select) : el("div", { className: "notice err", textContent: "Aucun exécutable Windows : jeu absent ou version Linux ?" }), text);
+    const issues = r.generated.issues;     // validation de la proposition d'origine
+    if (issues.length) left.append(el("ul", { className: "issues" }, ...issues.map((i) => el("li", { className: i.level, textContent: i.message }))));
+  }
+  right.append(el("ul", { className: "items" }, ...r.generated.items.map((i) => el("li", { className: i.written ? "" : "default" },
+    el("code", { textContent: `${i.key}=${i.value}` }), " — ", i.justification, " (", confidence(i.confidence), i.written ? ")" : ", défaut du lanceur : non écrit)"))));
+  if (r.generated.warnings.length) right.append(el("ul", { className: "issues" }, ...r.generated.warnings.map((w) => el("li", { textContent: w }))));
+  for (const bat of r.bats) {
+    right.append(el("div", { className: "muted mono", textContent: bat.path }), el("pre", { className: "bat", textContent: bat.content }));
+    if (bat.suspicious.length) right.append(el("ul", { className: "issues" }, ...bat.suspicious.map((x) => el("li", { textContent: x }))));
+  }
+  if (r.excluded.length) right.append(el("details", {}, el("summary", { className: "muted", textContent: `${r.excluded.length} exécutable(s) écarté(s)` }),
+    el("ul", { className: "items" }, ...r.excluded.map((e) => el("li", { textContent: `${e.path} — ${e.reason}` })))));
+  node.append(el("div", { className: "cols" }, left, right));
+}
+
+async function analyzeCard(card, exe = null) {
+  card.node.replaceChildren(el("div", { className: "row" }, el("strong", { textContent: card.folder.folder }), el("span", { className: "muted", textContent: "analyse…" })));
+  try {
+    const r = await api(`/api/folders/analyze?id=${encodeURIComponent(card.folder.id)}${exe ? `&exe=${encodeURIComponent(exe)}` : ""}`);
+    card.report = r;
+    card.text = r.generated.text;
+    if (!exe) card.source = r.recommended;
+    card.include = !card.folder.image_exists && !card.folder.task && (card.source === "existing" || /^CMD=/m.test(card.text));
+    renderCard(card);
+  } catch (error) {
+    card.include = false;
+    card.node.replaceChildren(el("div", { className: "notice err", textContent: `${card.folder.folder} : ${error.message}` }));
+  }
+  updatePackButton();
+}
+
+function updatePackButton() {
+  const ready = review.cards.filter((c) => c.include && !c.sent && c.report && (c.source === "existing" || /^CMD=/m.test(c.text)));
+  $("p-run").disabled = ready.length === 0;
+  $("p-run").textContent = `Empaqueter ${ready.length} dossier(s)`;
+  return ready;
+}
+
+$("g-review").onclick = async () => {
+  const selected = folders.items.filter((f) => folders.selected.has(f.id));
+  $("p-count").textContent = selected.length;
+  $("p-result").replaceChildren();
+  review.cards = selected.map((folder) => ({ folder, node: el("div", { className: "card" }), include: false, source: "generated", text: "" }));
+  $("p-cards").replaceChildren(...review.cards.map((c) => c.node));
+  updatePackButton();
+  $("dlg-pack").showModal();
+  for (const [index, card] of review.cards.entries()) {
+    if (!$("dlg-pack").open) break;
+    $("p-progress").textContent = `analyse ${index + 1}/${review.cards.length}…`;
+    await analyzeCard(card);
+  }
+  $("p-progress").textContent = "";
+};
+
+$("p-delete").onchange = () => {
+  if ($("p-delete").checked && !confirm("Supprimer chaque dossier une fois son image créée et vérifiée ? Sans retour possible.")) $("p-delete").checked = false;
+};
+
+$("p-run").onclick = async () => {
+  // autorun null : celui du dossier est gardé tel quel
+  const cards = updatePackButton();
+  const items = cards.map((c) => ({ id: c.folder.id, autorun: c.source === "existing" ? null : c.text }));
+  try {
+    const data = await api("/api/folders/pack", { method: "POST", body: { items, rename_wine: $("p-rename").checked, delete_source: $("p-delete").checked } });
+    const skipped = data.skipped.map((s) => el("li", { textContent: `${s.id} : ${s.reason}` }));
+    // Un dossier envoyé est renommé (.pc → .wine) : ne plus le renvoyer
+    const refused = new Set(data.skipped.map((s) => s.id));
+    for (const card of cards) {
+      if (!refused.has(card.folder.id)) { card.sent = true; card.include = false; renderCard(card); }
+    }
+    updatePackButton();
+    $("p-result").replaceChildren(el("div", { className: "notice info", textContent: `${data.tasks.length} empaquetage(s) ajouté(s) à la file.` }),
+      ...(skipped.length ? [el("ul", { className: "issues" }, ...skipped)] : []));
+    openTasks();
+    refreshTasks();
+    loadFolders();
+  } catch (error) {
+    $("p-result").replaceChildren(el("div", { className: "notice err", textContent: error.message }));
+  }
+};
+
+// ------------------------------------------------------------------ démarrage
+
+(async () => {
+  state.keys = await api("/api/autorun/keys");
+  $("known-keys").replaceChildren(...state.keys.map((k) => new Option(k.key, k.key)));
+  buildForm();
+  await loadLibrary();
+  refreshTasks();
+  if (storage.get("wsfs-view") === "folders") showView("folders");
+})();
 </script>
 </body>
 </html>

@@ -1,0 +1,21 @@
+# Base de connaissances par jeu (SPEC § 2.5)
+#
+# Ce qui ne se déduit pas des fichiers, constaté jeu par jeu. Repéré par
+# l'empreinte SHA-256 de l'exécutable principal (`sha256`), à défaut par son
+# nom (`exe`, casse ignorée). Appliqué EN PRIORITÉ sur les règles générales.
+#
+#   keys:      clés d'autorun imposées (une valeur égale au défaut du lanceur
+#              n'est pas écrite, mais remplace une proposition contraire)
+#   requires:  fichiers attendus dans le dossier de l'exécutable (signalés
+#              s'ils manquent : à ajouter avec « Fichiers / registre… »)
+#   note:      pourquoi — affichée avec la proposition
+games:
+  - exe: Astebreed.exe
+    sha256: 9eb1cd1d8cdc624c37c1aff96b9d3a235668f389f0c0745164419cec1c9d5405
+    requires: [d3dx9_43.dll]
+    note: >-
+      d3dx9_43.dll NATIVE (Microsoft, 32 bits, 9.29.952.3111) à poser à côté
+      de l'exécutable : celle de Wine ne crée pas l'effet shader/phong.cfx
+      (« Invalid call », assertion au démarrage), sous Proton comme sous
+      wine-tkg, avec ou sans DXVK. Testé le 01/10/2026 dans SteamBox : avec la
+      DLL native, le jeu démarre (Proton + DXVK, sans surcharge de registre).

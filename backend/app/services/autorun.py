@@ -29,7 +29,45 @@ KNOWN_KEYS = {
     "ENV", "SAVEDIR", "SAVEFILES",
 }
 
+# Aide du formulaire : (description, valeurs proposées). Défauts = ceux du
+# lanceur, pas ceux de Batocera (DXVK/VKD3D/D7VK actifs par défaut).
+KEY_HELP: dict[str, tuple[str, list[str]]] = {
+    "CMD": (("Commande lancée, relative à DIR (casse ignorée). Guillemets si le "
+             "nom contient des espaces, arguments ensuite."), []),
+    "DIR": ("Dossier de l'exécutable, relatif à la racine de l'image.", []),
+    "GAME_VERSION": ("Version du jeu packagé (ignorée par Batocera).", []),
+    "WINE": ("Runner Wine imposé. Défaut : wine-tkg pour un prefix Batocera.",
+             ["tkg", "system"]),
+    "PROTON": ("Version de Proton imposée (prefix Proton ou jeu seul).", []),
+    "RUNNER": ("Runner personnalisé (chemin ou nom).", []),
+    "ARCH": ("Architecture du prefix créé.", ["win32", "win64"]),
+    "HIDRAW": ("1 : manettes en hidraw (DualSense natif) au lieu de XInput.", ["1", "0"]),
+    "DXVK": ("D3D9-11 via Vulkan. Actif par défaut ; 0 pour wined3d.", ["1", "0"]),
+    "VKD3D": ("D3D12 via Vulkan. Actif par défaut.", ["1", "0"]),
+    "D7VK": ("DirectDraw/D3D7 via Vulkan. Actif par défaut.", ["1", "0"]),
+    "ESYNC": ("Synchronisation esync (défaut 0).", ["1", "0"]),
+    "FSYNC": ("Synchronisation fsync (défaut 0).", ["1", "0"]),
+    "VIRTUAL_DESKTOP": ("Bureau virtuel Wine, ex. 1920x1080.", ["1920x1080", "1280x720"]),
+    "LANG": ("Langue passée au jeu, ex. fr_FR.UTF-8.", ["fr_FR.UTF-8", "en_US.UTF-8",
+                                                         "ja_JP.UTF-8"]),
+    "ENV": (("Variables d'environnement supplémentaires (VAR=val VAR2=val). "
+             "Jamais WINEDLLOVERRIDES : il écraserait les réglages DLL du lanceur."), []),
+    "SAVEDIR": ("Dossier de sauvegarde du jeu, redirigé vers saves/<système>/<jeu>.", []),
+    "SAVEFILES": ("Fichiers de sauvegarde (séparés par ;), redirigés comme SAVEDIR.", []),
+}
+
 _KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
+KEY_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def decode_autorun(data: bytes) -> tuple[str, str]:
+    """Octets → (texte, encodage). UTF-8 si valide, sinon latin-1 : un
+    autorun écrit sous Windows (cp1252, commentaires accentués) est relu et
+    réécrit octet pour octet au lieu d'être corrompu."""
+    try:
+        return data.decode("utf-8"), "utf-8"
+    except UnicodeDecodeError:
+        return data.decode("latin-1"), "latin-1"
 
 
 def unquote(value: str) -> str:
@@ -67,7 +105,7 @@ class Autorun:
     # ------------------------------------------------------------------ read
 
     @classmethod
-    def parse(cls, data: bytes | str) -> "Autorun":
+    def parse(cls, data: bytes | str) -> Autorun:
         if isinstance(data, bytes):
             data = data.decode("utf-8", errors="replace")
         if not data:
@@ -78,7 +116,7 @@ class Autorun:
         lf_only = data.count("\n") - crlf
         eol = "\r\n" if crlf > lf_only else "\n"
         trailing = data.endswith("\n")
-        lines = [ln[:-1] if ln.endswith("\r") else ln for ln in data.split("\n")]
+        lines = [ln.removesuffix("\r") for ln in data.split("\n")]
         if trailing:
             lines = lines[:-1]          # élément vide après le dernier \n
         return cls(lines=lines, eol=eol, trailing_eol=trailing)
@@ -137,6 +175,9 @@ class Autorun:
         self.lines = kept
         return removed
 
+    def encode(self, encoding: str = "utf-8") -> bytes:
+        return self.render().encode(encoding)
+
     def render(self) -> str:
         if not self.lines:
             return ""
@@ -165,17 +206,18 @@ class Autorun:
         d = self.get("DIR")
         c = self.get("CMD")
         d_norm = normalize_path(d) if d is not None else ""
-        if d is None:
-            issues.append({"level": "warn", "message": "DIR= absent"})
-        elif files and d_norm not in dirs:
+        # DIR absent : l'exécutable est cherché à la racine (comme le lanceur)
+        if d is not None and files and d_norm not in dirs:
             issues.append({"level": "warn", "message": f"DIR={d} n'existe pas dans l'image"})
 
         if c is None:
-            issues.append({"level": "warn", "message": "CMD= absent"})
+            issues.append({"level": "error", "message": "CMD= absent : le lanceur refusera "
+                                                         "de démarrer le jeu"})
         elif files:
             exe = exe_from_cmd(c)
-            target = normalize_path(f"{d_norm}/{exe}" if d_norm else exe)
-            if exe and target not in files:
+            # Le lanceur essaie le chemin depuis la racine, puis depuis DIR
+            targets = {normalize_path(exe), normalize_path(f"{d_norm}/{exe}")}
+            if exe and not targets & files:
                 issues.append(
                     {"level": "warn", "message": f"exécutable {exe} introuvable (casse ignorée)"}
                 )
@@ -189,6 +231,35 @@ class Autorun:
         for k in self.unknown_keys():
             issues.append({"level": "warn", "message": f"clé inconnue : {k} (ignorée par Batocera)"})
         return issues
+
+
+def fill_template(template: str, name: str, system: str | None) -> str:
+    """Variables d'un modèle d'autorun : {name} (nom de l'image), {system}."""
+    return template.replace("{name}", name).replace("{system}", system or "")
+
+
+def apply_ops(current: Autorun | None, ops: list[dict], name: str,
+              system: str | None) -> Autorun:
+    """Applique des opérations d'édition à une copie de l'autorun.
+
+    ops : {"op": "set", "key", "value"} | {"op": "remove", "key"} |
+    {"op": "replace", "template"}. Un remplacement garde la fin de ligne de
+    l'autorun existant (CRLF sinon, comme les autoruns Batocera)."""
+    base = current or Autorun()
+    out = Autorun(lines=list(base.lines), eol=base.eol, trailing_eol=base.trailing_eol)
+    for op in ops:
+        kind = op["op"]
+        if kind == "set":
+            out.set(op["key"], fill_template(op["value"], name, system))
+        elif kind == "remove":
+            out.remove(op["key"])
+        elif kind == "replace":
+            text = fill_template(op["template"], name, system).replace("\r\n", "\n")
+            replaced = Autorun.parse(text)
+            out = Autorun(lines=replaced.lines, eol=base.eol, trailing_eol=True)
+        else:
+            raise ValueError(f"opération inconnue : {kind}")
+    return out
 
 
 def read_autorun(image_dir: Path) -> Autorun | None:

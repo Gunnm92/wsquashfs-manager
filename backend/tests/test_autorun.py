@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from app.services.autorun import KNOWN_KEYS, Autorun
 
-
 # ------------------------------------------------------------------ lecture
 
 def test_parse_crlf_and_get():
@@ -41,7 +40,7 @@ def test_first_occurrence_wins():
 def test_key_only_at_line_start():
     a = Autorun.parse("  DIR=indented\nDIR=ok\nREM CMD=comment\n")
     assert a.get("DIR") == "ok"
-    assert "CMD" not in a.keys()
+    assert "CMD" not in a.keys()  # noqa: SIM118 — Autorun.keys(), pas un dict
 
 
 def test_unknown_keys():
@@ -92,10 +91,20 @@ def test_lf_roundtrip():
 
 # ---------------------------------------------------------------- validation
 
-def test_validate_missing_dir():
-    a = Autorun.parse("CMD=g.exe\n")
-    issues = a.validate()
-    assert any(i["message"].startswith("DIR=") for i in issues)
+def test_validate_without_dir_looks_at_root_like_launcher():
+    a = Autorun.parse("CMD=CT3.exe\n")
+    assert a.validate({"CT3.exe", "Media/a.bmp"}) == []
+    assert any("CT3.exe introuvable" in i["message"] for i in a.validate({"Media/CT3.exe"}))
+
+
+def test_validate_cmd_with_path_from_root():
+    a = Autorun.parse("DIR=Game\nCMD=Game/bin/g.exe\n")
+    assert a.validate({"Game/bin/g.exe"}) == []
+
+
+def test_validate_missing_cmd_is_error():
+    issues = Autorun.parse("DIR=Game\n").validate()
+    assert [i["level"] for i in issues if "CMD" in i["message"]] == ["error"]
 
 
 def test_validate_exe_not_found_case_insensitive():
@@ -120,7 +129,7 @@ def test_validate_winedlloversides_env():
 
 
 def test_validate_unknown_key_warns_not_blocks():
-    a = Autorun.parse("MONKEY=1\n")
+    a = Autorun.parse("CMD=g.exe\nMONKEY=1\n")
     issues = a.validate()
     assert any("clé inconnue : MONKEY" in i["message"] for i in issues)
     assert all(i["level"] == "warn" for i in issues)
@@ -164,3 +173,35 @@ def test_dir_backslashes_and_quotes_are_normalised():
 def test_missing_exe_is_reported():
     a = Autorun.parse("DIR=Game\nCMD=absent.exe\n")
     assert _path_issues(a.validate({"Game/game.exe"}))
+
+
+# ------------------------------------------------------------------ opérations
+
+def test_apply_ops_set_remove_keep_layout():
+    from app.services.autorun import apply_ops
+    a = Autorun.parse("REM jeu\r\nCMD=game.exe\r\nHIDRAW=1\r\n")
+    out = apply_ops(a, [{"op": "remove", "key": "HIDRAW"},
+                        {"op": "set", "key": "CMD", "value": "other.exe"},
+                        {"op": "set", "key": "GAME_VERSION", "value": "{name} 1.0"}],
+                    "Jeu", "win")
+    assert out.render() == "REM jeu\r\nCMD=other.exe\r\nGAME_VERSION=Jeu 1.0\r\n"
+    assert a.render() == "REM jeu\r\nCMD=game.exe\r\nHIDRAW=1\r\n"     # original intact
+
+
+def test_apply_ops_replace_keeps_eol_of_image():
+    from app.services.autorun import apply_ops
+    a = Autorun.parse("CMD=a.exe\n")
+    out = apply_ops(a, [{"op": "replace", "template": "CMD={name}.exe\r\nDIR={system}"}],
+                    "Jeu", "win")
+    assert out.render() == "CMD=Jeu.exe\nDIR=win\n"
+    assert apply_ops(None, [{"op": "set", "key": "CMD", "value": "x"}], "J", None).render() \
+        == "CMD=x\r\n"
+
+
+def test_decode_autorun_latin1_round_trip():
+    from app.services.autorun import decode_autorun
+    data = "REM réglé à la main\r\nCMD=jeu.exe\r\n".encode("cp1252")
+    text, encoding = decode_autorun(data)
+    assert encoding == "latin-1"
+    assert Autorun.parse(text).encode(encoding) == data
+    assert decode_autorun("REM é\n".encode())[1] == "utf-8"

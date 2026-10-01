@@ -49,3 +49,16 @@ def test_is_in_use_by_mount():
     mounts = ["/tmp/wsquashfs/mnt/gticlub"]
     assert is_in_use("gticlub", set(), mounts)
     assert not is_in_use("gti", set(), mounts)
+
+
+def test_find_images_system_from_roms_parent(tmp_path):
+    from app.services.scan import _find_images
+    win = tmp_path / "roms" / "win"
+    win.mkdir(parents=True)
+    (win / "Jeu.wsquashfs").write_bytes(b"")
+    (tmp_path / "ailleurs").mkdir()
+    (tmp_path / "ailleurs" / "Autre.wsquashfs").write_bytes(b"")
+    assert _find_images([str(tmp_path / "roms")], 3) == [(win / "Jeu.wsquashfs", "win")]
+    assert _find_images([str(win) + "/"], 3) == [(win / "Jeu.wsquashfs", "win")]
+    assert _find_images([str(tmp_path / "ailleurs")], 3) == \
+        [(tmp_path / "ailleurs" / "Autre.wsquashfs", None)]

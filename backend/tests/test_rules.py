@@ -57,7 +57,7 @@ def test_fakeping_without_env_override():
 
 
 def test_tekno_d3dx9_only_when_native():
-    base = dict(files=["TeknoParrotUi.exe"], exe_name="TeknoParrotUi.exe")
+    base = {"files": ["TeknoParrotUi.exe"], "exe_name": "TeknoParrotUi.exe"}
     assert "tekno-d3dx9-43" not in _sources(Analysis(**base))
     assert "tekno-d3dx9-43" not in _sources(
         Analysis(**base, dll_overrides={"*d3dx9_43": "builtin"}))
@@ -67,7 +67,7 @@ def test_tekno_d3dx9_only_when_native():
 
 
 def test_tekno_old_only_when_version_known_and_lower():
-    base = dict(files=[], exe_name="TeknoParrotUi.exe")
+    base = {"files": [], "exe_name": "TeknoParrotUi.exe"}
     assert "tekno-ancien" not in _sources(Analysis(**base))
     assert "tekno-ancien" in _sources(Analysis(**base, tekno_version="1.0.0.90"))
     assert "tekno-ancien" not in _sources(Analysis(**base, tekno_version="1.0.0.200"))
