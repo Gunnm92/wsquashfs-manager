@@ -22,6 +22,9 @@ import math
 import mmap
 import os
 import re
+import subprocess
+import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -96,17 +99,15 @@ def missing_requirements(files: list[str], exe: str, game: dict) -> list[str]:
             if f"{directory}/{name}".lstrip("/").lower() not in present]
 
 
-def match_game(games: list[dict], exe_path: Path) -> dict | None:
+def match_game(games: list[dict], scan: FolderScan, exe: str) -> dict | None:
     """Entrée de la base pour cet exécutable : empreinte d'abord, nom ensuite."""
-    name = exe_path.name.lower()
+    name = exe.rsplit("/", 1)[-1].lower()
     by_name = [g for g in games if (g.get("exe") or "").lower() == name]
     with_hash = [g for g in games if g.get("sha256")]
     if with_hash:
-        try:
-            digest = (hashlib.sha256(exe_path.read_bytes()).hexdigest()
-                      if exe_path.stat().st_size <= _HASH_LIMIT else None)
-        except OSError:
-            digest = None
+        data = (scan.source.read_bytes(exe)
+                if scan.sizes.get(exe, _HASH_LIMIT + 1) <= _HASH_LIMIT else None)
+        digest = hashlib.sha256(data).hexdigest() if data is not None else None
         exact = next((g for g in with_hash if g["sha256"].lower() == digest), None)
         if exact:
             return exact
@@ -144,12 +145,72 @@ class Candidate:
                 "version": (info.product_version or info.file_version) if info else None}
 
 
+class FolderSource:
+    """Lecture des fichiers d'un dossier de jeu."""
+
+    def __init__(self, root: Path):
+        self.root = root
+
+    def read_bytes(self, rel: str, limit: int | None = None) -> bytes | None:
+        try:
+            with open(self.root / rel, "rb") as f:
+                return f.read(limit if limit else -1)
+        except OSError:
+            return None
+
+    @contextmanager
+    def local_path(self, rel: str):
+        yield self.root / rel
+
+
+class ImageSource:
+    """Lecture des fichiers d'une image .wsquashfs sans la monter
+    (unsquashfs -cat) ; un exécutable est extrait le temps de lire son en-tête."""
+
+    def __init__(self, image: Path, unsquashfs: str = "unsquashfs", tmp_dir: Path | None = None):
+        self.root = image
+        self.unsquashfs = unsquashfs
+        self.tmp_dir = tmp_dir
+
+    def read_bytes(self, rel: str, limit: int | None = None) -> bytes | None:
+        try:
+            r = subprocess.run([self.unsquashfs, "-cat", str(self.root), rel],
+                               capture_output=True, timeout=600, check=False)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        if r.returncode:
+            return None
+        return r.stdout[:limit] if limit else r.stdout
+
+    @contextmanager
+    def local_path(self, rel: str):
+        if self.tmp_dir:
+            self.tmp_dir.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix="exe-", suffix=".bin", dir=self.tmp_dir)
+        try:
+            with os.fdopen(fd, "wb") as out:
+                subprocess.run([self.unsquashfs, "-cat", str(self.root), rel], stdout=out,
+                               stderr=subprocess.DEVNULL, timeout=900, check=False)
+            yield Path(tmp)
+        finally:
+            Path(tmp).unlink(missing_ok=True)
+
+
 @dataclass
 class FolderScan:
-    root: Path
+    root: Path                      # dossier, ou image .wsquashfs
     files: list[str]                # fichiers, dossiers et liens, relatifs
     sizes: dict[str, int]
     total_size: int
+    source: FolderSource | ImageSource | None = None
+
+    def __post_init__(self):
+        if self.source is None:
+            self.source = FolderSource(self.root)
+
+    def read_text(self, rel: str, limit: int | None = None) -> str:
+        data = self.source.read_bytes(rel, limit)
+        return data.decode("latin-1") if data else ""
 
 
 # ------------------------------------------------------------------ arborescence
@@ -177,30 +238,47 @@ def scan_folder(root: Path) -> FolderScan:
     return FolderScan(root=root, files=sorted(files), sizes=sizes, total_size=total)
 
 
-def detect_prefix(root: Path, files: list[str]) -> tuple[str, str | None, str | None]:
+_LLS_RE = re.compile(r"^(\S)\S*\s+\S+\s+(\d+)\s+\S+\s+\S+\s+squashfs-root/(.+)$")
+
+
+def scan_image(image: Path, unsquashfs: str = "unsquashfs",
+               tmp_dir: Path | None = None) -> FolderScan:
+    """Arborescence et tailles d'une image, d'après sa table (unsquashfs -lls)."""
+    r = subprocess.run([unsquashfs, "-lls", str(image)], capture_output=True, timeout=300,
+                       check=False)
+    files: list[str] = []
+    sizes: dict[str, int] = {}
+    for line in r.stdout.decode("utf-8", "replace").splitlines():
+        m = _LLS_RE.match(line)
+        if not m:
+            continue
+        kind, size, rel = m.groups()
+        if kind == "l":
+            rel = rel.split(" -> ", 1)[0]
+        files.append(rel)
+        if kind == "-":
+            sizes[rel] = int(size)
+    return FolderScan(root=image, files=sorted(files), sizes=sizes,
+                      total_size=sum(sizes.values()),
+                      source=ImageSource(image, unsquashfs, tmp_dir))
+
+
+def detect_prefix(scan: FolderScan) -> tuple[str, str | None, str | None]:
     """(type, arch, version Proton) : comme detect_type() du scan, config_info d'abord."""
-    present = {f.lower() for f in files if "/" not in f}
+    present = {f.lower() for f in scan.files if "/" not in f}
     if "config_info" in present:
-        version = _read_text(root / "config_info").splitlines()[:1]
+        version = scan.read_text("config_info").splitlines()[:1]
         return "proton", None, version[0].strip() if version else None
     if "system.reg" in present:
-        head = _read_text(root / "system.reg", limit=4096)
+        head = scan.read_text("system.reg", limit=4096)
         m = re.search(r"^#arch=(win32|win64)", head, re.MULTILINE)
         return "batocera", m.group(1) if m else None, None
     return "none", None, None
 
 
-def _read_text(path: Path, limit: int | None = None) -> str:
-    try:
-        with open(path, "rb") as f:
-            return f.read(limit if limit else -1).decode("latin-1")
-    except OSError:
-        return ""
-
-
-def dll_overrides(root: Path, prefix: str) -> dict[str, str]:
-    reg = root / ("pfx/user.reg" if prefix == "proton" else "user.reg")
-    text = _read_text(reg)
+def dll_overrides(scan: FolderScan, prefix: str) -> dict[str, str]:
+    reg = "pfx/user.reg" if prefix == "proton" else "user.reg"
+    text = scan.read_text(reg) if reg in scan.files else ""
     return section_values(text, "Software\\Wine\\DllOverrides") if text else {}
 
 
@@ -400,7 +478,7 @@ def _tekno_profile(scan: FolderScan, tekno: str, game: str) -> str | None:
         if not profiles:
             continue
         for profile in profiles:
-            text = _read_text(scan.root / profile).lower()
+            text = scan.read_text(profile).lower()
             m = re.search(r"<gamepath>([^<]+)</gamepath>", text)
             if m and m.group(1).replace("\\", "/").rsplit("/", 1)[-1] in exe_names:
                 return profile.rsplit("/", 1)[-1]
@@ -410,8 +488,10 @@ def _tekno_profile(scan: FolderScan, tekno: str, game: str) -> str | None:
     return None
 
 
-def bat_details(root: Path, rel: str) -> dict:
-    text = _read_text(root / rel, limit=64 * 1024)
+def bat_details(scan: FolderScan | Path, rel: str) -> dict:
+    if isinstance(scan, Path):
+        scan = FolderScan(root=scan, files=[], sizes={}, total_size=0)
+    text = scan.read_text(rel, limit=64 * 1024)
     suspicious = []
     for number, line in enumerate(text.splitlines(), start=1):
         for typo, fix in _BAT_TYPOS.items():
@@ -514,7 +594,7 @@ def propose(scan: FolderScan, candidate: Candidate | None, prefix: str, arch: st
         if result.file:
             warnings.append(f"fichier à ajouter : {result.file} (règle {result.source})")
     # Base de connaissances : prioritaire sur les règles générales
-    knowledge = match_game(load_games(games_file), scan.root / candidate.path)
+    knowledge = match_game(load_games(games_file), scan, candidate.path)
     if knowledge:
         how = "empreinte" if knowledge.get("sha256") else "nom de l'exécutable"
         for key, value in (knowledge.get("keys") or {}).items():
@@ -584,12 +664,22 @@ def _merge_shipping(candidates: list[Candidate]) -> None:
                 c.info.markers |= ship.info.markers
 
 
-def analyze_folder(root: Path, game: str) -> FolderAnalysis:
-    scan = scan_folder(root)
-    prefix, arch, proton = detect_prefix(root, scan.files)
+def _read_pe(scan: FolderScan, rel: str) -> ExeInfo:
+    with scan.source.local_path(rel) as path:
+        return read_exe(path)
+
+
+def _analyze(scan: FolderScan, game: str, existing: bytes | None,
+             pe_limit: int = _PE_CANDIDATES) -> FolderAnalysis:
+    prefix, arch, proton = detect_prefix(scan)
     candidates, excluded, engine = find_candidates(scan, game)
-    for c in [c for c in candidates if c.kind == "exe"][:_PE_CANDIDATES]:
-        c.info = read_exe(root / c.path)
+    exes = [c for c in candidates if c.kind == "exe"]
+    to_read = exes[:pe_limit]
+    if engine == "unreal":         # le -Shipping porte le code du jeu (voir _merge_shipping)
+        to_read += [c for c in exes if c not in to_read and _ue_base(c.path) is not None
+                    and "shipping" in c.path.lower()][:2]
+    for c in to_read:
+        c.info = _read_pe(scan, c.path)
         if c.info.gui is False:
             c.score -= 15
             c.reasons.append("programme console")
@@ -599,13 +689,28 @@ def analyze_folder(root: Path, game: str) -> FolderAnalysis:
         _merge_shipping(candidates)
     tekno = next((c for c in candidates if c.kind == "teknoparrot"), None)
     if tekno:
-        tekno.info = read_exe(root / tekno.path)
+        tekno.info = _read_pe(scan, tekno.path)
     candidates.sort(key=lambda c: c.score, reverse=True)
-    existing_path = next((root / f for f in scan.files if f.lower() == "autorun.cmd"), None)
-    existing = existing_path.read_bytes() if existing_path else None
     return FolderAnalysis(scan=scan, game=game, prefix=prefix, arch=arch, proton=proton,
-                          engine=engine, overrides=dll_overrides(root, prefix),
+                          engine=engine, overrides=dll_overrides(scan, prefix),
                           candidates=candidates, excluded=excluded, existing=existing)
+
+
+def analyze_folder(root: Path, game: str) -> FolderAnalysis:
+    scan = scan_folder(root)
+    existing_rel = next((f for f in scan.files if f.lower() == "autorun.cmd"), None)
+    existing = scan.source.read_bytes(existing_rel) if existing_rel else None
+    return _analyze(scan, game, existing)
+
+
+def analyze_image(image: Path, game: str, unsquashfs: str = "unsquashfs",
+                  tmp_dir: Path | None = None, pe_limit: int = 3) -> FolderAnalysis:
+    """Même analyse sur une image existante : table de l'image, exécutables
+    extraits un à un le temps de lire leur en-tête (moins de candidats lus
+    que pour un dossier : chaque lecture décompresse l'exécutable)."""
+    scan = scan_image(image, unsquashfs, tmp_dir)
+    existing = scan.source.read_bytes("autorun.cmd") if "autorun.cmd" in scan.files else None
+    return _analyze(scan, game, existing, pe_limit)
 
 
 def report(fa: FolderAnalysis, exe: str | None = None) -> dict:
@@ -658,5 +763,5 @@ def report(fa: FolderAnalysis, exe: str | None = None) -> dict:
                       "issues": generated_issues},
         "existing": existing,
         "recommended": recommended,
-        "bats": [bat_details(fa.scan.root, c.path) for c in fa.candidates if c.kind == "bat"][:3],
+        "bats": [bat_details(fa.scan, c.path) for c in fa.candidates if c.kind == "bat"][:3],
     }

@@ -18,7 +18,7 @@ Voir [SPEC.md](SPEC.md) pour la spécification complète.
 | 2. Autorun : formulaire + texte, validations, reconstruction, vérification, `.old` | fait |
 | 3. Masse : sélection, autorun, fichiers et registre (relais fakeping), sauvegardes, intégrité, file de tâches, aperçu, espace disque | fait |
 | 4. Version | à faire |
-| 5. Génération | fait pour les dossiers : analyse PE et arborescence, choix de l'exécutable, règles YAML, `GAME_VERSION` ; sur une image existante : à faire |
+| 5. Génération | fait : dossiers et images existantes (fiche → Autorun → « Proposer un autorun »), analyse PE, choix de l'exécutable, règles YAML, base de connaissances |
 | 6. Création | fait : dossiers `*.pc`/`*.wine` → `.wsquashfs` en batch (fakeping : étape 3) |
 | 7. Connaissances | à faire |
 

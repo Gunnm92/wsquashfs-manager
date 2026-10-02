@@ -284,3 +284,20 @@ def test_existing_autorun_missing_rule_setting_is_not_recommended(tmp_path):
     assert "HIDRAW=1" in r["generated"]["text"]
     assert r["recommended"] == "generated"
     assert any("ajoute HIDRAW=1" in i["message"] for i in r["existing"]["issues"])
+
+
+def test_remove_tree_retries_transient_errors(tmp_path, monkeypatch):
+    from app.services import operations
+    folder = _tree(tmp_path / "Jeu.wine", {"a/b.txt": 1})
+    real, calls = shutil.rmtree, []
+
+    def flaky(path):
+        calls.append(path)
+        if len(calls) < 3:
+            raise OSError(39, "Directory not empty")
+        real(path)
+
+    monkeypatch.setattr(operations.shutil, "rmtree", flaky)
+    monkeypatch.setattr(operations.time, "sleep", lambda s: None)
+    operations.remove_tree(folder)
+    assert len(calls) == 3 and not folder.exists()

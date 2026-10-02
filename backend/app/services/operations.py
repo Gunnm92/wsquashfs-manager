@@ -376,6 +376,22 @@ def _safe_iterdir(path: Path) -> list[Path]:
         return []
 
 
+def remove_tree(path: Path, attempts: int = 6) -> None:
+    """Suppression d'un dossier de jeu, avec plusieurs essais : le partage
+    Unraid (shfs) répond parfois « Directory not empty » juste après avoir
+    effacé les fichiers (01/10 : Rayman Origins.wine, supprimé au 4e essai)."""
+    for attempt in range(attempts):
+        try:
+            shutil.rmtree(path)
+            return
+        except FileNotFoundError:
+            return
+        except OSError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(1 + attempt)
+
+
 def pack_target(source: Path) -> Path:
     return source.with_name(folder_stem(source.name) + ".wsquashfs")
 
@@ -466,8 +482,12 @@ def run_pack(settings: Settings, task: Task, job: Job) -> str:
                f"({size / max(listing.total_size, 1):.0%} du dossier)")
     if params.get("delete_source"):
         job.progress("suppression du dossier", 0.97)
-        shutil.rmtree(source)
-        message += f" ; dossier {source.name} supprimé"
+        try:
+            remove_tree(source)
+            message += f" ; dossier {source.name} supprimé"
+        except OSError as exc:
+            job.log(f"Attention : dossier {source.name} non supprimé ({exc})")
+            message += f" ; dossier {source.name} NON supprimé (à refaire)"
     else:
         message += f" ; dossier {source.name} conservé"
     return message

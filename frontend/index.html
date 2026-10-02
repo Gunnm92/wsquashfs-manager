@@ -193,11 +193,13 @@ pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; 
           <select id="a-eol"><option value="crlf">CRLF</option><option value="lf">LF</option></select>
         </label>
         <span class="spacer"></span>
+        <button class="secondary" id="a-propose" title="Analyse de l'image (exécutables, règles, base de connaissances)">Proposer un autorun</button>
         <button class="secondary" id="a-reset">Annuler</button>
         <button class="secondary" id="a-check">Vérifier</button>
         <button id="a-save">Reconstruire</button>
       </div>
       <ul class="issues" id="a-issues"></ul>
+      <div id="a-proposal"></div>
       <div id="a-result"></div>
     </div>
     <div data-pane="files" hidden>
@@ -661,6 +663,7 @@ async function loadAutorun() {
   const id = state.current.id;
   $("a-issues").replaceChildren();
   $("a-result").replaceChildren();
+  $("a-proposal").replaceChildren();
   try {
     const data = await api(`/api/image/autorun?id=${encodeURIComponent(id)}`);
     if (state.current?.id !== id) return;
@@ -690,6 +693,31 @@ function showIssues(list) {
 }
 
 $("a-reset").onclick = loadAutorun;
+
+$("a-propose").onclick = async () => {
+  const id = state.current.id, box = $("a-proposal");
+  box.replaceChildren(el("p", { className: "muted", textContent: "Analyse de l'image (lecture des exécutables)…" }));
+  try {
+    const r = await api(`/api/image/analyze?id=${encodeURIComponent(id)}`);
+    if (state.current?.id !== id) return;
+    const use = el("button", { textContent: "Utiliser cette proposition" });
+    use.onclick = () => { $("a-editor").value = r.generated.text; syncForm(); box.replaceChildren(el("div", { className: "notice info", textContent: "Proposition placée dans l'éditeur : vérifier puis reconstruire." })); };
+    const differences = (r.existing?.issues || []).filter((i) => i.message.startsWith("la proposition ajoute") || i.message.startsWith("base de connaissances"));
+    box.replaceChildren(el("div", { className: "card" },
+      el("div", { className: "row" }, el("strong", { textContent: "Proposition" }),
+        r.engine ? badge(r.engine, "info") : null,
+        badge(r.recommended === "generated" ? "recommandée" : "l'autorun actuel convient", r.recommended === "generated" ? "warn" : "ok")),
+      el("pre", { className: "bat", textContent: r.generated.text || "(aucun exécutable trouvé)" }),
+      el("ul", { className: "items" }, ...r.generated.items.map((i) => el("li", { className: i.written ? "" : "default" },
+        el("code", { textContent: `${i.key}=${i.value}` }), " — ", i.justification, " (", confidence(i.confidence), ")",
+        i.written ? "" : el("div", { className: "muted", textContent: "→ déjà le comportement par défaut du lanceur : rien à ajouter à l'autorun" })))),
+      ...(r.generated.warnings.length ? [el("ul", { className: "issues" }, ...r.generated.warnings.map((w) => el("li", { textContent: w })))] : []),
+      ...(differences.length ? [el("ul", { className: "issues" }, ...differences.map((i) => el("li", { className: i.level, textContent: i.message })))] : []),
+      el("div", { className: "row" }, use)));
+  } catch (error) {
+    box.replaceChildren(el("div", { className: "notice err", textContent: error.message }));
+  }
+};
 $("a-check").onclick = async () => {
   try {
     const data = await api(`/api/image/autorun/preview?id=${encodeURIComponent(state.current.id)}`, { method: "POST", body: autorunBody() });

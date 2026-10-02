@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from .config import Settings, get_settings, save_roms_dirs
 from .models import ImageInfo, ImageState, Task
 from .services import scan
-from .services.analyze import FolderAnalysis, analyze_folder, report
+from .services.analyze import FolderAnalysis, analyze_folder, analyze_image, report
 from .services.autorun import KEY_HELP, KEY_NAME_RE, Autorun, decode_autorun
 from .services.operations import (
     autorun_sha,
@@ -28,6 +28,7 @@ from .services.operations import (
     pack_target,
     plan_autorun,
     plan_files,
+    remove_tree,
     reset_saves,
     run_autorun,
     run_files,
@@ -209,6 +210,23 @@ def image_files(id: str, q: str = "", limit: int = 2000):
 
 
 # ------------------------------------------------------------- autorun
+
+@app.get("/api/image/analyze")
+def image_analyze(id: str, exe: str | None = None):
+    """Proposition d'autorun pour une image existante (SPEC § 2.5), même
+    moteur que pour les dossiers ; l'image n'est ni montée ni modifiée."""
+    info = _find_image(id)
+    key = f"image:{info.path}"
+    cached = _analyses.get(key)
+    if cached and cached[0] == info.mtime:
+        fa = cached[1]
+    else:
+        fa = analyze_image(info.path, info.name, _settings.unsquashfs, _settings.tmp_dir)
+        if len(_analyses) >= _ANALYSES_MAX:
+            _analyses.pop(next(iter(_analyses)))
+        _analyses[key] = (info.mtime, fa)
+    return {"id": info.id, **report(fa, exe)}
+
 
 @app.get("/api/autorun/keys")
 def autorun_keys():
@@ -729,7 +747,11 @@ def folders_delete(body: MassIds):
         if folder["task"]:
             skipped.append({"id": folder_id, "reason": "tâche en cours"})
             continue
-        shutil.rmtree(folder["path"])
+        try:
+            remove_tree(Path(folder["path"]))
+        except OSError as exc:
+            skipped.append({"id": folder_id, "reason": f"suppression incomplète : {exc}"})
+            continue
         done.append(folder_id)
     return {"done": done, "skipped": skipped}
 
