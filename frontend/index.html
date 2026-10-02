@@ -1173,7 +1173,8 @@ function renderCard(card) {
     if (issues.length) left.append(el("ul", { className: "issues" }, ...issues.map((i) => el("li", { className: i.level, textContent: i.message }))));
   }
   right.append(el("ul", { className: "items" }, ...r.generated.items.map((i) => el("li", { className: i.written ? "" : "default" },
-    el("code", { textContent: `${i.key}=${i.value}` }), " — ", i.justification, " (", confidence(i.confidence), i.written ? ")" : ", défaut du lanceur : non écrit)"))));
+    el("code", { textContent: `${i.key}=${i.value}` }), " — ", i.justification, " (", confidence(i.confidence), ")",
+    i.written ? "" : el("div", { className: "muted", textContent: "→ déjà le comportement par défaut du lanceur : rien à ajouter à l'autorun" })))));
   if (r.generated.warnings.length) right.append(el("ul", { className: "issues" }, ...r.generated.warnings.map((w) => el("li", { textContent: w }))));
   for (const bat of r.bats) {
     right.append(el("div", { className: "muted mono", textContent: bat.path }), el("pre", { className: "bat", textContent: bat.content }));

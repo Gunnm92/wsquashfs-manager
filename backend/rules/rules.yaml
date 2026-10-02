@@ -29,7 +29,7 @@ rules:
     then:
       key: DXVK
       value: "1"
-    justification: "rendu Vulkan ; wined3d = rendu logiciel sous NVIDIA"
+    justification: "le jeu utilise Direct3D 9-11 : DXVK le traduit en Vulkan (sans lui, Wine passe par OpenGL, rendu logiciel sous NVIDIA dans SteamBox)"
     confidence: high
 
   - name: vkd3d-d3d12
