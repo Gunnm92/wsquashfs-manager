@@ -40,11 +40,13 @@ def test_root_level_file_matches_basename_pattern():
     assert "hidraw-sony" in _sources(a)
 
 
-def test_hidraw_not_proposed_with_steam_api():
+def test_hidraw_proposed_even_with_steam_api():
+    # steam_api est présent dans presque tous les jeux : il ne dit rien de la
+    # DualSense ; un portage Sony la gère en hidraw, Steam Input désactivé
     a = Analysis(files=["game/libScePad.dll", "game/steam_api64.dll"])
-    sources = _sources(a)
-    assert "hidraw-sony" not in sources
-    assert "steam-api-pas-hidraw" in sources
+    assert "hidraw-sony" in _sources(a)
+    assert not any("steam_api présent" in (r.warning or "")
+                   for r in run_rules(RULES, Analysis(files=["steam_api64.dll"])))
 
 
 def test_fakeping_without_env_override():
@@ -77,3 +79,12 @@ def test_no_placeholder_values():
     a = Analysis(files=["config_info"], prefix_type="proton")
     for r in run_rules(RULES, a):
         assert r.value is None or "(" not in r.value
+
+
+def test_hidraw_for_sony_port_without_libscepad():
+    # Until Dawn : rien de séparé, tout est dans l'exécutable
+    port = Analysis(files=["Bates.exe"], imports={"hid.dll", "xinput1_3.dll"},
+                    strings={"DualSense"})
+    assert "hidraw-sony-integre" in _sources(port)
+    # « DualSense » seul (texte d'un jeu SDL, par exemple) ne suffit pas
+    assert "hidraw-sony-integre" not in _sources(Analysis(files=[], strings={"DualSense"}))

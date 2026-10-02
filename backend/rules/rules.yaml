@@ -59,31 +59,25 @@ rules:
     justification: "rendu OpenGL natif"
     confidence: high
 
-  - name: xinput
-    when:
-      imports_any: [xinput1_3, xinput1_4, xinput9_1_0]
-    then:
-      warning: "import XInput détecté : mode XInput (pas de HIDRAW)"
-    justification: "manette via XInput par défaut"
-    confidence: high
-
   - name: hidraw-sony
     when:
       file: "libScePad*.dll"
-      not_file: "steam_api*.dll"
     then:
       key: HIDRAW
       value: "1"
-      warning: "DualSense détecté (libScePad) : HIDRAW=1 à vérifier en jeu"
-    justification: "ex. Until Dawn ; pas avec steam_api (règle suivante)"
+      warning: "DualSense gérée nativement (libScePad) : HIDRAW=1, et désactiver Steam Input pour ce jeu — sinon Steam prend la manette et la présente en manette Xbox"
+    justification: "portage Sony (ex. Until Dawn) ; steam_api, présent dans presque tous les jeux, n'y change rien"
     confidence: medium
 
-  - name: steam-api-pas-hidraw
+  - name: hidraw-sony-integre
     when:
-      file: "steam_api*.dll"
+      strings_any: [DualSense]
+      imports: [hid]
     then:
-      warning: "steam_api présent : support DualSense probablement via Steam Input, ne pas forcer HIDRAW"
-    justification: "ex. The Devil in Me, Street Fighter V"
+      key: HIDRAW
+      value: "1"
+      warning: "DualSense gérée par le jeu lui-même (accès HID direct) : HIDRAW=1, et désactiver Steam Input pour ce jeu"
+    justification: "portage Sony sans libScePad séparée (ex. Until Dawn : « DualSense » dans l'exécutable + import de hid.dll)"
     confidence: medium
 
   - name: exe-32-bit-limite

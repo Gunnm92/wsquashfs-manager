@@ -312,6 +312,8 @@ def find_candidates(scan: FolderScan, game: str) -> tuple[list[Candidate], list[
     tekno = next((lower[k] for k in lower if k.endswith("teknoparrot/teknoparrotui.exe")), None)
     engine = "teknoparrot" if tekno else "unity" if unity_dirs else "unreal" if unreal else None
 
+    # Dossiers qui contiennent <Projet>/Binaries/Win64/ : le lanceur Unreal y est
+    ue_bases = {_ue_base(f) for f in exes if _ue_base(f) is not None}
     candidates: list[Candidate] = []
     excluded: list[dict] = []
     largest = max((scan.sizes[e] for e in exes), default=0)
@@ -338,7 +340,8 @@ def find_candidates(scan: FolderScan, game: str) -> tuple[list[Candidate], list[
         low = rel.lower()
         # Unreal : le petit lanceur à la racine démarre le -Shipping avec les
         # bons arguments ; c'est lui que portent les autoruns existants.
-        if engine == "unreal" and depth == 0 and c.size < 10 * 2**20:
+        if engine == "unreal" and rel.rpartition("/")[0].lower() in ue_bases \
+                and c.size < 10 * 2**20:
             c.score += 65
             c.reasons.append("lanceur racine Unreal (démarre l'exécutable Shipping)")
         elif engine == "unreal" and re.search(r"binaries/win(64|32)/[^/]+-win(64|32)-shipping\.exe$", low):
@@ -441,6 +444,8 @@ def _game_version(info: ExeInfo | None, engine: str | None) -> tuple[str | None,
     product = (info.product_name or "").strip().lower()
     if _ENGINE_VERSION_RE.search(version) or product in _ENGINE_PRODUCTS:
         return None, f"{version} : version du moteur ou numéro de build, pas celle du jeu — à saisir"
+    if not re.fullmatch(r"v?\d+(?:[.\-_]\d+){1,4}[a-z]?", version, re.IGNORECASE):
+        return None, f"« {version} » n'est pas un numéro de version (chaîne de build ?) — à saisir"
     if re.fullmatch(r"1(\.0){1,3}", version):
         return None, f"{version} : valeur par défaut des projets, rarement la vraie version — à saisir"
     if engine in ("unreal", "unity") and not product:
@@ -553,6 +558,32 @@ class FolderAnalysis:
 _PE_CANDIDATES = 8      # en-têtes PE lus pour les meilleurs candidats seulement
 
 
+_UE_BINARY_RE = re.compile(r"^(?:(.*)/)?[^/]+/binaries/win(?:64|32)/[^/]+\.exe$")
+
+
+def _ue_base(path: str) -> str | None:
+    """« Windows/Bates/Binaries/Win64/x.exe » → « windows » (dossier du lanceur)."""
+    m = _UE_BINARY_RE.match(path.lower())
+    return (m.group(1) or "") if m else None
+
+
+def _merge_shipping(candidates: list[Candidate]) -> None:
+    """Unreal : le lanceur racine ne fait que démarrer le -Shipping.exe, où se
+    trouve le code du jeu. Ses imports et signatures (DualSense, HID…) sont
+    reportés sur le lanceur, pour que les règles les voient (Until Dawn :
+    Bates.exe 430 Ko, tout est dans Bates-Win64-Shipping.exe)."""
+    shipping = [c for c in candidates if c.info and re.search(
+        r"binaries/win(64|32)/[^/]+-win(64|32)-shipping\.exe$", c.path.lower())]
+    if not shipping:
+        return
+    for ship in shipping:
+        base = _ue_base(ship.path)
+        for c in candidates:
+            if c.info and c is not ship and c.path.rpartition("/")[0].lower() == base:
+                c.info.imports |= ship.info.imports
+                c.info.markers |= ship.info.markers
+
+
 def analyze_folder(root: Path, game: str) -> FolderAnalysis:
     scan = scan_folder(root)
     prefix, arch, proton = detect_prefix(root, scan.files)
@@ -564,6 +595,8 @@ def analyze_folder(root: Path, game: str) -> FolderAnalysis:
             c.reasons.append("programme console")
         elif c.info.gui:
             c.score += 5
+    if engine == "unreal":
+        _merge_shipping(candidates)
     tekno = next((c for c in candidates if c.kind == "teknoparrot"), None)
     if tekno:
         tekno.info = read_exe(root / tekno.path)
@@ -601,7 +634,16 @@ def report(fa: FolderAnalysis, exe: str | None = None) -> dict:
                         f" — {proposal.knowledge.get('note', '')}").strip(" —")})
         existing = {"text": parsed.render().replace("\r\n", "\n"), "encoding": encoding,
                     "issues": issues}
-        broken = any(i["level"] == "error" or "introuvable" in i["message"] for i in issues)
+        # Réglages que les règles ajoutent et que l'autorun existant n'a pas
+        for item in proposal.items:
+            if (item["written"] and item["key"] not in ("DIR", "CMD", "GAME_VERSION")
+                    and item["confidence"] in ("high", "medium")
+                    and parsed.get(item["key"]) != item["value"]):
+                issues.append({"level": "warn", "message": (
+                    f"la proposition ajoute {item['key']}={item['value']} : "
+                    f"{item['justification']}")})
+        broken = any(i["level"] == "error" or "introuvable" in i["message"]
+                     or i["message"].startswith("la proposition ajoute") for i in issues)
         if not broken:
             recommended = "existing"
     return {

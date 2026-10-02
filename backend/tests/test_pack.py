@@ -215,6 +215,8 @@ def test_game_version_engine_vs_game():
     assert version("BRAVELY DEFAULT II", "1.0.0.0", "unreal") is None
     assert version("Spider-Man 2", "1.0", None) is None
     assert version("Worms Crazy Golf", "1.0.0.456", None) == "1.0.0.456"
+    assert version("God of War", "GoWR-6137230-Thu Sep 26 09:46:31 2024", None) is None
+    assert version("Jeu", "v1.0.7", None) == "v1.0.7"
 
 
 def test_knowledge_base_overrides_rules_and_flags_existing(tmp_path):
@@ -258,3 +260,27 @@ def test_knowledge_requires_file(tmp_path):
     proposal = analyze.propose(fa.scan, fa.candidates[0], "none", None, None, None, {},
                                games_file=games)
     assert not any("manquant" in w for w in proposal.warnings)
+
+
+def test_unreal_root_launcher_inherits_shipping_signatures(tmp_path):
+    from app.services import analyze
+    root = _tree(tmp_path / "Until Dawn.pc", {
+        "Windows/Bates.exe": 430_000,
+        "Windows/Bates/Binaries/Win64/Bates-Win64-Shipping.exe": 149_000_000,
+    })
+    fa = analyze_folder(root, "Until Dawn")
+    stub = next(c for c in fa.candidates if c.path == "Windows/Bates.exe")
+    ship = next(c for c in fa.candidates if c.path.endswith("Shipping.exe"))
+    ship.info.imports.add("hid.dll")
+    ship.info.markers.add("DualSense")
+    analyze._merge_shipping(fa.candidates)
+    assert "hid.dll" in stub.info.imports and "DualSense" in stub.info.markers
+
+
+def test_existing_autorun_missing_rule_setting_is_not_recommended(tmp_path):
+    root = _tree(tmp_path / "GoW.pc", {"GoWR.exe": 5_000_000, "libScePad.dll": 1000,
+                                       "steam_api64.dll": 1000, "autorun.cmd": b"CMD=GoWR.exe\r\n"})
+    r = report(analyze_folder(root, "God of War Ragnarok"))
+    assert "HIDRAW=1" in r["generated"]["text"]
+    assert r["recommended"] == "generated"
+    assert any("ajoute HIDRAW=1" in i["message"] for i in r["existing"]["issues"])

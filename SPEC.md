@@ -151,8 +151,7 @@ ajouter, ou un simple avertissement. Règles de départ, issues des cas réels :
 | import `ddraw` | `D7VK=1` (défaut) | jeux DirectDraw |
 | import `opengl32` seul | rien (DXVK sans effet) | — |
 | import `xinput1_*` | mode XInput (pas de `HIDRAW`) | défaut |
-| `libScePad*.dll` ou chaînes Sony/DualSense dans l'exécutable, sans `steam_api` | proposer `HIDRAW=1` (confiance moyenne) | Until Dawn |
-| `steam_api*.dll` présent | ne **pas** proposer `HIDRAW=1` : support DualSense probablement via Steam Input | The Devil in Me, Street Fighter V |
+| `libScePad*.dll` (portage Sony) | proposer `HIDRAW=1` (confiance moyenne) et rappeler de désactiver Steam Input pour le jeu ; `steam_api`, présent dans presque tous les jeux, n'y change rien | Until Dawn |
 | exécutable 32 bits sans « large address aware » | rien de spécial depuis la correction de la pile ; noter la limite de 2 Go | GTI Club |
 | `libavs-win32.dll` (Konami e-amusement) | ajouter le relais `fakeping` (`dinput8.dll` + `DllOverrides`) si l'exécutable importe `DINPUT8` ; sinon avertir | Yu-Gi-Oh! DT6, GTI Club |
 | TeknoParrot + `d3dx9_43` natif (Microsoft) dans le prefix | `"*d3dx9_43"="builtin"` dans le registre | Yu-Gi-Oh! DT6 |
