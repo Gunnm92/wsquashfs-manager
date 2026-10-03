@@ -238,3 +238,21 @@ def test_run_progress_cancel_kills_process(tmp_path: Path):
     threading.Timer(0.2, job.cancel).start()
     with pytest.raises(RebuildCancelled):
         rebuild.run_progress([str(script)], job, "mksquashfs", 0, 1)
+
+
+@needs_tools
+def test_default_work_dir_is_next_to_image_and_removed(image: Path, tmp_path: Path, monkeypatch):
+    """Sans tmp_dir, le travail se fait à côté de l'image (même disque) ;
+    le dossier caché disparaît ensuite."""
+    seen = []
+    real = rebuild._build_extract
+
+    def spy(settings, image_, part, work, changes, job):
+        seen.append(work)
+        real(settings, image_, part, work, changes, job)
+
+    monkeypatch.setattr(rebuild, "_build_extract", spy)
+    settings = Settings(rebuild_mode="extract")
+    rebuild.rebuild(settings, image, Changes(write={"autorun.cmd": b"CMD=x\r\n"}))
+    assert seen[0].parent == image.parent / ".wsquashfs-manager"
+    assert not (image.parent / ".wsquashfs-manager").exists()

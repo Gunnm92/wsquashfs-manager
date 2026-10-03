@@ -62,3 +62,12 @@ def test_find_images_system_from_roms_parent(tmp_path):
     assert _find_images([str(win) + "/"], 3) == [(win / "Jeu.wsquashfs", "win")]
     assert _find_images([str(tmp_path / "ailleurs")], 3) == \
         [(tmp_path / "ailleurs" / "Autre.wsquashfs", None)]
+
+
+def test_find_images_no_duplicates_when_root_and_system_chosen(tmp_path):
+    from app.services.scan import _find_images
+    win = tmp_path / "roms" / "win"
+    win.mkdir(parents=True)
+    (win / "Jeu.wsquashfs").write_bytes(b"")
+    found = _find_images([str(tmp_path / "roms"), str(win)], 3)
+    assert found == [(win / "Jeu.wsquashfs", "win")]

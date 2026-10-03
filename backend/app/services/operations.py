@@ -18,12 +18,11 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
-import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..config import Settings
+from ..config import Settings, work_area
 from ..models import Task
 from . import scan
 from .analyze import scan_folder
@@ -451,12 +450,11 @@ def run_pack(settings: Settings, task: Task, job: Job) -> str:
     elif not old_autorun:
         raise RebuildError("ni autorun existant ni autorun proposé")
 
-    settings.tmp_dir.mkdir(parents=True, exist_ok=True)
     done = False
     try:
-        with tempfile.TemporaryDirectory(prefix="pack-", dir=settings.tmp_dir) as tmp:
+        with work_area(settings, source, "pack-") as tmp:
             if autorun is not None:
-                injected = Path(tmp) / "autorun.cmd"
+                injected = tmp / "autorun.cmd"
                 injected.write_bytes(autorun)
                 sources = [str(source / name) for name in sorted(os.listdir(source))
                            if name.lower() != "autorun.cmd"] + [str(injected)]

@@ -194,6 +194,11 @@ class ImageSource:
             yield Path(tmp)
         finally:
             Path(tmp).unlink(missing_ok=True)
+            if self.tmp_dir and self.tmp_dir.name == ".wsquashfs-manager":
+                try:
+                    self.tmp_dir.rmdir()        # dossier de travail à côté de l'image
+                except OSError:
+                    pass
 
 
 @dataclass

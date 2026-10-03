@@ -35,10 +35,10 @@ Une seule instance à la fois : une seconde refuse de démarrer (elle prendrait
 les mêmes tâches). Tests : `backend/.venv/bin/python -m pytest` (dans
 `backend/`, les reconstructions réelles exigent squashfs-tools).
 
-Les dossiers `roms/` se choisissent depuis l'interface (bouton « Réglages ») ;
-la variable d'environnement `WSQUASHFS_MGR_ROMS_DIRS` reste prioritaire. On
-peut choisir `roms/` ou directement `roms/<système>` : le système est déduit
-comme le fait le lanceur. Un serveur resté sur une ancienne version répond
+Les systèmes se cochent dans l'interface (bouton « Réglages »), parmi ceux
+du dossier de base `WSQUASHFS_MGR_ROMS_DIRS` (`/roms` dans le conteneur) ; ce
+choix l'emporte sur la variable. On peut aussi donner `roms/` entier ou un
+autre chemin : le système est déduit comme le fait le lanceur. Un serveur resté sur une ancienne version répond
 « API introuvable ».
 
 ## Docker (déploiement)
@@ -59,7 +59,7 @@ echo 'WSQUASHFS_MGR_PASSWORD=…' > .env && docker compose up -d
 |---|---|
 | `/mnt/user/Game/Batocera/roms` → `/roms` | images et dossiers de jeux |
 | `/mnt/user/appdata/steambox/.local/share/wsquashfs/saves` → `/saves` | sauvegardes du lanceur dans SteamBox |
-| `/mnt/user/appdata/wsquashfs-manager` → `/data` | file de tâches, caches, couches temporaires |
+| `/mnt/user/appdata/wsquashfs-manager` → `/data` | file de tâches, caches |
 
 - utilisateur `99:100` (nobody:users = `arcade` de SteamBox) : les images
   créées ont le même propriétaire que les autres ;
@@ -76,9 +76,9 @@ Variables `WSQUASHFS_MGR_*` (ou fichier `backend/.env`) :
 
 | Variable | Défaut | Rôle |
 |---|---|---|
-| `ROMS_DIRS` | — | dossiers `roms/` à scanner, séparés par des virgules |
+| `ROMS_DIRS` | — | dossiers de roms de base (ex. `/roms`) ; le choix fait dans « Réglages » l'emporte |
 | `SAVES_DIR` | `~/.local/share/wsquashfs/saves` | sauvegardes du lanceur |
-| `TMP_DIR` | `/tmp/wsquashfs-manager` | couches overlay, extraction de repli |
+| `TMP_DIR` | — (à côté de l'image) | dossier de travail imposé ; par défaut `.wsquashfs-manager/` à côté de chaque image, même disque |
 | `STATE_DIR` | `~/.local/state/wsquashfs-manager` | état de la file de tâches |
 | `REBUILD_MODE` | `auto` | `overlay` (FUSE), `extract` (repli) ou `auto` |
 | `TASK_CONCURRENCY` | `1` | reconstructions simultanées |
@@ -124,7 +124,9 @@ Une image squashfs ne se modifie pas en place (SPEC § 3.1) :
 1. **overlay** si `/dev/fuse`, `squashfuse` et `fuse-overlayfs` sont là : l'image
    est montée en lecture seule, les changements vont dans une couche
    `fuse-overlayfs`, `mksquashfs` relit la vue fusionnée — rien n'est extrait ;
-   sinon **extraction** complète dans `TMP_DIR` (≈ 2 × la taille décompressée) ;
+   sinon **extraction** complète (≈ 2 × la taille décompressée) ; le dossier
+   de travail est `.wsquashfs-manager/` à côté de l'image (même disque),
+   supprimé ensuite ;
 2. la nouvelle image est construite en `<jeu>.wsquashfs.part` à côté de
    l'original, après contrôle de l'espace disque ;
 3. vérification : table lisible, arborescence identique à celle attendue,

@@ -5,6 +5,8 @@ Valeurs par défaut alignées sur les conventions de wsquashfs-launcher
 """
 
 import json
+import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -18,6 +20,8 @@ class Settings(BaseSettings):
     # Dossiers de jeux à scanner : liste de chemins vers des dossiers roms/
     # (variable d'env : liste séparée par des virgules)
     roms_dirs: Annotated[list[str], NoDecode] = []
+    # Dossiers de base (variable d'environnement), proposés dans « Réglages »
+    roms_roots: list[str] = []
 
     @field_validator("roms_dirs", mode="before")
     @classmethod
@@ -29,9 +33,11 @@ class Settings(BaseSettings):
     # Sauvegardes (même convention que wsquashfs-launcher)
     saves_dir: Path = Path.home() / ".local/share/wsquashfs/saves"
 
-    # Dossier temporaire (couches overlay, extraction de repli). Le .part est
-    # construit À CÔTÉ de l'image, pour un échange atomique (même disque).
-    tmp_dir: Path = Path("/tmp/wsquashfs-manager")
+    # Dossier de travail (couches overlay, extraction de repli, exécutables
+    # extraits pour l'analyse). Par défaut, un dossier caché .wsquashfs-manager
+    # À CÔTÉ de l'image : même disque, aucune donnée ne transite ailleurs (le
+    # .part y est aussi construit, pour un échange atomique).
+    tmp_dir: Path | None = None
     # Dossiers choisis depuis l'interface (n'écrase pas .env)
     runtime_config_file: Path = Path.home() / ".config/wsquashfs-manager/config.json"
     # État de la file de tâches (survit à un redémarrage, SPEC § 4)
@@ -72,6 +78,27 @@ class Settings(BaseSettings):
     mksquashfs_opts: list[str] = ["-comp", "zstd"]
 
 
+WORK_DIR_NAME = ".wsquashfs-manager"
+
+
+@contextmanager
+def work_area(settings: Settings, near: Path, prefix: str):
+    """Dossier de travail temporaire, à côté de `near` (image ou dossier de
+    jeu) sauf si tmp_dir est imposé ; supprimé ensuite, son parent aussi s'il
+    est vide."""
+    base = settings.tmp_dir or near.parent / WORK_DIR_NAME
+    base.mkdir(parents=True, exist_ok=True)
+    try:
+        with tempfile.TemporaryDirectory(prefix=prefix, dir=base) as tmp:
+            yield Path(tmp)
+    finally:
+        if settings.tmp_dir is None:
+            try:
+                base.rmdir()
+            except OSError:
+                pass            # utilisé par une autre tâche, ou non vide
+
+
 def _read_runtime_roms_dirs(settings: Settings) -> list[str]:
     try:
         data = json.loads(settings.runtime_config_file.read_text())
@@ -93,8 +120,11 @@ def save_roms_dirs(settings: Settings, roms_dirs: list[str]) -> None:
 
 def get_settings() -> Settings:
     settings = Settings()
-    # Une variable d'environnement est prioritaire, ce qui reste pratique
-    # pour un déploiement conteneurisé.
-    if not settings.roms_dirs:
-        settings.roms_dirs = _read_runtime_roms_dirs(settings)
+    # WSQUASHFS_MGR_ROMS_DIRS : dossiers montés (ex. /roms dans le conteneur),
+    # où l'interface (« Réglages ») choisit ; son choix l'emporte, la
+    # variable ne sert que tant que rien n'a été choisi.
+    settings.roms_roots = list(settings.roms_dirs)
+    chosen = _read_runtime_roms_dirs(settings)
+    if chosen:
+        settings.roms_dirs = chosen
     return settings

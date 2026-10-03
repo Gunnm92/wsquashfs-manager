@@ -54,6 +54,7 @@ def _find_images(roms_dirs: list[str], max_depth: int) -> list[tuple[Path, str |
     `max_depth` niveaux sous chaque dossier roms/. système = premier
     sous-dossier si l'image est dans roms/<système>/."""
     out: list[tuple[Path, str | None]] = []
+    seen: set[Path] = set()         # roms/ et roms/<système> cochés ensemble
     for d in roms_dirs:
         root = Path(d).expanduser()
         if not root.is_dir():
@@ -67,6 +68,9 @@ def _find_images(roms_dirs: list[str], max_depth: int) -> list[tuple[Path, str |
                 if f.startswith(".") or not f.endswith(".wsquashfs"):
                     continue
                 p = Path(cur) / f
+                if p.resolve() in seen:
+                    continue
+                seen.add(p.resolve())
                 rel = p.relative_to(root)
                 if len(rel.parts) > 1:
                     system = rel.parts[0]

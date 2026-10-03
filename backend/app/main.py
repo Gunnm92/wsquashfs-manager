@@ -16,7 +16,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from .config import Settings, get_settings, save_roms_dirs
+from .config import WORK_DIR_NAME, Settings, get_settings, save_roms_dirs
 from .models import ImageInfo, ImageState, Task
 from .services import scan
 from .services.analyze import FolderAnalysis, analyze_folder, analyze_image, report
@@ -126,12 +126,39 @@ def get_config():
     return {
         "roms_dirs": _settings.roms_dirs,
         "saves_dir": str(_settings.saves_dir),
-        "tmp_dir": str(_settings.tmp_dir),
+        "tmp_dir": str(_settings.tmp_dir) if _settings.tmp_dir else "à côté de chaque image",
+        "roms_roots": _settings.roms_roots,
         "concurrency": _settings.task_concurrency,
         "old_retention_days": _settings.old_retention_days,
         "rebuild_mode": _settings.rebuild_mode,
         "tool_user": _settings.tool_user,
     }
+
+
+@app.get("/api/config/systems")
+def config_systems():
+    """Systèmes des dossiers de base (WSQUASHFS_MGR_ROMS_DIRS, ex. /roms) avec
+    leur nombre d'images et de dossiers de jeux, pour « Réglages »."""
+    out = []
+    for root in _settings.roms_roots or _settings.roms_dirs:
+        base = Path(root).expanduser()
+        try:
+            entries = sorted(base.iterdir())
+        except OSError:
+            continue
+        for d in entries:
+            if not d.is_dir() or d.name.startswith(".") or d.name.lower().endswith((".pc", ".wine")):
+                continue
+            try:
+                names = [e.name.lower() for e in d.iterdir()]
+            except OSError:
+                continue
+            images = sum(n.endswith(".wsquashfs") for n in names)
+            folders = sum(n.endswith((".pc", ".wine")) for n in names)
+            if images or folders:
+                out.append({"path": str(d), "name": d.name, "root": str(base),
+                            "images": images, "folders": folders})
+    return out
 
 
 class RomsDirs(BaseModel):
@@ -221,7 +248,8 @@ def image_analyze(id: str, exe: str | None = None):
     if cached and cached[0] == info.mtime:
         fa = cached[1]
     else:
-        fa = analyze_image(info.path, info.name, _settings.unsquashfs, _settings.tmp_dir)
+        fa = analyze_image(info.path, info.name, _settings.unsquashfs,
+                           _settings.tmp_dir or info.path.parent / WORK_DIR_NAME)
         if len(_analyses) >= _ANALYSES_MAX:
             _analyses.pop(next(iter(_analyses)))
         _analyses[key] = (info.mtime, fa)

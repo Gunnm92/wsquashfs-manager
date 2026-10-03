@@ -282,3 +282,25 @@ def test_folders_pack_after_rename_explains(folders_client, queue, tmp_path):
     assert len(first["tasks"]) == 1          # retrouvé sous son nouveau nom
     again = folders_client.post("/api/folders/pack", json=body).json()
     assert again["tasks"] == [] and "déjà en attente" in again["skipped"][0]["reason"]
+
+
+def test_interface_choice_beats_environment(tmp_path, monkeypatch):
+    from app import config
+    monkeypatch.setenv("WSQUASHFS_MGR_ROMS_DIRS", "/roms")
+    monkeypatch.setenv("WSQUASHFS_MGR_RUNTIME_CONFIG_FILE", str(tmp_path / "config.json"))
+    first = config.get_settings()
+    assert first.roms_dirs == ["/roms"] and first.roms_roots == ["/roms"]
+    config.save_roms_dirs(first, ["/roms/win"])
+    again = config.get_settings()
+    assert again.roms_dirs == ["/roms/win"] and again.roms_roots == ["/roms"]
+
+
+def test_config_systems_lists_game_dirs(client, monkeypatch, tmp_path):
+    roms = tmp_path / "base"
+    (roms / "win" / "Jeu.pc").mkdir(parents=True)
+    (roms / "win" / "A.wsquashfs").write_bytes(b"")
+    (roms / "snes").mkdir()
+    (roms / "snes" / "mario.sfc").write_bytes(b"")
+    monkeypatch.setattr(main._settings, "roms_roots", [str(roms)])
+    assert client.get("/api/config/systems").json() == [
+        {"path": str(roms / "win"), "name": "win", "root": str(roms), "images": 1, "folders": 1}]

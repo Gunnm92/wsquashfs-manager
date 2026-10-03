@@ -21,7 +21,6 @@ import os
 import shutil
 import stat as statmod
 import subprocess
-import tempfile
 import threading
 import time
 from collections import deque
@@ -29,7 +28,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
-from ..config import Settings
+from ..config import Settings, work_area
 from .scan import _list_files_uncached
 
 # Marge sur la taille de la nouvelle image (≈ l'ancienne) : la compression
@@ -188,14 +187,14 @@ def uncompressed_size(settings: Settings, image: Path) -> int:
 def space_needed(settings: Settings, image: Path, changes: Changes,
                  mode: str) -> dict[Path, int]:
     """Octets nécessaires par point de montage (le .part à côté de l'image,
-    l'extraction dans tmp_dir)."""
+    l'extraction dans le dossier de travail, à côté de l'image par défaut)."""
     copies = sum(src.stat().st_size for src in changes.copy.values())
     writes = sum(len(data) for data in changes.write.values())
     needs: dict[Path, int] = {}
     image_dir = image.parent
     needs[image_dir] = int(image.stat().st_size * _SPACE_MARGIN) + copies + writes
     if mode == "extract":
-        tmp = settings.tmp_dir
+        tmp = settings.tmp_dir or image_dir
         extract = uncompressed_size(settings, image) + copies + writes
         if _same_fs(tmp, image_dir):
             needs[image_dir] += extract
@@ -392,12 +391,11 @@ def rebuild(settings: Settings, image: Path, changes: Changes, job: Job | None =
         raise RebuildError("arborescence de l'image illisible (unsquashfs -l)")
     expected = expected_listing(old_listing, changes)
 
-    settings.tmp_dir.mkdir(parents=True, exist_ok=True)
     swapped = False
     try:
-        with tempfile.TemporaryDirectory(prefix="rebuild-", dir=settings.tmp_dir) as tmp:
+        with work_area(settings, image, "rebuild-") as tmp:
             build = _build_overlay if mode == "overlay" else _build_extract
-            build(settings, image, part, Path(tmp), changes, job)
+            build(settings, image, part, tmp, changes, job)
         job.check()
         job.progress("vérification", 0.93)
         verify(settings, part, expected, changes)

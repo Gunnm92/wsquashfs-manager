@@ -271,9 +271,12 @@ pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; 
 </dialog>
 
 <dialog id="dlg-config" class="small">
-  <h2>Dossiers roms/ à scanner</h2>
-  <p class="muted">Un chemin par ligne (ex. /userdata/roms). Une variable d'environnement WSQUASHFS_MGR_ROMS_DIRS reste prioritaire.</p>
-  <textarea id="cfg-dirs" rows="5"></textarea>
+  <h2>Systèmes à gérer</h2>
+  <p class="muted">Systèmes trouvés dans le dossier des roms (images <code>.wsquashfs</code> / dossiers <code>.pc</code>, <code>.wine</code>).</p>
+  <div id="cfg-systems" style="max-height:45vh;overflow:auto"></div>
+  <details style="margin-top:.6rem"><summary class="muted">Autres chemins (un par ligne)</summary>
+    <textarea id="cfg-dirs" rows="3" placeholder="/chemin/vers/roms/systeme"></textarea>
+  </details>
   <dl id="cfg-info" style="margin-top:.8rem"></dl>
   <p id="cfg-err" class="notice err" hidden></p>
   <div class="row" style="margin-top:.8rem"><span class="spacer"></span>
@@ -834,10 +837,22 @@ $("tasks-clear").onclick = async () => { await api("/api/tasks/finished", { meth
 // ------------------------------------------------------------------ dossiers
 
 $("btn-config").onclick = async () => {
-  const cfg = await api("/api/config");
-  $("cfg-dirs").value = cfg.roms_dirs.join("\n");
+  const [cfg, systems] = await Promise.all([api("/api/config"), api("/api/config/systems")]);
+  const chosen = new Set(cfg.roms_dirs.map((d) => d.replace(/\/+$/, "")));
+  const roots = [...new Set(systems.map((x) => x.root))];
+  const box = (path, label, detail) => {
+    const input = el("input", { type: "checkbox", checked: chosen.has(path), value: path });
+    input.dataset.path = path;
+    return el("label", { className: "row", style: "gap:.4rem" }, input, el("span", { textContent: label }),
+      el("span", { className: "muted", textContent: detail }));
+  };
+  $("cfg-systems").replaceChildren(
+    ...roots.map((root) => box(root, `${root} (tout)`, "tous les systèmes")),
+    ...systems.map((x) => box(x.path, x.name, [x.images && `${x.images} image(s)`, x.folders && `${x.folders} dossier(s)`].filter(Boolean).join(", "))));
+  const known = new Set([...roots, ...systems.map((x) => x.path)]);
+  $("cfg-dirs").value = [...chosen].filter((d) => !known.has(d)).join("\n");
   $("cfg-info").replaceChildren(...[
-    ["Sauvegardes", cfg.saves_dir], ["Temporaire", cfg.tmp_dir], ["Reconstruction", cfg.rebuild_mode],
+    ["Sauvegardes", cfg.saves_dir], ["Dossier de travail", cfg.tmp_dir], ["Reconstruction", cfg.rebuild_mode],
     ["Rétention .old", cfg.old_retention_days == null ? "manuelle" : `${cfg.old_retention_days} jours`],
   ].flatMap(([k, v]) => [el("dt", { textContent: k }), el("dd", { textContent: v })]));
   $("cfg-err").hidden = true;
@@ -845,7 +860,10 @@ $("btn-config").onclick = async () => {
 };
 $("cfg-save").onclick = async () => {
   try {
-    await api("/api/config/roms_dirs", { method: "PUT", body: { roms_dirs: $("cfg-dirs").value.split("\n") } });
+    const dirs = [...$("cfg-systems").querySelectorAll("input:checked")].map((i) => i.dataset.path)
+      .concat($("cfg-dirs").value.split("\n").map((d) => d.trim()).filter(Boolean));
+    if (!dirs.length) throw new Error("Cocher au moins un système.");
+    await api("/api/config/roms_dirs", { method: "PUT", body: { roms_dirs: dirs } });
     $("dlg-config").close();
     loadLibrary();
   } catch (error) {
