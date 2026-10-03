@@ -230,7 +230,7 @@ pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; 
     </div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th class="nosort"><input type="checkbox" id="g-all"></th><th>Système</th><th>Dossier</th><th>Type</th><th>Autorun</th><th>Image</th><th>Tâche</th></tr></thead>
+        <thead><tr id="g-head"><th class="nosort"><input type="checkbox" id="g-all"></th><th data-sort="system">Système</th><th data-sort="folder">Dossier</th><th data-sort="kind">Type</th><th data-sort="has_autorun">Autorun</th><th data-sort="image_exists">Image</th><th data-sort="task">Tâche</th></tr></thead>
         <tbody id="g-rows"></tbody>
       </table>
     </div>
@@ -1140,7 +1140,26 @@ $("views").onclick = (event) => event.target.dataset.view && showView(event.targ
 
 // ------------------------------------------------------------------ dossiers à empaqueter
 
-const folders = { items: [], selected: new Set() };
+const folders = { items: [], selected: new Set(), sort: { key: "folder", dir: 1 } };
+
+function sortedFolders(items) {
+  const { key, dir } = folders.sort;
+  return [...items].sort((a, b) => {
+    const x = a[key] ?? "", y = b[key] ?? "";
+    const cmp = typeof x === "boolean" || typeof y === "boolean" ? Number(Boolean(x)) - Number(Boolean(y))
+      : String(x).localeCompare(String(y), "fr", { numeric: true, sensitivity: "base" });
+    // À égalité, ordre alphabétique des dossiers
+    return cmp * dir || a.folder.localeCompare(b.folder, "fr", { numeric: true, sensitivity: "base" });
+  });
+}
+
+for (const th of document.querySelectorAll("#g-head th[data-sort]")) {
+  th.onclick = () => {
+    const key = th.dataset.sort;
+    folders.sort = { key, dir: folders.sort.key === key ? -folders.sort.dir : 1 };
+    renderFolders();
+  };
+}
 
 async function loadFolders() {
   try {
@@ -1163,7 +1182,11 @@ function visibleFolders() {
 }
 
 function renderFolders() {
-  const visible = visibleFolders();
+  const visible = sortedFolders(visibleFolders());
+  for (const th of document.querySelectorAll("#g-head th[data-sort]")) {
+    th.querySelector(".dir")?.remove();
+    if (th.dataset.sort === folders.sort.key) th.append(el("span", { className: "dir", textContent: folders.sort.dir > 0 ? " ▲" : " ▼" }));
+  }
   $("g-all").checked = visible.length > 0 && visible.every((f) => folders.selected.has(f.id));
   $("g-rows").replaceChildren(...visible.map((f) => {
     const box = el("input", { type: "checkbox", checked: folders.selected.has(f.id) });
