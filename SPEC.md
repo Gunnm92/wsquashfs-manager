@@ -292,8 +292,8 @@ l'étape 2, sur la fiche d'une image.
 
 1. **Web ou bureau** : application web (recommandé, accessible depuis ton
    PC) ou application de bureau dans la session XFCE de SteamBox.
-2. **Où elle tourne** : dans le conteneur SteamBox (simple, outils déjà là)
-   ou dans un conteneur séparé (indépendant des redémarrages de SteamBox).
+2. **Où elle tourne** : conteneur séparé, retenu le 04/10/2026 (voir README,
+   « Docker »).
 3. **Rétention des `.old`** : manuelle, ou suppression après N jours.
 4. **Surcharge sans reconstruction** (plus tard) : un fichier à côté de
    l'image (`<jeu>.wsquashfs.autorun`) lu par le lanceur, pour tester un

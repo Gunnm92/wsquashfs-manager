@@ -41,6 +41,35 @@ peut choisir `roms/` ou directement `roms/<système>` : le système est déduit
 comme le fait le lanceur. Un serveur resté sur une ancienne version répond
 « API introuvable ».
 
+## Docker (déploiement)
+
+Conteneur séparé de SteamBox (SPEC § 7, point 2), image
+`registry.elfenn.eu/wsquashfs-manager` (Debian trixie : squashfs-tools 4.6,
+squashfuse, fuse-overlayfs).
+
+```sh
+make build                 # image locale (via docker-socket-proxy)
+make push                  # publication sur registry.elfenn.eu
+echo 'WSQUASHFS_MGR_PASSWORD=…' > .env && docker compose up -d
+```
+
+`docker-compose.yml` reprend les chemins Unraid :
+
+| Volume | Rôle |
+|---|---|
+| `/mnt/user/Game/Batocera/roms` → `/roms` | images et dossiers de jeux |
+| `/mnt/user/appdata/steambox/.local/share/wsquashfs/saves` → `/saves` | sauvegardes du lanceur dans SteamBox |
+| `/mnt/user/appdata/wsquashfs-manager` → `/data` | file de tâches, caches, couches temporaires |
+
+- utilisateur `99:100` (nobody:users = `arcade` de SteamBox) : les images
+  créées ont le même propriétaire que les autres ;
+- `pid: host` : le manager voit les jeux lancés dans SteamBox (WINEPREFIX) et
+  refuse de reconstruire leur image ;
+- `/dev/fuse` + `SYS_ADMIN` : reconstruction en mode overlay, sans extraction
+  (validée dans le conteneur) ;
+- mot de passe obligatoire : sans `WSQUASHFS_MGR_PASSWORD`, le conteneur
+  refuse de démarrer.
+
 ## Configuration
 
 Variables `WSQUASHFS_MGR_*` (ou fichier `backend/.env`) :
@@ -182,9 +211,8 @@ frontend/index.html      # interface (sans build)
 ## Décisions en attente (SPEC § 7)
 
 1. Web ou bureau — **web** retenu de fait.
-2. Où elle tourne : conteneur SteamBox (FUSE disponible → mode overlay) ou
-   conteneur séparé (sans `/dev/fuse` → mode extraction, plus lent et plus
-   gourmand en disque).
+2. Où elle tourne — **conteneur Docker séparé** retenu (voir « Docker »),
+   avec `/dev/fuse` : mode overlay.
 3. Rétention des `.old` : manuelle par défaut, `OLD_RETENTION_DAYS` sinon.
 4. (Plus tard) fichier `<jeu>.wsquashfs.autorun` à côté de l'image, lu par le
    lanceur, ignoré par Batocera.
