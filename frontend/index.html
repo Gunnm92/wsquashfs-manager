@@ -435,7 +435,8 @@ async function loadLibrary(refresh = false) {
   }
   state.byId = new Map(state.items.map((i) => [i.id, i]));
   for (const id of [...state.selected]) if (!state.byId.has(id)) state.selected.delete(id);
-  fillFilter("f-system", "Tous systèmes", state.items.map((i) => i.system).filter(Boolean));
+  // Les systèmes proposés sont ceux choisis dans « Réglages » ; ce filtre ne fait qu'affiner l'affichage
+  fillFilter("f-system", "Système : tous ceux de Réglages", state.items.map((i) => i.system).filter(Boolean));
   fillFilter("f-type", "Tous types", state.items.map((i) => i.type), TYPES);
   fillFilter("f-runner", "Tous runners", state.items.map(runnerLabel));
   $("status").textContent = `${state.items.length} images`;
@@ -845,7 +846,19 @@ $("tasks-clear").onclick = async () => { await api("/api/tasks/finished", { meth
 // ------------------------------------------------------------------ dossiers
 
 $("btn-config").onclick = async () => {
-  const [cfg, systems] = await Promise.all([api("/api/config"), api("/api/config/systems")]);
+  let cfg, systems = [], systemsError = null;
+  try {
+    cfg = await api("/api/config");
+  } catch (error) {
+    alert(`Réglages indisponibles : ${error.message}`);
+    return;
+  }
+  try {
+    systems = await api("/api/config/systems");
+  } catch (error) {
+    // Serveur plus ancien que la page : la fenêtre s'ouvre quand même, chemins à saisir
+    systemsError = `Liste des systèmes indisponible (${error.message}) — chemins à saisir ci-dessous.`;
+  }
   const chosen = new Set(cfg.roms_dirs.map((d) => d.replace(/\/+$/, "")));
   const roots = [...new Set(systems.map((x) => x.root))];
   const box = (path, label, detail) => {
@@ -863,7 +876,9 @@ $("btn-config").onclick = async () => {
     ["Sauvegardes", cfg.saves_dir], ["Dossier de travail", cfg.tmp_dir], ["Reconstruction", cfg.rebuild_mode],
     ["Rétention .old", cfg.old_retention_days == null ? "manuelle" : `${cfg.old_retention_days} jours`],
   ].flatMap(([k, v]) => [el("dt", { textContent: k }), el("dd", { textContent: v })]));
-  $("cfg-err").hidden = true;
+  $("cfg-err").textContent = systemsError || "";
+  $("cfg-err").hidden = !systemsError;
+  if (!systems.length) $("cfg-dirs").closest("details").open = true;
   $("dlg-config").showModal();
 };
 $("cfg-save").onclick = async () => {
@@ -1136,7 +1151,7 @@ async function loadFolders() {
   }
   const ids = new Set(folders.items.map((f) => f.id));
   for (const id of [...folders.selected]) if (!ids.has(id)) folders.selected.delete(id);
-  fillFilter("g-system", "Tous systèmes", folders.items.map((f) => f.system).filter(Boolean));
+  fillFilter("g-system", "Système : tous ceux de Réglages", folders.items.map((f) => f.system).filter(Boolean));
   renderFolders();
 }
 
