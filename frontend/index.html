@@ -124,7 +124,7 @@ pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; 
   <span id="status" class="muted"></span>
   <span class="spacer"></span>
   <button class="secondary" id="btn-config" title="Dossiers roms/ à scanner">Réglages</button>
-  <button class="secondary" id="btn-refresh" title="Relit toutes les images, cache ignoré">Rescanner</button>
+  <button class="secondary" id="btn-refresh" title="Relit les images ajoutées ou modifiées (les autres viennent du cache)">Actualiser</button>
 </header>
 
 <main id="main">
@@ -351,7 +351,15 @@ let loginWaiters = null;
 async function api(path, { method = "GET", body } = {}) {
   const headers = { "x-wsfs-token": storage.get("wsfs-token") || "" };
   if (body !== undefined) headers["content-type"] = "application/json";
-  const response = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  // Délai maximal : une requête perdue en route (proxy, disque saturé par
+  // un empaquetage) ne doit pas laisser la page en attente sans fin
+  let response;
+  try {
+    response = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(120000) });
+  } catch (error) {
+    throw new Error(error.name === "TimeoutError" ? "le serveur n'a pas répondu en 2 minutes (réessayer)" : `connexion impossible : ${error.message}`);
+  }
   if (response.status === 401 && path !== "/login") {
     await askLogin();
     return api(path, { method, body });
@@ -518,7 +526,7 @@ function renderSelection() {
 }
 
 for (const id of ["f-search", "f-system", "f-type", "f-runner", "f-pad", "f-special"]) $(id).addEventListener("input", renderTable);
-$("btn-refresh").onclick = () => loadLibrary(true);
+$("btn-refresh").onclick = () => loadLibrary();
 $("btn-sel-clear").onclick = () => { state.selected.clear(); renderTable(); };
 
 // ------------------------------------------------------------------ fiche
