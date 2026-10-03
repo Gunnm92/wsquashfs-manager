@@ -1,0 +1,37 @@
+<?xml version="1.0"?>
+<!--
+  Template Unraid de wsquashfs-manager.
+  Installation : copier ce fichier dans
+    /boot/config/plugins/dockerMan/templates-user/my-wsquashfs-manager.xml
+  puis Docker > Add Container > Template : wsquashfs-manager.
+  Toute modification faite dans l'interface d'Unraid est à reporter ici (et
+  inversement) : c'est la référence du déploiement.
+-->
+<Container version="2">
+  <Name>wsquashfs-manager</Name>
+  <Repository>registry.elfenn.eu/wsquashfs-manager:latest</Repository>
+  <Network>bridge</Network>
+  <Privileged>false</Privileged>
+  <Shell>bash</Shell>
+  <WebUI>http://[IP]:[PORT:8765]/</WebUI>
+  <Icon>https://raw.githubusercontent.com/walkxcode/dashboard-icons/main/png/steam.png</Icon>
+  <Category>Tools: GameServers:</Category>
+  <Overview>Gestion des jeux Windows .wsquashfs (format Batocera) : ludothèque, édition de l'autorun, empaquetage des dossiers .pc/.wine avec autorun généré, actions en masse, reconstruction vérifiée (l'original est gardé en .old).</Overview>
+  <!--
+    pid=host     : voir les jeux lancés dans SteamBox (WINEPREFIX) et ne pas
+                   reconstruire leur image pendant une partie.
+    SYS_ADMIN + apparmor=unconfined : montages FUSE (squashfuse,
+                   fuse-overlayfs) pour reconstruire sans tout extraire.
+  -->
+  <ExtraParams>--pid=host --cap-add=SYS_ADMIN --security-opt apparmor=unconfined</ExtraParams>
+
+  <Config Name="Port de l'interface" Target="8765" Default="8765" Mode="tcp" Description="Port de l'interface web (http://[IP]:port/)." Type="Port" Display="always" Required="true" Mask="false">8765</Config>
+  <Config Name="Roms" Target="/roms" Default="/mnt/user/Game/Batocera/roms" Mode="rw" Description="Dossier des roms Batocera (le même que celui de SteamBox). Les systèmes à gérer se choisissent ensuite dans Réglages." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/Game/Batocera/roms</Config>
+  <Config Name="Sauvegardes du lanceur" Target="/saves" Default="/mnt/user/appdata/steambox/.local/share/wsquashfs/saves" Mode="rw" Description="Sauvegardes de wsquashfs-launcher dans SteamBox (une couche par jeu) : taille, réinitialisation, report des valeurs de registre." Type="Path" Display="always" Required="false" Mask="false">/mnt/user/appdata/steambox/.local/share/wsquashfs/saves</Config>
+  <Config Name="Appdata" Target="/data" Default="/mnt/user/appdata/wsquashfs-manager" Mode="rw" Description="File de tâches, caches et réglages. Le travail sur les images se fait à côté d'elles, pas ici." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/wsquashfs-manager</Config>
+  <Config Name="Mot de passe" Target="WSQUASHFS_MGR_PASSWORD" Default="" Mode="" Description="Obligatoire : l'application réécrit et supprime des fichiers. Sans mot de passe, le conteneur refuse de démarrer." Type="Variable" Display="always" Required="true" Mask="true"></Config>
+  <Config Name="FUSE" Target="/dev/fuse" Default="/dev/fuse" Mode="" Description="Reconstruction sans extraction (mode overlay). Sans lui, repli sur l'extraction complète, plus lente et gourmande en disque." Type="Device" Display="advanced" Required="false" Mask="false">/dev/fuse</Config>
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="Utilisateur propriétaire des images (99 = nobody, comme arcade dans SteamBox)." Type="Variable" Display="advanced" Required="true" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Groupe propriétaire des images (100 = users)." Type="Variable" Display="advanced" Required="true" Mask="false">100</Config>
+  <Config Name="Fuseau horaire" Target="TZ" Default="Europe/Paris" Mode="" Description="" Type="Variable" Display="advanced" Required="false" Mask="false">Europe/Paris</Config>
+</Container>

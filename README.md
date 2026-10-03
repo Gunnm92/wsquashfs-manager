@@ -45,30 +45,34 @@ autre chemin : le système est déduit comme le fait le lanceur. Un serveur rest
 
 Conteneur séparé de SteamBox (SPEC § 7, point 2), image
 `registry.elfenn.eu/wsquashfs-manager` (Debian trixie : squashfs-tools 4.6,
-squashfuse, fuse-overlayfs).
+squashfuse, fuse-overlayfs), déployé par un **template Unraid** :
+[`unraid/wsquashfs-manager.xml`](unraid/wsquashfs-manager.xml).
 
 ```sh
 make build                 # image locale (via docker-socket-proxy)
 make push                  # publication sur registry.elfenn.eu
-echo 'WSQUASHFS_MGR_PASSWORD=…' > .env && docker compose up -d
 ```
 
-`docker-compose.yml` reprend les chemins Unraid :
+Installation : copier le template dans
+`/boot/config/plugins/dockerMan/templates-user/my-wsquashfs-manager.xml`,
+puis Docker → Add Container → Template : `wsquashfs-manager`. Champs :
 
-| Volume | Rôle |
-|---|---|
-| `/mnt/user/Game/Batocera/roms` → `/roms` | images et dossiers de jeux |
-| `/mnt/user/appdata/steambox/.local/share/wsquashfs/saves` → `/saves` | sauvegardes du lanceur dans SteamBox |
-| `/mnt/user/appdata/wsquashfs-manager` → `/data` | file de tâches, caches |
+| Champ | Conteneur | Rôle |
+|---|---|---|
+| Port de l'interface | 8765 | interface web |
+| Roms | `/roms` | dossier des roms Batocera ; les systèmes se cochent dans Réglages |
+| Sauvegardes du lanceur | `/saves` | sauvegardes de wsquashfs-launcher dans SteamBox |
+| Appdata | `/data` | file de tâches, caches, réglages |
+| Mot de passe | `WSQUASHFS_MGR_PASSWORD` | obligatoire : sans lui, le conteneur refuse de démarrer |
+| FUSE (avancé) | `/dev/fuse` | reconstruction sans extraction (mode overlay) |
+| PUID / PGID (avancé) | 99 / 100 | propriétaire des images créées (nobody:users = `arcade` de SteamBox) |
 
-- utilisateur `99:100` (nobody:users = `arcade` de SteamBox) : les images
-  créées ont le même propriétaire que les autres ;
-- `pid: host` : le manager voit les jeux lancés dans SteamBox (WINEPREFIX) et
-  refuse de reconstruire leur image ;
-- `/dev/fuse` + `SYS_ADMIN` : reconstruction en mode overlay, sans extraction
-  (validée dans le conteneur) ;
-- mot de passe obligatoire : sans `WSQUASHFS_MGR_PASSWORD`, le conteneur
-  refuse de démarrer.
+Paramètres supplémentaires du template : `--pid=host` (voir les jeux lancés
+dans SteamBox et ne pas reconstruire leur image pendant une partie),
+`--cap-add=SYS_ADMIN --security-opt apparmor=unconfined` (montages FUSE).
+Le conteneur démarre en root, prépare `/data`, puis passe à PUID/PGID.
+Le travail sur une image se fait à côté d'elle (`.wsquashfs-manager/`, même
+disque), jamais dans l'appdata.
 
 ## Configuration
 
