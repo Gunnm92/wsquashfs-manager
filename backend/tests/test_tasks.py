@@ -174,3 +174,21 @@ def test_run_now_lifts_night_schedule(tmp_path: Path):
         assert _wait(queue, task.id) == TaskStatus.DONE
     finally:
         queue.stop()
+
+
+def test_history_survives_clearing(tmp_path: Path):
+    queue = TaskQueue(tmp_path / "tasks.json", {"x": lambda task, job: "fait"})
+    queue.start()
+    try:
+        done = queue.submit("x", "s/a", None, {}, "première")
+        assert _wait(queue, done.id) == TaskStatus.DONE
+    finally:
+        queue.stop()
+    cancelled = queue.submit("x", "s/a", None, {}, "annulée")
+    queue.cancel(cancelled.id)
+    queue.clear_finished()
+    assert queue.list() == []                                   # file vidée
+    history = queue.list("s/a")                                 # fiche : historique conservé
+    assert [t.title for t in history] == ["annulée", "première"]
+    assert history[1].log[-1] == "fait"
+    assert queue.list("s/autre") == []

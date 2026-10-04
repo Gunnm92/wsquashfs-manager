@@ -2,6 +2,10 @@
 
 ## Fait
 
+- [x] **Historique permanent** (04/10) : chaque tâche terminée est ajoutée à
+  `history.jsonl` (appdata) ; l'onglet Historique de la fiche le relit, même
+  après « Effacer l'historique ».
+
 - [x] **Montée de version** (04/10, SPEC § 3.3) : fiche → Version ; dossier
   source (build ou patch), point d'ancrage proposé d'après `DIR=`, aperçu
   (ajoutés, remplacés, identiques — même taille et même date —, supprimés en
@@ -49,8 +53,6 @@
 
 ## Fonctions de la SPEC non faites
 
-- [ ] Historique de la fiche : afficher aussi les opérations antérieures à
-  l'effacement de l'historique des tâches.
 
 ## Déploiement
 

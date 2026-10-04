@@ -44,6 +44,9 @@ class TaskQueue:
     def __init__(self, state_file: Path, handlers: dict[str, Handler], concurrency: int = 1,
                  night_now: Callable[[], bool] = lambda: True):
         self.state_file = state_file
+        # Journal permanent des tâches terminées : historique de chaque image,
+        # conservé quand on efface la liste des tâches
+        self.history_file = state_file.with_name("history.jsonl")
         self.handlers = handlers
         self.concurrency = max(1, concurrency)
         # Vrai pendant la plage horaire des tâches « de nuit »
@@ -126,7 +129,35 @@ class TaskQueue:
         with self._cond:
             tasks = [t.model_copy(deep=True) for t in self._tasks.values()
                      if image is None or t.image == image]
+        if image is not None:                 # fiche : ajouter le journal permanent
+            known = {t.id for t in tasks}
+            tasks += [t for t in self._history(image) if t.id not in known]
         return sorted(tasks, key=lambda t: t.created_at, reverse=True)
+
+    def _history(self, image: str) -> list[Task]:
+        try:
+            lines = self.history_file.read_text().splitlines()
+        except OSError:
+            return []
+        out = []
+        for line in lines:
+            try:
+                task = Task.model_validate_json(line)
+            except ValueError:
+                continue
+            if task.image == image:
+                out.append(task)
+        return out
+
+    def _record(self, task: Task) -> None:
+        """Ajoute la tâche terminée au journal (journal abrégé aux 20
+        dernières lignes : l'historique sert à savoir ce qui a été fait)."""
+        entry = task.model_copy(update={"log": task.log[-20:]})
+        try:
+            with open(self.history_file, "a", encoding="utf-8") as f:
+                f.write(entry.model_dump_json() + "\n")
+        except OSError:
+            pass
 
     def get(self, task_id: str) -> Task | None:
         with self._cond:
@@ -142,6 +173,7 @@ class TaskQueue:
                 task.status = TaskStatus.CANCELLED
                 task.finished_at = time.time()
                 task.log.append("Annulée avant démarrage")
+                self._record(task)
                 self._save()
             elif task.status == TaskStatus.RUNNING:
                 task.log.append("Annulation demandée")
@@ -242,6 +274,8 @@ class TaskQueue:
             if message:
                 task.log.append(message)
             self._jobs.pop(task.id, None)
+            if status != TaskStatus.PENDING:
+                self._record(task)
             self._save()
             self._cond.notify_all()
 

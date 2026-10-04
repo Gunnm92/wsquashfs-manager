@@ -982,9 +982,18 @@ async function loadFiles() {
 }
 $("files-q").addEventListener("input", () => { clearTimeout(filesTimer); filesTimer = setTimeout(loadFiles, 250); });
 
-function renderHistory() {
+async function renderHistory() {
   if (!state.current) return;
-  const tasks = state.tasks.filter((t) => t.image === state.current.id);
+  const id = state.current.id;
+  let tasks;
+  try {
+    // File en cours + journal permanent (conservé après « Effacer l'historique »)
+    tasks = await api(`/api/tasks?image=${encodeURIComponent(id)}`);
+  } catch (error) {
+    $("d-history").replaceChildren(el("p", { className: "notice err", textContent: error.message }));
+    return;
+  }
+  if (state.current?.id !== id) return;
   $("d-history").replaceChildren(...(tasks.length ? tasks.map(taskNode) : [el("p", { className: "muted", textContent: "Aucune opération enregistrée." })]));
 }
 
@@ -1059,7 +1068,7 @@ async function refreshTasks() {
     if (!$("folders-main").hidden) loadFolders();
   }
   activeBefore = nowActive;
-  if (state.current && !$("detail").hidden) renderHistory();
+  if (state.current && !$("detail").hidden && !document.querySelector('[data-pane="history"]').hidden) renderHistory();
   tasksTimer = setTimeout(refreshTasks, active.length ? 1500 : 10000);
 }
 const openTasks = () => $("tasks").classList.remove("collapsed");
