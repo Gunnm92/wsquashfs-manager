@@ -234,9 +234,18 @@ def _human(n: float) -> str:
 
 # ------------------------------------------------------------------ montages
 
+def fuse_missing(settings: Settings) -> str | None:
+    """Ce qui manque au mode overlay, ou None s'il est possible."""
+    if not Path("/dev/fuse").exists():
+        return "/dev/fuse absent (conteneur sans le périphérique FUSE)"
+    for tool in (settings.squashfuse, settings.fuse_overlayfs):
+        if shutil.which(tool) is None:
+            return f"{tool} introuvable"
+    return None
+
+
 def fuse_available(settings: Settings) -> bool:
-    return (Path("/dev/fuse").exists() and shutil.which(settings.squashfuse) is not None
-            and shutil.which(settings.fuse_overlayfs) is not None)
+    return fuse_missing(settings) is None
 
 
 def choose_mode(settings: Settings) -> str:
@@ -383,7 +392,12 @@ def rebuild(settings: Settings, image: Path, changes: Changes, job: Job | None =
         raise RebuildError("jeu en cours d'utilisation")
 
     mode = choose_mode(settings)
-    job.log(f"Mode : {'overlay (sans extraction)' if mode == 'overlay' else 'extraction'}")
+    if mode == "overlay":
+        job.log("Mode : overlay (sans extraction)")
+    elif settings.rebuild_mode == "extract":
+        job.log("Mode : extraction (imposé par la configuration)")
+    else:
+        job.log(f"Mode : extraction complète — overlay impossible : {fuse_missing(settings)}")
     check_space(space_needed(settings, image, changes, mode))
     before = image.stat()
     old_listing = _list_files_uncached(settings, image)

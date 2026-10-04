@@ -256,3 +256,8 @@ def test_default_work_dir_is_next_to_image_and_removed(image: Path, tmp_path: Pa
     rebuild.rebuild(settings, image, Changes(write={"autorun.cmd": b"CMD=x\r\n"}))
     assert seen[0].parent == image.parent / ".wsquashfs-manager"
     assert not (image.parent / ".wsquashfs-manager").exists()
+
+
+def test_fallback_reason_is_explained(monkeypatch, tmp_path):
+    monkeypatch.setattr(rebuild.Path, "exists", lambda self: str(self) != "/dev/fuse")
+    assert "/dev/fuse absent" in rebuild.fuse_missing(Settings())
