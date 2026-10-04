@@ -41,7 +41,8 @@ KEY_HELP: dict[str, tuple[str, list[str]]] = {
     "PROTON": ("Version de Proton imposée (prefix Proton ou jeu seul).", []),
     "RUNNER": ("Runner personnalisé (chemin ou nom).", []),
     "ARCH": ("Architecture du prefix créé.", ["win32", "win64"]),
-    "HIDRAW": ("1 : manettes en hidraw (DualSense natif) au lieu de XInput.", ["1", "0"]),
+    "HIDRAW": (("Manette Sony gérée par le jeu lui-même (DualSense native) au lieu de "
+                "XInput : 1 (pont USB), bt (hidraw direct), 0."), ["1", "bt", "0"]),
     "DXVK": ("D3D9-11 via Vulkan. Actif par défaut ; 0 pour wined3d.", ["1", "0"]),
     "VKD3D": ("D3D12 via Vulkan. Actif par défaut.", ["1", "0"]),
     "D7VK": ("DirectDraw/D3D7 via Vulkan. Actif par défaut.", ["1", "0"]),
@@ -260,6 +261,43 @@ def apply_ops(current: Autorun | None, ops: list[dict], name: str,
         else:
             raise ValueError(f"opération inconnue : {kind}")
     return out
+
+
+# ------------------------------------------------------------------ surcharge
+# <jeu>.wsquashfs.autorun à côté de l'image, lu par le lanceur : une clé qui y
+# figure l'emporte sur celle de l'image, CLÉ= vide la ramène au défaut du
+# lanceur (même règle que override_var() de wsquashfs-launcher).
+
+def override_path(image: Path) -> Path:
+    return image.with_name(image.name + ".autorun")
+
+
+def merge_override(base: Autorun | None, override: Autorun) -> Autorun:
+    """Autorun effectif : celui de l'image, corrigé par la surcharge (une clé
+    modifiée garde sa place, une clé ajoutée va en fin de fichier)."""
+    out = Autorun(lines=list(base.lines) if base else [], eol=base.eol if base else "\r\n",
+                  trailing_eol=base.trailing_eol if base else True)
+    for key in dict.fromkeys(k for k, _, _ in override.items()):
+        value = override.get(key) or ""
+        if value.strip():
+            out.set(key, value)
+        else:
+            out.remove(key)
+    return out
+
+
+def override_from(base: Autorun | None, wanted: Autorun) -> Autorun:
+    """Surcharge minimale pour obtenir `wanted` à partir de l'autorun de
+    l'image : clés ajoutées ou modifiées, et CLÉ= pour les clés retirées."""
+    base_keys = {k: base.get(k) for k, _, _ in base.items()} if base else {}
+    lines = []
+    for key in dict.fromkeys(k for k, _, _ in wanted.items()):
+        if wanted.get(key) != base_keys.get(key):
+            lines.append(f"{key}={wanted.get(key)}")
+    for key in base_keys:
+        if wanted.get(key) is None:
+            lines.append(f"{key}=")
+    return Autorun(lines=lines, eol="\r\n", trailing_eol=True)
 
 
 def read_autorun(image_dir: Path) -> Autorun | None:

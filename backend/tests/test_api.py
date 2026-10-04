@@ -327,3 +327,13 @@ def test_night_window(client, monkeypatch, tmp_path, queue):
     task = queue.get(client.post("/api/mass/autorun", json=body).json()["tasks"][0])
     assert task.night is True
     assert client.post(f"/api/tasks/{task.id}/now").json()["night"] is False
+
+
+def test_mass_override_preview_has_no_space(client, monkeypatch):
+    monkeypatch.setattr(main, "effective_autorun",
+                        lambda settings, image: main.Autorun.parse("CMD=game.exe\r\n"))
+    body = {"ids": ["arcade/jeu"], "ops": [{"op": "set", "key": "HIDRAW", "value": "1"}],
+            "target": "override"}
+    data = client.post("/api/mass/autorun/preview", json=body).json()
+    assert data["space"] == [] and data["ready"] == 1
+    assert data["items"][0]["after"] == "CMD=game.exe\r\nHIDRAW=1\r\n"

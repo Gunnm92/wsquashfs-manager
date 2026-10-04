@@ -1,35 +1,15 @@
 # Reste à faire
 
-## Autorun temporaire, sans reconstruire l'image (SPEC § 7, point 4)
-
-Pouvoir changer un réglage **tout de suite** (ajouter `GAME_VERSION`, essayer
-`HIDRAW=1`, `DXVK=0`…) sans attendre une reconstruction de l'image, puis
-l'inscrire dans l'image plus tard, en une fois.
-
-- [ ] **Fichier de surcharge** `<jeu>.wsquashfs.autorun`, à côté de l'image
-  (même logique de nommage que le `.keys` de Batocera). Contenu au format
-  `autorun.cmd`. Fusion **clé par clé** : une clé de la surcharge remplace
-  celle de l'image ou s'ajoute ; `CLÉ=` vide la retire. Le reste de
-  l'autorun de l'image reste valable. *À trancher : fusion clé par clé ou
-  remplacement complet de l'autorun.*
-- [ ] **Lanceur** (`wsquashfs-launcher`) : lire la surcharge après
-  l'autorun de l'image, l'annoncer dans sa sortie (« Surcharge : … »), et
-  l'appliquer aussi à `--info` (version affichée).
-- [ ] **Manager** :
-  - fiche → Autorun : choix « Appliquer tout de suite (surcharge) » ou
-    « Reconstruire l'image » ;
-  - bibliothèque : badge « surcharge » ; version, runner, manettes affichés
-    avec la valeur effective (surcharge comprise) ;
-  - « Inscrire dans l'image » (une image ou une sélection) : reconstruction
-    avec l'autorun fusionné, vérification, puis suppression de la surcharge ;
-  - actions en masse (poser `GAME_VERSION`, `HIDRAW`…) : option « en
-    surcharge » pour un effet immédiat ;
-  - filtre « avec surcharge en attente ».
-- [ ] **Batocera ignore ce fichier** : un jeu lancé sous Batocera garde
-  l'autorun de l'image. Le signaler dans l'interface, et ne pas oublier
-  d'« inscrire dans l'image » les surcharges validées.
-
 ## Fait
+
+- [x] **Autorun temporaire sans reconstruction** (04/10) :
+  `<jeu>.wsquashfs.autorun` à côté de l'image, fusion clé par clé (`CLÉ=`
+  vide : défaut du lanceur). Lanceur : lecture au lancement et par `--info`
+  (commit f2892b8 du lanceur). Manager : « Appliquer tout de suite » dans la
+  fiche (seules les différences avec l'image sont écrites), badge et filtre
+  « surcharge », valeurs effectives dans la bibliothèque, « Inscrire dans
+  l'image » (fiche ou sélection), actions en masse « en surcharge ».
+  Batocera ne lit pas ce fichier : penser à inscrire les surcharges validées.
 
 - [x] **Tâches de nuit** (04/10) : « Maintenant » ou « Cette nuit » sur chaque
   lancement (empaquetage, autorun, fichiers) ; plage horaire dans Réglages

@@ -26,7 +26,16 @@ from ..config import Settings, work_area
 from ..models import Task
 from . import scan
 from .analyze import scan_folder
-from .autorun import Autorun, apply_ops, decode_autorun, exe_from_cmd, normalize_path
+from .autorun import (
+    Autorun,
+    apply_ops,
+    decode_autorun,
+    exe_from_cmd,
+    merge_override,
+    normalize_path,
+    override_from,
+    override_path,
+)
 from .rebuild import (
     Changes,
     Job,
@@ -65,6 +74,11 @@ def plan_autorun(settings: Settings, image: Path, name: str, system: str | None,
         current = Autorun.parse(current_text)
     else:
         current, encoding = None, "utf-8"
+    override = scan.read_override(image) if "ops" in params else None
+    if override is not None:
+        # Les opérations partent de l'autorun effectif (image + surcharge),
+        # celui que le lanceur applique ; la surcharge est ensuite inscrite
+        current = merge_override(current, override)
 
     if "text" in params:
         base = params.get("base_sha")
@@ -94,12 +108,65 @@ def run_autorun(settings: Settings, task: Task, job: Job) -> str:
     image, system = _task_image(task)
     plan = plan_autorun(settings, image, image.stem, system, task.params, validate=False)
     if not plan.changed:
-        return "Autorun déjà à jour : image non reconstruite"
-    result = rebuild(settings, image, Changes(write={"autorun.cmd": plan.after}), job,
-                     in_use=scan.image_in_use)
-    return (f"Terminé en {result.duration:.0f} s (mode {result.mode}) : "
-            f"{result.size_before / 1e6:.0f} → {result.size_after / 1e6:.0f} Mo, "
-            f"original conservé en {result.backup.name}")
+        message = "Autorun déjà à jour : image non reconstruite"
+    else:
+        result = rebuild(settings, image, Changes(write={"autorun.cmd": plan.after}), job,
+                         in_use=scan.image_in_use)
+        message = (f"Terminé en {result.duration:.0f} s (mode {result.mode}) : "
+                   f"{result.size_before / 1e6:.0f} → {result.size_after / 1e6:.0f} Mo, "
+                   f"original conservé en {result.backup.name}")
+    # Surcharge inscrite dans l'image : elle n'a plus lieu d'être
+    if task.params.get("drop_override"):
+        override_path(image).unlink(missing_ok=True)
+        message += " ; surcharge supprimée (inscrite dans l'image)"
+    return message
+
+
+# ------------------------------------------------------------------ surcharge
+
+def image_autorun(settings: Settings, image: Path) -> tuple[Autorun | None, bytes | None, str]:
+    """(autorun de l'image, octets bruts, encodage)."""
+    data = scan.read_autorun_bytes(settings, image)
+    if data is None:
+        return None, None, "utf-8"
+    text, encoding = decode_autorun(data)
+    return Autorun.parse(text), data, encoding
+
+
+def effective_autorun(settings: Settings, image: Path) -> Autorun | None:
+    """Autorun tel que le lanceur l'applique : image + surcharge."""
+    base, _, _ = image_autorun(settings, image)
+    override = scan.read_override(image)
+    return merge_override(base, override) if override is not None else base
+
+
+def write_override(settings: Settings, image: Path, wanted: Autorun) -> list[str]:
+    """Écrit la surcharge minimale qui donne `wanted` (différence avec
+    l'autorun de l'image), ou la supprime s'il n'y a plus de différence.
+    Retourne les clés surchargées."""
+    base, _, _ = image_autorun(settings, image)
+    over = override_from(base, wanted)
+    target = override_path(image)
+    if not over.lines:
+        target.unlink(missing_ok=True)
+        return []
+    part = target.with_name(target.name + ".wsfs-part")
+    part.write_bytes(over.encode("utf-8"))
+    os.chmod(part, 0o644)
+    os.replace(part, target)
+    return [line.split("=", 1)[0] for line in over.lines]
+
+
+def commit_params(settings: Settings, image: Path) -> dict | None:
+    """Paramètres d'une tâche « autorun » qui inscrit la surcharge dans
+    l'image puis la supprime ; None s'il n'y a pas de surcharge."""
+    override = scan.read_override(image)
+    if override is None:
+        return None
+    base, data, encoding = image_autorun(settings, image)
+    merged = merge_override(base, override)
+    return {"text": merged.render(), "encoding": encoding, "base_sha": autorun_sha(data),
+            "drop_override": True}
 
 
 # ------------------------------------------------------------------ fichiers et registre

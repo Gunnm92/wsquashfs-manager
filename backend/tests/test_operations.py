@@ -140,3 +140,53 @@ def test_reset_saves_renames(env):
     renamed = reset_saves(settings, image)
     assert renamed.name.startswith("Jeu.avant-") and renamed.is_dir()
     assert not (settings.saves_dir / "Jeu").exists()
+
+
+# ------------------------------------------------------------------ surcharge
+
+def test_override_write_effective_and_commit(env):
+    from app.services import operations
+    from app.services.autorun import override_path
+    settings, image, _ = env                 # autorun : DIR=drive_c/GAME/bin, CMD=game.exe
+    wanted = Autorun.parse("DIR=drive_c/GAME/bin\r\nCMD=game.exe\r\nGAME_VERSION=1.4\r\nHIDRAW=1\r\n")
+    keys = operations.write_override(settings, image, wanted)
+    assert keys == ["GAME_VERSION", "HIDRAW"]
+    assert override_path(image).read_bytes() == b"GAME_VERSION=1.4\r\nHIDRAW=1\r\n"
+    assert operations.effective_autorun(settings, image).get("HIDRAW") == "1"
+
+    # Valeurs effectives dans la bibliothèque, sans toucher au cache de l'image
+    info = scan.scan_image(settings, image, "arcade")
+    assert info.version is None
+    info = scan._apply_dynamic(settings, info, set(), [])
+    assert info.override == ["GAME_VERSION", "HIDRAW"]
+    assert info.version == "1.4" and info.hidraw is True
+
+    # « Inscrire dans l'image » : reconstruction puis suppression de la surcharge
+    params = operations.commit_params(settings, image)
+    task = Task(id="c", kind="autorun", image="arcade/Jeu", image_path=str(image), params=params)
+    message = operations.run_autorun(settings, task, Job())
+    assert "surcharge supprimée" in message and not override_path(image).exists()
+    assert _cat(image, "autorun.cmd") == \
+        b"DIR=drive_c/GAME/bin\r\nCMD=game.exe\r\nGAME_VERSION=1.4\r\nHIDRAW=1\r\n"
+
+
+def test_override_removed_when_identical_to_image(env):
+    from app.services import operations
+    from app.services.autorun import override_path
+    settings, image, _ = env
+    operations.write_override(settings, image, Autorun.parse("DIR=drive_c/GAME/bin\r\nCMD=game.exe\r\nX=1\r\n"))
+    assert override_path(image).exists()
+    assert operations.write_override(settings, image,
+                                     Autorun.parse("DIR=drive_c/GAME/bin\r\nCMD=game.exe\r\n")) == []
+    assert not override_path(image).exists()
+
+
+def test_mass_ops_start_from_effective_autorun(env):
+    from app.services import operations
+    settings, image, _ = env
+    operations.write_override(settings, image,
+                              Autorun.parse("DIR=drive_c/GAME/bin\r\nCMD=game.exe\r\nHIDRAW=1\r\n"))
+    plan = operations.plan_autorun(settings, image, "Jeu", "arcade",
+                                   {"ops": [{"op": "set", "key": "GAME_VERSION", "value": "2"}]},
+                                   validate=False)
+    assert b"HIDRAW=1" in plan.after and b"GAME_VERSION=2" in plan.after

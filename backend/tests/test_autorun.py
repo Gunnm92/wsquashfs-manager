@@ -205,3 +205,25 @@ def test_decode_autorun_latin1_round_trip():
     assert encoding == "latin-1"
     assert Autorun.parse(text).encode(encoding) == data
     assert decode_autorun("REM é\n".encode())[1] == "utf-8"
+
+
+# ------------------------------------------------------------------ surcharge
+
+def test_merge_override_like_launcher():
+    from app.services.autorun import merge_override
+    base = Autorun.parse("REM jeu\r\nCMD=game.exe\r\nHIDRAW=1\r\nGAME_VERSION=1.0\r\n")
+    over = Autorun.parse("GAME_VERSION=2.0\nHIDRAW=\nDXVK=0\nREM note\n")
+    assert merge_override(base, over).render() == \
+        "REM jeu\r\nCMD=game.exe\r\nGAME_VERSION=2.0\r\nDXVK=0\r\n"
+    assert merge_override(None, Autorun.parse("CMD=a.exe\n")).render() == "CMD=a.exe\r\n"
+
+
+def test_override_from_is_minimal_and_round_trips():
+    from app.services.autorun import merge_override, override_from
+    base = Autorun.parse("CMD=game.exe\r\nHIDRAW=1\r\nDIR=bin\r\n")
+    wanted = Autorun.parse("CMD=game.exe\r\nDIR=bin\r\nGAME_VERSION=3\r\n")
+    over = override_from(base, wanted)
+    assert over.render() == "GAME_VERSION=3\r\nHIDRAW=\r\n"
+    assert merge_override(base, over).get("HIDRAW") is None
+    assert merge_override(base, over).get("GAME_VERSION") == "3"
+    assert override_from(base, base).lines == []

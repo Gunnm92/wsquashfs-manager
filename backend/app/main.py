@@ -20,9 +20,19 @@ from .config import WORK_DIR_NAME, Settings, get_settings, in_night, save_night,
 from .models import ImageInfo, ImageState, Task
 from .services import scan
 from .services.analyze import FolderAnalysis, analyze_folder, analyze_image, report
-from .services.autorun import KEY_HELP, KEY_NAME_RE, Autorun, decode_autorun
+from .services.autorun import (
+    KEY_HELP,
+    KEY_NAME_RE,
+    Autorun,
+    apply_ops,
+    decode_autorun,
+    merge_override,
+    override_path,
+)
 from .services.operations import (
     autorun_sha,
+    commit_params,
+    effective_autorun,
     find_folders,
     folder_stem,
     pack_target,
@@ -34,6 +44,7 @@ from .services.operations import (
     run_files,
     run_pack,
     run_verify,
+    write_override,
 )
 from .services.rebuild import (
     RebuildError,
@@ -287,13 +298,24 @@ def autorun_raw(id: str):
     info = _find_image(id)
     data = scan.read_autorun_bytes(_settings, info.path)
     if data is None:
+        override = scan.read_override(info.path)
         return {"found": False, "text": "", "lines": [], "eol": "\r\n", "trailing_eol": True,
-                "encoding": "utf-8", "sha": None, "items": [], "unknown_keys": []}
+                "encoding": "utf-8", "sha": None, "items": [], "unknown_keys": [],
+                "effective": override.render() if override else "",
+                "override": {"text": override.render(),
+                             "keys": sorted({k for k, _, _ in override.items()})}
+                if override is not None else None}
     text, encoding = decode_autorun(data)
     autorun = Autorun.parse(text)
+    override = scan.read_override(info.path)
+    effective = merge_override(autorun, override) if override is not None else autorun
     return {
         "found": True,
         "text": autorun.render(),
+        # Autorun appliqué par le lanceur (image + surcharge <jeu>.wsquashfs.autorun)
+        "effective": effective.render(),
+        "override": {"text": override.render(), "keys": sorted({k for k, _, _ in override.items()})}
+        if override is not None else None,
         "lines": autorun.lines,
         "eol": autorun.eol,
         "trailing_eol": autorun.trailing_eol,
@@ -344,11 +366,38 @@ def autorun_preview(id: str, body: AutorunEdit):
 def autorun_edit(id: str, body: AutorunEdit):
     """Planifie la reconstruction de l'image avec le nouvel autorun."""
     info = _find_image(id)
-    plan = _plan(info, body.params())
-    if not plan.changed:
+    params = body.params()
+    has_override = override_path(info.path).exists()
+    if has_override:
+        params["drop_override"] = True      # l'autorun effectif est inscrit dans l'image
+    plan = _plan(info, params)
+    if not plan.changed and not has_override:
         raise HTTPException(status_code=409, detail="aucun changement")
-    task = _submit(info, "autorun", body.params(), "autorun édité", night=body.when == "night")
+    if not plan.changed:
+        # Surcharge sans effet : la supprimer suffit, pas de reconstruction
+        override_path(info.path).unlink(missing_ok=True)
+        return {"task": None, "issues": plan.issues, "override_removed": True}
+    task = _submit(info, "autorun", params, "autorun édité", night=body.when == "night")
     return {"task": task.id, "issues": plan.issues}
+
+
+@app.put("/api/image/override")
+def override_write(id: str, body: AutorunEdit):
+    """« Appliquer tout de suite » : écrit dans <jeu>.wsquashfs.autorun la
+    différence avec l'autorun de l'image, lue par le lanceur au prochain
+    lancement — sans reconstruire l'image."""
+    info = _find_image(id)
+    wanted = Autorun(lines=body.lines, eol=body.eol, trailing_eol=body.trailing_eol)
+    keys = write_override(_settings, info.path, wanted)
+    return {"keys": keys, "image": _fresh_image(id),
+            "issues": wanted.validate(set(scan._list_files(_settings, info.path)))}
+
+
+@app.delete("/api/image/override")
+def override_delete(id: str):
+    info = _find_image(id)
+    override_path(info.path).unlink(missing_ok=True)
+    return _fresh_image(id)
 
 
 def _blocked_reason(info: ImageInfo, rebuild: bool = True) -> str | None:
@@ -433,6 +482,8 @@ class MassAutorun(BaseModel):
     ids: list[str] = Field(min_length=1)
     ops: list[AutorunOp] = Field(min_length=1)
     when: Literal["now", "night"] = "now"
+    # image : reconstruction ; override : surcharge, effet immédiat
+    target: Literal["image", "override"] = "image"
 
     def params(self) -> dict:
         return {"ops": [op.model_dump(exclude_none=True) for op in self.ops]}
@@ -461,6 +512,17 @@ def mass_autorun_preview(body: MassAutorun):
         except HTTPException:
             items.append({"id": image_id, "error": "image inconnue"})
             continue
+        if body.target == "override":
+            # Surcharge : comparée à l'autorun effectif, rien n'est reconstruit
+            current = effective_autorun(_settings, info.path)
+            wanted = apply_ops(current, body.params()["ops"], info.name, info.system)
+            changed = current is None or wanted.render() != current.render()
+            items.append({"id": image_id, "name": info.name,
+                          "before": current.render() if current else None,
+                          "after": wanted.render(), "changed": changed,
+                          "issues": wanted.validate(set(scan._list_files(_settings, info.path))),
+                          "blocked": None})
+            continue
         try:
             plan = plan_autorun(_settings, info.path, info.name, info.system, body.params())
         except RebuildError as exc:
@@ -483,9 +545,27 @@ def mass_autorun_preview(body: MassAutorun):
 
 @app.post("/api/mass/autorun")
 def mass_autorun(body: MassAutorun):
-    """Crée une tâche par image modifiée ; les autres sont listées avec la raison."""
+    """Crée une tâche par image modifiée ; les autres sont listées avec la raison.
+    En surcharge (target=override), écrit tout de suite les surcharges, sans tâche."""
     created, skipped = [], []
     params, title = body.params(), body.title()
+    if body.target == "override":
+        written = []
+        for image_id in body.ids:
+            try:
+                info = _find_image(image_id)
+            except HTTPException as exc:
+                skipped.append({"id": image_id, "reason": exc.detail})
+                continue
+            current = effective_autorun(_settings, info.path)
+            wanted = apply_ops(current, params["ops"], info.name, info.system)
+            if current is not None and wanted.render() == current.render():
+                skipped.append({"id": image_id, "reason": "aucun changement"})
+                continue
+            write_override(_settings, info.path, wanted)
+            written.append(image_id)
+        _refresh_library(force=False)
+        return {"tasks": [], "overrides": written, "skipped": skipped}
     for image_id in body.ids:
         try:
             info = _find_image(image_id)
@@ -494,11 +574,14 @@ def mass_autorun(body: MassAutorun):
         except (HTTPException, RebuildError) as exc:
             skipped.append({"id": image_id, "reason": getattr(exc, "detail", str(exc))})
             continue
-        if not plan.changed:
+        has_override = override_path(info.path).exists()
+        if not plan.changed and not has_override:
             skipped.append({"id": image_id, "reason": "aucun changement"})
             continue
+        task_params = {**params, "drop_override": True} if has_override else params
         try:
-            created.append(_submit(info, "autorun", params, title, night=body.when == "night").id)
+            created.append(_submit(info, "autorun", task_params, title,
+                                   night=body.when == "night").id)
         except HTTPException as exc:
             skipped.append({"id": image_id, "reason": exc.detail})
     return {"tasks": created, "skipped": skipped}
@@ -655,6 +738,29 @@ def mass_saves_reset(body: MassIds):
         except HTTPException as exc:
             skipped.append({"id": image_id, "reason": exc.detail})
     return {"done": done, "skipped": skipped}
+
+
+@app.post("/api/mass/override/commit")
+def mass_override_commit(body: MassIds):
+    """« Inscrire dans l'image » : reconstruit chaque image avec son autorun
+    effectif, puis supprime sa surcharge."""
+    created, skipped = [], []
+    for image_id in body.ids:
+        try:
+            info = _find_image(image_id)
+        except HTTPException as exc:
+            skipped.append({"id": image_id, "reason": exc.detail})
+            continue
+        params = commit_params(_settings, info.path)
+        if params is None:
+            skipped.append({"id": image_id, "reason": "pas de surcharge"})
+            continue
+        try:
+            created.append(_submit(info, "autorun", params, "surcharge inscrite dans l'image",
+                                   night=body.when == "night").id)
+        except HTTPException as exc:
+            skipped.append({"id": image_id, "reason": exc.detail})
+    return {"tasks": created, "skipped": skipped}
 
 
 @app.post("/api/mass/old/validate")

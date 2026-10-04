@@ -22,7 +22,7 @@ from pathlib import Path
 
 from ..config import Settings
 from ..models import ImageInfo, ImageState, ImageType, RunnerKind
-from .autorun import Autorun, decode_autorun, unquote
+from .autorun import Autorun, decode_autorun, merge_override, override_path, unquote
 
 _CACHE_DIR = Path.home() / ".cache/wsquashfs-manager"
 _CACHE_VERSION = 2          # à incrémenter quand le contenu mis en cache change
@@ -286,6 +286,12 @@ def _apply_dynamic(settings: Settings, info: ImageInfo, prefixes: set[str],
     info.extras = [e for e in info.extras if e != ".keys"]
     if image.with_name(image.name + ".keys").exists():    # fichier À CÔTÉ de l'image
         info.extras.insert(0, ".keys")
+    # Surcharge <jeu>.wsquashfs.autorun : valeurs effectives (comme le lanceur)
+    override = read_override(image)
+    info.override = sorted({k for k, _, _ in override.items()}) if override else []
+    if override is not None:
+        base = _read_autorun_from_image(settings, image)
+        _autorun_fields(info, merge_override(Autorun.parse(base) if base else None, override))
     if is_in_use(image.stem, prefixes, mounts):
         info.state = ImageState.IN_USE
     elif info.has_old:
@@ -296,6 +302,39 @@ def _apply_dynamic(settings: Settings, info: ImageInfo, prefixes: set[str],
 
 
 # ----------------------------------------------------------------- scan
+
+def _autorun_fields(info: ImageInfo, a: Autorun) -> None:
+    """Champs de la bibliothèque tirés de l'autorun (celui de l'image, ou
+    l'autorun effectif quand une surcharge existe)."""
+    version = a.get("GAME_VERSION")
+    info.version = unquote(version.strip()) if version else None
+    info.wine = a.get("WINE")
+    info.proton = a.get("PROTON")
+    info.runner = RunnerKind.DEFAULT
+    if a.get("RUNNER"):
+        info.runner = RunnerKind.CUSTOM
+    elif info.proton:
+        info.runner = RunnerKind.PROTON
+    elif info.wine:
+        info.runner = RunnerKind.WINE
+    info.cmd = a.get("CMD")
+    info.dir = a.get("DIR")
+    hidraw = a.get("HIDRAW")
+    # 1 : pont USB ; bt : hidraw direct (wsquashfs-launcher, 02/10)
+    info.hidraw = (hidraw.strip().lower() in ("1", "bt")) if hidraw is not None else None
+    # DXVK/VKD3D actifs par défaut dans le lanceur : seul "0" les coupe
+    info.dxvk = (a.get("DXVK") or "1").strip() != "0"
+    info.vkd3d = (a.get("VKD3D") or "1").strip() != "0"
+    info.xinput = info.hidraw is not True
+
+
+def read_override(image: Path) -> Autorun | None:
+    try:
+        data = override_path(image).read_bytes()
+    except OSError:
+        return None
+    return Autorun.parse(decode_autorun(data)[0])
+
 
 def scan_image(settings: Settings, image: Path, system: str | None) -> ImageInfo:
     """Contenu de l'image (mis en cache) ; l'état dynamique est ajouté par
@@ -315,24 +354,7 @@ def scan_image(settings: Settings, image: Path, system: str | None) -> ImageInfo
         type=detect_type(files),
     )
     if a:
-        version = a.get("GAME_VERSION")
-        info.version = unquote(version.strip()) if version else None
-        info.wine = a.get("WINE")
-        info.proton = a.get("PROTON")
-        if a.get("RUNNER"):
-            info.runner = RunnerKind.CUSTOM
-        elif info.proton:
-            info.runner = RunnerKind.PROTON
-        elif info.wine:
-            info.runner = RunnerKind.WINE
-        info.cmd = a.get("CMD")
-        info.dir = a.get("DIR")
-        hidraw = a.get("HIDRAW")
-        info.hidraw = (hidraw.strip() == "1") if hidraw is not None else None
-        # DXVK/VKD3D actifs par défaut dans le lanceur : seul "0" les coupe
-        info.dxvk = (a.get("DXVK") or "1").strip() != "0"
-        info.vkd3d = (a.get("VKD3D") or "1").strip() != "0"
-    info.xinput = info.hidraw is not True
+        _autorun_fields(info, a)
     if _has_fakeping(settings, image, files):
         info.extras.append("fakeping")
     return info

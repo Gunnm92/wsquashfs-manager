@@ -141,6 +141,7 @@ pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; 
         <option value="">Tous états</option><option value="noversion">Sans version</option>
         <option value="old">Avec .old</option><option value="inuse">En cours</option>
         <option value="noautorun">Sans autorun</option>
+        <option value="override">Avec surcharge</option>
       </select>
     </div>
     <div class="selection row" id="selection" hidden>
@@ -149,6 +150,7 @@ pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; 
       <button id="btn-files">Fichiers / registre…</button>
       <button class="secondary" id="btn-verify">Vérifier</button>
       <button class="secondary" id="btn-mass-validate">Valider les .old</button>
+      <button class="secondary" id="btn-mass-commit" title="Reconstruit chaque image avec son autorun effectif, puis supprime la surcharge">Inscrire les surcharges</button>
       <button class="secondary" id="btn-saves-reset">Réinitialiser les sauvegardes</button>
       <button class="secondary" id="btn-sel-clear">Désélectionner</button>
     </div>
@@ -181,6 +183,7 @@ pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; 
       </div>
     </div>
     <div data-pane="autorun" hidden>
+      <div id="a-override-box"></div>
       <p id="a-note" class="muted"></p>
       <div class="tabs" id="a-tabs">
         <button data-atab="form" class="active">Formulaire</button>
@@ -196,6 +199,7 @@ pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; 
         <button class="secondary" id="a-propose" title="Analyse de l'image (exécutables, règles, base de connaissances)">Proposer un autorun</button>
         <button class="secondary" id="a-reset">Annuler</button>
         <button class="secondary" id="a-check">Vérifier</button>
+        <button class="secondary" id="a-override" title="Écrit <jeu>.wsquashfs.autorun à côté de l'image : effet au prochain lancement, sans reconstruction (ignoré par Batocera)">Appliquer tout de suite</button>
         <select id="a-when" class="when" title="Maintenant, ou pendant la plage de nuit (Réglages)"></select>
         <button id="a-save">Reconstruire</button>
       </div>
@@ -295,6 +299,10 @@ pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; 
   <div id="m-ops"></div>
   <div class="row">
     <button class="secondary" id="m-add">+ Opération</button>
+    <select id="m-target" title="Dans l'image : reconstruction. En surcharge : <jeu>.wsquashfs.autorun, effet immédiat (ignoré par Batocera)">
+      <option value="image">Dans l'image (reconstruction)</option>
+      <option value="override">En surcharge (immédiat)</option>
+    </select>
     <span class="spacer"></span>
     <button class="secondary" data-close>Fermer</button>
     <button class="secondary" id="m-preview">Aperçu</button>
@@ -470,7 +478,8 @@ function filtered() {
     && (!system || i.system === system) && (!type || i.type === type) && (!runner || runnerLabel(i) === runner)
     && (!pad || (pad === "hidraw") === (i.hidraw === true))
     && (special !== "noversion" || !i.version) && (special !== "old" || i.has_old)
-    && (special !== "inuse" || i.state === "in_use") && (special !== "noautorun" || !i.cmd));
+    && (special !== "inuse" || i.state === "in_use") && (special !== "noautorun" || !i.cmd)
+    && (special !== "override" || (i.override || []).length));
 }
 
 function sorted(items) {
@@ -514,7 +523,8 @@ function renderTable() {
       el("td", {}, i.runner === "default" ? el("span", { className: "muted", textContent: "défaut" }) : runnerLabel(i)),
       el("td", {}, i.hidraw ? badge("HIDRAW", "info") : el("span", { className: "muted", textContent: "XInput" })),
       el("td", { className: "cmd", textContent: i.cmd || "—", title: i.cmd || "" }),
-      el("td", {}, ...(i.extras || []).map((e) => badge(e))),
+      el("td", {}, ...(i.extras || []).map((e) => badge(e)),
+        (i.override || []).length ? Object.assign(badge("surcharge", "warn"), { title: `Surcharge : ${i.override.join(", ")}` }) : null),
       el("td", { className: "num" }, i.saves_present ? size(i.saves_size) : el("span", { className: "muted", textContent: "—" })),
       el("td", {}, badge(stateLabel, stateKind)));
     row.onclick = () => openDetail(i.id);
@@ -561,6 +571,7 @@ function renderDetailHeader() {
     ["Dossier", i.dir || "—"], ["Commande", i.cmd || "—"],
     ["DXVK / VKD3D", `${i.dxvk ? "oui" : "non"} / ${i.vkd3d ? "oui" : "non"}`],
     ["Extras", (i.extras || []).join(", ") || "—"],
+    ["Surcharge", (i.override || []).length ? `${i.override.join(", ")} (à inscrire dans l'image)` : "aucune"],
     ["Sauvegardes", i.saves_present ? size(i.saves_size) : "aucune"],
   ];
   $("d-info").replaceChildren(...info.flatMap(([k, v]) => [el("dt", { textContent: k }), el("dd", { textContent: v })]));
@@ -688,7 +699,9 @@ async function loadAutorun() {
     const data = await api(`/api/image/autorun?id=${encodeURIComponent(id)}`);
     if (state.current?.id !== id) return;
     state.autorun = data;
-    $("a-editor").value = data.text.replace(/\r\n/g, "\n");
+    // L'éditeur montre l'autorun effectif : image + surcharge, ce que le lanceur applique
+    $("a-editor").value = (data.effective ?? data.text).replace(/\r\n/g, "\n");
+    renderOverrideBox(data);
     $("a-eol").value = data.eol === "\n" ? "lf" : "crlf";
   } catch (error) {
     state.autorun = null;
@@ -754,13 +767,67 @@ $("a-save").onclick = async () => {
   try {
     const data = await api(`/api/image/autorun?id=${encodeURIComponent(state.current.id)}`, { method: "POST", body: autorunBody() });
     showIssues(data.issues);
-    $("a-result").replaceChildren(el("div", { className: "notice info", textContent: "Reconstruction ajoutée à la file de tâches." }));
+    if (data.override_removed) {
+      $("a-result").replaceChildren(el("div", { className: "notice info", textContent: "Autorun identique à l'image : surcharge supprimée, pas de reconstruction." }));
+      await loadLibrary();
+      return;
+    }
+    $("a-result").replaceChildren(el("div", { className: "notice info", textContent: state.autorun?.override
+      ? "Reconstruction ajoutée à la file : l'autorun effectif sera inscrit dans l'image, puis la surcharge supprimée."
+      : "Reconstruction ajoutée à la file de tâches." }));
     openTasks();
     refreshTasks();
   } catch (error) {
     $("a-result").replaceChildren(el("div", { className: "notice err", textContent: error.message }));
   }
 };
+
+function renderOverrideBox(data) {
+  const box = $("a-override-box");
+  box.replaceChildren();
+  if (!data?.override) return;
+  const commit = el("button", { textContent: "Inscrire dans l'image" });
+  const drop = el("button", { className: "secondary", textContent: "Supprimer la surcharge" });
+  commit.onclick = () => commitOverrides([state.current.id]);
+  drop.onclick = async () => {
+    if (!confirm("Supprimer la surcharge ? Le jeu reprendra l'autorun de l'image.")) return;
+    try {
+      await api(`/api/image/override?id=${encodeURIComponent(state.current.id)}`, { method: "DELETE" });
+      await loadLibrary();
+      await loadAutorun();
+    } catch (error) { alert(error.message); }
+  };
+  box.append(el("div", { className: "notice warn" },
+    el("div", { textContent: `Surcharge active (${data.override.keys.join(", ")}) : appliquée par le lanceur, mais pas par Batocera tant qu'elle n'est pas inscrite dans l'image. L'éditeur montre l'autorun effectif.` }),
+    el("pre", { className: "bat", textContent: data.override.text }),
+    el("div", { className: "row" }, commit, drop)));
+}
+
+$("a-override").onclick = async () => {
+  try {
+    const data = await api(`/api/image/override?id=${encodeURIComponent(state.current.id)}`, { method: "PUT", body: autorunBody() });
+    await loadLibrary();
+    await loadAutorun();          // recharge l'autorun effectif (et efface les messages)
+    showIssues(data.issues);
+    $("a-result").replaceChildren(el("div", { className: "notice info", textContent: data.keys.length
+      ? `Surcharge écrite (${data.keys.join(", ")}) : effet au prochain lancement, sans reconstruction.`
+      : "Identique à l'image : surcharge supprimée." }));
+  } catch (error) {
+    $("a-result").replaceChildren(el("div", { className: "notice err", textContent: error.message }));
+  }
+};
+
+async function commitOverrides(ids) {
+  const withOverride = ids.filter((id) => (state.byId.get(id)?.override || []).length);
+  if (!withOverride.length) { alert("Aucune image sélectionnée n'a de surcharge."); return; }
+  if (!confirm(`Inscrire la surcharge dans ${withOverride.length} image(s) ? Chaque image est reconstruite (original gardé en .old), puis sa surcharge supprimée.`)) return;
+  try {
+    const data = await api("/api/mass/override/commit", { method: "POST", body: { ids: withOverride, when: storage.get("wsfs-when") || "now" } });
+    reportSkipped(data.skipped);
+    openTasks();
+    refreshTasks();
+  } catch (error) { alert(error.message); }
+}
 
 // ------------------------------------------------------------------ fichiers, historique
 
@@ -953,7 +1020,7 @@ function opRow(op = { op: "set", key: "", value: "" }) {
   return row;
 }
 
-const massBody = () => ({ ids: [...state.selected], ops: [...$("m-ops").children].map((row) => row.read()), when: whenOf("m-when") });
+const massBody = () => ({ ids: [...state.selected], ops: [...$("m-ops").children].map((row) => row.read()), when: whenOf("m-when"), target: $("m-target").value });
 
 $("btn-mass").onclick = () => {
   $("m-count").textContent = state.selected.size;
@@ -963,6 +1030,7 @@ $("btn-mass").onclick = () => {
   $("dlg-mass").showModal();
 };
 $("m-add").onclick = () => $("m-ops").append(opRow());
+$("m-target").onchange = () => { $("m-run").disabled = true; };
 
 function lineDiff(before, after) {
   const a = (before || "").replace(/\r\n/g, "\n").split("\n").filter(Boolean);
@@ -982,7 +1050,7 @@ $("m-preview").onclick = async () => {
       if (item.error) head.append(badge(item.error, "err"));
       else if (!item.changed) head.append(badge("inchangé"));
       else if (item.blocked) head.append(badge(item.blocked, "warn"));
-      else head.append(badge("à reconstruire", "ok"));
+      else head.append(badge($("m-target").value === "override" ? "surcharge" : "à reconstruire", "ok"));
       const node = el("div", { className: "preview-item" }, head);
       if (item.changed) node.append(lineDiff(item.before, item.after));
       if (item.issues?.length) node.append(el("ul", { className: "issues" }, ...item.issues.map((x) => el("li", { textContent: x.message }))));
@@ -990,7 +1058,10 @@ $("m-preview").onclick = async () => {
     });
     const space = data.space.map((s) => el("div", { className: `notice ${s.needed > s.free ? "err" : "info"}`,
       textContent: `${s.path} : ${size(s.needed)} nécessaires (anciennes images gardées en .old), ${size(s.free)} libres` }));
-    $("m-result").replaceChildren(el("h3", { textContent: `${data.ready} image(s) à reconstruire` }), ...space, ...items);
+    const overrideMode = $("m-target").value === "override";
+    $("m-result").replaceChildren(el("h3", { textContent: overrideMode
+      ? `${data.ready} surcharge(s) à écrire — effet au prochain lancement, sans reconstruction`
+      : `${data.ready} image(s) à reconstruire` }), ...space, ...items);
     $("m-run").disabled = data.ready === 0;
     $("m-run").textContent = `Lancer ${data.ready} reconstruction(s)`;
   } catch (error) {
@@ -1002,7 +1073,9 @@ $("m-run").onclick = async () => {
   try {
     const data = await api("/api/mass/autorun", { method: "POST", body: massBody() });
     const skipped = data.skipped.map((s) => el("li", { textContent: `${s.id} : ${s.reason}` }));
-    $("m-result").replaceChildren(el("div", { className: "notice info", textContent: `${data.tasks.length} tâche(s) créée(s).` }),
+    const done = data.overrides ? `${data.overrides.length} surcharge(s) écrite(s) : effet au prochain lancement.` : `${data.tasks.length} tâche(s) créée(s).`;
+    if (data.overrides) loadLibrary();
+    $("m-result").replaceChildren(el("div", { className: "notice info", textContent: done }),
       ...(skipped.length ? [el("ul", { className: "issues" }, ...skipped)] : []));
     $("m-run").disabled = true;
     openTasks();
@@ -1011,6 +1084,8 @@ $("m-run").onclick = async () => {
     $("m-result").replaceChildren(el("div", { className: "notice err", textContent: error.message }));
   }
 };
+
+$("btn-mass-commit").onclick = () => commitOverrides([...state.selected]);
 
 $("btn-mass-validate").onclick = async () => {
   const ids = [...state.selected].filter((id) => state.byId.get(id)?.has_old);
