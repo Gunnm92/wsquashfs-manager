@@ -51,12 +51,11 @@
 - [ ] Lancement d'essai chronométré (le jeu tient-il 60 s, erreurs connues
   dans le journal).
 
-## Fonctions de la SPEC non faites
-
 
 ## Déploiement
 
-- [ ] Pousser les commits (manager, lanceur `04bd003`, SteamBox `92cc329`)
+- [ ] Pousser les commits (manager, lanceur `04bd003` et `f2892b8` — surcharge
+  `.autorun` —, SteamBox `92cc329`)
   et reconstruire l'image SteamBox.
 - [ ] `make push` puis installation du template Unraid
   (`unraid/wsquashfs-manager.xml`).
