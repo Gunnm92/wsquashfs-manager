@@ -41,10 +41,13 @@ class QueueLocked(RuntimeError):
 
 
 class TaskQueue:
-    def __init__(self, state_file: Path, handlers: dict[str, Handler], concurrency: int = 1):
+    def __init__(self, state_file: Path, handlers: dict[str, Handler], concurrency: int = 1,
+                 night_now: Callable[[], bool] = lambda: True):
         self.state_file = state_file
         self.handlers = handlers
         self.concurrency = max(1, concurrency)
+        # Vrai pendant la plage horaire des tâches « de nuit »
+        self.night_now = night_now
         self._tasks: dict[str, Task] = {}
         self._jobs: dict[str, Job] = {}
         self._cond = threading.Condition(threading.RLock())
@@ -100,7 +103,7 @@ class TaskQueue:
     # -------------------------------------------------------------- API
 
     def submit(self, kind: str, image: str | None, image_path: Path | None,
-               params: dict, title: str = "") -> Task:
+               params: dict, title: str = "", night: bool = False) -> Task:
         if kind not in self.handlers:
             raise ValueError(f"type de tâche inconnu : {kind}")
         with self._cond:
@@ -108,7 +111,7 @@ class TaskQueue:
                 raise TaskConflict(f"une tâche est déjà en attente ou en cours pour {image}")
             task = Task(id=secrets.token_hex(6), kind=kind, title=title, image=image,
                         image_path=str(image_path) if image_path else None, params=params,
-                        created_at=time.time())
+                        night=night, created_at=time.time())
             self._tasks[task.id] = task
             self._save()
             self._cond.notify_all()
@@ -145,6 +148,19 @@ class TaskQueue:
                 self._jobs[task_id].cancel()
             return task.model_copy(deep=True)
 
+    def run_now(self, task_id: str) -> Task:
+        """Une tâche programmée la nuit démarre dès que possible."""
+        with self._cond:
+            task = self._tasks.get(task_id)
+            if task is None:
+                raise KeyError(task_id)
+            if task.status == TaskStatus.PENDING and task.night:
+                task.night = False
+                task.log.append("Programmation de nuit levée : lancement dès que possible")
+                self._save()
+                self._cond.notify_all()
+            return task.model_copy(deep=True)
+
     def clear_finished(self) -> int:
         with self._cond:
             done = [k for k, t in self._tasks.items() if t.status not in ACTIVE]
@@ -173,10 +189,12 @@ class TaskQueue:
         self._threads.clear()
 
     def _next(self) -> Task | None:
-        """Plus ancienne tâche en attente dont l'image n'est pas déjà occupée."""
+        """Plus ancienne tâche en attente dont l'image n'est pas déjà occupée ;
+        une tâche de nuit attend la plage horaire (réévalué toutes les 5 s)."""
         busy = {t.image for t in self._tasks.values() if t.status == TaskStatus.RUNNING}
-        pending = sorted((t for t in self._tasks.values() if t.status == TaskStatus.PENDING),
-                         key=lambda t: t.created_at)
+        night = self.night_now()
+        pending = sorted((t for t in self._tasks.values() if t.status == TaskStatus.PENDING
+                          and (night or not t.night)), key=lambda t: t.created_at)
         return next((t for t in pending if t.image is None or t.image not in busy), None)
 
     def _worker(self) -> None:

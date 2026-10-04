@@ -196,6 +196,7 @@ pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; 
         <button class="secondary" id="a-propose" title="Analyse de l'image (exécutables, règles, base de connaissances)">Proposer un autorun</button>
         <button class="secondary" id="a-reset">Annuler</button>
         <button class="secondary" id="a-check">Vérifier</button>
+        <select id="a-when" class="when" title="Maintenant, ou pendant la plage de nuit (Réglages)"></select>
         <button id="a-save">Reconstruire</button>
       </div>
       <ul class="issues" id="a-issues"></ul>
@@ -246,6 +247,7 @@ pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; 
     <label title="Seulement après vérification de l'image"><input type="checkbox" id="p-delete"> Supprimer le dossier après vérification</label>
     <span class="spacer"></span>
     <button class="secondary" data-close>Fermer</button>
+    <select id="p-when" class="when" title="Maintenant, ou pendant la plage de nuit (Réglages)"></select>
     <button id="p-run" disabled>Empaqueter</button>
   </div>
   <div id="p-result"></div>
@@ -277,6 +279,10 @@ pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; 
   <details style="margin-top:.6rem"><summary class="muted">Autres chemins (un par ligne)</summary>
     <textarea id="cfg-dirs" rows="3" placeholder="/chemin/vers/roms/systeme"></textarea>
   </details>
+  <h3>Tâches de nuit</h3>
+  <div class="row"><label class="muted">De <input type="time" id="cfg-night-start" required></label>
+    <label class="muted">à <input type="time" id="cfg-night-end" required></label>
+    <span class="muted">une tâche « cette nuit » ne démarre que dans cette plage</span></div>
   <dl id="cfg-info" style="margin-top:.8rem"></dl>
   <p id="cfg-err" class="notice err" hidden></p>
   <div class="row" style="margin-top:.8rem"><span class="spacer"></span>
@@ -292,6 +298,7 @@ pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; 
     <span class="spacer"></span>
     <button class="secondary" data-close>Fermer</button>
     <button class="secondary" id="m-preview">Aperçu</button>
+    <select id="m-when" class="when" title="Maintenant, ou pendant la plage de nuit (Réglages)"></select>
     <button id="m-run" disabled>Lancer</button>
   </div>
   <div id="m-result"></div>
@@ -312,6 +319,7 @@ pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; 
     <span class="spacer"></span>
     <button class="secondary" data-close>Fermer</button>
     <button class="secondary" id="f-preview">Aperçu</button>
+    <select id="f-when" class="when" title="Maintenant, ou pendant la plage de nuit (Réglages)"></select>
     <button id="f-run" disabled>Lancer</button>
   </div>
   <div id="f-result"></div>
@@ -697,6 +705,7 @@ function autorunBody() {
     eol: $("a-eol").value === "crlf" ? "\r\n" : "\n",
     encoding: state.autorun?.encoding || "utf-8",
     base_sha: state.autorun?.sha ?? null,
+    when: whenOf("a-when"),
   };
 }
 
@@ -786,6 +795,7 @@ function taskNode(t) {
   const node = el("div", { className: "task" });
   const head = el("div", { className: "row" },
     badge(label, kind),
+    t.status === "pending" && t.night ? badge(state.config ? `nuit ${state.config.night_start}` : "nuit", "info") : null,
     el("strong", { textContent: t.image || t.kind }),
     el("span", { className: "muted", textContent: t.title }),
     t.status === "running" ? el("progress", { value: t.progress, max: 1 }) : null,
@@ -800,6 +810,15 @@ function taskNode(t) {
       try { await api(`/api/tasks/${t.id}/cancel`, { method: "POST" }); } catch (error) { alert(error.message); }
       refreshTasks();
     };
+    if (t.status === "pending" && t.night) {
+      const now = el("button", { className: "secondary", textContent: "Lancer maintenant" });
+      now.onclick = async (event) => {
+        event.stopPropagation();
+        try { await api(`/api/tasks/${t.id}/now`, { method: "POST" }); } catch (error) { alert(error.message); }
+        refreshTasks();
+      };
+      head.append(now);
+    }
     head.append(cancel);
   }
   head.onclick = () => node.classList.toggle("open");
@@ -826,7 +845,8 @@ async function refreshTasks() {
     return node;
   }));
   const failed = state.tasks.filter((t) => t.status === "failed").length;
-  $("tasks-summary").textContent = active.length ? `${active.length} active(s)` : state.tasks.length ? "aucune active" : "";
+  const nightly = active.filter((t) => t.status === "pending" && t.night).length;
+  $("tasks-summary").textContent = active.length ? `${active.length} active(s)${nightly ? `, dont ${nightly} programmée(s) cette nuit` : ""}` : state.tasks.length ? "aucune active" : "";
   if (failed) $("tasks-summary").textContent += ` · ${failed} en échec`;
   // Une tâche vient de se terminer : l'image a changé
   const nowActive = new Set(active.map((t) => t.id));
@@ -876,6 +896,8 @@ $("btn-config").onclick = async () => {
     ["Sauvegardes", cfg.saves_dir], ["Dossier de travail", cfg.tmp_dir], ["Reconstruction", cfg.rebuild_mode],
     ["Rétention .old", cfg.old_retention_days == null ? "manuelle" : `${cfg.old_retention_days} jours`],
   ].flatMap(([k, v]) => [el("dt", { textContent: k }), el("dd", { textContent: v })]));
+  $("cfg-night-start").value = cfg.night_start || "01:00";
+  $("cfg-night-end").value = cfg.night_end || "07:00";
   $("cfg-err").textContent = systemsError || "";
   $("cfg-err").hidden = !systemsError;
   if (!systems.length) $("cfg-dirs").closest("details").open = true;
@@ -887,6 +909,9 @@ $("cfg-save").onclick = async () => {
       .concat($("cfg-dirs").value.split("\n").map((d) => d.trim()).filter(Boolean));
     if (!dirs.length) throw new Error("Cocher au moins un système.");
     await api("/api/config/roms_dirs", { method: "PUT", body: { roms_dirs: dirs } });
+    state.config = await api("/api/config/night", { method: "PUT",
+      body: { start: $("cfg-night-start").value, end: $("cfg-night-end").value } });
+    fillWhen();
     $("dlg-config").close();
     loadLibrary();
   } catch (error) {
@@ -928,7 +953,7 @@ function opRow(op = { op: "set", key: "", value: "" }) {
   return row;
 }
 
-const massBody = () => ({ ids: [...state.selected], ops: [...$("m-ops").children].map((row) => row.read()) });
+const massBody = () => ({ ids: [...state.selected], ops: [...$("m-ops").children].map((row) => row.read()), when: whenOf("m-when") });
 
 $("btn-mass").onclick = () => {
   $("m-count").textContent = state.selected.size;
@@ -1029,7 +1054,7 @@ function fileOpRow(kind, values = {}) {
 }
 
 function filesBody() {
-  const body = { ids: [...state.selected], copy: [], delete: [], reg: [] };
+  const body = { ids: [...state.selected], copy: [], delete: [], reg: [], when: whenOf("f-when") };
   for (const row of $("f-ops").children) {
     const [kind, value] = Object.entries(row.read())[0];
     body[kind].push(value);
@@ -1325,7 +1350,7 @@ $("p-run").onclick = async () => {
   const cards = updatePackButton();
   const items = cards.map((c) => ({ id: c.folder.id, autorun: c.source === "existing" ? null : c.text }));
   try {
-    const data = await api("/api/folders/pack", { method: "POST", body: { items, rename_wine: $("p-rename").checked, delete_source: $("p-delete").checked } });
+    const data = await api("/api/folders/pack", { method: "POST", body: { items, rename_wine: $("p-rename").checked, delete_source: $("p-delete").checked, when: whenOf("p-when") } });
     const skipped = data.skipped.map((s) => el("li", { textContent: `${s.id} : ${s.reason}` }));
     // Un dossier envoyé est renommé (.pc → .wine) : ne plus le renvoyer
     const refused = new Set(data.skipped.map((s) => s.id));
@@ -1343,10 +1368,28 @@ $("p-run").onclick = async () => {
   }
 };
 
+// ------------------------------------------------------------------ programmation de nuit
+
+function fillWhen() {
+  const night = state.config ? `Cette nuit (${state.config.night_start}–${state.config.night_end})` : "Cette nuit";
+  const saved = storage.get("wsfs-when") || "now";
+  for (const select of document.querySelectorAll("select.when")) {
+    select.replaceChildren(new Option("Maintenant", "now"), new Option(night, "night"));
+    select.value = saved;
+    select.onchange = () => {
+      storage.set("wsfs-when", select.value);
+      for (const other of document.querySelectorAll("select.when")) other.value = select.value;
+    };
+  }
+}
+const whenOf = (id) => $(id).value || "now";
+
 // ------------------------------------------------------------------ démarrage
 
 (async () => {
   state.keys = await api("/api/autorun/keys");
+  try { state.config = await api("/api/config"); } catch { state.config = null; }
+  fillWhen();
   $("known-keys").replaceChildren(...state.keys.map((k) => new Option(k.key, k.key)));
   buildForm();
   await loadLibrary();

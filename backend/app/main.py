@@ -16,7 +16,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from .config import WORK_DIR_NAME, Settings, get_settings, save_roms_dirs
+from .config import WORK_DIR_NAME, Settings, get_settings, in_night, save_night, save_roms_dirs
 from .models import ImageInfo, ImageState, Task
 from .services import scan
 from .services.analyze import FolderAnalysis, analyze_folder, analyze_image, report
@@ -60,6 +60,7 @@ queue = TaskQueue(
         "pack": lambda task, job: run_pack(_settings, task, job),
     },
     concurrency=_settings.task_concurrency,
+    night_now=lambda: in_night(_settings),
 )
 
 
@@ -128,6 +129,9 @@ def get_config():
         "saves_dir": str(_settings.saves_dir),
         "tmp_dir": str(_settings.tmp_dir) if _settings.tmp_dir else "à côté de chaque image",
         "roms_roots": _settings.roms_roots,
+        "night_start": _settings.night_start,
+        "night_end": _settings.night_end,
+        "night_now": in_night(_settings),
         "concurrency": _settings.task_concurrency,
         "old_retention_days": _settings.old_retention_days,
         "rebuild_mode": _settings.rebuild_mode,
@@ -159,6 +163,21 @@ def config_systems():
                 out.append({"path": str(d), "name": d.name, "root": str(base),
                             "images": images, "folders": folders})
     return out
+
+
+class NightWindow(BaseModel):
+    start: str
+    end: str
+
+
+@app.put("/api/config/night")
+def set_night(body: NightWindow):
+    """Plage horaire des tâches programmées « cette nuit »."""
+    try:
+        save_night(_settings, body.start, body.end)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return get_config()
 
 
 class RomsDirs(BaseModel):
@@ -293,6 +312,7 @@ class AutorunEdit(BaseModel):
     trailing_eol: bool = True
     encoding: Literal["utf-8", "latin-1"] = "utf-8"
     base_sha: str | None = None     # empreinte lue à l'ouverture (édition concurrente)
+    when: Literal["now", "night"] = "now"
 
     @field_validator("lines")
     @classmethod
@@ -327,7 +347,7 @@ def autorun_edit(id: str, body: AutorunEdit):
     plan = _plan(info, body.params())
     if not plan.changed:
         raise HTTPException(status_code=409, detail="aucun changement")
-    task = _submit(info, "autorun", body.params(), "autorun édité")
+    task = _submit(info, "autorun", body.params(), "autorun édité", night=body.when == "night")
     return {"task": task.id, "issues": plan.issues}
 
 
@@ -344,12 +364,12 @@ def _blocked_reason(info: ImageInfo, rebuild: bool = True) -> str | None:
 
 
 def _submit(info: ImageInfo, kind: str, params: dict, title: str,
-            rebuild: bool = True) -> Task:
+            rebuild: bool = True, night: bool = False) -> Task:
     reason = _blocked_reason(info, rebuild)
     if reason:
         raise HTTPException(status_code=409, detail=reason)
     try:
-        return queue.submit(kind, info.id, info.path, params, title)
+        return queue.submit(kind, info.id, info.path, params, title, night=night)
     except TaskConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -412,6 +432,7 @@ class AutorunOp(BaseModel):
 class MassAutorun(BaseModel):
     ids: list[str] = Field(min_length=1)
     ops: list[AutorunOp] = Field(min_length=1)
+    when: Literal["now", "night"] = "now"
 
     def params(self) -> dict:
         return {"ops": [op.model_dump(exclude_none=True) for op in self.ops]}
@@ -477,7 +498,7 @@ def mass_autorun(body: MassAutorun):
             skipped.append({"id": image_id, "reason": "aucun changement"})
             continue
         try:
-            created.append(_submit(info, "autorun", params, title).id)
+            created.append(_submit(info, "autorun", params, title, night=body.when == "night").id)
         except HTTPException as exc:
             skipped.append({"id": image_id, "reason": exc.detail})
     return {"tasks": created, "skipped": skipped}
@@ -485,6 +506,7 @@ def mass_autorun(body: MassAutorun):
 
 class MassIds(BaseModel):
     ids: list[str] = Field(min_length=1)
+    when: Literal["now", "night"] = "now"
 
 
 class FileCopy(BaseModel):
@@ -518,6 +540,7 @@ class MassFiles(BaseModel):
     copy_: list[FileCopy] = Field(default_factory=list, alias="copy")
     delete: list[str] = Field(default_factory=list)
     reg: list[RegValue] = Field(default_factory=list)
+    when: Literal["now", "night"] = "now"
 
     @model_validator(mode="after")
     def _not_empty(self) -> MassFiles:
@@ -582,7 +605,8 @@ def mass_files(body: MassFiles):
             continue
         try:
             created.append(_submit(info, "files", params, title,
-                                   rebuild=not plan.changes.is_empty()).id)
+                                   rebuild=not plan.changes.is_empty(),
+                                   night=body.when == "night").id)
         except HTTPException as exc:
             skipped.append({"id": image_id, "reason": exc.detail})
     return {"tasks": created, "skipped": skipped}
@@ -595,7 +619,8 @@ def mass_verify(body: MassIds):
     for image_id in body.ids:
         try:
             info = _find_image(image_id)
-            created.append(_submit(info, "verify", {}, "vérification", rebuild=False).id)
+            created.append(_submit(info, "verify", {}, "vérification", rebuild=False,
+                                   night=body.when == "night").id)
         except HTTPException as exc:
             skipped.append({"id": image_id, "reason": exc.detail})
     return {"tasks": created, "skipped": skipped}
@@ -715,6 +740,7 @@ class PackRequest(BaseModel):
     items: list[PackItem] = Field(min_length=1)
     rename_wine: bool = True
     delete_source: bool = False
+    when: Literal["now", "night"] = "now"
 
 
 def _renamed_folder(folders: dict[str, dict], folder_id: str) -> dict | None:
@@ -750,7 +776,8 @@ def folders_pack(body: PackRequest):
         title = "empaquetage" + (" + .wine" if body.rename_wine else "") + \
             (" + suppression du dossier" if body.delete_source else "")
         try:
-            task = queue.submit("pack", folder["image_id"], pack_target(source), params, title)
+            task = queue.submit("pack", folder["image_id"], pack_target(source), params, title,
+                                night=body.when == "night")
         except TaskConflict as exc:
             skipped.append({"id": item.id, "reason": str(exc)})
             continue
@@ -803,6 +830,15 @@ def get_task(task_id: str):
 def cancel_task(task_id: str):
     try:
         return queue.cancel(task_id)
+    except KeyError:
+        raise HTTPException(status_code=404) from None
+
+
+@app.post("/api/tasks/{task_id}/now", response_model=Task)
+def run_task_now(task_id: str):
+    """Lève la programmation de nuit : la tâche démarre dès que possible."""
+    try:
+        return queue.run_now(task_id)
     except KeyError:
         raise HTTPException(status_code=404) from None
 

@@ -86,6 +86,7 @@ class Task(BaseModel):
     image_path: str | None = None
     params: dict[str, Any] = Field(default_factory=dict)   # propres au type, persistés
     status: TaskStatus = TaskStatus.PENDING
+    night: bool = False              # ne démarre que pendant la plage de nuit (Réglages)
     progress: float = 0.0            # 0..1
     phase: str = ""                  # étape en cours (extraction, mksquashfs, vérification…)
     log: list[str] = Field(default_factory=list)

@@ -5,8 +5,10 @@ Valeurs par défaut alignées sur les conventions de wsquashfs-launcher
 """
 
 import json
+import re
 import tempfile
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -50,6 +52,11 @@ class Settings(BaseSettings):
 
     # Reconstruction : overlay FUSE si disponible, sinon extraction complète
     rebuild_mode: Literal["auto", "overlay", "extract"] = "auto"
+
+    # Plage horaire des tâches « de nuit » (HH:MM, peut passer minuit) ;
+    # modifiable dans Réglages
+    night_start: str = "01:00"
+    night_end: str = "07:00"
 
     # Rétention des .old (None = suppression manuelle uniquement)
     old_retention_days: int | None = None
@@ -99,23 +106,53 @@ def work_area(settings: Settings, near: Path, prefix: str):
                 pass            # utilisé par une autre tâche, ou non vide
 
 
-def _read_runtime_roms_dirs(settings: Settings) -> list[str]:
+def _read_runtime(settings: Settings) -> dict:
     try:
         data = json.loads(settings.runtime_config_file.read_text())
-        roms_dirs = data.get("roms_dirs", [])
     except (json.JSONDecodeError, OSError):
-        return []
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _read_runtime_roms_dirs(settings: Settings) -> list[str]:
+    roms_dirs = _read_runtime(settings).get("roms_dirs", [])
     return [directory for directory in roms_dirs if isinstance(directory, str)]
 
 
-def save_roms_dirs(settings: Settings, roms_dirs: list[str]) -> None:
-    """Persiste la sélection faite dans l'interface sans écraser ``.env``."""
+def _save_runtime(settings: Settings, **values) -> None:
+    """Réglages faits dans l'interface (config.json), sans écraser ``.env``."""
+    data = _read_runtime(settings)
+    data.update(values)
     target = settings.runtime_config_file
     target.parent.mkdir(parents=True, exist_ok=True)
     part = target.with_name(target.name + ".part")
-    part.write_text(json.dumps({"roms_dirs": roms_dirs}, indent=2) + "\n")
+    part.write_text(json.dumps(data, indent=2) + "\n")
     part.replace(target)
+
+
+def save_roms_dirs(settings: Settings, roms_dirs: list[str]) -> None:
+    _save_runtime(settings, roms_dirs=roms_dirs)
     settings.roms_dirs = roms_dirs
+
+
+_HHMM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+def save_night(settings: Settings, start: str, end: str) -> None:
+    if not (_HHMM.match(start) and _HHMM.match(end)) or start == end:
+        raise ValueError("plage horaire invalide (HH:MM, début différent de la fin)")
+    _save_runtime(settings, night_start=start, night_end=end)
+    settings.night_start, settings.night_end = start, end
+
+
+def in_night(settings: Settings, now: datetime | None = None) -> bool:
+    """Vrai pendant la plage de nuit ; elle peut passer minuit (01:00-07:00,
+    ou 22:00-06:00)."""
+    current = (now or datetime.now().astimezone()).strftime("%H:%M")
+    start, end = settings.night_start, settings.night_end
+    if start < end:
+        return start <= current < end
+    return current >= start or current < end
 
 
 def get_settings() -> Settings:
@@ -127,4 +164,7 @@ def get_settings() -> Settings:
     chosen = _read_runtime_roms_dirs(settings)
     if chosen:
         settings.roms_dirs = chosen
+    runtime = _read_runtime(settings)
+    if _HHMM.match(str(runtime.get("night_start", ""))) and _HHMM.match(str(runtime.get("night_end", ""))):
+        settings.night_start, settings.night_end = runtime["night_start"], runtime["night_end"]
     return settings

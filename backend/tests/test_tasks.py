@@ -143,3 +143,34 @@ def test_second_instance_is_refused(tmp_path: Path):
     first.lock()
     with pytest.raises(QueueLocked):
         TaskQueue(tmp_path / "tasks.json", {}).lock()
+
+
+def test_night_tasks_wait_for_the_window(tmp_path: Path):
+    night = {"now": False}
+    queue = TaskQueue(tmp_path / "tasks.json", {"x": lambda task, job: None},
+                      night_now=lambda: night["now"])
+    later = queue.submit("x", "s/nuit", None, {}, night=True)
+    now = queue.submit("x", "s/jour", None, {})
+    queue.start()
+    try:
+        assert _wait(queue, now.id) == TaskStatus.DONE
+        time.sleep(0.3)
+        assert queue.get(later.id).status == TaskStatus.PENDING     # hors plage
+        night["now"] = True
+        with queue._cond:
+            queue._cond.notify_all()
+        assert _wait(queue, later.id) == TaskStatus.DONE
+    finally:
+        queue.stop()
+
+
+def test_run_now_lifts_night_schedule(tmp_path: Path):
+    queue = TaskQueue(tmp_path / "tasks.json", {"x": lambda task, job: None},
+                      night_now=lambda: False)
+    task = queue.submit("x", "s/a", None, {}, night=True)
+    queue.start()
+    try:
+        assert queue.run_now(task.id).night is False
+        assert _wait(queue, task.id) == TaskStatus.DONE
+    finally:
+        queue.stop()

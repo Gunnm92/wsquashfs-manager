@@ -304,3 +304,26 @@ def test_config_systems_lists_game_dirs(client, monkeypatch, tmp_path):
     monkeypatch.setattr(main._settings, "roms_roots", [str(roms)])
     assert client.get("/api/config/systems").json() == [
         {"path": str(roms / "win"), "name": "win", "root": str(roms), "images": 1, "folders": 1}]
+
+
+def test_night_window(client, monkeypatch, tmp_path, queue):
+    from datetime import datetime
+
+    from app import config
+    monkeypatch.setattr(main._settings, "runtime_config_file", tmp_path / "cfg.json")
+    monkeypatch.setattr(main._settings, "night_start", main._settings.night_start)
+    monkeypatch.setattr(main._settings, "night_end", main._settings.night_end)
+    s = main._settings
+    for start, end, hour, expected in [("01:00", "07:00", "03:30", True), ("01:00", "07:00", "07:00", False),
+                                       ("22:00", "06:00", "23:15", True), ("22:00", "06:00", "05:59", True),
+                                       ("22:00", "06:00", "12:00", False)]:
+        s.night_start, s.night_end = start, end
+        assert config.in_night(s, datetime.fromisoformat(f"2026-10-04T{hour}")) is expected, (start, end, hour)
+    assert client.put("/api/config/night", json={"start": "25:00", "end": "06:00"}).status_code == 422
+    cfg = client.put("/api/config/night", json={"start": "23:30", "end": "05:00"}).json()
+    assert (cfg["night_start"], cfg["night_end"]) == ("23:30", "05:00")
+    # Une action programmée « cette nuit » crée une tâche de nuit
+    body = {"ids": ["arcade/jeu"], "ops": [{"op": "remove", "key": "HIDRAW"}], "when": "night"}
+    task = queue.get(client.post("/api/mass/autorun", json=body).json()["tasks"][0])
+    assert task.night is True
+    assert client.post(f"/api/tasks/{task.id}/now").json()["night"] is False

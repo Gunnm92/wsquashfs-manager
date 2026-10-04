@@ -29,6 +29,13 @@ l'inscrire dans l'image plus tard, en une fois.
   l'autorun de l'image. Le signaler dans l'interface, et ne pas oublier
   d'« inscrire dans l'image » les surcharges validées.
 
+## Fait
+
+- [x] **Tâches de nuit** (04/10) : « Maintenant » ou « Cette nuit » sur chaque
+  lancement (empaquetage, autorun, fichiers) ; plage horaire dans Réglages
+  (01:00–07:00 par défaut, peut passer minuit) ; une tâche démarrée va au
+  bout, aucune ne démarre hors plage ; « Lancer maintenant » dans la file.
+
 ## Jeux à tester
 
 - [ ] **`HIDRAW=1` proposé** pour 9 jeux qui gèrent la DualSense eux-mêmes
