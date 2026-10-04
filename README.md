@@ -17,12 +17,15 @@ Voir [SPEC.md](SPEC.md) pour la spécification complète.
 | 1. Socle : scan + cache, bibliothèque, fiche | fait |
 | 2. Autorun : formulaire + texte, validations, reconstruction, vérification, `.old` | fait |
 | 3. Masse : sélection, autorun, fichiers et registre (relais fakeping), sauvegardes, intégrité, file de tâches, aperçu, espace disque | fait |
-| 4. Version | à faire |
+| 4. Version | fait : fiche → Version (build ou patch, aperçu, sauvegardes masquantes mises de côté) |
 | 5. Génération | fait : dossiers et images existantes (fiche → Autorun → « Proposer un autorun »), analyse PE, choix de l'exécutable, règles YAML, base de connaissances |
 | 6. Création | fait : dossiers `*.pc`/`*.wine` → `.wsquashfs` en batch (fakeping : étape 3) |
-| 7. Connaissances | à faire |
+| 7. Connaissances | base par jeu (nom, empreinte, exécutable imposé), ajout en un clic ; lancement d'essai à faire |
 
-Ce qui reste à faire : [TODO.md](TODO.md).
+Aussi : tâches programmées la nuit (plage dans Réglages), autorun temporaire
+`<jeu>.wsquashfs.autorun` sans reconstruction (lu par le lanceur, à inscrire
+ensuite dans l'image), historique permanent par image. Ce qui reste à faire :
+[TODO.md](TODO.md).
 
 ## Lancer
 
