@@ -7,7 +7,8 @@ arrêté. Rapport : le jeu a-t-il tenu, ses fenêtres (minimisée ?), les
 erreurs connues du journal, une capture d'écran.
 
 Garde-fous (leçons des essais faits à la main, 01/10) :
-- refus si un jeu tourne déjà dans SteamBox (lancements croisés) ;
+- refus si un jeu .wsquashfs tourne déjà dans SteamBox (lancements
+  croisés : les montages de l'un et de l'autre se gêneraient) ;
 - processus du jeu trouvés par leur WINEPREFIX et leur ligne de commande,
   jamais par leur nom (un jeu peut renommer son processus) ;
 - arrêt par PID, jamais `pkill -f` (qui se trouve lui-même).
@@ -40,8 +41,8 @@ KNOWN_ERRORS = [
 
 _SCRIPT = r'''
 IMG="$1"; DUR="${2:-60}"; STEM=$(basename "$IMG" .wsquashfs)
-# Tout programme Windows en cours (jeu, installeur lancé à la main…) : pas d'essai
-busy=$(ps -eo comm= | grep -cxE 'wsquashfs-launc|umu-run|wineserver')
+# Un jeu .wsquashfs en cours : ses montages et ceux de l'essai se gêneraient
+busy=$(ps -eo comm= | grep -cxE 'wsquashfs-launc|umu-run')
 if [ "$busy" != 0 ]; then echo "@@BUSY"; exit 3; fi
 [ -f "$IMG" ] || { echo "@@NOIMAGE"; exit 4; }
 ES=$(ps -eo pid=,comm= | awk '$2=="emulationstatio"{print $1; exit}')
@@ -223,8 +224,7 @@ def run_trial(settings: Settings, task: Task, job: Job) -> str:
                             ["bash", "-c", _SCRIPT, "wsfs-trial", target, str(duration)])
     text = out.decode("utf-8", "replace")
     if "@@BUSY" in text:
-        raise RebuildError("un programme Windows tourne déjà dans SteamBox (jeu ou "
-                           "installeur) : essai reporté")
+        raise RebuildError("un jeu tourne déjà dans SteamBox : essai reporté")
     if "@@NOIMAGE" in text:
         raise RebuildError(f"image introuvable dans SteamBox : {target}")
     job.check()

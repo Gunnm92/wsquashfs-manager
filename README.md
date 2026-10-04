@@ -75,7 +75,7 @@ puis Docker → Add Container → Template : `wsquashfs-manager`. Champs :
 Réseau `socket_proxy` (celui du docker-socket-proxy) : le **lancement
 d'essai** exécute le jeu dans SteamBox par l'API Docker (fiche → Infos →
 « Lancement d'essai » : le jeu tient-il, fenêtre minimisée, erreurs connues,
-capture), refusé si un programme Windows tourne déjà dans SteamBox.
+capture), refusé si un jeu .wsquashfs tourne déjà dans SteamBox.
 
 Paramètres supplémentaires du template : `--pid=host` (voir les jeux lancés
 dans SteamBox et ne pas reconstruire leur image pendant une partie),
