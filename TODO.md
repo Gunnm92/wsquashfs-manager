@@ -2,6 +2,12 @@
 
 ## Fait
 
+- [x] **Lancement d'essai** (04/10) : fiche → Infos ; le jeu est lancé dans
+  SteamBox (API Docker), observé 30 s à 2 min, arrêté ; rapport dans la file
+  (tient-il, fenêtre minimisée, erreurs connues, capture). Refusé si un
+  programme Windows tourne déjà. **Pas encore essayé sur un vrai jeu** : un
+  installeur tournait dans SteamBox (refus vérifié).
+
 - [x] **Historique permanent** (04/10) : chaque tâche terminée est ajoutée à
   `history.jsonl` (appdata) ; l'onglet Historique de la fiche le relit, même
   après « Effacer l'historique ».
@@ -48,8 +54,6 @@
 
 ## Génération et base de connaissances (SPEC § 2.5, étape 7)
 
-- [ ] Lancement d'essai chronométré (le jeu tient-il 60 s, erreurs connues
-  dans le journal).
 
 
 ## Déploiement

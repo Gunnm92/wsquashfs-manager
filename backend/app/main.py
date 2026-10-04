@@ -56,6 +56,7 @@ from .services.rebuild import (
     validate_backup,
 )
 from .services.tasks import QueueLocked, TaskConflict, TaskQueue
+from .services.trial import run_trial, steambox_path, trial_dir
 from .services.update import default_anchor, plan_update, run_update
 
 logger = logging.getLogger("wsquashfs-manager")
@@ -74,6 +75,7 @@ queue = TaskQueue(
         "verify": lambda task, job: run_verify(_settings, task, job),
         "pack": lambda task, job: run_pack(_settings, task, job),
         "update": lambda task, job: run_update(_settings, task, job),
+        "trial": lambda task, job: run_trial(_settings, task, job),
     },
     concurrency=_settings.task_concurrency,
     night_now=lambda: in_night(_settings),
@@ -1051,6 +1053,33 @@ def run_task_now(task_id: str):
         return queue.run_now(task_id)
     except KeyError:
         raise HTTPException(status_code=404) from None
+
+
+class TrialRequest(BaseModel):
+    duration: int = Field(default=60, ge=10, le=600)
+    when: Literal["now", "night"] = "now"
+
+
+@app.post("/api/image/trial")
+def image_trial(id: str, body: TrialRequest):
+    """Lancement d'essai chronométré dans SteamBox (le jeu s'affiche sur
+    l'écran de la session pendant la durée choisie, puis est arrêté)."""
+    info = _find_image(id)
+    try:
+        target = steambox_path(_settings, info.path)
+    except RebuildError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    task = _submit(info, "trial", {"duration": body.duration, "target": target},
+                   f"essai {body.duration} s", rebuild=False, night=body.when == "night")
+    return {"task": task.id, "target": target}
+
+
+@app.get("/api/tasks/{task_id}/screenshot")
+def task_screenshot(task_id: str):
+    shot = trial_dir(_settings) / f"{task_id}.png"
+    if not shot.is_file():
+        raise HTTPException(status_code=404, detail="pas de capture")
+    return FileResponse(shot, media_type="image/png")
 
 
 @app.delete("/api/tasks/finished")

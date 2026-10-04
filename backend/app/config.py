@@ -58,6 +58,13 @@ class Settings(BaseSettings):
     night_start: str = "01:00"
     night_end: str = "07:00"
 
+    # Lancement d'essai : le jeu est lancé dans le conteneur SteamBox par
+    # l'API Docker (docker-socket-proxy) ; conteneur vide = désactivé
+    steambox_container: str = "SteamBox"
+    docker_host: str = "tcp://docker-socket-proxy:2375"
+    steambox_roms: str = "/home/arcade/games/Batocera/roms"   # roms/ vu de SteamBox
+    trial_duration: int = 60
+
     # Rétention des .old (None = suppression manuelle uniquement)
     old_retention_days: int | None = None
 

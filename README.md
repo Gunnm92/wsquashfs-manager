@@ -20,7 +20,7 @@ Voir [SPEC.md](SPEC.md) pour la spécification complète.
 | 4. Version | fait : fiche → Version (build ou patch, aperçu, sauvegardes masquantes mises de côté) |
 | 5. Génération | fait : dossiers et images existantes (fiche → Autorun → « Proposer un autorun »), analyse PE, choix de l'exécutable, règles YAML, base de connaissances |
 | 6. Création | fait : dossiers `*.pc`/`*.wine` → `.wsquashfs` en batch (fakeping : étape 3) |
-| 7. Connaissances | base par jeu (nom, empreinte, exécutable imposé), ajout en un clic ; lancement d'essai à faire |
+| 7. Connaissances | fait : base par jeu (nom, empreinte, exécutable imposé), ajout en un clic, lancement d'essai dans SteamBox |
 
 Aussi : tâches programmées la nuit (plage dans Réglages), autorun temporaire
 `<jeu>.wsquashfs.autorun` sans reconstruction (lu par le lanceur, à inscrire
@@ -71,6 +71,11 @@ puis Docker → Add Container → Template : `wsquashfs-manager`. Champs :
 | Mot de passe | `WSQUASHFS_MGR_PASSWORD` | obligatoire : sans lui, le conteneur refuse de démarrer |
 | FUSE (avancé) | `/dev/fuse` | reconstruction sans extraction (mode overlay) |
 | PUID / PGID (avancé) | 99 / 100 | propriétaire des images créées (nobody:users = `arcade` de SteamBox) |
+
+Réseau `socket_proxy` (celui du docker-socket-proxy) : le **lancement
+d'essai** exécute le jeu dans SteamBox par l'API Docker (fiche → Infos →
+« Lancement d'essai » : le jeu tient-il, fenêtre minimisée, erreurs connues,
+capture), refusé si un programme Windows tourne déjà dans SteamBox.
 
 Paramètres supplémentaires du template : `--pid=host` (voir les jeux lancés
 dans SteamBox et ne pas reconstruire leur image pendant une partie),

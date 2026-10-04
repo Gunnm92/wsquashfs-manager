@@ -10,7 +10,10 @@
 <Container version="2">
   <Name>wsquashfs-manager</Name>
   <Repository>registry.elfenn.eu/wsquashfs-manager:latest</Repository>
-  <Network>bridge</Network>
+  <!-- Réseau du docker-socket-proxy : nécessaire au lancement d'essai (le jeu
+       est lancé dans SteamBox par l'API Docker). Sans lui : réseau bridge, et
+       l'essai est simplement indisponible. -->
+  <Network>socket_proxy</Network>
   <Privileged>false</Privileged>
   <Shell>bash</Shell>
   <WebUI>http://[IP]:[PORT:8765]/</WebUI>
@@ -33,5 +36,8 @@
   <Config Name="FUSE" Target="/dev/fuse" Default="/dev/fuse" Mode="" Description="Reconstruction sans extraction (mode overlay). Sans lui, repli sur l'extraction complète, plus lente et gourmande en disque." Type="Device" Display="advanced" Required="false" Mask="false">/dev/fuse</Config>
   <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="Utilisateur propriétaire des images (99 = nobody, comme arcade dans SteamBox)." Type="Variable" Display="advanced" Required="true" Mask="false">99</Config>
   <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Groupe propriétaire des images (100 = users)." Type="Variable" Display="advanced" Required="true" Mask="false">100</Config>
+  <Config Name="Conteneur SteamBox" Target="WSQUASHFS_MGR_STEAMBOX_CONTAINER" Default="SteamBox" Mode="" Description="Lancement d'essai : conteneur où tourne wsquashfs-launcher (vide = essai désactivé)." Type="Variable" Display="advanced" Required="false" Mask="false">SteamBox</Config>
+  <Config Name="Proxy Docker" Target="WSQUASHFS_MGR_DOCKER_HOST" Default="tcp://docker-socket-proxy:2375" Mode="" Description="API Docker (exec dans SteamBox) pour le lancement d'essai." Type="Variable" Display="advanced" Required="false" Mask="false">tcp://docker-socket-proxy:2375</Config>
+  <Config Name="Roms vues de SteamBox" Target="WSQUASHFS_MGR_STEAMBOX_ROMS" Default="/home/arcade/games/Batocera/roms" Mode="" Description="Chemin du dossier roms à l'intérieur de SteamBox." Type="Variable" Display="advanced" Required="false" Mask="false">/home/arcade/games/Batocera/roms</Config>
   <Config Name="Fuseau horaire" Target="TZ" Default="Europe/Paris" Mode="" Description="" Type="Variable" Display="advanced" Required="false" Mask="false">Europe/Paris</Config>
 </Container>
