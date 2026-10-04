@@ -18,8 +18,9 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .config import WORK_DIR_NAME, Settings, get_settings, in_night, save_night, save_roms_dirs
 from .models import ImageInfo, ImageState, Task
+from .services import analyze as analyze_mod
 from .services import scan
-from .services.analyze import FolderAnalysis, analyze_folder, analyze_image, report
+from .services.analyze import FolderAnalysis, add_local_game, analyze_folder, analyze_image, report
 from .services.autorun import (
     KEY_HELP,
     KEY_NAME_RE,
@@ -62,6 +63,8 @@ FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
 RULES_FILE = Path(__file__).resolve().parent.parent / "rules" / "rules.yaml"
 
 _settings: Settings = get_settings()
+# Base de connaissances locale (ajouts faits dans l'interface), dans l'appdata
+analyze_mod.LOCAL_GAMES_FILE = _settings.state_dir / "games.yaml"
 queue = TaskQueue(
     _settings.state_dir / "tasks.json",
     handlers={
@@ -284,6 +287,41 @@ def image_analyze(id: str, exe: str | None = None):
             _analyses.pop(next(iter(_analyses)))
         _analyses[key] = (info.mtime, fa)
     return {"id": info.id, **report(fa, exe)}
+
+
+class KnowledgeEntry(BaseModel):
+    game: str | None = None              # motif du nom du jeu (casse ignorée)
+    exe: str | None = None               # nom de l'exécutable
+    prefer: str | None = None            # exécutable à retenir pour ce jeu
+    keys: dict[str, str] = Field(default_factory=dict)
+    requires: list[str] = Field(default_factory=list)
+    note: str = ""
+
+    @field_validator("keys")
+    @classmethod
+    def _valid_keys(cls, keys: dict[str, str]) -> dict[str, str]:
+        for key, value in keys.items():
+            if not KEY_NAME_RE.match(key) or "\n" in value or "\r" in value:
+                raise ValueError(f"clé invalide : {key}")
+        return keys
+
+
+@app.get("/api/knowledge")
+def knowledge_list():
+    """Base de connaissances : entrées locales (prioritaires) puis livrées."""
+    return analyze_mod.load_games()
+
+
+@app.post("/api/knowledge")
+def knowledge_add(body: KnowledgeEntry):
+    """« Ajouter à la base » : enregistre un réglage validé pour ce jeu dans
+    la base locale (appdata), appliqué aux prochaines propositions."""
+    try:
+        entry = add_local_game(body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    _analyses.clear()                    # les propositions en cache en tiennent compte
+    return entry
 
 
 @app.get("/api/autorun/keys")

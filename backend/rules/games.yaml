@@ -19,3 +19,18 @@ games:
       (« Invalid call », assertion au démarrage), sous Proton comme sous
       wine-tkg, avec ou sans DXVK. Testé le 01/10/2026 dans SteamBox : avec la
       DLL native, le jeu démarre (Proton + DXVK, sans surcharge de registre).
+
+  # Exécutable choisi à la main dans l'autorun d'origine, différent de celui
+  # que retient le score (calibrage du 01/10/2026 sur les autoruns existants)
+  - game: "Dragon Ball Xenoverse 2*"
+    prefer: START.exe
+    note: lanceur START.exe, retenu par l'autorun d'origine
+  - game: "FlatOut Ultimate Carnage*"
+    prefer: launcher.exe
+    note: launcher.exe, retenu par l'autorun d'origine
+  - game: "Red Dead Redemption 2*"
+    prefer: Launcher.exe
+    note: Launcher.exe, retenu par l'autorun d'origine
+  - game: "PAC*MAN Championship Edition DX*"
+    prefer: LAUNCHER_x64.exe
+    note: LAUNCHER_x64.exe, retenu par l'autorun d'origine

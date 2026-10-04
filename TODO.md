@@ -2,6 +2,13 @@
 
 ## Fait
 
+- [x] **Base de connaissances** (04/10) : repérage par nom du jeu (`game`),
+  exécutable imposé (`prefer`, repêché même s'il était écarté) ; base locale
+  dans l'appdata, prioritaire sur `rules/games.yaml` ; fiche → Autorun →
+  « Ajouter à la base… ». Choix du calibrage ajoutés : Xenoverse 2
+  (`START.exe`), FlatOut, RDR2, PAC-MAN CE DX (lanceurs) — Horizon Chase
+  retiré, son autorun ayant été corrigé depuis.
+
 - [x] **Autorun temporaire sans reconstruction** (04/10) :
   `<jeu>.wsquashfs.autorun` à côté de l'image, fusion clé par clé (`CLÉ=`
   vide : défaut du lanceur). Lanceur : lecture au lancement et par `--info`
@@ -30,11 +37,6 @@
 
 ## Génération et base de connaissances (SPEC § 2.5, étape 7)
 
-- [ ] « Ajouter à la base » en un clic depuis une correction validée
-  (`rules/games.yaml`), comme Astebreed (`d3dx9_43` native).
-- [ ] Choix propres au jeu repérés au calibrage, à mettre dans la base :
-  `START.exe` (Dragon Ball Xenoverse 2), `Launcher.exe` (FlatOut, RDR2,
-  PAC-MAN CE DX), `-Shipping.exe` (Horizon Chase).
 - [ ] Lancement d'essai chronométré (le jeu tient-il 60 s, erreurs connues
   dans le journal).
 

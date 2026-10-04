@@ -196,6 +196,7 @@ pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; 
           <select id="a-eol"><option value="crlf">CRLF</option><option value="lf">LF</option></select>
         </label>
         <span class="spacer"></span>
+        <button class="secondary" id="a-kb" title="Mémoriser un réglage validé pour ce jeu : appliqué aux prochaines propositions">Ajouter à la base…</button>
         <button class="secondary" id="a-propose" title="Analyse de l'image (exécutables, règles, base de connaissances)">Proposer un autorun</button>
         <button class="secondary" id="a-reset">Annuler</button>
         <button class="secondary" id="a-check">Vérifier</button>
@@ -331,6 +332,19 @@ pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; 
     <button id="f-run" disabled>Lancer</button>
   </div>
   <div id="f-result"></div>
+</dialog>
+
+<dialog id="dlg-kb" class="small">
+  <h2>Ajouter à la base de connaissances</h2>
+  <p class="muted">Ce qui ne se déduit pas des fichiers : appliqué en priorité aux prochaines propositions d'autorun pour ce jeu (base locale, dans l'appdata).</p>
+  <label class="muted">Jeu (motif, casse ignorée, * accepté)<input id="kb-game" style="width:100%"></label>
+  <label class="row" style="margin-top:.5rem"><input type="checkbox" id="kb-prefer-on"> Exécutable à retenir : <code id="kb-prefer"></code></label>
+  <h3>Réglages à imposer</h3>
+  <div id="kb-keys" class="mono"></div>
+  <label class="muted">Pourquoi (note)<textarea id="kb-note" rows="3" placeholder="ex. écran noir sous DXVK, testé le …"></textarea></label>
+  <p id="kb-err" class="notice err" hidden></p>
+  <div class="row" style="margin-top:.8rem"><span class="spacer"></span>
+    <button class="secondary" data-close>Fermer</button><button id="kb-save">Ajouter</button></div>
 </dialog>
 
 <datalist id="known-keys"></datalist>
@@ -828,6 +842,44 @@ async function commitOverrides(ids) {
     refreshTasks();
   } catch (error) { alert(error.message); }
 }
+
+// ------------------------------------------------------------------ base de connaissances
+
+$("a-kb").onclick = () => {
+  const { lines } = editorLines();
+  const autorun = Object.fromEntries(lines.map((l) => KEY_RE.exec(l)).filter(Boolean).map((m) => [m[1], m[2]]));
+  const exe = (autorun.CMD || "").startsWith('"') ? autorun.CMD.split('"')[1] : (autorun.CMD || "").split(" ")[0];
+  const dir = (autorun.DIR || "").replace(/^["']|["']$/g, "").replace(/\\/g, "/").replace(/\/+$/, "");
+  $("kb-game").value = state.current.name;
+  $("kb-prefer").textContent = exe ? [dir, exe].filter(Boolean).join("/") : "—";
+  $("kb-prefer-on").checked = false;
+  $("kb-prefer-on").disabled = !exe;
+  const keys = Object.entries(autorun).filter(([k]) => !["CMD", "DIR", "GAME_VERSION"].includes(k));
+  $("kb-keys").replaceChildren(...(keys.length ? keys.map(([k, v]) => {
+    const box = el("input", { type: "checkbox", checked: true });
+    box.dataset.key = k; box.dataset.value = v;
+    return el("label", { className: "row" }, box, `${k}=${v}`);
+  }) : [el("span", { className: "muted", textContent: "aucun réglage hors CMD/DIR/GAME_VERSION dans l'autorun" })]));
+  $("kb-note").value = "";
+  $("kb-err").hidden = true;
+  $("dlg-kb").showModal();
+};
+
+$("kb-save").onclick = async () => {
+  const keys = Object.fromEntries([...$("kb-keys").querySelectorAll("input:checked")].map((b) => [b.dataset.key, b.dataset.value]));
+  const body = { game: $("kb-game").value.trim(), keys, note: $("kb-note").value.trim(),
+    prefer: $("kb-prefer-on").checked ? $("kb-prefer").textContent : null };
+  try {
+    if (!body.game) throw new Error("Nom du jeu requis.");
+    if (!Object.keys(keys).length && !body.prefer) throw new Error("Rien à mémoriser : cocher un réglage ou l'exécutable.");
+    await api("/api/knowledge", { method: "POST", body });
+    $("dlg-kb").close();
+    $("a-result").replaceChildren(el("div", { className: "notice info", textContent: "Ajouté à la base : appliqué aux prochaines propositions pour ce jeu." }));
+  } catch (error) {
+    $("kb-err").textContent = error.message;
+    $("kb-err").hidden = false;
+  }
+};
 
 // ------------------------------------------------------------------ fichiers, historique
 

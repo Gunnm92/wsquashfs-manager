@@ -79,16 +79,59 @@ _HASH_LIMIT = 300 * 2**20
 
 # ------------------------------------------------------------------ base de connaissances
 
-def load_games(path: Path = GAMES_FILE) -> list[dict]:
+# Base locale (ajouts faits depuis l'interface) : dans l'appdata, prioritaire
+# sur la base livrée avec l'application ; définie au démarrage par main.
+LOCAL_GAMES_FILE: Path | None = None
+
+
+def validate_game(game: dict, where: str = "") -> None:
+    if not (game.get("exe") or game.get("sha256") or game.get("game")):
+        raise ValueError(f"{where}exe, sha256 ou game requis")
+    if not (game.get("keys") or game.get("requires") or game.get("prefer")):
+        raise ValueError(f"{where}keys, requires ou prefer requis")
+
+
+def _load_file(path: Path, source: str) -> list[dict]:
     if not path.exists():
         return []
     data = yaml.safe_load(path.read_text()) or {}
     games = list(data.get("games", []))
     for i, game in enumerate(games):
-        if not (game.get("exe") or game.get("sha256")) or not (game.get("keys")
-                                                               or game.get("requires")):
-            raise ValueError(f"games.yaml, entrée {i} : exe/sha256 et keys ou requires requis")
+        validate_game(game, f"{path.name}, entrée {i} : ")
+        game["_source"] = source
     return games
+
+
+def load_games(path: Path | None = None) -> list[dict]:
+    """Entrées de la base : locale d'abord (prioritaire), puis livrée."""
+    if path is not None:                      # fichier explicite (tests)
+        return _load_file(path, "livrée")
+    local = _load_file(LOCAL_GAMES_FILE, "locale") if LOCAL_GAMES_FILE else []
+    return local + _load_file(GAMES_FILE, "livrée")
+
+
+def add_local_game(entry: dict) -> dict:
+    """Ajoute une entrée à la base locale (« Ajouter à la base »)."""
+    if LOCAL_GAMES_FILE is None:
+        raise ValueError("base locale non configurée")
+    entry = {k: v for k, v in entry.items() if v not in (None, "", [], {})}
+    validate_game(entry)
+    data = {"games": []}
+    if LOCAL_GAMES_FILE.exists():
+        data = yaml.safe_load(LOCAL_GAMES_FILE.read_text()) or {"games": []}
+    data.setdefault("games", []).append(entry)
+    LOCAL_GAMES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    part = LOCAL_GAMES_FILE.with_name(LOCAL_GAMES_FILE.name + ".part")
+    part.write_text("# Base de connaissances locale (ajouts depuis wsquashfs-manager),\n"
+                    "# prioritaire sur rules/games.yaml. Même format.\n"
+                    + yaml.safe_dump(data, allow_unicode=True, sort_keys=False))
+    part.replace(LOCAL_GAMES_FILE)
+    return entry
+
+
+def _game_matches(game: dict, name: str) -> bool:
+    pattern = game.get("game")
+    return bool(pattern) and fnmatch.fnmatchcase(name.lower(), str(pattern).lower())
 
 
 def missing_requirements(files: list[str], exe: str, game: dict) -> list[str]:
@@ -99,8 +142,10 @@ def missing_requirements(files: list[str], exe: str, game: dict) -> list[str]:
             if f"{directory}/{name}".lstrip("/").lower() not in present]
 
 
-def match_game(games: list[dict], scan: FolderScan, exe: str) -> dict | None:
-    """Entrée de la base pour cet exécutable : empreinte d'abord, nom ensuite."""
+def match_game(games: list[dict], scan: FolderScan, exe: str,
+               game_name: str | None = None) -> dict | None:
+    """Entrée de la base pour ce jeu : empreinte de l'exécutable d'abord, puis
+    nom de l'exécutable, puis nom du jeu."""
     name = exe.rsplit("/", 1)[-1].lower()
     by_name = [g for g in games if (g.get("exe") or "").lower() == name]
     with_hash = [g for g in games if g.get("sha256")]
@@ -111,7 +156,11 @@ def match_game(games: list[dict], scan: FolderScan, exe: str) -> dict | None:
         exact = next((g for g in with_hash if g["sha256"].lower() == digest), None)
         if exact:
             return exact
-    return by_name[0] if by_name else None
+    if by_name:
+        return by_name[0]
+    if game_name:
+        return next((g for g in games if _game_matches(g, game_name)), None)
+    return None
 
 
 @dataclass
@@ -554,7 +603,8 @@ class Proposal:
 
 def propose(scan: FolderScan, candidate: Candidate | None, prefix: str, arch: str | None,
             proton: str | None, engine: str | None, overrides: dict[str, str],
-            rules_file: Path = RULES_FILE, games_file: Path = GAMES_FILE) -> Proposal:
+            rules_file: Path = RULES_FILE, games_file: Path | None = None,
+            game: str | None = None) -> Proposal:
     lines: list[str] = []
     items: list[dict] = []
     warnings: list[str] = []
@@ -599,9 +649,10 @@ def propose(scan: FolderScan, candidate: Candidate | None, prefix: str, arch: st
         if result.file:
             warnings.append(f"fichier à ajouter : {result.file} (règle {result.source})")
     # Base de connaissances : prioritaire sur les règles générales
-    knowledge = match_game(load_games(games_file), scan, candidate.path)
+    knowledge = match_game(load_games(games_file), scan, candidate.path, game)
     if knowledge:
-        how = "empreinte" if knowledge.get("sha256") else "nom de l'exécutable"
+        how = ("empreinte" if knowledge.get("sha256") else "nom de l'exécutable"
+               if knowledge.get("exe") else "nom du jeu")
         for key, value in (knowledge.get("keys") or {}).items():
             value = str(value)
             lines[:] = [line for line in lines if not line.startswith(f"{key}=")]
@@ -669,6 +720,35 @@ def _merge_shipping(candidates: list[Candidate]) -> None:
                 c.info.markers |= ship.info.markers
 
 
+def _apply_preference(candidates: list[Candidate], excluded: list[dict], scan: FolderScan,
+                      game: str) -> None:
+    """Base de connaissances : exécutable imposé pour ce jeu (« prefer »),
+    choisi d'après l'autorun écrit à la main quand le score se trompe ; un
+    exécutable écarté par l'analyse (dossier tools/…) est repêché."""
+    entry = next((g for g in load_games() if g.get("prefer") and _game_matches(g, game)), None)
+    if entry is None:
+        return
+    wanted = str(entry["prefer"]).replace("\\", "/").lower()
+
+    def matches(path: str) -> bool:
+        low = path.lower()
+        return low == wanted or low.endswith("/" + wanted) or low.rsplit("/", 1)[-1] == wanted
+
+    pick = next((c for c in candidates if matches(c.path)), None)
+    if pick is None:
+        rel = next((e["path"] for e in excluded if matches(e["path"])), None)
+        if rel is None:
+            return
+        excluded[:] = [e for e in excluded if e["path"] != rel]
+        pick = Candidate(path=rel, kind="exe", size=scan.sizes.get(rel, 0))
+        pick.info = _read_pe(scan, rel)
+        candidates.append(pick)
+    pick.reasons.insert(0, f"base de connaissances : {entry.get('note') or 'exécutable choisi pour ce jeu'}")
+    pick.score = max(c.score for c in candidates) + 1
+    candidates.remove(pick)
+    candidates.insert(0, pick)
+
+
 def _read_pe(scan: FolderScan, rel: str) -> ExeInfo:
     with scan.source.local_path(rel) as path:
         return read_exe(path)
@@ -696,6 +776,7 @@ def _analyze(scan: FolderScan, game: str, existing: bytes | None,
     if tekno:
         tekno.info = _read_pe(scan, tekno.path)
     candidates.sort(key=lambda c: c.score, reverse=True)
+    _apply_preference(candidates, excluded, scan, game)
     return FolderAnalysis(scan=scan, game=game, prefix=prefix, arch=arch, proton=proton,
                           engine=engine, overrides=dll_overrides(scan, prefix),
                           candidates=candidates, excluded=excluded, existing=existing)
@@ -721,7 +802,8 @@ def analyze_image(image: Path, game: str, unsquashfs: str = "unsquashfs",
 def report(fa: FolderAnalysis, exe: str | None = None) -> dict:
     """Résultat pour l'API : proposition, autorun existant validé, recommandation."""
     chosen = fa.candidate(exe)
-    proposal = propose(fa.scan, chosen, fa.prefix, fa.arch, fa.proton, fa.engine, fa.overrides)
+    proposal = propose(fa.scan, chosen, fa.prefix, fa.arch, fa.proton, fa.engine, fa.overrides,
+                       game=fa.game)
     file_set = set(fa.scan.files)
     generated_issues = proposal.autorun.validate(file_set)
     existing = None
