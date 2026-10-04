@@ -97,6 +97,8 @@ dialog.small { width: min(460px, 95vw); }
 .diff { font: 12px/1.45 var(--mono); white-space: pre-wrap; margin: .3rem 0; }
 .diff .add { color: var(--ok); } .diff .del { color: var(--err); text-decoration: line-through; }
 .preview-item { border-top: 1px solid var(--line); padding: .5rem 0; }
+label.check { display: flex; gap: .5rem; align-items: flex-start; margin: .4rem 0; }
+label.check input { margin-top: .2rem; flex: none; }
 .views { display: flex; gap: .2rem; margin-left: 1rem; }
 .views button { background: none; color: var(--muted); }
 .views button.active { background: var(--raised); color: var(--text); }
@@ -172,6 +174,7 @@ pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; 
     <div class="tabs" id="d-tabs">
       <button data-tab="info" class="active">Infos</button>
       <button data-tab="autorun">Autorun</button>
+      <button data-tab="version">Version</button>
       <button data-tab="files">Fichiers</button>
       <button data-tab="history">Historique</button>
     </div>
@@ -207,6 +210,19 @@ pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; 
       <ul class="issues" id="a-issues"></ul>
       <div id="a-proposal"></div>
       <div id="a-result"></div>
+    </div>
+    <div data-pane="version" hidden>
+      <p class="muted">Appliquer un nouveau build ou un patch (dossier sur le serveur) au dossier du jeu dans l'image. Aperçu d'abord ; l'original est gardé en .old.</p>
+      <label class="muted">Dossier source<input id="u-source" style="width:100%" placeholder="/config/Téléchargements/Jeu v1.2"></label>
+      <label class="muted">Point d'ancrage dans l'image<input id="u-anchor" style="width:100%" placeholder="(racine)"></label>
+      <label class="check"><input type="checkbox" id="u-delete"><span>Build complet : supprimer de l'image ce qui n'est plus dans la source</span></label>
+      <label class="check"><input type="checkbox" id="u-saves" checked><span>Mettre de côté les fichiers du jeu restés dans les sauvegardes (ils masqueraient la mise à jour)</span></label>
+      <label class="muted">Nouvelle version (GAME_VERSION)<input id="u-version" style="width:100%" placeholder="proposée d'après l'exécutable"></label>
+      <div class="row" style="margin-top:.6rem"><span class="spacer"></span>
+        <button class="secondary" id="u-preview">Aperçu</button>
+        <select class="when" id="u-when" title="Maintenant, ou pendant la plage de nuit (Réglages)"></select>
+        <button id="u-run" disabled>Mettre à jour</button></div>
+      <div id="u-result"></div>
     </div>
     <div data-pane="files" hidden>
       <input type="search" id="files-q" placeholder="Rechercher un fichier (casse ignorée)" style="width:100%">
@@ -566,6 +582,8 @@ $("btn-sel-clear").onclick = () => { state.selected.clear(); renderTable(); };
 
 async function openDetail(id) {
   state.current = state.byId.get(id);
+  delete $("u-anchor").dataset.edited;
+  $("u-source").value = ""; $("u-version").value = "";
   $("main").classList.add("with-detail");
   $("detail").hidden = false;
   renderTable();
@@ -620,6 +638,7 @@ function showTab(name) {
   for (const b of $("d-tabs").children) b.classList.toggle("active", b.dataset.tab === name);
   for (const pane of document.querySelectorAll("[data-pane]")) pane.hidden = pane.dataset.pane !== name;
   if (name === "files") loadFiles();
+  if (name === "version") loadUpdateDefaults();
   if (name === "history") renderHistory();
 }
 $("d-tabs").onclick = (event) => event.target.dataset.tab && showTab(event.target.dataset.tab);
@@ -842,6 +861,71 @@ async function commitOverrides(ids) {
     refreshTasks();
   } catch (error) { alert(error.message); }
 }
+
+// ------------------------------------------------------------------ montée de version
+
+async function loadUpdateDefaults() {
+  const id = state.current.id;
+  $("u-result").replaceChildren();
+  $("u-run").disabled = true;
+  try {
+    const d = await api(`/api/image/update?id=${encodeURIComponent(id)}`);
+    if (state.current?.id !== id) return;
+    if (!$("u-anchor").dataset.edited) $("u-anchor").value = d.anchor;
+    $("u-version").placeholder = d.version ? `actuelle : ${d.version} — proposée d'après l'exécutable` : "proposée d'après l'exécutable";
+  } catch (error) {
+    $("u-result").replaceChildren(el("div", { className: "notice err", textContent: error.message }));
+  }
+}
+for (const id of ["u-source", "u-anchor", "u-version"]) $(id).addEventListener("input", () => { $("u-run").disabled = true; });
+for (const id of ["u-delete"]) $(id).addEventListener("change", () => { $("u-run").disabled = true; });
+$("u-anchor").addEventListener("input", () => { $("u-anchor").dataset.edited = "1"; });
+
+const updateBody = () => ({ source: $("u-source").value.trim(), anchor: $("u-anchor").value.trim(),
+  delete_missing: $("u-delete").checked, clean_saves: $("u-saves").checked,
+  version: $("u-version").value.trim() || null, when: whenOf("u-when") });
+
+function fileList(title, items, render) {
+  if (!items.length) return null;
+  return el("details", {}, el("summary", { textContent: title }),
+    el("div", { className: "files", textContent: items.map(render).join("\n") }));
+}
+
+$("u-preview").onclick = async () => {
+  $("u-result").replaceChildren(el("p", { className: "muted", textContent: "Comparaison de la source et de l'image…" }));
+  try {
+    const r = await api(`/api/image/update/preview?id=${encodeURIComponent(state.current.id)}`, { method: "POST", body: updateBody() });
+    if (r.version && !$("u-version").value) $("u-version").value = r.version;
+    const more = (n, shown) => n > shown ? ` (${shown} affichés)` : "";
+    $("u-result").replaceChildren(
+      el("h3", { textContent: r.changed ? `Dans ${r.anchor || "la racine"} : ${r.added_count} ajouté(s), ${r.replaced_count} remplacé(s), ${r.deleted_count} supprimé(s), ${r.same} identique(s)` : "Rien à mettre à jour" }),
+      el("dl", {}, el("dt", { textContent: "Version" }), el("dd", { textContent: `${r.version_before || "—"} → ${r.version || "inchangée"}${r.version_hint ? ` (${r.version_hint})` : ""}` }),
+        el("dt", { textContent: "À copier" }), el("dd", { textContent: size(r.copy_size) }),
+        el("dt", { textContent: "Disque" }), el("dd", { textContent: `${size(r.space.needed)} nécessaires (ancienne image gardée en .old), ${size(r.space.free)} libres` })),
+      ...[fileList(`Ajoutés${more(r.added_count, r.added.length)}`, r.added, (a) => `+ ${a.path}  (${size(a.size)})`),
+        fileList(`Remplacés${more(r.replaced_count, r.replaced.length)}`, r.replaced, (x) => `~ ${x.path}  (${size(x.before)} → ${size(x.after)})`),
+        fileList(`Supprimés${more(r.deleted_count, r.deleted.length)}`, r.deleted, (d) => `- ${d}`),
+        fileList(`Masqués par les sauvegardes${more(r.masked_count, r.masked.length)}`, r.masked, (m) => `! ${m}`)].filter(Boolean),
+      ...(r.warnings.length ? [el("ul", { className: "issues" }, ...r.warnings.map((w) => el("li", { textContent: w })))] : []),
+      ...(r.blocked ? [el("div", { className: "notice warn", textContent: r.blocked })] : []));
+    $("u-run").disabled = !r.changed || Boolean(r.blocked);
+  } catch (error) {
+    $("u-result").replaceChildren(el("div", { className: "notice err", textContent: error.message }));
+  }
+};
+
+$("u-run").onclick = async () => {
+  if (!confirm("Mettre à jour l'image ? L'original sera conservé en .old jusqu'à validation.")) return;
+  try {
+    await api(`/api/image/update?id=${encodeURIComponent(state.current.id)}`, { method: "POST", body: updateBody() });
+    $("u-result").replaceChildren(el("div", { className: "notice info", textContent: "Montée de version ajoutée à la file de tâches." }));
+    $("u-run").disabled = true;
+    openTasks();
+    refreshTasks();
+  } catch (error) {
+    $("u-result").replaceChildren(el("div", { className: "notice err", textContent: error.message }));
+  }
+};
 
 // ------------------------------------------------------------------ base de connaissances
 

@@ -18,6 +18,7 @@ que sur validation explicite ou après le délai de rétention.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import stat as statmod
 import subprocess
@@ -359,11 +360,35 @@ def verify(settings: Settings, part: Path, expected: set[str], changes: Changes)
                        timeout=60).stdout
         if content != data:
             raise RebuildError(f"vérification : {rel} reconstruit différent")
-    for rel, source in changes.copy.items():
-        size = len(_run([settings.unsquashfs, "-cat", str(part), safe_rel(rel)],
-                        timeout=600).stdout)
-        if size != source.stat().st_size:
-            raise RebuildError(f"vérification : taille de {rel} différente de la source")
+    if changes.copy:
+        # Une seule lecture de la table pour toutes les tailles : relire chaque
+        # fichier copié (-cat) prendrait des heures sur un gros patch
+        sizes = file_sizes(settings, part)
+        for rel, source in changes.copy.items():
+            if sizes.get(safe_rel(rel)) != source.stat().st_size:
+                raise RebuildError(f"vérification : taille de {rel} différente de la source")
+
+
+_LLS_RE = re.compile(r"^(\S)\S*\s+\S+\s+(\d+)\s+(\S+ \S+)\s+squashfs-root/(.+)$")
+
+
+def table(settings: Settings, image: Path) -> dict[str, tuple[str, int, str]]:
+    """Table de l'image (unsquashfs -lls) : {chemin: (type, taille, date)}, type
+    « - » fichier, « d » dossier, « l » lien ; date « AAAA-MM-JJ HH:MM »."""
+    out = _run([settings.unsquashfs, "-lls", str(image)], timeout=600).stdout
+    entries: dict[str, tuple[str, int, str]] = {}
+    for line in out.decode("utf-8", "replace").splitlines():
+        m = _LLS_RE.match(line)
+        if m:
+            kind, size, date, rel = m.groups()
+            if kind == "l":
+                rel = rel.split(" -> ", 1)[0]
+            entries[rel] = (kind, int(size), date)
+    return entries
+
+
+def file_sizes(settings: Settings, image: Path) -> dict[str, int]:
+    return {rel: size for rel, (kind, size, _) in table(settings, image).items() if kind == "-"}
 
 
 # ------------------------------------------------------------------ reconstruction

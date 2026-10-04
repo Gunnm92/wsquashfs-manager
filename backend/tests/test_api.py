@@ -364,3 +364,11 @@ def test_local_knowledge_prefers_exe(tmp_path, monkeypatch):
     r = analyze.report(analyze.analyze_folder(root, "Mon Jeu"))
     assert r["chosen"] == "tools/Start.exe"
     assert "lanceur requis" in r["candidates"][0]["reasons"][0]
+
+
+def test_update_endpoints_validate_input(client):
+    assert client.post("/api/image/update/preview", params={"id": "arcade/jeu"},
+                       json={"source": "relatif"}).status_code == 422
+    r = client.post("/api/image/update/preview", params={"id": "arcade/jeu"},
+                    json={"source": "/nexiste/pas"})
+    assert r.status_code == 409 and "introuvable" in r.json()["detail"]

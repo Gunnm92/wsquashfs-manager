@@ -56,6 +56,7 @@ from .services.rebuild import (
     validate_backup,
 )
 from .services.tasks import QueueLocked, TaskConflict, TaskQueue
+from .services.update import default_anchor, plan_update, run_update
 
 logger = logging.getLogger("wsquashfs-manager")
 
@@ -72,6 +73,7 @@ queue = TaskQueue(
         "files": lambda task, job: run_files(_settings, task, job),
         "verify": lambda task, job: run_verify(_settings, task, job),
         "pack": lambda task, job: run_pack(_settings, task, job),
+        "update": lambda task, job: run_update(_settings, task, job),
     },
     concurrency=_settings.task_concurrency,
     night_now=lambda: in_night(_settings),
@@ -287,6 +289,70 @@ def image_analyze(id: str, exe: str | None = None):
             _analyses.pop(next(iter(_analyses)))
         _analyses[key] = (info.mtime, fa)
     return {"id": info.id, **report(fa, exe)}
+
+
+class UpdateRequest(BaseModel):
+    source: str = Field(min_length=1)       # dossier du nouveau build ou du patch (serveur)
+    anchor: str = ""                        # dossier de l'image où l'appliquer
+    delete_missing: bool = False            # build complet : retirer ce qui n'y est plus
+    version: str | None = None              # nouvelle GAME_VERSION (sinon proposée)
+    clean_saves: bool = True                # mettre de côté les fichiers masquants
+    when: Literal["now", "night"] = "now"
+
+    @field_validator("source")
+    @classmethod
+    def _absolute(cls, value: str) -> str:
+        if not Path(value).is_absolute():
+            raise ValueError("chemin absolu attendu (dossier sur le serveur)")
+        return value
+
+    @field_validator("version")
+    @classmethod
+    def _one_line(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if "\n" in value or "\r" in value:
+            raise ValueError("version sur une seule ligne")
+        return value.strip() or None
+
+
+@app.get("/api/image/update")
+def update_defaults(id: str):
+    """Point d'ancrage proposé (DIR= de l'autorun) et version actuelle."""
+    info = _find_image(id)
+    return {"anchor": default_anchor(_settings, info.path), "version": info.version}
+
+
+def _update_plan(info: ImageInfo, body: UpdateRequest):
+    try:
+        return plan_update(_settings, info.path, Path(body.source), body.anchor,
+                           body.delete_missing, body.version)
+    except RebuildError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/image/update/preview")
+def update_preview(id: str, body: UpdateRequest):
+    """Aperçu de la montée de version : ajoutés, remplacés, identiques,
+    supprimés, fichiers masqués par les sauvegardes, version."""
+    info = _find_image(id)
+    plan = _update_plan(info, body)
+    free = shutil.disk_usage(existing_parent(info.path.parent)).free
+    return {**plan.summary(), "space": {"needed": info.size + plan.summary()["copy_size"],
+                                        "free": free},
+            "blocked": _blocked_reason(info) if not plan.changes.is_empty() else None}
+
+
+@app.post("/api/image/update")
+def update_run(id: str, body: UpdateRequest):
+    info = _find_image(id)
+    plan = _update_plan(info, body)
+    if plan.changes.is_empty():
+        raise HTTPException(status_code=409, detail="rien à mettre à jour")
+    params = {**body.model_dump(exclude={"when"}), "version": plan.version}
+    title = f"montée de version{f' → {plan.version}' if plan.version else ''}"
+    task = _submit(info, "update", params, title, night=body.when == "night")
+    return {"task": task.id, **plan.summary()}
 
 
 class KnowledgeEntry(BaseModel):

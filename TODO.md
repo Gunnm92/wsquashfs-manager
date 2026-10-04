@@ -2,6 +2,13 @@
 
 ## Fait
 
+- [x] **Montée de version** (04/10, SPEC § 3.3) : fiche → Version ; dossier
+  source (build ou patch), point d'ancrage proposé d'après `DIR=`, aperçu
+  (ajoutés, remplacés, identiques — même taille et même date —, supprimés en
+  option pour un build complet, racine d'un prefix protégée), casse de
+  l'image conservée, `GAME_VERSION` proposée d'après l'exécutable, fichiers
+  masquants des sauvegardes mis de côté dans `<jeu>.avant-maj-<date>/`.
+
 - [x] **Base de connaissances** (04/10) : repérage par nom du jeu (`game`),
   exécutable imposé (`prefer`, repêché même s'il était écarté) ; base locale
   dans l'appdata, prioritaire sur `rules/games.yaml` ; fiche → Autorun →
@@ -42,8 +49,6 @@
 
 ## Fonctions de la SPEC non faites
 
-- [ ] Étape 4 — montée de version : dossier source, aperçu des différences,
-  `GAME_VERSION`, fichiers du jeu masqués par les sauvegardes.
 - [ ] Historique de la fiche : afficher aussi les opérations antérieures à
   l'effacement de l'historique des tâches.
 
