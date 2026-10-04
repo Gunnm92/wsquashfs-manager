@@ -298,4 +298,4 @@ l'étape 2, sur la fiche d'une image.
 4. **Surcharge sans reconstruction** (plus tard) : un fichier à côté de
    l'image (`<jeu>.wsquashfs.autorun`) lu par le lanceur, pour tester un
    réglage instantanément avant de l'inscrire dans l'image — ignoré par
-   Batocera.
+   Batocera. Détaillé dans TODO.md (à faire).

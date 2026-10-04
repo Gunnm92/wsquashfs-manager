@@ -22,6 +22,8 @@ Voir [SPEC.md](SPEC.md) pour la spécification complète.
 | 6. Création | fait : dossiers `*.pc`/`*.wine` → `.wsquashfs` en batch (fakeping : étape 3) |
 | 7. Connaissances | à faire |
 
+Ce qui reste à faire : [TODO.md](TODO.md).
+
 ## Lancer
 
 ```sh
