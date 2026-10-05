@@ -3,6 +3,7 @@ le seul disponible sans /dev/fuse) et logique pure (arborescence attendue)."""
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import threading
@@ -265,9 +266,9 @@ def test_fallback_reason_is_explained(monkeypatch, tmp_path):
 
 
 @needs_tools
-def test_original_owner_is_kept(tmp_path: Path):
-    """Image root (Batocera) : la reconstruction, faite sans privilèges, rend
-    à la nouvelle image le propriétaire d'origine."""
+def test_rebuilt_image_belongs_to_service_user(tmp_path: Path):
+    """Image root (Batocera) : la nouvelle image appartient à l'utilisateur du
+    service (arcade dans SteamBox), ce que le lanceur sans privilèges préfère."""
     src = tmp_path / "src"
     (src / "Game").mkdir(parents=True)
     (src / "Game" / "game.exe").write_bytes(b"MZ")
@@ -277,5 +278,8 @@ def test_original_owner_is_kept(tmp_path: Path):
                     "-force-uid", "0", "-force-gid", "0"], check=True)
     settings = Settings(tmp_dir=tmp_path / "tmp", rebuild_mode="extract")
     assert rebuild.image_owners(settings, image) == {(0, 0)}
-    rebuild.rebuild(settings, image, Changes(write={"autorun.cmd": b"CMD=game.exe\r\n"}))
-    assert rebuild.image_owners(settings, image) == {(0, 0)}
+    log = []
+    rebuild.rebuild(settings, image, Changes(write={"autorun.cmd": b"CMD=game.exe\r\n"}),
+                    Job(on_log=log.append))
+    assert rebuild.image_owners(settings, image) == {(os.getuid(), os.getgid())}
+    assert any(line.startswith("Propriétaire : 0:0 →") for line in log)

@@ -396,17 +396,17 @@ def image_owners(settings: Settings, image: Path) -> set[tuple[int, int]]:
 
 
 def _owner_opts(settings: Settings, image: Path, job: Job) -> list[str]:
-    """Options mksquashfs qui rendent à la nouvelle image le propriétaire de
-    l'originale : sans privilèges, l'overlay (squash_to_uid) comme
-    l'extraction donnent tous les fichiers à l'utilisateur du service."""
-    owners = image_owners(settings, image)
-    if len(owners) == 1:
-        uid, gid = owners.pop()
-        return ["-force-uid", str(uid), "-force-gid", str(gid)]
-    if owners:
-        job.log(f"Attention : {len(owners)} propriétaires différents dans l'image ; la "
-                f"nouvelle image appartiendra à {os.getuid()}:{os.getgid()}")
-    return []
+    """La nouvelle image appartient à l'utilisateur du service (PUID/PGID,
+    99:100 = arcade de SteamBox). Une image root (faite par Batocera) gêne le
+    lanceur, qui tourne sans privilèges dans SteamBox : fuse-overlayfs n'y
+    peut pas recopier un dossier root pour le modifier (EPERM). Batocera,
+    qui lance les jeux en root, ne dépend pas du propriétaire."""
+    uid, gid = os.getuid(), os.getgid()
+    before = image_owners(settings, image)
+    if before and before != {(uid, gid)}:
+        owners = ", ".join(f"{u}:{g}" for u, g in sorted(before))
+        job.log(f"Propriétaire : {owners} → {uid}:{gid} (utilisateur du service)")
+    return ["-force-uid", str(uid), "-force-gid", str(gid)]
 
 
 def table(settings: Settings, image: Path) -> dict[str, tuple[str, int, str]]:

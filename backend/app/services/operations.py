@@ -524,8 +524,10 @@ def run_pack(settings: Settings, task: Task, job: Job) -> str:
                            if name.lower() != "autorun.cmd"] + [str(injected)]
             else:
                 sources = [str(source)]
+            # Image à l'utilisateur du service (arcade), comme les reconstructions
             run_progress([*priority_prefix(settings), settings.mksquashfs, *sources, str(part),
-                           *settings.mksquashfs_opts, "-noappend", "-percentage"],
+                           *settings.mksquashfs_opts, "-force-uid", str(os.getuid()),
+                           "-force-gid", str(os.getgid()), "-noappend", "-percentage"],
                           job, "mksquashfs", 0.02, 0.92)
         job.check()
         job.progress("vérification", 0.93)
