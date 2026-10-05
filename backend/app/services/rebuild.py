@@ -307,7 +307,7 @@ def apply_changes(root: Path, changes: Changes) -> None:
 
 
 def _build_overlay(settings: Settings, image: Path, part: Path, work: Path,
-                   changes: Changes, job: Job) -> None:
+                   changes: Changes, job: Job, owner_opts: list[str]) -> None:
     lower, upper, ovl_work, merged = (work / n for n in ("lower", "upper", "work", "merged"))
     for d in (lower, upper, ovl_work, merged):
         d.mkdir()
@@ -317,12 +317,17 @@ def _build_overlay(settings: Settings, image: Path, part: Path, work: Path,
         _run([settings.squashfuse, "-o", "ro", str(image), str(lower)], timeout=60)
         mounted.append(lower)
         _run([settings.fuse_overlayfs, "-o",
-              f"lowerdir={lower},upperdir={upper},workdir={ovl_work}", str(merged)], timeout=60)
+              # squash_to_uid/gid : les fichiers de l'image apparaissent à l'utilisateur
+              # du service, sans quoi une image root (Batocera) refuse toute
+              # modification (« Operation not permitted », Action Henk, 05/10)
+              (f"lowerdir={lower},upperdir={upper},workdir={ovl_work},"
+               f"squash_to_uid={os.getuid()},squash_to_gid={os.getgid()}"), str(merged)],
+             timeout=60)
         mounted.append(merged)
         apply_changes(merged, changes)
         job.check()
         run_progress([*priority_prefix(settings), settings.mksquashfs, str(merged), str(part),
-                       *settings.mksquashfs_opts, "-noappend", "-percentage"],
+                       *settings.mksquashfs_opts, *owner_opts, "-noappend", "-percentage"],
                       job, "mksquashfs", 0.02, 0.92)
     finally:
         for mountpoint in reversed(mounted):
@@ -330,7 +335,7 @@ def _build_overlay(settings: Settings, image: Path, part: Path, work: Path,
 
 
 def _build_extract(settings: Settings, image: Path, part: Path, work: Path,
-                   changes: Changes, job: Job) -> None:
+                   changes: Changes, job: Job, owner_opts: list[str]) -> None:
     root = work / "root"
     # -no-xattrs : un utilisateur non root ne peut pas les restaurer ; les
     # images de jeux n'en ont pas besoin.
@@ -340,7 +345,7 @@ def _build_extract(settings: Settings, image: Path, part: Path, work: Path,
     apply_changes(root, changes)
     job.check()
     run_progress([*priority_prefix(settings), settings.mksquashfs, str(root), str(part),
-                   *settings.mksquashfs_opts, "-noappend", "-percentage"],
+                   *settings.mksquashfs_opts, *owner_opts, "-noappend", "-percentage"],
                   job, "mksquashfs", 0.45, 0.92)
 
 
@@ -374,6 +379,34 @@ def verify(settings: Settings, part: Path, expected: set[str], changes: Changes)
 
 
 _LLS_RE = re.compile(r"^(\S)\S*\s+\S+\s+(\d+)\s+(\S+ \S+)\s+squashfs-root/(.+)$")
+
+
+_LLN_OWNER_RE = re.compile(r"^\S+\s+(\d+)/(\d+)\s")
+
+
+def image_owners(settings: Settings, image: Path) -> set[tuple[int, int]]:
+    """Propriétaires (uid, gid) présents dans l'image (unsquashfs -lln)."""
+    out = _run([settings.unsquashfs, "-lln", str(image)], timeout=600).stdout
+    owners = set()
+    for line in out.decode("utf-8", "replace").splitlines():
+        m = _LLN_OWNER_RE.match(line)
+        if m:
+            owners.add((int(m.group(1)), int(m.group(2))))
+    return owners
+
+
+def _owner_opts(settings: Settings, image: Path, job: Job) -> list[str]:
+    """Options mksquashfs qui rendent à la nouvelle image le propriétaire de
+    l'originale : sans privilèges, l'overlay (squash_to_uid) comme
+    l'extraction donnent tous les fichiers à l'utilisateur du service."""
+    owners = image_owners(settings, image)
+    if len(owners) == 1:
+        uid, gid = owners.pop()
+        return ["-force-uid", str(uid), "-force-gid", str(gid)]
+    if owners:
+        job.log(f"Attention : {len(owners)} propriétaires différents dans l'image ; la "
+                f"nouvelle image appartiendra à {os.getuid()}:{os.getgid()}")
+    return []
 
 
 def table(settings: Settings, image: Path) -> dict[str, tuple[str, int, str]]:
@@ -429,6 +462,7 @@ def rebuild(settings: Settings, image: Path, changes: Changes, job: Job | None =
         job.log(f"Mode : extraction complète — overlay impossible : {fuse_missing(settings)}")
     check_space(space_needed(settings, image, changes, mode))
     before = image.stat()
+    owner_opts = _owner_opts(settings, image, job)
     old_listing = _list_files_uncached(settings, image)
     if old_listing is None:
         raise RebuildError("arborescence de l'image illisible (unsquashfs -l)")
@@ -438,7 +472,7 @@ def rebuild(settings: Settings, image: Path, changes: Changes, job: Job | None =
     try:
         with work_area(settings, image, "rebuild-") as tmp:
             build = _build_overlay if mode == "overlay" else _build_extract
-            build(settings, image, part, tmp, changes, job)
+            build(settings, image, part, tmp, changes, job, owner_opts)
         job.check()
         job.progress("vérification", 0.93)
         verify(settings, part, expected, changes)

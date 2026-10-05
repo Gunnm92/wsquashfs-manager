@@ -248,9 +248,9 @@ def test_default_work_dir_is_next_to_image_and_removed(image: Path, tmp_path: Pa
     seen = []
     real = rebuild._build_extract
 
-    def spy(settings, image_, part, work, changes, job):
+    def spy(settings, image_, part, work, changes, job, owner_opts):
         seen.append(work)
-        real(settings, image_, part, work, changes, job)
+        real(settings, image_, part, work, changes, job, owner_opts)
 
     monkeypatch.setattr(rebuild, "_build_extract", spy)
     settings = Settings(rebuild_mode="extract")
@@ -262,3 +262,20 @@ def test_default_work_dir_is_next_to_image_and_removed(image: Path, tmp_path: Pa
 def test_fallback_reason_is_explained(monkeypatch, tmp_path):
     monkeypatch.setattr(rebuild.Path, "exists", lambda self: str(self) != "/dev/fuse")
     assert "/dev/fuse absent" in rebuild.fuse_missing(Settings())
+
+
+@needs_tools
+def test_original_owner_is_kept(tmp_path: Path):
+    """Image root (Batocera) : la reconstruction, faite sans privilèges, rend
+    à la nouvelle image le propriétaire d'origine."""
+    src = tmp_path / "src"
+    (src / "Game").mkdir(parents=True)
+    (src / "Game" / "game.exe").write_bytes(b"MZ")
+    (src / "autorun.cmd").write_bytes(b"CMD=game.exe\r\nDIR=Game\r\n")
+    image = tmp_path / "Root.wsquashfs"
+    subprocess.run(["mksquashfs", str(src), str(image), "-noappend", "-quiet",
+                    "-force-uid", "0", "-force-gid", "0"], check=True)
+    settings = Settings(tmp_dir=tmp_path / "tmp", rebuild_mode="extract")
+    assert rebuild.image_owners(settings, image) == {(0, 0)}
+    rebuild.rebuild(settings, image, Changes(write={"autorun.cmd": b"CMD=game.exe\r\n"}))
+    assert rebuild.image_owners(settings, image) == {(0, 0)}
