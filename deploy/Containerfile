@@ -1,0 +1,30 @@
+# wsquashfs-manager en conteneur (Podman ou Docker).
+#   podman build -t wsquashfs-manager -f deploy/Containerfile .
+# Les dossiers roms/ et les sauvegardes sont montés depuis l'hôte, en écriture ;
+# FUSE (squashfuse, fuse-overlayfs) demande /dev/fuse et CAP_SYS_ADMIN (limitée à
+# l'espace de noms du conteneur avec Podman sans root) :
+#   podman run -d --name wsquashfs-manager --device /dev/fuse --cap-add SYS_ADMIN \
+#     -p 8765:8765 -e WSQUASHFS_MGR_PASSWORD=… \
+#     -v ~/Games:/roms -v ~/.local/share/wsquashfs/saves:/saves wsquashfs-manager
+FROM docker.io/library/python:3.13-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends squashfs-tools squashfuse fuse-overlayfs fuse3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Même disposition que le dépôt : main.py sert ../../frontend.
+WORKDIR /app
+COPY backend/ backend/
+COPY frontend/ frontend/
+RUN pip install --no-cache-dir ./backend
+
+WORKDIR /app/backend
+# Dans le conteneur, écoute sur toutes les interfaces : l'exposition au réseau
+# se décide au lancement (port publié) et demande WSQUASHFS_MGR_PASSWORD.
+ENV WSQUASHFS_MGR_HOST=0.0.0.0 \
+    WSQUASHFS_MGR_PORT=8765 \
+    WSQUASHFS_MGR_ROMS_DIRS=/roms \
+    WSQUASHFS_MGR_SAVES_DIR=/saves \
+    WSQUASHFS_MGR_TOOL_USER=root
+EXPOSE 8765
+CMD ["python", "-m", "app.main"]

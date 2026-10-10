@@ -18,6 +18,9 @@
   .badge.warn { background: #5a4620; }
   button { background: #2d6cdf; color: white; border: 0; padding: 0.4rem 0.9rem; border-radius: 6px; cursor: pointer; }
   .muted { color: #8b919c; }
+  input { background: #1c1f25; color: inherit; border: 1px solid #2a2e35; border-radius: 6px; padding: 0.4rem 0.6rem; }
+  #login { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1rem; }
+  [hidden] { display: none !important; }
 </style>
 </head>
 <body>
@@ -27,6 +30,12 @@
   <button onclick="load(true)">Rescanner</button>
 </header>
 <main>
+  <form id="login" hidden>
+    <label for="password">Mot de passe</label>
+    <input id="password" type="password" autocomplete="current-password" required>
+    <button type="submit">Se connecter</button>
+    <span id="login-error" class="muted"></span>
+  </form>
   <table>
     <thead>
       <tr>
@@ -41,8 +50,32 @@
 <script>
 const fmt = (b) => b > 1e9 ? (b/1e9).toFixed(1)+" Go" : b > 1e6 ? (b/1e6).toFixed(0)+" Mo" : (b/1e3).toFixed(0)+" Ko";
 
+// Jeton (le mot de passe) gardé dans le navigateur, envoyé dans x-wsfs-token.
+const getToken = () => { try { return localStorage.getItem("wsfs-token") || ""; } catch { return ""; } };
+const setToken = (t) => { try { localStorage.setItem("wsfs-token", t); } catch {} };
+const api = (url, opts = {}) =>
+  fetch(url, { ...opts, headers: { ...(opts.headers || {}), "x-wsfs-token": getToken() } });
+
+document.getElementById("login").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const r = await fetch("/login", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password: document.getElementById("password").value }),
+  });
+  if (!r.ok) { document.getElementById("login-error").textContent = "mot de passe refusé"; return; }
+  setToken((await r.json()).token);
+  document.getElementById("login").hidden = true;
+  load(false);
+});
+
 async function load(refresh) {
-  const r = await fetch("/api/library" + (refresh ? "?refresh=true" : ""));
+  const r = await api("/api/library" + (refresh ? "?refresh=true" : ""));
+  if (r.status === 401) {
+    document.getElementById("status").textContent = "connexion requise";
+    document.getElementById("login").hidden = false;
+    document.getElementById("password").focus();
+    return;
+  }
   if (!r.ok) { document.getElementById("status").textContent = "erreur API " + r.status; return; }
   const items = await r.json();
   document.getElementById("status").textContent = items.length + " images";
