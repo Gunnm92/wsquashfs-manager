@@ -218,9 +218,8 @@ class Autorun:
         d = self.get("DIR")
         c = self.get("CMD")
         d_norm = normalize_path(d) if d is not None else ""
-        if d is None:
-            issues.append({"level": "warn", "message": "DIR= absent"})
-        elif files and d_norm not in dirs:
+        # DIR= est facultatif : sans lui, l'exécutable est à la racine
+        if d is not None and files and d_norm not in dirs:
             issues.append({"level": "warn", "message": f"DIR={d} n'existe pas dans l'image"})
 
         if c is None:

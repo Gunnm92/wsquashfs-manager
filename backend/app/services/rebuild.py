@@ -148,13 +148,14 @@ def _priority_prefix(settings: Settings) -> list[str]:
 
 
 def _mksquashfs(settings: Settings, src: Path, part: Path, exclude: Path | None,
-                ctx: Context) -> None:
+                ctx: Context, extra: list[str] | None = None) -> None:
     cmd = _priority_prefix(settings) + [
         settings.mksquashfs, str(src), str(part), *settings.mksquashfs_opts,
         "-noappend", "-quiet", "-progress",
     ]
     if exclude is not None:
         cmd += ["-ef", str(exclude)]
+    cmd += extra or []
     ctx.log("mksquashfs " + " ".join(cmd[cmd.index(settings.mksquashfs) + 1:]))
     proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT)

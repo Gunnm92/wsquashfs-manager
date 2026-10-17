@@ -92,12 +92,6 @@ def test_lf_roundtrip():
 
 # ---------------------------------------------------------------- validation
 
-def test_validate_missing_dir():
-    a = Autorun.parse("CMD=g.exe\n")
-    issues = a.validate()
-    assert any(i["message"].startswith("DIR=") for i in issues)
-
-
 def test_validate_exe_not_found_case_insensitive():
     a = Autorun.parse("DIR=Game\nCMD=Game.exe\n")
     files = {"Game/GAME.exe", "Game/data.bin"}
@@ -189,3 +183,8 @@ def test_unencodable_char_falls_back_to_utf8():
     a.encoding = "cp1252"
     a.set("GAME_VERSION", "1.0 ✓")
     assert a.encode().decode("utf-8").endswith("GAME_VERSION=1.0 ✓\r\n")
+
+
+def test_dir_is_optional():
+    a = Autorun.parse("CMD=jeu.exe\n")
+    assert a.validate({"jeu.exe"}) == []

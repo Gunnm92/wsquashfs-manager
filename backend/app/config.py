@@ -4,11 +4,16 @@ Valeurs par défaut alignées sur les conventions de wsquashfs-launcher
 (WSQUASHFS_SAVES_DIR, etc.).
 """
 
+import json
 from pathlib import Path
+from typing import Annotated
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
-from typing import Annotated
+
+# Réglages modifiables depuis l'interface, enregistrés dans
+# <data_dir>/config.json ; ils priment sur les variables d'environnement.
+EDITABLE = ("roms_dirs", "saves_dir", "tmp_dir")
 
 
 class Settings(BaseSettings):
@@ -67,5 +72,24 @@ class Settings(BaseSettings):
     mksquashfs_opts: list[str] = ["-comp", "zstd"]
 
 
+def overrides_file(settings: Settings) -> Path:
+    return settings.data_dir / "config.json"
+
+
 def get_settings() -> Settings:
-    return Settings()
+    s = Settings()
+    try:
+        data = json.loads(overrides_file(s).read_text())
+    except (OSError, json.JSONDecodeError):
+        return s
+    return s.model_copy(update=Settings.model_validate(
+        {**s.model_dump(), **{k: v for k, v in data.items() if k in EDITABLE}}).model_dump())
+
+
+def save_overrides(settings: Settings, values: dict) -> None:
+    f = overrides_file(settings)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    tmp = f.with_suffix(".tmp")
+    tmp.write_text(json.dumps({k: values[k] for k in EDITABLE if k in values}, indent=1,
+                              default=str))
+    tmp.replace(f)

@@ -71,6 +71,25 @@ La bibliothèque se filtre (système, type, runner, manettes, sans version, a un
 - réinitialiser les sauvegardes (`saves/<jeu>` renommé en `.avant-<date>`) ;
 - vérifier l'intégrité (table de l'image, autorun lisible), en tâche de fond.
 
+## Création d'images
+
+« Créer une image » : choisir un dossier (prefix Wine `*.wine` ou jeu seul).
+L'analyse détecte le type (`system.reg`, `config_info`), classe les
+exécutables candidats (installeurs, redistribuables, anti-triche et outils
+d'Unreal écartés ; exécutable `Binaries/Win64` d'Unreal, puis lanceur racine ;
+Unity ; lanceurs `.bat` avec commandes suspectes signalées), propose
+`DIR`/`CMD`/`GAME_VERSION` (ressources de version de l'exécutable) et les
+suggestions des règles. L'autorun validé est placé dans l'image par mksquashfs
+(pseudo-fichier) : le dossier source n'est pas modifié, une image existante
+n'est jamais écrasée.
+
+## Réglages
+
+Les dossiers `roms/`, de sauvegardes et temporaire se règlent depuis
+l'interface (« Réglages », avec un explorateur de dossiers du serveur). Ils
+sont enregistrés dans `<data_dir>/config.json` et priment sur les variables
+d'environnement.
+
 ## Décisions en attente (SPEC § 7)
 
 1. Web ou bureau — **web** recommandé.

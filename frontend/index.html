@@ -58,6 +58,13 @@
   #m-ops li { color: inherit; }
   #m-ops button { padding: 0 0.4rem; margin-left: 0.5rem; }
   details summary { cursor: pointer; }
+  dialog { background: #171a1f; color: inherit; border: 1px solid #2a2e35; border-radius: 8px; width: min(40rem, calc(100vw - 2rem)); padding: 1rem 1.2rem; }
+  dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+  #p-list { max-height: 50vh; overflow: auto; margin: 0.5rem 0; }
+  #p-list div { padding: 0.35rem 0.5rem; border-radius: 4px; cursor: pointer; }
+  #p-list div:hover { background: #2a2e35; }
+  #c-cands tr { cursor: pointer; }
+  #c-cands input { margin: 0; }
   @media (max-width: 700px) {
     main { padding: 1rem; }
     .form { grid-template-columns: 1fr; }
@@ -70,6 +77,9 @@
 <header>
   <h1>wsquashfs-manager</h1>
   <span id="status" class="muted"></span>
+  <span style="flex: 1"></span>
+  <button class="secondary" onclick="openCreate()">Créer une image</button>
+  <button class="secondary" onclick="openSettings()">Réglages</button>
   <button onclick="load(true)">Rescanner</button>
 </header>
 <main>
@@ -79,6 +89,86 @@
     <button type="submit">Se connecter</button>
     <span id="login-error" class="muted"></span>
   </form>
+
+  <section id="settings" class="panel" hidden>
+    <div class="panel-head">
+      <h2>Réglages</h2>
+      <button class="secondary" onclick="$('settings').hidden = true">Fermer</button>
+    </div>
+    <h3>Dossiers roms/ à scanner</h3>
+    <ul id="s-roms" class="issues"></ul>
+    <button class="secondary" onclick="pickDir(null, p => { cfg.roms_dirs.push(p); renderSettings(); })">Ajouter un dossier…</button>
+    <h3>Dossiers</h3>
+    <div class="form">
+      <label for="s-saves">Sauvegardes</label>
+      <div class="filters"><input id="s-saves" style="flex: 1"><button class="secondary" onclick="pickDir($('s-saves').value, p => $('s-saves').value = p)">Parcourir…</button></div>
+      <label for="s-tmp">Temporaire</label>
+      <div class="filters"><input id="s-tmp" style="flex: 1"><button class="secondary" onclick="pickDir($('s-tmp').value, p => $('s-tmp').value = p)">Parcourir…</button></div>
+    </div>
+    <p class="muted" id="s-info"></p>
+    <div class="actions">
+      <button onclick="saveSettings()">Enregistrer</button>
+      <span id="s-msg" class="muted"></span>
+    </div>
+  </section>
+
+  <section id="create" class="panel" hidden>
+    <div class="panel-head">
+      <h2>Créer une image</h2>
+      <button class="secondary" onclick="$('create').hidden = true">Fermer</button>
+    </div>
+    <p class="muted">Depuis un dossier : prefix Wine (<code>*.wine</code>) ou jeu seul. Le dossier n'est pas modifié ; l'autorun validé ci-dessous est placé dans l'image.</p>
+    <div class="filters">
+      <input id="c-folder" placeholder="/chemin/du/dossier" style="flex: 1">
+      <button class="secondary" onclick="pickDir($('c-folder').value, p => { $('c-folder').value = p; analyze(); })">Parcourir…</button>
+      <button onclick="analyze()">Analyser</button>
+    </div>
+    <p id="c-msg" class="muted"></p>
+    <div id="c-result" hidden>
+      <div id="c-info" class="info"></div>
+      <ul class="issues" id="c-warnings"></ul>
+      <h3>Exécutable</h3>
+      <table><tbody id="c-cands"></tbody></table>
+      <h3>Autorun</h3>
+      <textarea id="c-autorun" spellcheck="false" style="min-height: 9rem"></textarea>
+      <ul class="issues" id="c-issues"></ul>
+      <div id="c-sugg-box" hidden>
+        <h3>Suggestions des règles</h3>
+        <ul class="issues" id="c-sugg"></ul>
+      </div>
+      <h3>Destination</h3>
+      <div class="filters">
+        <select id="c-roms"></select>
+        <span class="muted">/</span>
+        <input id="c-system" list="c-systems" placeholder="système (ex. windows)" size="16">
+        <datalist id="c-systems"></datalist>
+        <span class="muted">/</span>
+        <input id="c-name" size="28">
+        <span class="muted">.wsquashfs</span>
+      </div>
+      <p class="muted" id="c-space"></p>
+      <div class="actions">
+        <button onclick="createImage()">Créer l'image</button>
+        <span id="c-create-msg" class="muted"></span>
+      </div>
+    </div>
+  </section>
+
+  <dialog id="picker">
+    <div class="panel-head">
+      <h2 id="p-path" style="word-break: break-all"></h2>
+    </div>
+    <div class="filters">
+      <input id="p-input" style="flex: 1" placeholder="aller à…">
+      <button class="secondary" onclick="browse($('p-input').value)">Aller</button>
+    </div>
+    <div id="p-list"></div>
+    <p class="muted" id="p-msg"></p>
+    <div class="actions">
+      <button onclick="pickDone()">Choisir ce dossier</button>
+      <button class="secondary" onclick="$('picker').close()">Annuler</button>
+    </div>
+  </dialog>
 
   <section id="tasks" class="panel" hidden>
     <h2>Tâches</h2>
@@ -602,6 +692,7 @@ async function loadFiles() {
 
 // ------------------------------------------------------------ tâches
 
+const KINDS = { edit_autorun: "autorun", verify: "vérification", pack: "création" };
 const STATUS = { pending: "en attente", running: "en cours", done: "terminée", failed: "échec", cancelled: "annulée" };
 let tasksTimer = null;
 let wasActive = false;
@@ -616,7 +707,7 @@ async function loadTasks() {
     const active = t.status === "pending" || t.status === "running";
     const cls = t.status === "done" ? "ok" : t.status === "failed" ? "err" : active ? "" : "warn";
     return `<tr>
-      <td>${t.image ? esc(t.image) : `${(t.params.images || []).length} image(s)`}<div class="muted task-log">${esc(t.kind)} · ${new Date(t.created_at * 1000).toLocaleString()}</div></td>
+      <td>${t.image ? esc(t.image) : `${(t.params.images || []).length} image(s)`}<div class="muted task-log">${esc(KINDS[t.kind] || t.kind)} · ${new Date(t.created_at * 1000).toLocaleString()}</div></td>
       <td><span class="badge ${cls}">${STATUS[t.status] || esc(t.status)}</span></td>
       <td>${t.status === "running" ? `<span class="progress"><div style="width:${Math.round(t.progress * 100)}%"></div></span> ${Math.round(t.progress * 100)} %` : ""}
         <div class="muted task-log">${esc(t.error || t.log.slice(-2).join("\n"))}</div></td>
@@ -635,6 +726,175 @@ async function loadTasks() {
 
 async function cancelTask(id) {
   await api(`/api/tasks/${id}/cancel`, { method: "POST" });
+  loadTasks();
+}
+
+// ------------------------------------------------------------ explorateur de dossiers
+
+let pickCb = null, pickPath = null;
+
+function pickDir(start, cb) {
+  pickCb = cb;
+  $("picker").showModal();
+  browse(start || "");
+}
+
+async function browse(path) {
+  $("p-msg").textContent = "";
+  const r = await api("/api/fs/dirs?path=" + encodeURIComponent(path));
+  if (!r.ok) { $("p-msg").textContent = await errText(r); return; }
+  const d = await r.json();
+  pickPath = d.path;
+  $("p-path").textContent = d.path;
+  $("p-input").value = d.path;
+  $("p-list").innerHTML = (d.parent ? `<div data-path="${esc(d.parent)}">↑ ..</div>` : "") +
+    d.dirs.map(x => `<div data-path="${esc(x.path)}">📁 ${esc(x.name)}${x.prefix ? ' <span class="badge">prefix</span>' : ""}${x.autorun ? ' <span class="badge">autorun</span>' : ""}</div>`).join("") +
+    (d.dirs.length ? "" : '<p class="muted">aucun sous-dossier</p>');
+}
+
+$("p-list").addEventListener("click", (e) => {
+  const el = e.target.closest("[data-path]");
+  if (el) browse(el.dataset.path);
+});
+$("p-input").addEventListener("keydown", (e) => { if (e.key === "Enter") browse($("p-input").value); });
+
+function pickDone() {
+  $("picker").close();
+  if (pickCb && pickPath) pickCb(pickPath);
+}
+
+// ------------------------------------------------------------ réglages
+
+let cfg = null;
+
+async function openSettings() {
+  const r = await api("/api/config");
+  if (!r.ok) return;
+  cfg = await r.json();
+  $("s-saves").value = cfg.saves_dir;
+  $("s-tmp").value = cfg.tmp_dir;
+  $("s-info").textContent = `Enregistrés dans ${cfg.data_dir}/config.json (priment sur les variables d'environnement).`;
+  $("s-msg").textContent = "";
+  renderSettings();
+  $("settings").hidden = false;
+  $("settings").scrollIntoView({ behavior: "smooth" });
+}
+
+function renderSettings() {
+  $("s-roms").innerHTML = cfg.roms_dirs.map((d, n) =>
+    `<li style="color: inherit">${esc(d)}<button class="secondary" style="padding: 0 0.4rem; margin-left: 0.5rem" onclick="cfg.roms_dirs.splice(${n}, 1); renderSettings()">×</button></li>`).join("")
+    || '<li class="warn">aucun dossier : la bibliothèque est vide</li>';
+}
+
+async function saveSettings() {
+  const r = await api("/api/config", {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ roms_dirs: cfg.roms_dirs, saves_dir: $("s-saves").value, tmp_dir: $("s-tmp").value }),
+  });
+  if (!r.ok) { $("s-msg").textContent = "refusé : " + await errText(r); return; }
+  cfg = { ...cfg, ...(await r.json()) };
+  renderSettings();
+  $("s-msg").textContent = "enregistré";
+  load(false);
+}
+
+// ------------------------------------------------------------ création
+
+let analysis = null;
+
+function openCreate() {
+  $("create").hidden = false;
+  $("create").scrollIntoView({ behavior: "smooth" });
+  if (!$("c-folder").value) pickDir("", p => { $("c-folder").value = p; analyze(); });
+}
+
+const TYPES = { batocera: "prefix Batocera (system.reg)", proton: "prefix Proton (config_info)", other: "autre prefix", none: "jeu seul" };
+
+async function analyze() {
+  const folder = $("c-folder").value.trim();
+  if (!folder) return;
+  $("c-msg").textContent = "analyse…"; $("c-result").hidden = true; $("c-create-msg").textContent = "";
+  const r = await apiJson("/api/create/analyze", { folder });
+  if (!r.ok) { $("c-msg").textContent = "erreur : " + await errText(r); return; }
+  analysis = await r.json();
+  const a = analysis;
+  $("c-msg").textContent = "";
+  $("c-info").innerHTML = [
+    ["Type", TYPES[a.type] || a.type], ["Architecture", a.arch || "—"], ["Proton", a.proton_version || "—"],
+    ["Taille", fmt(a.size)], ["Entrées", a.files], ["Autorun", a.has_autorun ? "présent dans le dossier (repris)" : "généré"],
+  ].map(([k, v]) => `<div><b>${k}</b>${esc(v)}</div>`).join("");
+  $("c-warnings").innerHTML = a.warnings.map(w => `<li class="warn">${esc(w)}</li>`).join("");
+  $("c-cands").innerHTML = a.candidates.map((c, n) => `<tr data-c="${n}">
+    <td><input type="radio" name="c-cand" ${n === 0 && !a.has_autorun ? "checked" : ""}></td>
+    <td><code>${esc(c.path)}</code><div class="muted task-log">${esc(c.why.join(", "))}${c.version ? " · version " + esc(c.version) : ""}${c.bits ? " · " + c.bits + " bits" : ""}</div>
+      ${(c.warnings || []).map(w => `<div class="task-log" style="color: #e0b864">${esc(w)}</div>`).join("")}
+      ${c.content ? `<details><summary class="muted">contenu</summary><pre>${esc(c.content)}</pre></details>` : ""}</td>
+    <td class="muted">${c.size ? fmt(c.size) : ""}</td>
+  </tr>`).join("") || '<tr><td class="muted">aucun exécutable trouvé : renseigner DIR= et CMD= à la main</td></tr>';
+  $("c-autorun").value = a.autorun.lines.join("\n") + (a.autorun.lines.length ? "\n" : "");
+  $("c-issues").innerHTML = a.issues.map(i => `<li class="${esc(i.level)}">${esc(i.message)}</li>`).join("");
+  $("c-sugg-box").hidden = a.suggestions.length === 0;
+  $("c-sugg").innerHTML = a.suggestions.map((s, n) => `<li class="${s.key ? "" : "warn"}" style="${s.key ? "color: inherit" : ""}">
+    ${s.key ? `<code>${esc(s.key)}=${esc(s.value)}</code> <button class="secondary" style="padding: 0 0.5rem" onclick="addSuggestion(${n})">ajouter</button> ` : ""}${esc(s.warning || "")}
+    <span class="muted">— ${esc(s.justification || s.source)} (${esc(s.confidence)})</span></li>`).join("");
+  $("c-roms").innerHTML = a.destinations.map((d, n) => `<option value="${n}">${esc(d.roms_dir)}</option>`).join("");
+  if (!a.destinations.length) $("c-space").textContent = "aucun dossier roms/ : en ajouter un dans les réglages";
+  $("c-name").value = a.name;
+  fillSystems();
+  $("c-result").hidden = false;
+}
+
+function fillSystems() {
+  const d = analysis.destinations[+$("c-roms").value];
+  if (!d) return;
+  $("c-systems").innerHTML = d.systems.map(s => `<option value="${esc(s)}">`).join("");
+  if (!$("c-system").value && d.systems.length === 1) $("c-system").value = d.systems[0];
+  $("c-space").textContent = `${fmt(d.free)} libres ; au plus ${fmt(analysis.size)} nécessaires (sans compression).`;
+}
+$("c-roms").addEventListener("change", fillSystems);
+
+// Même lecture que le backend : première occurrence modifiée en place, sinon ajout en fin
+function setInText(text, key, value) {
+  const lines = text.trim() === "" ? [] : text.replace(/\n$/, "").split("\n");
+  const i = lines.findIndex(l => { const m = KEY_RE.exec(l.replace(/\r$/, "")); return m && m[1] === key; });
+  const line = `${key}=${value}`;
+  if (value === null) { if (i >= 0) lines.splice(i, 1); }
+  else if (i >= 0) lines[i] = line;
+  else lines.push(line);
+  return lines.filter((l, n) => l !== "" || n < lines.length - 1).join("\n") + "\n";
+}
+
+$("c-cands").addEventListener("click", (e) => {
+  const tr = e.target.closest("tr[data-c]");
+  if (!tr || e.target.closest("details")) return;
+  const c = analysis.candidates[+tr.dataset.c];
+  tr.querySelector("input").checked = true;
+  let t = $("c-autorun").value;
+  t = setInText(t, "DIR", c.dir || null);
+  t = setInText(t, "CMD", c.cmd);
+  if (c.version) t = setInText(t, "GAME_VERSION", c.version);
+  $("c-autorun").value = t;
+});
+
+function addSuggestion(n) {
+  const s = analysis.suggestions[n];
+  $("c-autorun").value = setInText($("c-autorun").value, s.key, s.value);
+}
+
+async function createImage() {
+  const lines = $("c-autorun").value.split("\n").map(l => l.replace(/\r$/, ""));
+  if (lines[lines.length - 1] === "") lines.pop();
+  if (!lines.some(l => /^CMD=/.test(l)) && !confirm("L'autorun n'a pas de CMD= : créer quand même ?")) return;
+  const d = analysis.destinations[+$("c-roms").value];
+  if (!d) return;
+  const body = {
+    folder: analysis.folder, roms_dir: d.roms_dir, system: $("c-system").value.trim(), name: $("c-name").value.trim(),
+    autorun: { ...analysis.autorun, lines, trailing_eol: true },
+  };
+  const r = await apiJson("/api/create", body);
+  if (!r.ok) { $("c-create-msg").textContent = "refusé : " + await errText(r); return; }
+  const res = await r.json();
+  $("c-create-msg").textContent = `tâche ${res.task} : ${res.dest}`;
   loadTasks();
 }
 

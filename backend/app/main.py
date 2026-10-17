@@ -8,6 +8,7 @@ tâches, vérification, échange, ancienne image gardée en .old.
 from __future__ import annotations
 
 import difflib
+import re
 import secrets
 import shutil
 import time
@@ -19,10 +20,11 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
-from .config import Settings, get_settings
+from .config import EDITABLE, Settings, get_settings, save_overrides
 from .models import ImageInfo, ImageState, Task
-from .services import mass, rebuild, scan
+from .services import create, mass, rebuild, scan
 from .services.autorun import KEY_HELP, Autorun
+from .services.rebuild import RebuildError
 from .services.tasks import Busy, TaskQueue
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
@@ -83,10 +85,59 @@ def get_config():
         "roms_dirs": _settings.roms_dirs,
         "saves_dir": str(_settings.saves_dir),
         "tmp_dir": str(_settings.tmp_dir),
+        "data_dir": str(_settings.data_dir),
         "concurrency": _settings.task_concurrency,
         "old_retention_days": _settings.old_retention_days,
         "tool_user": _settings.tool_user,
+        "editable": list(EDITABLE),
     }
+
+
+class ConfigEdit(BaseModel):
+    roms_dirs: list[str]
+    saves_dir: str
+    tmp_dir: str
+
+
+@app.put("/api/config")
+def put_config(body: ConfigEdit):
+    """Dossiers roms/, sauvegardes et temporaire, enregistrés dans
+    <data_dir>/config.json (priment sur les variables d'environnement)."""
+    roms = list(dict.fromkeys(str(Path(d).expanduser()) for d in body.roms_dirs if d.strip()))
+    errors = [f"{d} : n'est pas un dossier" for d in roms if not Path(d).is_dir()]
+    for label, d in (("sauvegardes", body.saves_dir), ("temporaire", body.tmp_dir)):
+        if not Path(d).expanduser().is_absolute():
+            errors.append(f"dossier {label} : chemin absolu attendu")
+    if errors:
+        raise HTTPException(status_code=400, detail=" ; ".join(errors))
+    values = {"roms_dirs": roms, "saves_dir": Path(body.saves_dir).expanduser(),
+              "tmp_dir": Path(body.tmp_dir).expanduser()}
+    save_overrides(_settings, values)
+    for k, v in values.items():
+        setattr(_settings, k, v)
+    return get_config()
+
+
+@app.get("/api/fs/dirs")
+def fs_dirs(path: str = ""):
+    """Sous-dossiers d'un dossier du serveur (choix des dossiers roms/ et
+    des dossiers à empaqueter)."""
+    p = Path(path).expanduser() if path else Path.home()
+    if not p.is_absolute() or not p.is_dir():
+        raise HTTPException(status_code=400, detail=f"{path} : dossier introuvable")
+    p = p.resolve()
+    dirs = []
+    try:
+        children = sorted(p.iterdir(), key=lambda c: c.name.lower())
+    except OSError as e:
+        raise HTTPException(status_code=403, detail=f"{p} : {e.strerror}") from e
+    for c in children:
+        if c.name.startswith(".") or not c.is_dir():
+            continue
+        dirs.append({"name": c.name, "path": str(c),
+                     "prefix": (c / "system.reg").is_file() or (c / "config_info").is_file(),
+                     "autorun": (c / "autorun.cmd").is_file()})
+    return {"path": str(p), "parent": str(p.parent) if p.parent != p else None, "dirs": dirs}
 
 
 # ------------------------------------------------------------- bibliothèque
@@ -464,10 +515,84 @@ def verify_image(image: Path) -> list[str]:
     return []
 
 
+# ------------------------------------------------------------- création
+
+class CreateAnalyze(BaseModel):
+    folder: str
+
+
+@app.post("/api/create/analyze")
+def create_analyze(body: CreateAnalyze):
+    """Analyse d'un dossier à empaqueter (SPEC § 2.3) : type, exécutables
+    candidats, autorun proposé, suggestions des règles ; destinations
+    possibles (dossiers roms/ et leurs systèmes)."""
+    folder = Path(body.folder).expanduser()
+    if not folder.is_absolute():
+        raise HTTPException(status_code=400, detail="chemin absolu attendu")
+    try:
+        out = create.analyze(folder, RULES_FILE, _settings.saves_dir)
+    except RebuildError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    dests = []
+    for d in _settings.roms_dirs:
+        root = Path(d)
+        if not root.is_dir():
+            continue
+        dests.append({"roms_dir": d, "free": shutil.disk_usage(root).free,
+                      "systems": sorted(c.name for c in root.iterdir()
+                                        if c.is_dir() and not c.name.startswith("."))})
+    return {**out, "destinations": dests}
+
+
+class CreateReq(BaseModel):
+    folder: str
+    roms_dir: str
+    system: str = ""
+    name: str
+    autorun: AutorunEdit
+
+
+_SAFE_NAME = re.compile(r"^[^/\\\0]+$")
+
+
+@app.post("/api/create")
+def create_image(body: CreateReq):
+    """Empaqueter un dossier en tâche de fond. L'image n'est jamais écrasée."""
+    folder = Path(body.folder).expanduser()
+    if not folder.is_absolute() or not folder.is_dir():
+        raise HTTPException(status_code=400, detail=f"{body.folder} : dossier introuvable")
+    if body.roms_dir not in _settings.roms_dirs:
+        raise HTTPException(status_code=400, detail="dossier roms/ inconnu (voir les réglages)")
+    for label, v in (("nom", body.name), ("système", body.system or "x")):
+        if not _SAFE_NAME.match(v) or v.startswith(".") or v != v.strip():
+            raise HTTPException(status_code=400, detail=f"{label} invalide : {v!r}")
+    parent = Path(body.roms_dir) / body.system if body.system else Path(body.roms_dir)
+    dest = parent / f"{body.name}.wsquashfs"
+    if dest.exists():
+        raise HTTPException(status_code=409, detail=f"{dest} existe déjà")
+    a = body.autorun
+    data = Autorun(lines=a.lines, eol=a.eol, trailing_eol=a.trailing_eol,
+                   encoding=a.encoding).encode()
+    image = scan.image_id(dest, body.system or None)
+    try:
+        t = _queue.submit("pack", image, {"folder": str(folder), "dest": str(dest),
+                                          "autorun": data.decode("latin-1")})
+    except Busy as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    return {"task": t.id, "dest": str(dest), "id": image}
+
+
+def _run_pack(task: Task, ctx: rebuild.Context) -> None:
+    p = task.params
+    create.pack(_settings, Path(p["folder"]), Path(p["dest"]), p["autorun"].encode("latin-1"),
+                ctx)
+
+
 # ------------------------------------------------------------- file de tâches
 
 _queue = TaskQueue(_settings.data_dir / "tasks.json",
-                   {"edit_autorun": _run_edit_autorun, "verify": _run_verify},
+                   {"edit_autorun": _run_edit_autorun, "verify": _run_verify,
+                    "pack": _run_pack},
                    concurrency=_settings.task_concurrency)
 
 
