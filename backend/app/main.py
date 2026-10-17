@@ -20,6 +20,7 @@ from .config import WORK_DIR_NAME, Settings, get_settings, in_night, save_night,
 from .models import ImageInfo, ImageState, Task
 from .services import analyze as analyze_mod
 from .services import scan
+from .services.artwork import artwork
 from .services.analyze import FolderAnalysis, add_local_game, analyze_folder, analyze_image, report
 from .services.autorun import (
     KEY_HELP,
@@ -262,6 +263,18 @@ def _fresh_image(image_id: str) -> ImageInfo:
 @app.get("/api/image")
 def image_detail(id: str):
     return _with_task_state(_find_image(id))
+
+
+@app.get("/api/image/art")
+def image_art(id: str):
+    """Illustration de la fiche : jaquette d'ES, sinon icône de l'exécutable.
+    L'en-tête X-Art-Kind dit laquelle (« es » ou « icon »)."""
+    info = _find_image(id)
+    art = artwork(_settings, info.path, info.cmd, info.dir)
+    if art is None:
+        raise HTTPException(status_code=404, detail="aucune illustration")
+    return FileResponse(art.path, media_type=art.media_type,
+                        headers={"X-Art-Kind": art.kind, "Cache-Control": "private, max-age=3600"})
 
 
 @app.get("/api/image/files")
@@ -1094,7 +1107,9 @@ def index():
     frontend = FRONTEND_DIR / "index.html"
     if not frontend.exists():
         return HTMLResponse("<h1>wsquashfs-manager</h1><p>OK (API : /api/)</p>")
-    return FileResponse(frontend)
+    # Toujours revalidée : une page gardée en cache resterait sur l'ancienne
+    # interface après une mise à jour
+    return FileResponse(frontend, headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/healthz")

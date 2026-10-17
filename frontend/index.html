@@ -164,6 +164,15 @@ tbody tr.current td { background: var(--accent-soft); }
 tbody tr.current td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 tbody tr.is-selected td { background: color-mix(in srgb, var(--accent-soft) 60%, transparent); }
 td.name { font-weight: 550; color: var(--text); }
+.name-cell { display: flex; align-items: center; gap: .7rem; min-width: 0; }
+.thumb, .detail-head .cover { flex: none; display: grid; place-items: center; overflow: hidden; color: #fff;
+  font-weight: 700; letter-spacing: -.02em; }
+.thumb { width: 30px; height: 30px; border-radius: 7px; font-size: 11px; }
+.thumb img, .detail-head .cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb.icon, .detail-head .cover.icon { background: var(--surface-3) !important; }
+.thumb.icon img, .detail-head .cover.icon img { object-fit: contain; }
+.thumb img, .detail-head .cover img { animation: fade .25s ease-out; }
+@keyframes fade { from { opacity: 0; } }
 td.cmd { max-width: 18rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono);
   font-size: 12px; color: var(--text-2); }
 td.ver { font-family: var(--mono); font-size: 12px; }
@@ -208,8 +217,7 @@ main.with-detail .search { flex-basis: 12rem; }
   box-shadow: var(--shadow); animation: slide .18s ease-out; }
 @keyframes slide { from { opacity: 0; transform: translateX(10px); } }
 .detail-head { display: flex; align-items: flex-start; gap: .8rem; }
-.detail-head .cover { width: 42px; height: 42px; border-radius: 10px; flex: none; display: grid; place-items: center;
-  font-weight: 700; font-size: 15px; color: #fff; letter-spacing: -.02em; }
+.detail-head .cover { width: 64px; height: 64px; border-radius: 12px; font-size: 20px; box-shadow: var(--shadow); }
 .detail-head h2 { font-size: 17px; line-height: 1.25; }
 #d-id { display: block; margin-top: .15rem; }
 .chips { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .8rem; }
@@ -218,6 +226,7 @@ main.with-detail .search { flex-basis: 12rem; }
   box-shadow: inset 0 -2px 0 transparent; }
 .tabs button:hover { background: none; color: var(--text); }
 .tabs button.active { color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+.tabs button:focus-visible { outline: none; background: var(--accent-soft); border-radius: var(--r-sm) var(--r-sm) 0 0; }
 #a-tabs { margin-top: .6rem; }
 dl { display: grid; grid-template-columns: max-content 1fr; gap: .45rem 1rem; margin: 0; font-size: 13px; }
 dt { color: var(--muted); } dd { margin: 0; overflow-wrap: anywhere; color: var(--text); }
@@ -616,6 +625,58 @@ const icon = (name) => {
   svg.append(use);
   return svg;
 };
+// Illustration d'un jeu (jaquette d'ES, sinon icône de l'exécutable) :
+// chargée à la demande, 4 à la fois, gardée pour la session. Repli : initiales.
+const art = { cache: new Map(), waiting: [], active: 0 };
+const hueOf = (name) => [...name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
+const initials = (name) => name.split(/[\s\-:]+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+function paintInitials(node, name) {
+  const hue = hueOf(name);
+  node.textContent = initials(name);
+  node.style.background = `linear-gradient(140deg, hsl(${hue} 62% 56%), hsl(${(hue + 40) % 360} 58% 42%))`;
+  node.classList.remove("icon", "es");
+}
+function loadArt(item) {
+  const key = `${item.id}:${item.mtime}`;
+  if (!art.cache.has(key)) {
+    art.cache.set(key, new Promise((resolve) => { art.waiting.push({ item, resolve }); pumpArt(); }));
+  }
+  return art.cache.get(key);
+}
+function pumpArt() {
+  while (art.active < 4 && art.waiting.length) {
+    const { item, resolve } = art.waiting.shift();
+    art.active++;
+    fetch(`/api/image/art?id=${encodeURIComponent(item.id)}`, { headers: { "x-wsfs-token": storage.get("wsfs-token") || "" } })
+      .then(async (r) => r.ok ? { url: URL.createObjectURL(await r.blob()), kind: r.headers.get("X-Art-Kind") || "icon" } : null)
+      .catch(() => null)
+      .then((result) => { art.active--; resolve(result); pumpArt(); });
+  }
+}
+async function showArt(node, item) {
+  paintInitials(node, item.name);
+  const a = await loadArt(item);
+  if (!a || node.dataset.id !== item.id) return;
+  node.textContent = "";
+  node.classList.add(a.kind);
+  node.append(el("img", { src: a.url, alt: "", loading: "lazy" }));
+}
+const artObserver = new IntersectionObserver((entries) => {
+  for (const entry of entries) {
+    if (!entry.isIntersecting) continue;
+    artObserver.unobserve(entry.target);
+    const item = state.byId.get(entry.target.dataset.id);
+    if (item) showArt(entry.target, item);
+  }
+}, { rootMargin: "200px" });
+function thumb(item) {
+  const node = el("span", { className: "thumb" });
+  node.dataset.id = item.id;
+  paintInitials(node, item.name);
+  artObserver.observe(node);
+  return node;
+}
+
 // Ligne « rien à afficher » d'un tableau
 const emptyRow = (cols, iconName, title, hint) => el("tr", {}, el("td", { colSpan: cols, className: "empty" },
   el("div", { className: "empty-state" }, icon(iconName), el("strong", { textContent: title }),
@@ -790,7 +851,7 @@ function renderTable() {
     const classes = [state.current?.id === i.id ? "current" : "", state.selected.has(i.id) ? "is-selected" : ""];
     const row = el("tr", { className: classes.join(" ").trim() },
       el("td", { className: "c-select" }, box),
-      el("td", { className: "c-name name", textContent: i.name }),
+      el("td", { className: "c-name name" }, el("div", { className: "name-cell" }, thumb(i), el("span", { textContent: i.name }))),
       el("td", { className: "c-system" }, i.system || dash()),
       el("td", { className: "c-size num", textContent: size(i.size) }),
       el("td", { className: "c-version ver" }, i.version || dash()),
@@ -864,10 +925,8 @@ function renderDetailHeader() {
   const i = state.current;
   $("d-title").textContent = i.name;
   $("d-id").textContent = i.id;
-  // Vignette : initiales sur une teinte stable tirée du nom
-  const hue = [...i.name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
-  $("d-cover").textContent = i.name.split(/[\s\-:]+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
-  $("d-cover").style.background = `linear-gradient(140deg, hsl(${hue} 65% 58%), hsl(${(hue + 40) % 360} 60% 45%))`;
+  $("d-cover").dataset.id = i.id;
+  showArt($("d-cover"), i);
   const [stateLabel, stateKind] = STATES[i.state] || [i.state, ""];
   $("d-chips").replaceChildren(...[
     badge(TYPES[i.type] || i.type, TYPE_KINDS[i.type] || ""),
