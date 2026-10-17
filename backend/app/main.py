@@ -1,16 +1,17 @@
 """wsquashfs-manager — application FastAPI (SPEC § 5).
 
 Étape 1 « Socle » : service, config, scan + cache, bibliothèque (API JSON).
-Le frontend (HTMX) arrive dans backend/app/../frontend.
+Étape 2 « Autorun » : édition, reconstruction par overlay dans la file de
+tâches, vérification, échange, ancienne image gardée en .old.
 """
 
 from __future__ import annotations
 
-import hashlib
+import difflib
 import secrets
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
-
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Request
@@ -18,18 +19,24 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 from .config import Settings, get_settings
-from .models import ImageInfo, Task, TaskStatus
-from .services import scan
-from .services.autorun import Autorun
+from .models import ImageInfo, ImageState, Task
+from .services import rebuild, scan
+from .services.autorun import KEY_HELP, Autorun
+from .services.tasks import Busy, TaskQueue
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
 RULES_FILE = Path(__file__).resolve().parent.parent / "rules" / "rules.yaml"
 
-app = FastAPI(title="wsquashfs-manager", version="0.1.0")
 _settings: Settings = get_settings()
 
-# File de tâches (état en mémoire pour l'instant ; SPEC § 4 : sur disque plus tard)
-_tasks: dict[str, Task] = {}
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    _queue.start()          # reprend les tâches restées en attente
+    yield
+
+
+app = FastAPI(title="wsquashfs-manager", version="0.1.0", lifespan=lifespan)
 
 
 # ------------------------------------------------------------------- auth
@@ -100,40 +107,167 @@ def image_detail(id: str):
 
 # ------------------------------------------------------------- autorun
 
+def _image_files(info: ImageInfo) -> list[str]:
+    """Liste des fichiers de l'image (`unsquashfs -l`), gardée tant que
+    l'image ne change pas."""
+    key = (str(info.path), info.size, info.mtime)
+    files = _files_cache.get(key)
+    if files is None:
+        files = scan.list_files(_settings, info.path)
+        _files_cache.clear()                # une seule image à la fois : la fiche ouverte
+        _files_cache[key] = files
+    return files
+
+
+_files_cache: dict[tuple, list[str]] = {}
+
+
+@app.get("/api/autorun/keys")
+def autorun_keys():
+    """Clés connues, avec aide et valeurs possibles (formulaire)."""
+    return KEY_HELP
+
+
 @app.get("/api/image/autorun")
 def autorun_raw(id: str):
     """Lecture brute de l'autorun (sans monter : unsquashfs -cat)."""
     info = _find_image(id)
-    text = scan._read_autorun_from_image(_settings, info.path)
-    if text is None:
-        return {"found": False, "text": "", "lines": [], "eol": None,
-                "items": [], "unknown_keys": []}
-    a = Autorun.parse(text)
+    data = scan.read_autorun_bytes(_settings, info.path)
+    base = {"size": info.size, "mtime": info.mtime}
+    if data is None:
+        return {"found": False, "text": "", "lines": [], "eol": "\r\n", "trailing_eol": True,
+                "encoding": "utf-8", "items": [], "unknown_keys": [], "issues": [],
+                "base": base}
+    a = Autorun.parse(data)
     return {
         "found": True,
         "text": a.render(),
         "lines": a.lines,
         "eol": a.eol,
+        "trailing_eol": a.trailing_eol,
+        "encoding": a.encoding,
         "items": [{"key": k, "value": v, "line": i} for k, v, i in a.items()],
         "unknown_keys": a.unknown_keys(),
+        "issues": a.validate(set(_image_files(info))),
+        "base": base,
     }
 
 
 class AutorunEdit(BaseModel):
     lines: list[str]
     eol: Literal["\r\n", "\n"] = "\r\n"
+    trailing_eol: bool = True
+    encoding: Literal["utf-8", "cp1252", "latin-1"] = "utf-8"
+    # Image telle qu'elle était à la lecture : refus si elle a changé depuis
+    base: dict | None = None
 
 
 @app.post("/api/image/autorun")
-def autorun_edit(id: str, body: AutorunEdit):
-    """Écriture de l'autorun → crée une tâche de reconstruction (aperçu requis
-    avant, SPEC § 2.4 : à implémenter avec la file)."""
+def autorun_edit(id: str, body: AutorunEdit, dry_run: bool = False):
+    """Aperçu (dry_run) ou écriture de l'autorun. L'écriture crée une tâche
+    de reconstruction (SPEC § 3.1) ; l'original est gardé en .old."""
     info = _find_image(id)
-    a = Autorun(lines=body.lines, eol=body.eol)
-    issues = a.validate()
-    task_id = _new_task("edit_autorun", info.id)
-    # TODO: lancer la reconstruction via la file (SPEC § 3.1)
-    return {"task": task_id, "issues": issues}
+    new = Autorun(lines=body.lines, eol=body.eol, trailing_eol=body.trailing_eol,
+                  encoding=body.encoding)
+    old_data = scan.read_autorun_bytes(_settings, info.path) or b""
+    old = Autorun.parse(old_data)
+    new_data = new.encode()
+    diff = list(difflib.unified_diff(old.lines, new.lines, "avant", "après", lineterm=""))
+    issues = new.validate(set(_image_files(info)))
+    if new_data != old_data and not diff:
+        diff = ["(fins de ligne ou encodage seulement)"]
+    out = {"changed": new_data != old_data, "diff": diff, "issues": issues,
+           "blockers": _blockers(info)}
+    if dry_run:
+        return out
+    if not out["changed"]:
+        raise HTTPException(status_code=400, detail="aucun changement")
+    if out["blockers"]:
+        raise HTTPException(status_code=409, detail=" ; ".join(out["blockers"]))
+    if body.base and (body.base.get("size"), body.base.get("mtime")) != (info.size, info.mtime):
+        raise HTTPException(status_code=409, detail="l'image a changé depuis la lecture : "
+                                                    "recharger la fiche")
+    task = _submit("edit_autorun", info, {
+        "path": str(info.path), "size": info.size, "mtime": info.mtime,
+        "autorun": new_data.decode("latin-1"),     # octets bruts, transportables en JSON
+    })
+    return {**out, "task": task.id}
+
+
+def _blockers(info: ImageInfo) -> list[str]:
+    """Ce qui empêche de reconstruire l'image maintenant."""
+    out = []
+    if info.state == ImageState.IN_USE:
+        out.append("jeu en cours (monté ou lancé)")
+    if info.has_old:
+        out.append("ancienne image (.old) présente : valider ou revenir à l'ancienne d'abord")
+    if (t := _queue.active_for(info.id)) is not None:
+        out.append(f"tâche {t.id} déjà en cours sur cette image")
+    return out
+
+
+def _submit(kind: str, info: ImageInfo, params: dict) -> Task:
+    try:
+        return _queue.submit(kind, info.id, params)
+    except Busy as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+
+
+def _in_use(image: Path) -> bool:
+    return scan.is_in_use(image.stem, scan._running_prefixes(), scan._mount_points())
+
+
+def _run_edit_autorun(task: Task, ctx: rebuild.Context) -> None:
+    p = task.params
+    image = Path(p["path"])
+    st = image.stat()
+    if (st.st_size, st.st_mtime) != (p["size"], p["mtime"]):
+        raise rebuild.RebuildError("l'image a changé depuis la demande")
+    ctx.log(f"reconstruction de {image.name} : autorun.cmd")
+    rebuild.rebuild(_settings, image,
+                    rebuild.Changes(files={"autorun.cmd": p["autorun"].encode("latin-1")}),
+                    ctx, in_use=lambda: _in_use(image))
+
+
+@app.get("/api/image/files")
+def image_files(id: str, q: str = "", limit: int = 2000):
+    """Arborescence de l'image (lecture seule), avec recherche (casse ignorée)."""
+    files = _image_files(_find_image(id))
+    if q:
+        ql = q.lower()
+        files = [f for f in files if ql in f.lower()]
+    return {"total": len(files), "files": files[:limit]}
+
+
+# ------------------------------------------------------------- ancienne image
+
+@app.post("/api/image/old/validate")
+def old_validate(id: str):
+    """La nouvelle image est bonne : l'ancienne (.old) est supprimée."""
+    info = _find_image(id)
+    _no_active_task(info)
+    try:
+        rebuild.validate_old(info.path)
+    except rebuild.RebuildError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    return {"ok": True}
+
+
+@app.post("/api/image/old/revert")
+def old_revert(id: str):
+    """Revenir à l'ancienne image : elle remplace la nouvelle."""
+    info = _find_image(id)
+    _no_active_task(info)
+    try:
+        rebuild.revert_old(info.path, in_use=_in_use(info.path))
+    except rebuild.RebuildError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    return {"ok": True}
+
+
+def _no_active_task(info: ImageInfo) -> None:
+    if (t := _queue.active_for(info.id)) is not None:
+        raise HTTPException(status_code=409, detail=f"tâche {t.id} en cours sur cette image")
 
 
 def _find_image(image_id: str) -> ImageInfo:
@@ -147,31 +281,29 @@ def _find_image(image_id: str) -> ImageInfo:
 
 # ------------------------------------------------------------- file de tâches
 
+_queue = TaskQueue(_settings.data_dir / "tasks.json", {"edit_autorun": _run_edit_autorun},
+                   concurrency=_settings.task_concurrency)
+
+
 @app.get("/api/tasks", response_model=list[Task])
 def list_tasks():
-    return sorted(_tasks.values(), key=lambda t: t.created_at, reverse=True)
+    return _queue.list()
 
 
-@app.post("/api/tasks")
-def create_task(kind: str, image: str | None = None):
-    return _new_task(kind, image)
-
-
-@app.post("/api/tasks/{task_id}/cancel")
-def cancel_task(task_id: str):
-    t = _tasks.get(task_id)
+@app.get("/api/tasks/{task_id}", response_model=Task)
+def get_task(task_id: str):
+    t = _queue.get(task_id)
     if not t:
         raise HTTPException(status_code=404)
-    if t.status == TaskStatus.RUNNING:
-        raise HTTPException(status_code=409, detail="en cours (annulation = nettoyage .part)")
-    t.status = TaskStatus.CANCELLED
     return t
 
 
-def _new_task(kind: str, image: str | None) -> str:
-    task_id = hashlib.sha1(f"{kind}:{image}:{time.time()}".encode()).hexdigest()[:12]
-    _tasks[task_id] = Task(id=task_id, kind=kind, image=image, created_at=time.time())
-    return task_id
+@app.post("/api/tasks/{task_id}/cancel", response_model=Task)
+def cancel_task(task_id: str):
+    t = _queue.cancel(task_id)
+    if not t:
+        raise HTTPException(status_code=404)
+    return t
 
 
 # ------------------------------------------------------------- frontend

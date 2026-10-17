@@ -28,13 +28,16 @@ class Settings(BaseSettings):
     # Sauvegardes (même convention que wsquashfs-launcher)
     saves_dir: Path = Path.home() / ".local/share/wsquashfs/saves"
 
+    # Données du manager (file de tâches)
+    data_dir: Path = Path.home() / ".local/share/wsquashfs-manager"
+
     # Dossier temporaire (construction .part, couches overlay)
     tmp_dir: Path = Path("/tmp/wsquashfs-manager")
 
     # File de tâches
     task_concurrency: int = 1          # 1 : c'est surtout du disque
     task_priority_nice: int = 5        # priorité basse
-    task_priority_ionice: int = 3      # idem
+    task_priority_ionice: int = 3      # classe ionice : 3 = au repos (idle)
 
     # Rétention des .old (None = manuelle, sinon N jours)
     old_retention_days: int | None = None

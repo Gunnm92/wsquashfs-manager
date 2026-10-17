@@ -164,3 +164,28 @@ def test_dir_backslashes_and_quotes_are_normalised():
 def test_missing_exe_is_reported():
     a = Autorun.parse("DIR=Game\nCMD=absent.exe\n")
     assert _path_issues(a.validate({"Game/game.exe"}))
+
+
+# ------------------------------------------------------------------ encodage
+
+def test_cp1252_is_kept():
+    data = "REM Réglages du jeu\r\nCMD=jeu.exe\r\n".encode("cp1252")
+    a = Autorun.parse(data)
+    assert a.encoding == "cp1252"
+    assert a.lines[0] == "REM Réglages du jeu"
+    a.set("HIDRAW", "1")
+    assert a.encode() == "REM Réglages du jeu\r\nCMD=jeu.exe\r\nHIDRAW=1\r\n".encode("cp1252")
+
+
+def test_utf8_is_kept():
+    data = "REM Réglages\nCMD=jeu.exe\n".encode()
+    a = Autorun.parse(data)
+    assert a.encoding == "utf-8"
+    assert a.encode() == data
+
+
+def test_unencodable_char_falls_back_to_utf8():
+    a = Autorun.parse("CMD=jeu.exe\r\n".encode("cp1252"))
+    a.encoding = "cp1252"
+    a.set("GAME_VERSION", "1.0 ✓")
+    assert a.encode().decode("utf-8").endswith("GAME_VERSION=1.0 ✓\r\n")

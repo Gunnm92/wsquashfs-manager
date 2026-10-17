@@ -79,12 +79,16 @@ class TaskStatus(str, Enum):
 
 class Task(BaseModel):
     id: str
-    kind: str                        # "rebuild" | "edit_autorun" | "mass_action" | ...
-    image: str | None = None
+    kind: str                        # "edit_autorun" | "mass_action" | ...
+    image: str | None = None         # identifiant <système>/<nom>
+    params: dict = Field(default_factory=dict)   # de quoi rejouer la tâche après redémarrage
     status: TaskStatus = TaskStatus.PENDING
     progress: float = 0.0            # 0..1
     log: list[str] = Field(default_factory=list)
+    error: str | None = None
     created_at: float = 0.0
+    started_at: float | None = None
+    finished_at: float | None = None
 
 
 class RuleResult(BaseModel):

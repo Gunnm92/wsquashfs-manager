@@ -5,7 +5,10 @@
 # l'espace de noms du conteneur avec Podman sans root) :
 #   podman run -d --name wsquashfs-manager --device /dev/fuse --cap-add SYS_ADMIN \
 #     -p 8765:8765 -e WSQUASHFS_MGR_PASSWORD=… \
-#     -v ~/Games:/roms -v ~/.local/share/wsquashfs/saves:/saves wsquashfs-manager
+#     -v ~/Games:/roms -v ~/.local/share/wsquashfs/saves:/saves \
+#     -v wsquashfs-manager-data:/data wsquashfs-manager
+# /data garde la file de tâches : une reconstruction interrompue par un
+# redémarrage est reprise.
 FROM docker.io/library/python:3.13-slim
 
 RUN apt-get update \
@@ -25,6 +28,7 @@ ENV WSQUASHFS_MGR_HOST=0.0.0.0 \
     WSQUASHFS_MGR_PORT=8765 \
     WSQUASHFS_MGR_ROMS_DIRS=/roms \
     WSQUASHFS_MGR_SAVES_DIR=/saves \
+    WSQUASHFS_MGR_DATA_DIR=/data \
     WSQUASHFS_MGR_TOOL_USER=root
 EXPOSE 8765
 CMD ["python", "-m", "app.main"]

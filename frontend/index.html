@@ -9,18 +9,54 @@
   body { font-family: system-ui, sans-serif; margin: 0; background: #14161a; color: #d8dbe0; }
   header { padding: 1rem 1.5rem; border-bottom: 1px solid #2a2e35; display: flex; gap: 1rem; align-items: center; }
   h1 { font-size: 1.1rem; margin: 0; }
+  h2 { font-size: 1rem; margin: 0 0 0.8rem; }
+  h3 { font-size: 0.9rem; margin: 1rem 0 0.5rem; color: #8b919c; font-weight: 500; }
   main { padding: 1.5rem; max-width: 1200px; margin: 0 auto; }
   table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
   th, td { text-align: left; padding: 0.5rem 0.7rem; border-bottom: 1px solid #2a2e35; }
   th { color: #8b919c; font-weight: 500; }
-  tr:hover td { background: #1c1f25; }
+  #rows tr { cursor: pointer; }
+  tr:hover td, tr.selected td { background: #1c1f25; }
   .badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 4px; font-size: 0.75rem; background: #2a2e35; }
   .badge.warn { background: #5a4620; }
-  button { background: #2d6cdf; color: white; border: 0; padding: 0.4rem 0.9rem; border-radius: 6px; cursor: pointer; }
+  .badge.err { background: #5a2020; }
+  .badge.ok { background: #1f4a2e; }
+  button { background: #2d6cdf; color: white; border: 0; padding: 0.4rem 0.9rem; border-radius: 6px; cursor: pointer; font: inherit; }
+  button.secondary { background: #2a2e35; }
+  button.danger { background: #8a2b2b; }
+  button:disabled { opacity: 0.5; cursor: default; }
   .muted { color: #8b919c; }
-  input { background: #1c1f25; color: inherit; border: 1px solid #2a2e35; border-radius: 6px; padding: 0.4rem 0.6rem; }
+  input, textarea { background: #1c1f25; color: inherit; border: 1px solid #2a2e35; border-radius: 6px; padding: 0.4rem 0.6rem; font: inherit; }
+  textarea { width: 100%; box-sizing: border-box; min-height: 18rem; font-family: ui-monospace, monospace; font-size: 0.85rem; }
   #login { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1rem; }
   [hidden] { display: none !important; }
+  .panel { border: 1px solid #2a2e35; border-radius: 8px; padding: 1rem 1.2rem; margin-bottom: 1.5rem; background: #171a1f; }
+  .panel-head { display: flex; gap: 1rem; align-items: center; justify-content: space-between; }
+  .info { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: 0.4rem 1.5rem; font-size: 0.9rem; }
+  .info b { color: #8b919c; font-weight: 500; margin-right: 0.4rem; }
+  .tabs { display: flex; gap: 0.3rem; margin: 1rem 0 0.8rem; border-bottom: 1px solid #2a2e35; }
+  .tabs button { background: none; color: #8b919c; border-radius: 6px 6px 0 0; }
+  .tabs button.active { background: #2a2e35; color: #d8dbe0; }
+  .form { display: grid; grid-template-columns: 10rem 1fr; gap: 0.5rem 1rem; align-items: start; }
+  .form label { padding-top: 0.4rem; font-family: ui-monospace, monospace; font-size: 0.85rem; }
+  .form input { width: 100%; box-sizing: border-box; }
+  .form .help { font-size: 0.78rem; color: #8b919c; margin-top: 0.2rem; }
+  .actions { display: flex; gap: 0.5rem; align-items: center; margin-top: 1rem; flex-wrap: wrap; }
+  ul.issues { margin: 0.5rem 0; padding-left: 1.2rem; font-size: 0.85rem; }
+  ul.issues li.warn { color: #e0b864; }
+  ul.issues li.error, ul.issues li.blocker { color: #e07a7a; }
+  pre { background: #1c1f25; border-radius: 6px; padding: 0.6rem 0.8rem; overflow-x: auto; font-size: 0.82rem; margin: 0.5rem 0; }
+  pre .add { color: #7fcf8f; } pre .del { color: #e07a7a; }
+  #files-list { max-height: 24rem; overflow: auto; font-family: ui-monospace, monospace; font-size: 0.82rem; }
+  .progress { height: 6px; background: #2a2e35; border-radius: 3px; overflow: hidden; width: 10rem; display: inline-block; vertical-align: middle; }
+  .progress > div { height: 100%; background: #2d6cdf; }
+  .task-log { font-size: 0.78rem; margin: 0.3rem 0 0; white-space: pre-wrap; }
+  @media (max-width: 700px) {
+    main { padding: 1rem; }
+    .form { grid-template-columns: 1fr; }
+    .form label { padding-top: 0; }
+    #library { display: block; overflow-x: auto; }
+  }
 </style>
 </head>
 <body>
@@ -36,7 +72,50 @@
     <button type="submit">Se connecter</button>
     <span id="login-error" class="muted"></span>
   </form>
-  <table>
+
+  <section id="tasks" class="panel" hidden>
+    <h2>Tâches</h2>
+    <table><tbody id="task-rows"></tbody></table>
+  </section>
+
+  <section id="detail" class="panel" hidden>
+    <div class="panel-head">
+      <h2 id="d-title"></h2>
+      <button class="secondary" onclick="closeDetail()">Fermer</button>
+    </div>
+    <div id="d-info" class="info"></div>
+    <div id="d-old" class="actions" hidden>
+      <span class="badge warn">ancienne image (.old) présente</span>
+      <button onclick="oldAction('validate')">Valider la nouvelle</button>
+      <button class="danger" onclick="oldAction('revert')">Revenir à l'ancienne</button>
+    </div>
+    <div class="tabs">
+      <button data-tab="form" class="active">Autorun</button>
+      <button data-tab="raw">Texte brut</button>
+      <button data-tab="files">Fichiers</button>
+    </div>
+    <div data-pane="form"><div id="ar-form" class="form"></div></div>
+    <div data-pane="raw" hidden>
+      <textarea id="ar-raw" spellcheck="false"></textarea>
+      <p class="muted" id="ar-format"></p>
+    </div>
+    <div data-pane="files" hidden>
+      <input id="files-q" placeholder="Rechercher un fichier…" style="width: 100%; box-sizing: border-box">
+      <p class="muted" id="files-count"></p>
+      <div id="files-list"></div>
+    </div>
+    <div id="ar-check">
+      <ul class="issues" id="ar-issues"></ul>
+      <div id="ar-diff"></div>
+    </div>
+    <div class="actions" id="ar-actions">
+      <button id="ar-save" onclick="saveAutorun()" disabled>Reconstruire avec cet autorun</button>
+      <button class="secondary" onclick="resetAutorun()">Annuler les changements</button>
+      <span id="ar-msg" class="muted"></span>
+    </div>
+  </section>
+
+  <table id="library">
     <thead>
       <tr>
         <th>Nom</th><th>Système</th><th>Taille</th><th>Version</th><th>Type</th>
@@ -48,52 +127,263 @@
   </table>
 </main>
 <script>
+const $ = (id) => document.getElementById(id);
 const fmt = (b) => b > 1e9 ? (b/1e9).toFixed(1)+" Go" : b > 1e6 ? (b/1e6).toFixed(0)+" Mo" : (b/1e3).toFixed(0)+" Ko";
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const dash = '<span class="muted">—</span>';
 
 // Jeton (le mot de passe) gardé dans le navigateur, envoyé dans x-wsfs-token.
 const getToken = () => { try { return localStorage.getItem("wsfs-token") || ""; } catch { return ""; } };
 const setToken = (t) => { try { localStorage.setItem("wsfs-token", t); } catch {} };
 const api = (url, opts = {}) =>
   fetch(url, { ...opts, headers: { ...(opts.headers || {}), "x-wsfs-token": getToken() } });
+const apiJson = (url, body) => api(url, {
+  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+});
+const errText = async (r) => { try { return (await r.json()).detail || r.status; } catch { return r.status; } };
 
-document.getElementById("login").addEventListener("submit", async (e) => {
+$("login").addEventListener("submit", async (e) => {
   e.preventDefault();
   const r = await fetch("/login", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ password: document.getElementById("password").value }),
+    body: JSON.stringify({ password: $("password").value }),
   });
-  if (!r.ok) { document.getElementById("login-error").textContent = "mot de passe refusé"; return; }
+  if (!r.ok) { $("login-error").textContent = "mot de passe refusé"; return; }
   setToken((await r.json()).token);
-  document.getElementById("login").hidden = true;
+  $("login").hidden = true;
   load(false);
 });
+
+// ------------------------------------------------------------ bibliothèque
+
+let library = [];
 
 async function load(refresh) {
   const r = await api("/api/library" + (refresh ? "?refresh=true" : ""));
   if (r.status === 401) {
-    document.getElementById("status").textContent = "connexion requise";
-    document.getElementById("login").hidden = false;
-    document.getElementById("password").focus();
+    $("status").textContent = "connexion requise";
+    $("login").hidden = false;
+    $("password").focus();
     return;
   }
-  if (!r.ok) { document.getElementById("status").textContent = "erreur API " + r.status; return; }
-  const items = await r.json();
-  document.getElementById("status").textContent = items.length + " images";
-  const rows = items.map(i => `<tr>
-    <td>${i.name}</td>
-    <td>${i.system ?? ""}</td>
+  if (!r.ok) { $("status").textContent = "erreur API " + r.status; return; }
+  library = await r.json();
+  $("status").textContent = library.length + " images";
+  $("rows").innerHTML = library.map((i, n) => `<tr data-n="${n}" class="${current && current.id === i.id ? "selected" : ""}">
+    <td>${esc(i.name)}</td>
+    <td>${esc(i.system)}</td>
     <td>${fmt(i.size)}</td>
-    <td>${i.version ?? '<span class="muted">—</span>'}</td>
-    <td><span class="badge">${i.type}</span></td>
-    <td>${i.runner === "default" ? '<span class="muted">défaut</span>' : i.runner + (i.wine ? " " + i.wine : i.proton ? " " + i.proton : "")}</td>
-    <td>${i.hidraw ? "HIDRAW" : i.xinput ? "XInput" : '<span class="muted">—</span>'}</td>
-    <td>${i.cmd ?? '<span class="muted">—</span>'}</td>
-    <td>${(i.extras || []).join(", ") || '<span class="muted">—</span>'}</td>
-    <td>${i.saves_present ? fmt(i.saves_size) : '<span class="muted">—</span>'}</td>
-    <td>${i.state !== "ok" ? `<span class="badge warn">${i.state}</span>` : '<span class="muted">ok</span>'}</td>
-  </tr>`).join("");
-  document.getElementById("rows").innerHTML = rows || '<tr><td colspan="11" class="muted">aucune image — WSQUASHFS_MGR_ROMS_DIRS ?</td></tr>';
+    <td>${i.version ? esc(i.version) : dash}</td>
+    <td><span class="badge">${esc(i.type)}</span></td>
+    <td>${i.runner === "default" ? '<span class="muted">défaut</span>' : esc(i.runner + (i.wine ? " " + i.wine : i.proton ? " " + i.proton : ""))}</td>
+    <td>${i.hidraw ? "HIDRAW" : i.xinput ? "XInput" : dash}</td>
+    <td>${i.cmd ? esc(i.cmd) : dash}</td>
+    <td>${esc((i.extras || []).join(", ")) || dash}</td>
+    <td>${i.saves_present ? fmt(i.saves_size) : dash}</td>
+    <td>${i.state !== "ok" ? `<span class="badge warn">${esc(i.state)}</span>` : '<span class="muted">ok</span>'}</td>
+  </tr>`).join("") || '<tr><td colspan="11" class="muted">aucune image — WSQUASHFS_MGR_ROMS_DIRS ?</td></tr>';
+  if (current) {
+    const fresh = library.find(i => i.id === current.id);
+    if (fresh) { current = fresh; renderInfo(); }
+  }
+  loadTasks();
 }
+
+$("rows").addEventListener("click", (e) => {
+  const tr = e.target.closest("tr[data-n]");
+  if (tr) openDetail(library[+tr.dataset.n]);
+});
+
+// ------------------------------------------------------------ fiche
+
+let current = null;     // ImageInfo
+let keyHelp = null;     // clés connues (aide, valeurs)
+let original = null;    // autorun lu (réponse de l'API)
+let ar = null;          // autorun en cours d'édition : {lines, eol, trailing_eol, encoding}
+
+const KEY_RE = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/;
+
+// Mêmes règles que le backend (Autorun.get / set / remove) : première
+// occurrence lue, modifiée en place, ajoutée en fin de fichier, valeur vide =
+// toutes les occurrences retirées.
+function arGet(key) {
+  for (const l of ar.lines) { const m = KEY_RE.exec(l); if (m && m[1] === key) return m[2]; }
+  return null;
+}
+function arSet(key, value) {
+  if (value === "") { ar.lines = ar.lines.filter(l => { const m = KEY_RE.exec(l); return !(m && m[1] === key); }); return; }
+  const i = ar.lines.findIndex(l => { const m = KEY_RE.exec(l); return m && m[1] === key; });
+  if (i >= 0) ar.lines[i] = `${key}=${value}`; else ar.lines.push(`${key}=${value}`);
+}
+
+async function openDetail(info) {
+  current = info;
+  document.querySelectorAll("#rows tr").forEach(tr => tr.classList.toggle("selected", library[+tr.dataset.n]?.id === info.id));
+  $("detail").hidden = false;
+  $("d-title").textContent = info.id;
+  renderInfo();
+  showTab("form");
+  $("files-q").value = ""; $("files-list").innerHTML = ""; $("files-count").textContent = "";
+  $("ar-form").innerHTML = '<span class="muted">lecture de l\'autorun…</span>';
+  $("ar-issues").innerHTML = ""; $("ar-diff").innerHTML = ""; $("ar-msg").textContent = "";
+  if (!keyHelp) keyHelp = await (await api("/api/autorun/keys")).json();
+  const r = await api("/api/image/autorun?id=" + encodeURIComponent(info.id));
+  if (!r.ok) { $("ar-form").textContent = "erreur : " + await errText(r); return; }
+  original = await r.json();
+  resetAutorun();
+  $("detail").scrollIntoView({ behavior: "smooth" });
+}
+
+function closeDetail() {
+  current = null; $("detail").hidden = true;
+  document.querySelectorAll("#rows tr.selected").forEach(tr => tr.classList.remove("selected"));
+}
+
+function renderInfo() {
+  const i = current;
+  const rows = [
+    ["Fichier", i.path], ["Taille", fmt(i.size)], ["Version", i.version || "—"],
+    ["Type", i.type], ["Runner", i.runner + (i.wine ? " " + i.wine : i.proton ? " " + i.proton : "")],
+    ["Manettes", i.hidraw ? "HIDRAW" : "XInput"], ["Extras", (i.extras || []).join(", ") || "—"],
+    ["Sauvegardes", i.saves_present ? fmt(i.saves_size) : "—"], ["État", i.state],
+  ];
+  $("d-info").innerHTML = rows.map(([k, v]) => `<div><b>${k}</b>${esc(v)}</div>`).join("");
+  $("d-old").hidden = !i.has_old;
+}
+
+function resetAutorun() {
+  ar = { lines: [...original.lines], eol: original.eol, trailing_eol: original.trailing_eol, encoding: original.encoding };
+  renderForm(); renderRaw(); preview();
+}
+
+function renderForm() {
+  $("ar-form").innerHTML = Object.entries(keyHelp).map(([k, h]) => `
+    <label for="k-${k}">${k}</label>
+    <div>
+      <input id="k-${k}" data-key="${k}" list="v-${k}" value="${esc(arGet(k) ?? "")}">
+      ${h.values.length ? `<datalist id="v-${k}">${h.values.map(v => `<option value="${esc(v)}">`).join("")}</datalist>` : ""}
+      <div class="help">${esc(h.help)}</div>
+    </div>`).join("");
+}
+
+function renderRaw() {
+  $("ar-raw").value = ar.lines.join("\n") + (ar.trailing_eol && ar.lines.length ? "\n" : "");
+  $("ar-format").textContent = `Fins de ligne ${ar.eol === "\r\n" ? "CRLF" : "LF"}, encodage ${ar.encoding} (conservés à l'écriture).`;
+}
+
+$("ar-form").addEventListener("input", (e) => {
+  if (!e.target.dataset.key) return;
+  arSet(e.target.dataset.key, e.target.value);
+  renderRaw(); schedulePreview();
+});
+
+$("ar-raw").addEventListener("input", () => {
+  const lines = $("ar-raw").value.split("\n").map(l => l.replace(/\r$/, ""));
+  ar.trailing_eol = lines.length > 1 && lines[lines.length - 1] === "";
+  if (ar.trailing_eol) lines.pop();
+  ar.lines = lines.length === 1 && lines[0] === "" ? [] : lines;
+  renderForm(); schedulePreview();
+});
+
+// Aperçu : validations, diff et ce qui bloquerait la reconstruction
+let previewTimer = null;
+const schedulePreview = () => { clearTimeout(previewTimer); previewTimer = setTimeout(preview, 400); };
+const arBody = () => ({ ...ar, base: original.base });
+
+async function preview() {
+  if (!current) return;
+  const id = current.id;
+  const r = await apiJson("/api/image/autorun?dry_run=true&id=" + encodeURIComponent(id), arBody());
+  if (!current || current.id !== id) return;
+  if (!r.ok) { $("ar-issues").innerHTML = `<li class="error">${esc(await errText(r))}</li>`; return; }
+  const p = await r.json();
+  $("ar-issues").innerHTML =
+    p.blockers.map(b => `<li class="blocker">${esc(b)}</li>`).join("") +
+    p.issues.map(i => `<li class="${esc(i.level)}">${esc(i.message)}</li>`).join("");
+  $("ar-diff").innerHTML = p.changed
+    ? "<pre>" + p.diff.slice(2).map(l => `<span class="${l[0] === "+" ? "add" : l[0] === "-" ? "del" : ""}">${esc(l)}</span>`).join("\n") + "</pre>"
+    : '<p class="muted">aucun changement</p>';
+  $("ar-save").disabled = !p.changed || p.blockers.length > 0;
+}
+
+async function saveAutorun() {
+  if (!confirm(`Reconstruire ${current.id} ? L'image actuelle sera gardée en .old jusqu'à validation.`)) return;
+  $("ar-save").disabled = true;
+  const r = await apiJson("/api/image/autorun?id=" + encodeURIComponent(current.id), arBody());
+  if (!r.ok) { $("ar-msg").textContent = "refusé : " + await errText(r); preview(); return; }
+  $("ar-msg").textContent = "tâche " + (await r.json()).task + " créée";
+  loadTasks();
+}
+
+async function oldAction(action) {
+  const msg = action === "validate"
+    ? "Supprimer l'ancienne image et garder la nouvelle ?"
+    : "Remplacer la nouvelle image par l'ancienne ? Les changements seront perdus.";
+  if (!confirm(msg)) return;
+  const r = await api(`/api/image/old/${action}?id=` + encodeURIComponent(current.id), { method: "POST" });
+  if (!r.ok) { alert(await errText(r)); return; }
+  await load(false);
+  if (current) openDetail(current);
+}
+
+// Onglets
+function showTab(name) {
+  document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("active", b.dataset.tab === name));
+  document.querySelectorAll("[data-pane]").forEach(p => p.hidden = p.dataset.pane !== name);
+  $("ar-check").hidden = $("ar-actions").hidden = name === "files";
+  if (name === "files" && !$("files-list").innerHTML) loadFiles();
+}
+document.querySelector(".tabs").addEventListener("click", (e) => { if (e.target.dataset.tab) showTab(e.target.dataset.tab); });
+
+let filesTimer = null;
+$("files-q").addEventListener("input", () => { clearTimeout(filesTimer); filesTimer = setTimeout(loadFiles, 300); });
+async function loadFiles() {
+  $("files-count").textContent = "lecture…";
+  const r = await api(`/api/image/files?id=${encodeURIComponent(current.id)}&q=${encodeURIComponent($("files-q").value)}`);
+  if (!r.ok) { $("files-count").textContent = "erreur : " + await errText(r); return; }
+  const f = await r.json();
+  $("files-count").textContent = `${f.total} entrée(s)` + (f.total > f.files.length ? `, ${f.files.length} affichées` : "");
+  $("files-list").innerHTML = f.files.map(p => `<div>${esc(p)}</div>`).join("");
+}
+
+// ------------------------------------------------------------ tâches
+
+const STATUS = { pending: "en attente", running: "en cours", done: "terminée", failed: "échec", cancelled: "annulée" };
+let tasksTimer = null;
+let wasActive = false;
+
+async function loadTasks() {
+  clearTimeout(tasksTimer);
+  const r = await api("/api/tasks");
+  if (!r.ok) return;
+  const tasks = (await r.json()).slice(0, 10);
+  $("tasks").hidden = tasks.length === 0;
+  $("task-rows").innerHTML = tasks.map(t => {
+    const active = t.status === "pending" || t.status === "running";
+    const cls = t.status === "done" ? "ok" : t.status === "failed" ? "err" : active ? "" : "warn";
+    return `<tr>
+      <td>${esc(t.image)}<div class="muted task-log">${esc(t.kind)} · ${new Date(t.created_at * 1000).toLocaleString()}</div></td>
+      <td><span class="badge ${cls}">${STATUS[t.status] || esc(t.status)}</span></td>
+      <td>${t.status === "running" ? `<span class="progress"><div style="width:${Math.round(t.progress * 100)}%"></div></span> ${Math.round(t.progress * 100)} %` : ""}
+        <div class="muted task-log">${esc(t.error || t.log.slice(-2).join("\n"))}</div></td>
+      <td>${active ? `<button class="secondary" onclick="cancelTask('${esc(t.id)}')">Annuler</button>` : ""}</td>
+    </tr>`;
+  }).join("");
+  const active = tasks.some(t => t.status === "pending" || t.status === "running");
+  const finished = wasActive && !active;
+  wasActive = active;             // avant load(), qui rappelle loadTasks()
+  if (active) tasksTimer = setTimeout(loadTasks, 1500);
+  else if (finished) {            // une tâche vient de finir : bibliothèque et fiche à jour
+    await load(false);
+    if (current) openDetail(current);
+  }
+}
+
+async function cancelTask(id) {
+  await api(`/api/tasks/${id}/cancel`, { method: "POST" });
+  loadTasks();
+}
+
 load(false);
 </script>
 </body>

@@ -57,7 +57,7 @@ def _find_images(roms_dirs: list[str], max_depth: int) -> list[tuple[Path, str |
     return out
 
 
-def _unsquashfs_cat(settings: Settings, image: Path, member: str) -> bytes | None:
+def unsquashfs_cat(settings: Settings, image: Path, member: str) -> bytes | None:
     if not shutil.which(settings.unsquashfs):
         return None
     try:
@@ -68,16 +68,17 @@ def _unsquashfs_cat(settings: Settings, image: Path, member: str) -> bytes | Non
     return r.stdout if r.returncode == 0 else None
 
 
-def _read_autorun_from_image(settings: Settings, image: Path) -> str | None:
-    """Lit l'autorun sans montage complet.
+def read_autorun_bytes(settings: Settings, image: Path) -> bytes | None:
+    """Lit l'autorun sans montage complet, tel quel (l'encodage est conservé
+    à la réécriture).
 
     1) `unsquashfs -cat <image> autorun.cmd` (sans montage) ;
     2) repli : squashfuse + lecture du fichier.
-    Retourne le contenu texte, ou None.
+    Retourne le contenu, ou None.
     """
-    data = _unsquashfs_cat(settings, image, "autorun.cmd")
+    data = unsquashfs_cat(settings, image, "autorun.cmd")
     if data:
-        return data.decode("utf-8", errors="replace")
+        return data
     if shutil.which(settings.squashfuse):
         mnt = _CACHE_DIR / "mnt" / image.stem
         mnt.mkdir(parents=True, exist_ok=True)
@@ -86,7 +87,7 @@ def _read_autorun_from_image(settings: Settings, image: Path) -> str | None:
                            check=True, timeout=30)
             p = mnt / "autorun.cmd"
             if p.exists():
-                return p.read_bytes().decode("utf-8", errors="replace")
+                return p.read_bytes()
         except (subprocess.SubprocessError, OSError):
             pass
         finally:
@@ -112,7 +113,7 @@ def parse_listing(text: str) -> list[str]:
     return out
 
 
-def _list_files(settings: Settings, image: Path) -> list[str]:
+def list_files(settings: Settings, image: Path) -> list[str]:
     if not shutil.which(settings.unsquashfs):
         return []
     try:
@@ -146,7 +147,7 @@ def _fakeping_candidates(files: list[str]) -> list[str]:
 
 def _has_fakeping(settings: Settings, image: Path, files: list[str]) -> bool:
     for member in _fakeping_candidates(files):
-        data = _unsquashfs_cat(settings, image, member)
+        data = unsquashfs_cat(settings, image, member)
         if data and b"fakeping" in data:
             return True
     return False
@@ -227,9 +228,9 @@ def scan_image(settings: Settings, image: Path, system: str | None) -> ImageInfo
     """Contenu de l'image (mis en cache) ; l'état dynamique est ajouté par
     scan_all."""
     stat = image.stat()
-    autorun_text = _read_autorun_from_image(settings, image)
-    files = _list_files(settings, image)
-    a = Autorun.parse(autorun_text) if autorun_text else None
+    autorun_data = read_autorun_bytes(settings, image)
+    files = list_files(settings, image)
+    a = Autorun.parse(autorun_data) if autorun_data else None
 
     info = ImageInfo(
         id=image_id(image, system),

@@ -41,6 +41,22 @@ Les images sont désignées par leur identifiant `<système>/<nom>`
 (`GET /api/image?id=arcade/gticlub`), deux systèmes pouvant contenir une image
 du même nom.
 
+## Édition de l'autorun
+
+Depuis la fiche d'une image : formulaire des clés connues ou texte brut
+(synchronisés), validations et aperçu du diff, puis reconstruction en tâche de
+fond. L'image est montée (squashfuse), le nouvel autorun superposé
+(fuse-overlayfs) et `mksquashfs` construit `<jeu>.wsquashfs.part` à côté ;
+après vérification (table lisible, liste des fichiers attendue, contenu de
+l'autorun), l'original devient `<jeu>.wsquashfs.old` jusqu'à « Valider » ou
+« Revenir à l'ancienne ». Sans FUSE, l'image est extraite puis reconstruite.
+Fins de ligne, encodage (UTF-8 ou cp1252), commentaires et ordre des lignes
+sont conservés.
+
+La file de tâches est enregistrée dans `WSQUASHFS_MGR_DATA_DIR`
+(`~/.local/share/wsquashfs-manager`) : une tâche interrompue par un
+redémarrage est remise en attente.
+
 ## Décisions en attente (SPEC § 7)
 
 1. Web ou bureau — **web** recommandé.

@@ -29,7 +29,49 @@ KNOWN_KEYS = {
     "ENV", "SAVEDIR", "SAVEFILES",
 }
 
+# Aide du formulaire (SPEC § 2.2) : description et valeurs possibles, d'après
+# la documentation du lanceur. `values` vide = saisie libre.
+KEY_HELP: dict[str, dict] = {
+    "CMD": {"help": "Exécutable et arguments, ex. game.exe -fullscreen ou "
+                    "\"My Game.exe\" -fullscreen", "values": []},
+    "DIR": {"help": "Dossier de l'exécutable, relatif à la racine de l'image", "values": []},
+    "GAME_VERSION": {"help": "Version du jeu packagé (ignorée par Batocera)", "values": []},
+    "WINE": {"help": "Wine de /opt/wine-<version>, ou system (Wine du système, WoW64)",
+             "values": ["tkg", "system"]},
+    "PROTON": {"help": "Runner Proton (nom du dossier ou version) ; défaut proton-cachyos",
+               "values": ["proton-cachyos-slr", "GE-Proton8-25"]},
+    "RUNNER": {"help": "Chemin absolu d'un runner personnalisé", "values": []},
+    "ARCH": {"help": "Architecture Wine (défaut win64)", "values": ["win32", "win64"]},
+    "HIDRAW": {"help": "1 : manettes Sony par hidraw si le jeu gère la DualSense lui-même ; "
+                       "bt : DualSense Bluetooth en direct ; absent : XInput",
+               "values": ["1", "bt"]},
+    "DXVK": {"help": "DirectX 8-11 → Vulkan (activé par défaut)", "values": ["0", "1"]},
+    "VKD3D": {"help": "DirectX 12 → Vulkan (activé par défaut)", "values": ["0", "1"]},
+    "D7VK": {"help": "DirectDraw / DirectX 7 → Vulkan (activé par défaut)", "values": ["0", "1"]},
+    "ESYNC": {"help": "Event synchronization", "values": ["0", "1"]},
+    "FSYNC": {"help": "Futex synchronization", "values": ["0", "1"]},
+    "VIRTUAL_DESKTOP": {"help": "Bureau virtuel Wine, ex. 1920x1080", "values": []},
+    "LANG": {"help": "Langue (LC_ALL), ex. fr_FR.UTF-8", "values": []},
+    "ENV": {"help": "Variables d'environnement, ex. VAR1=val1 VAR2=val2 (pas de "
+                    "WINEDLLOVERRIDES)", "values": []},
+    "SAVEDIR": {"help": "Dossier de sauvegarde du jeu, relié à saves/<système>/<jeu>",
+                "values": []},
+    "SAVEFILES": {"help": "Fichiers de sauvegarde séparés par ;, relatifs au prefix",
+                  "values": []},
+}
+
 _KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
+
+
+def decode(data: bytes) -> tuple[str, str]:
+    """UTF-8 si le fichier en est, sinon cp1252 (autorun écrit sous Windows),
+    à défaut latin-1 (décode tout octet, sans perte)."""
+    for enc in ("utf-8", "cp1252", "latin-1"):
+        try:
+            return data.decode(enc), enc
+        except UnicodeDecodeError:
+            continue
+    raise AssertionError("latin-1 décode tout")
 
 
 def unquote(value: str) -> str:
@@ -63,15 +105,17 @@ class Autorun:
     lines: list[str] = field(default_factory=list)   # sans le caractère de fin de ligne
     eol: str = "\r\n"                                # "\r\n" ou "\n" (détecté)
     trailing_eol: bool = True                        # saut de ligne après la dernière ligne
+    encoding: str = "utf-8"                          # conservé à la réécriture (cp1252 : Windows)
 
     # ------------------------------------------------------------------ read
 
     @classmethod
     def parse(cls, data: bytes | str) -> "Autorun":
+        encoding = "utf-8"
         if isinstance(data, bytes):
-            data = data.decode("utf-8", errors="replace")
+            data, encoding = decode(data)
         if not data:
-            return cls(lines=[], eol="\r\n", trailing_eol=True)
+            return cls(lines=[], eol="\r\n", trailing_eol=True, encoding=encoding)
         # Fin de ligne majoritaire (un fichier CRLF sans saut de ligne final
         # reste CRLF ; un fichier mixte prend la fin la plus fréquente).
         crlf = data.count("\r\n")
@@ -81,7 +125,7 @@ class Autorun:
         lines = [ln[:-1] if ln.endswith("\r") else ln for ln in data.split("\n")]
         if trailing:
             lines = lines[:-1]          # élément vide après le dernier \n
-        return cls(lines=lines, eol=eol, trailing_eol=trailing)
+        return cls(lines=lines, eol=eol, trailing_eol=trailing, encoding=encoding)
 
     def get(self, key: str) -> str | None:
         """Première occurrence de la clé (comme le lanceur)."""
@@ -142,6 +186,15 @@ class Autorun:
             return ""
         return self.eol.join(self.lines) + (self.eol if self.trailing_eol else "")
 
+    def encode(self) -> bytes:
+        """Contenu à écrire dans l'image, dans l'encodage d'origine. Un
+        caractère absent de cet encodage fait passer le fichier en UTF-8
+        plutôt que d'être perdu."""
+        try:
+            return self.render().encode(self.encoding)
+        except UnicodeEncodeError:
+            return self.render().encode("utf-8")
+
     # ------------------------------------------------------------- validation
 
     @staticmethod
@@ -200,4 +253,4 @@ def read_autorun(image_dir: Path) -> Autorun | None:
 
 
 def write_autorun(autorun: Autorun, path: Path) -> None:
-    path.write_bytes(autorun.render().encode("utf-8"))
+    path.write_bytes(autorun.encode())
