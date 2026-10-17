@@ -11,10 +11,13 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import struct
 import subprocess
+import tempfile
 import threading
 import xml.etree.ElementTree as ET
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -107,7 +110,8 @@ def best_icon(pe: pefile.PE) -> tuple[bytes, str] | None:
             off = 6 + 14 * n
             if off + 14 > len(data):
                 break
-            w, h, colors, _res, planes, bits, size, icon_id = struct.unpack_from("<BBBBHHIH", data, off)
+            w, h, colors, _res, planes, bits, _size, icon_id = struct.unpack_from(
+                "<BBBBHHIH", data, off)
             if icon_id in icons:
                 entries.append(((w or 256) * (h or 256), bits, w, h, colors, planes, icon_id))
         if not entries:
@@ -143,6 +147,20 @@ def _exe_path(image: Path, cmd: str | None, dir_: str | None, unsquashfs: str) -
     return None
 
 
+@contextmanager
+def _scratch(settings: Settings, image: Path):
+    """Dossier où extraire l'exécutable : à côté de l'image (même disque),
+    sinon dans l'appdata si le dossier du jeu est en lecture seule."""
+    if os.access(settings.tmp_dir or image.parent, os.W_OK):
+        with work_area(settings, image, "art-") as tmp:
+            yield tmp
+        return
+    base = settings.state_dir / "art"
+    base.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="art-", dir=base) as tmp:
+        yield Path(tmp)
+
+
 def exe_icon(settings: Settings, image: Path, cmd: str | None, dir_: str | None) -> Artwork | None:
     st = image.stat()
     key = hashlib.sha1(str(image).encode()).hexdigest()[:16]
@@ -162,7 +180,7 @@ def exe_icon(settings: Settings, image: Path, cmd: str | None, dir_: str | None)
         result = None
         rel = _exe_path(image, cmd, dir_, settings.unsquashfs)
         if rel:
-            with work_area(settings, image, "art-") as tmp:
+            with _scratch(settings, image) as tmp:
                 exe = tmp / "exe.bin"
                 with open(exe, "wb") as out:
                     subprocess.run([settings.unsquashfs, "-cat", str(image), rel], stdout=out,
