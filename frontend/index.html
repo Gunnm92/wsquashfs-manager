@@ -171,7 +171,7 @@ td.name { font-weight: 550; color: var(--text); }
 .thumb img, .detail-head .cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .thumb.icon, .detail-head .cover.icon { background: var(--surface-3) !important; }
 .thumb.icon img, .detail-head .cover.icon img { object-fit: contain; }
-.thumb img, .detail-head .cover img { animation: fade .25s ease-out; }
+.thumb img.fade-in, .detail-head .cover img.fade-in { animation: fade .25s ease-out; }
 @keyframes fade { from { opacity: 0; } }
 td.cmd { max-width: 18rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono);
   font-size: 12px; color: var(--text-2); }
@@ -627,7 +627,7 @@ const icon = (name) => {
 };
 // Illustration d'un jeu (jaquette d'ES, sinon icône de l'exécutable) :
 // chargée à la demande, 4 à la fois, gardée pour la session. Repli : initiales.
-const art = { cache: new Map(), waiting: [], active: 0 };
+const art = { cache: new Map(), done: new Map(), waiting: [], active: 0 };
 const hueOf = (name) => [...name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
 const initials = (name) => name.split(/[\s\-:]+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
 function paintInitials(node, name) {
@@ -639,7 +639,8 @@ function paintInitials(node, name) {
 function loadArt(item) {
   const key = `${item.id}:${item.mtime}`;
   if (!art.cache.has(key)) {
-    art.cache.set(key, new Promise((resolve) => { art.waiting.push({ item, resolve }); pumpArt(); }));
+    art.cache.set(key, new Promise((resolve) => { art.waiting.push({ item, resolve }); pumpArt(); })
+      .then((result) => { art.done.set(key, result); return result; }));
   }
   return art.cache.get(key);
 }
@@ -653,13 +654,26 @@ function pumpArt() {
       .then((result) => { art.active--; resolve(result); pumpArt(); });
   }
 }
+function putArt(node, a, animate) {
+  node.textContent = "";
+  node.style.background = "";
+  node.classList.add(a.kind);
+  node.append(el("img", { src: a.url, alt: "", className: animate ? "fade-in" : "" }));
+}
+// Vrai si l'illustration était déjà connue (posée sans attendre)
+function artReady(node, item) {
+  const key = `${item.id}:${item.mtime}`;
+  if (!art.done.has(key)) return false;
+  const a = art.done.get(key);
+  if (a) putArt(node, a, false); else paintInitials(node, item.name);
+  return true;
+}
 async function showArt(node, item) {
+  if (artReady(node, item)) return;
   paintInitials(node, item.name);
   const a = await loadArt(item);
   if (!a || node.dataset.id !== item.id) return;
-  node.textContent = "";
-  node.classList.add(a.kind);
-  node.append(el("img", { src: a.url, alt: "", loading: "lazy" }));
+  putArt(node, a, true);
 }
 const artObserver = new IntersectionObserver((entries) => {
   for (const entry of entries) {
@@ -672,8 +686,10 @@ const artObserver = new IntersectionObserver((entries) => {
 function thumb(item) {
   const node = el("span", { className: "thumb" });
   node.dataset.id = item.id;
-  paintInitials(node, item.name);
-  artObserver.observe(node);
+  if (!artReady(node, item)) {
+    paintInitials(node, item.name);
+    artObserver.observe(node);
+  }
   return node;
 }
 
@@ -863,6 +879,7 @@ function renderTable() {
         (i.override || []).length ? Object.assign(badge("surcharge", "warn"), { title: `Surcharge : ${i.override.join(", ")}` }) : null),
       el("td", { className: "c-saves_size num" }, i.saves_present ? size(i.saves_size) : dash()),
       el("td", { className: "c-state" }, el("span", { className: `status ${stateKind}`, textContent: stateLabel })));
+    row.dataset.id = i.id;
     row.onclick = () => openDetail(i.id);
     return row;
   });
@@ -915,7 +932,7 @@ async function openDetail(id) {
   $("u-source").value = ""; $("u-version").value = "";
   $("main").classList.add("with-detail");
   $("detail").hidden = false;
-  renderTable();
+  markCurrent();
   renderDetailHeader();
   showTab("info");
   await loadAutorun();
@@ -981,7 +998,12 @@ function showTab(name) {
   if (name === "history") renderHistory();
 }
 $("d-tabs").onclick = (event) => event.target.dataset.tab && showTab(event.target.dataset.tab);
-$("d-close").onclick = () => { $("detail").hidden = true; $("main").classList.remove("with-detail"); state.current = null; renderTable(); };
+$("d-close").onclick = () => { $("detail").hidden = true; $("main").classList.remove("with-detail"); state.current = null; markCurrent(); };
+
+// Surligne la ligne de la fiche ouverte sans redessiner le tableau
+function markCurrent() {
+  for (const tr of $("rows").children) tr.classList.toggle("current", tr.dataset.id === state.current?.id);
+}
 
 // ------------------------------------------------------------------ autorun : texte ⇄ formulaire
 // Mêmes règles que le serveur (services/autorun.py) : clé en début de ligne,
