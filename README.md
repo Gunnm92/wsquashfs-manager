@@ -57,6 +57,20 @@ La file de tâches est enregistrée dans `WSQUASHFS_MGR_DATA_DIR`
 (`~/.local/share/wsquashfs-manager`) : une tâche interrompue par un
 redémarrage est remise en attente.
 
+## Actions en masse
+
+La bibliothèque se filtre (système, type, runner, manettes, sans version, a une
+`.old`), se trie et permet une sélection multiple. Sur la sélection :
+
+- opérations d'autorun appliquées dans l'ordre : poser / modifier / retirer une
+  clé, remplacer par un modèle (`{name}`, `{system}` et les clés actuelles,
+  `{CMD}`, `{DIR}`…) ; aperçu image par image (diff, validations, images
+  bloquées) et espace disque par système de fichiers — chaque `.old` est gardé
+  jusqu'à validation — puis une tâche de reconstruction par image ;
+- valider ou revenir aux `.old` ;
+- réinitialiser les sauvegardes (`saves/<jeu>` renommé en `.avant-<date>`) ;
+- vérifier l'intégrité (table de l'image, autorun lisible), en tâche de fond.
+
 ## Décisions en attente (SPEC § 7)
 
 1. Web ou bureau — **web** recommandé.

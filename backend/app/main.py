@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import difflib
 import secrets
+import shutil
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -20,7 +21,7 @@ from pydantic import BaseModel
 
 from .config import Settings, get_settings
 from .models import ImageInfo, ImageState, Task
-from .services import rebuild, scan
+from .services import mass, rebuild, scan
 from .services.autorun import KEY_HELP, Autorun
 from .services.tasks import Busy, TaskQueue
 
@@ -169,15 +170,8 @@ def autorun_edit(id: str, body: AutorunEdit, dry_run: bool = False):
     info = _find_image(id)
     new = Autorun(lines=body.lines, eol=body.eol, trailing_eol=body.trailing_eol,
                   encoding=body.encoding)
-    old_data = scan.read_autorun_bytes(_settings, info.path) or b""
-    old = Autorun.parse(old_data)
-    new_data = new.encode()
-    diff = list(difflib.unified_diff(old.lines, new.lines, "avant", "après", lineterm=""))
-    issues = new.validate(set(_image_files(info)))
-    if new_data != old_data and not diff:
-        diff = ["(fins de ligne ou encodage seulement)"]
-    out = {"changed": new_data != old_data, "diff": diff, "issues": issues,
-           "blockers": _blockers(info)}
+    out = _autorun_change(info, new, _image_files(info))
+    new_data = out.pop("new_data")
     if dry_run:
         return out
     if not out["changed"]:
@@ -187,11 +181,29 @@ def autorun_edit(id: str, body: AutorunEdit, dry_run: bool = False):
     if body.base and (body.base.get("size"), body.base.get("mtime")) != (info.size, info.mtime):
         raise HTTPException(status_code=409, detail="l'image a changé depuis la lecture : "
                                                     "recharger la fiche")
-    task = _submit("edit_autorun", info, {
+    return {**out, "task": _submit_autorun(info, new_data).id}
+
+
+def _autorun_change(info: ImageInfo, new: Autorun, files: list[str],
+                    old_data: bytes | None = None) -> dict:
+    """Aperçu d'un nouvel autorun : diff, validations, blocages."""
+    if old_data is None:
+        old_data = scan.read_autorun_bytes(_settings, info.path) or b""
+    old = Autorun.parse(old_data)
+    new_data = new.encode()
+    diff = list(difflib.unified_diff(old.lines, new.lines, "avant", "après", lineterm=""))
+    if new_data != old_data and not diff:
+        diff = ["(fins de ligne ou encodage seulement)"]
+    return {"changed": new_data != old_data, "diff": diff,
+            "issues": new.validate(set(files)), "blockers": _blockers(info),
+            "new_data": new_data}
+
+
+def _submit_autorun(info: ImageInfo, new_data: bytes) -> Task:
+    return _submit("edit_autorun", info, {
         "path": str(info.path), "size": info.size, "mtime": info.mtime,
         "autorun": new_data.decode("latin-1"),     # octets bruts, transportables en JSON
     })
-    return {**out, "task": task.id}
 
 
 def _blockers(info: ImageInfo) -> list[str]:
@@ -279,9 +291,183 @@ def _find_image(image_id: str) -> ImageInfo:
     raise HTTPException(status_code=404, detail=f"image inconnue : {image_id}")
 
 
+def _images(ids: list[str]) -> list[ImageInfo]:
+    """Images de la sélection, dans l'ordre donné ; 404 si une est inconnue."""
+    by_id = {i.id: i for i in scan.scan_all(_settings)}
+    unknown = [i for i in ids if i not in by_id]
+    if unknown:
+        raise HTTPException(status_code=404, detail="image(s) inconnue(s) : " + ", ".join(unknown))
+    return [by_id[i] for i in dict.fromkeys(ids)]
+
+
+# ------------------------------------------------------------- actions en masse
+
+class MassAutorun(BaseModel):
+    ids: list[str]
+    ops: list[mass.AutorunOp]
+    # Images telles que vues dans l'aperçu ({id: {size, mtime}}) : au
+    # lancement, seules celles-ci, inchangées, sont reconstruites.
+    bases: dict[str, dict] = {}
+
+
+@app.post("/api/mass/autorun")
+def mass_autorun(body: MassAutorun, dry_run: bool = False):
+    """Opérations d'autorun sur une sélection (SPEC § 2.4) : aperçu image par
+    image et espace disque, puis une tâche de reconstruction par image."""
+    if not body.ops:
+        raise HTTPException(status_code=400, detail="aucune opération")
+    results, to_build = [], []
+    for info in _images(body.ids):
+        r = {"id": info.id, "size": info.size}
+        try:
+            data = scan.read_autorun_bytes(_settings, info.path)
+            new = mass.apply_ops(Autorun.parse(data or b""), body.ops, info)
+            change = _autorun_change(info, new, scan.list_files(_settings, info.path),
+                                     old_data=data or b"")
+        except mass.MassError as e:
+            results.append({**r, "status": "error", "message": str(e)})
+            continue
+        new_data = change.pop("new_data")
+        status = ("unchanged" if not change["changed"]
+                  else "blocked" if change["blockers"] else "change")
+        results.append({**r, **change, "status": status,
+                        "base": {"size": info.size, "mtime": info.mtime}})
+        if status == "change":
+            to_build.append((info, new_data))
+
+    if dry_run:
+        return {"images": results, "space": _space([i for i, _ in to_build])}
+
+    tasks, skipped = [], []
+    for info, new_data in to_build:
+        base = body.bases.get(info.id)
+        if not base or (base.get("size"), base.get("mtime")) != (info.size, info.mtime):
+            skipped.append({"id": info.id, "reason": "absente de l'aperçu ou modifiée depuis"})
+            continue
+        try:
+            tasks.append(_queue.submit("edit_autorun", info.id, {
+                "path": str(info.path), "size": info.size, "mtime": info.mtime,
+                "autorun": new_data.decode("latin-1"),
+            }).id)
+        except Busy as e:
+            skipped.append({"id": info.id, "reason": str(e)})
+    return {"tasks": tasks, "skipped": skipped,
+            "images": [r for r in results if r["status"] != "change"]}
+
+
+def _space(infos: list[ImageInfo]) -> list[dict]:
+    """Espace nécessaire par système de fichiers : chaque image reconstruite
+    garde son .old jusqu'à validation, il faut donc la place de toutes."""
+    by_dev: dict[int, dict] = {}
+    for info in infos:
+        dev = info.path.parent.stat().st_dev
+        d = by_dev.setdefault(dev, {"path": str(info.path.parent), "needed": 0, "images": 0,
+                                    "free": shutil.disk_usage(info.path.parent).free})
+        d["needed"] += info.size + rebuild._SPACE_MARGIN
+        d["images"] += 1
+    for d in by_dev.values():
+        d["ok"] = d["free"] >= d["needed"]
+    return list(by_dev.values())
+
+
+class MassIds(BaseModel):
+    ids: list[str]
+
+
+@app.post("/api/mass/old/{action}")
+def mass_old(action: Literal["validate", "revert"], body: MassIds):
+    """Valider ou revenir à l'ancienne image, pour chaque image de la sélection."""
+    out = []
+    for info in _images(body.ids):
+        try:
+            if (t := _queue.active_for(info.id)) is not None:
+                raise rebuild.RebuildError(f"tâche {t.id} en cours")
+            if action == "validate":
+                rebuild.validate_old(info.path)
+            else:
+                rebuild.revert_old(info.path, in_use=_in_use(info.path))
+            out.append({"id": info.id, "ok": True})
+        except rebuild.RebuildError as e:
+            out.append({"id": info.id, "ok": False, "message": str(e)})
+    return out
+
+
+@app.post("/api/mass/saves/reset")
+def mass_reset_saves(body: MassIds, dry_run: bool = False):
+    """Réinitialiser les sauvegardes : `saves/<jeu>` renommé en
+    `.avant-<date>`, rien n'est supprimé."""
+    out = []
+    for info in _images(body.ids):
+        r = {"id": info.id, "saves_size": info.saves_size}
+        if not info.saves_present:
+            out.append({**r, "ok": False, "message": "pas de sauvegardes"})
+        elif _in_use(info.path):
+            out.append({**r, "ok": False, "message": "jeu en cours (monté ou lancé)"})
+        elif dry_run:
+            out.append({**r, "ok": True})
+        else:
+            dest = mass.reset_saves(_settings.saves_dir, info)
+            out.append({**r, "ok": True, "message": f"renommées en {dest.name}" if dest else ""})
+    return out
+
+
+@app.post("/api/image/saves/reset")
+def reset_saves(id: str):
+    r = mass_reset_saves(MassIds(ids=[id]))[0]
+    if not r["ok"]:
+        raise HTTPException(status_code=409, detail=r["message"])
+    return r
+
+
+@app.post("/api/mass/verify")
+def mass_verify(body: MassIds):
+    """Vérifier l'intégrité de la sélection (table de l'image, autorun lisible),
+    en tâche de fond."""
+    infos = _images(body.ids)
+    t = _queue.submit("verify", None, {"images": [[i.id, str(i.path)] for i in infos]})
+    return {"task": t.id}
+
+
+def _run_verify(task: Task, ctx: rebuild.Context) -> None:
+    images = task.params["images"]
+    bad = 0
+    for n, (image_id, path) in enumerate(images):
+        if ctx.cancel.is_set():
+            raise rebuild.Cancelled("annulé")
+        problems = verify_image(Path(path))
+        if problems:
+            bad += 1
+            ctx.log(f"✗ {image_id} : " + " ; ".join(problems))
+        else:
+            ctx.log(f"✓ {image_id}")
+        ctx.progress((n + 1) / len(images))
+    if bad:
+        raise rebuild.RebuildError(f"{bad} image(s) sur {len(images)} en défaut")
+
+
+def verify_image(image: Path) -> list[str]:
+    """Problèmes d'intégrité d'une image (vide si elle est saine)."""
+    if not image.exists():
+        return ["fichier absent"]
+    try:
+        rebuild._run([_settings.unsquashfs, "-s", str(image)], "table illisible")
+    except rebuild.RebuildError as e:
+        return [str(e)]
+    if not scan.list_files(_settings, image):
+        return ["liste des fichiers illisible"]
+    data = scan.unsquashfs_cat(_settings, image, "autorun.cmd")
+    if data is None:
+        return ["autorun.cmd absent ou illisible"]
+    a = Autorun.parse(data)
+    if a.get("CMD") is None:
+        return ["autorun sans CMD="]
+    return []
+
+
 # ------------------------------------------------------------- file de tâches
 
-_queue = TaskQueue(_settings.data_dir / "tasks.json", {"edit_autorun": _run_edit_autorun},
+_queue = TaskQueue(_settings.data_dir / "tasks.json",
+                   {"edit_autorun": _run_edit_autorun, "verify": _run_verify},
                    concurrency=_settings.task_concurrency)
 
 

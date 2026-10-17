@@ -51,6 +51,13 @@
   .progress { height: 6px; background: #2a2e35; border-radius: 3px; overflow: hidden; width: 10rem; display: inline-block; vertical-align: middle; }
   .progress > div { height: 100%; background: #2d6cdf; }
   .task-log { font-size: 0.78rem; margin: 0.3rem 0 0; white-space: pre-wrap; }
+  .filters { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.8rem; font-size: 0.9rem; }
+  select { background: #1c1f25; color: inherit; border: 1px solid #2a2e35; border-radius: 6px; padding: 0.4rem 0.5rem; font: inherit; }
+  th[data-sort] { cursor: pointer; user-select: none; }
+  th[data-sort].asc::after { content: " ▲"; } th[data-sort].desc::after { content: " ▼"; }
+  #m-ops li { color: inherit; }
+  #m-ops button { padding: 0 0.4rem; margin-left: 0.5rem; }
+  details summary { cursor: pointer; }
   @media (max-width: 700px) {
     main { padding: 1rem; }
     .form { grid-template-columns: 1fr; }
@@ -89,6 +96,9 @@
       <button onclick="oldAction('validate')">Valider la nouvelle</button>
       <button class="danger" onclick="oldAction('revert')">Revenir à l'ancienne</button>
     </div>
+    <div id="d-saves" class="actions" hidden>
+      <button class="secondary" onclick="resetSaves()">Réinitialiser les sauvegardes</button>
+    </div>
     <div class="tabs">
       <button data-tab="form" class="active">Autorun</button>
       <button data-tab="raw">Texte brut</button>
@@ -115,12 +125,62 @@
     </div>
   </section>
 
+  <section id="mass" class="panel" hidden>
+    <div class="panel-head">
+      <h2 id="m-title"></h2>
+      <button class="secondary" onclick="clearSelection()">Vider la sélection</button>
+    </div>
+    <h3>Autorun</h3>
+    <div class="filters">
+      <select id="m-op">
+        <option value="set">Poser / modifier la clé</option>
+        <option value="remove">Retirer la clé</option>
+        <option value="template">Remplacer par un modèle</option>
+      </select>
+      <input id="m-key" placeholder="CLÉ" list="m-keys" size="14">
+      <datalist id="m-keys"></datalist>
+      <input id="m-value" placeholder="valeur" size="24">
+      <button class="secondary" onclick="addOp()">Ajouter l'opération</button>
+    </div>
+    <div id="m-template-box" hidden>
+      <textarea id="m-template" spellcheck="false" style="min-height: 8rem" placeholder="REM {name}&#10;DIR={DIR}&#10;CMD={CMD}"></textarea>
+      <p class="muted">Variables : <code>{name}</code>, <code>{system}</code> et les clés de l'autorun actuel (<code>{CMD}</code>, <code>{DIR}</code>, <code>{GAME_VERSION}</code>…). <code>{{</code> et <code>}}</code> pour des accolades.</p>
+    </div>
+    <ol id="m-ops" class="issues"></ol>
+    <div class="actions">
+      <button id="m-preview" onclick="massPreview()" disabled>Aperçu</button>
+      <button id="m-run" onclick="massRun()" hidden>Lancer</button>
+      <span id="m-msg" class="muted"></span>
+    </div>
+    <div id="m-result"></div>
+    <h3>Autres actions</h3>
+    <div class="actions">
+      <button class="secondary" onclick="massOld('validate')">Valider les .old</button>
+      <button class="secondary" onclick="massOld('revert')">Revenir aux .old</button>
+      <button class="secondary" onclick="massResetSaves()">Réinitialiser les sauvegardes</button>
+      <button class="secondary" onclick="massVerify()">Vérifier l'intégrité</button>
+    </div>
+    <div id="m-other"></div>
+  </section>
+
+  <div class="filters">
+    <input id="f-q" placeholder="Rechercher…" size="18">
+    <select id="f-system"><option value="">tous systèmes</option></select>
+    <select id="f-type"><option value="">tous types</option></select>
+    <select id="f-runner"><option value="">tous runners</option></select>
+    <select id="f-pad"><option value="">toutes manettes</option><option value="hidraw">HIDRAW</option><option value="xinput">XInput</option></select>
+    <label><input type="checkbox" id="f-noversion"> sans version</label>
+    <label><input type="checkbox" id="f-old"> a une .old</label>
+    <span id="f-count" class="muted"></span>
+  </div>
   <table id="library">
     <thead>
       <tr>
-        <th>Nom</th><th>Système</th><th>Taille</th><th>Version</th><th>Type</th>
-        <th>Runner</th><th>Manettes</th><th>Commande</th><th>Extras</th>
-        <th>Sauvegardes</th><th>État</th>
+        <th><input type="checkbox" id="sel-all" title="Tout sélectionner (images affichées)"></th>
+        <th data-sort="name">Nom</th><th data-sort="system">Système</th><th data-sort="size">Taille</th>
+        <th data-sort="version">Version</th><th data-sort="type">Type</th>
+        <th data-sort="runner">Runner</th><th>Manettes</th><th data-sort="cmd">Commande</th><th>Extras</th>
+        <th data-sort="saves_size">Sauvegardes</th><th data-sort="state">État</th>
       </tr>
     </thead>
     <tbody id="rows"></tbody>
@@ -167,9 +227,58 @@ async function load(refresh) {
     return;
   }
   if (!r.ok) { $("status").textContent = "erreur API " + r.status; return; }
+  loadKeyHelp();
   library = await r.json();
   $("status").textContent = library.length + " images";
-  $("rows").innerHTML = library.map((i, n) => `<tr data-n="${n}" class="${current && current.id === i.id ? "selected" : ""}">
+  const known = new Set(library.map(i => i.id));
+  selected.forEach(id => { if (!known.has(id)) selected.delete(id); });
+  fillFilter("f-system", library.map(i => i.system).filter(Boolean));
+  fillFilter("f-type", library.map(i => i.type));
+  fillFilter("f-runner", library.map(i => i.runner));
+  renderRows();
+  if (current) {
+    const fresh = library.find(i => i.id === current.id);
+    if (fresh) { current = fresh; renderInfo(); }
+  }
+  loadTasks();
+}
+
+// Filtres et tri (côté navigateur : la bibliothèque est déjà chargée)
+let view = [];                  // images affichées, dans l'ordre
+let sortKey = "name", sortDir = 1;
+const selected = new Set();     // identifiants sélectionnés
+
+function fillFilter(id, values) {
+  const sel = $(id), cur = sel.value;
+  const first = sel.options[0].outerHTML;
+  sel.innerHTML = first + [...new Set(values)].sort().map(v => `<option>${esc(v)}</option>`).join("");
+  sel.value = [...sel.options].some(o => o.value === cur) ? cur : "";
+}
+
+function filtered() {
+  const q = $("f-q").value.toLowerCase();
+  const sys = $("f-system").value, type = $("f-type").value, runner = $("f-runner").value;
+  const pad = $("f-pad").value;
+  return library.filter(i =>
+    (!q || (i.name + " " + (i.cmd || "")).toLowerCase().includes(q)) &&
+    (!sys || i.system === sys) && (!type || i.type === type) && (!runner || i.runner === runner) &&
+    (!pad || (pad === "hidraw") === !!i.hidraw) &&
+    (!$("f-noversion").checked || !i.version) && (!$("f-old").checked || i.has_old));
+}
+
+function renderRows() {
+  view = filtered().sort((a, b) => {
+    const x = a[sortKey] ?? "", y = b[sortKey] ?? "";
+    return (typeof x === "number" ? x - y : String(x).localeCompare(String(y), "fr", { numeric: true })) * sortDir;
+  });
+  document.querySelectorAll("th[data-sort]").forEach(th => {
+    th.classList.toggle("asc", th.dataset.sort === sortKey && sortDir === 1);
+    th.classList.toggle("desc", th.dataset.sort === sortKey && sortDir === -1);
+  });
+  $("f-count").textContent = `${view.length} affichée(s)` + (selected.size ? `, ${selected.size} sélectionnée(s)` : "");
+  $("sel-all").checked = view.length > 0 && view.every(i => selected.has(i.id));
+  $("rows").innerHTML = view.map((i, n) => `<tr data-n="${n}" class="${current && current.id === i.id ? "selected" : ""}">
+    <td><input type="checkbox" data-sel="${n}" ${selected.has(i.id) ? "checked" : ""}></td>
     <td>${esc(i.name)}</td>
     <td>${esc(i.system)}</td>
     <td>${fmt(i.size)}</td>
@@ -181,18 +290,149 @@ async function load(refresh) {
     <td>${esc((i.extras || []).join(", ")) || dash}</td>
     <td>${i.saves_present ? fmt(i.saves_size) : dash}</td>
     <td>${i.state !== "ok" ? `<span class="badge warn">${esc(i.state)}</span>` : '<span class="muted">ok</span>'}</td>
-  </tr>`).join("") || '<tr><td colspan="11" class="muted">aucune image — WSQUASHFS_MGR_ROMS_DIRS ?</td></tr>';
-  if (current) {
-    const fresh = library.find(i => i.id === current.id);
-    if (fresh) { current = fresh; renderInfo(); }
-  }
-  loadTasks();
+  </tr>`).join("") || `<tr><td colspan="12" class="muted">${library.length ? "aucune image ne correspond aux filtres" : "aucune image — WSQUASHFS_MGR_ROMS_DIRS ?"}</td></tr>`;
+  renderMass();
 }
+
+["f-q", "f-system", "f-type", "f-runner", "f-pad", "f-noversion", "f-old"].forEach(id =>
+  $(id).addEventListener("input", renderRows));
+document.querySelectorAll("th[data-sort]").forEach(th => th.addEventListener("click", () => {
+  if (sortKey === th.dataset.sort) sortDir = -sortDir; else { sortKey = th.dataset.sort; sortDir = 1; }
+  renderRows();
+}));
+$("sel-all").addEventListener("change", (e) => {
+  view.forEach(i => e.target.checked ? selected.add(i.id) : selected.delete(i.id));
+  renderRows();
+});
 
 $("rows").addEventListener("click", (e) => {
   const tr = e.target.closest("tr[data-n]");
-  if (tr) openDetail(library[+tr.dataset.n]);
+  if (!tr) return;
+  const info = view[+tr.dataset.n];
+  if (e.target.dataset.sel !== undefined) {
+    e.target.checked ? selected.add(info.id) : selected.delete(info.id);
+    renderRows();
+    return;
+  }
+  openDetail(info);
 });
+
+// ------------------------------------------------------------ actions en masse
+
+let ops = [];           // opérations d'autorun, appliquées dans l'ordre
+let massBases = null;   // images de l'aperçu ({id: {size, mtime}}) : seules lancées
+
+function renderMass() {
+  $("mass").hidden = selected.size === 0;
+  $("m-title").textContent = `Sélection : ${selected.size} image(s)`;
+  $("m-ops").innerHTML = ops.map((o, n) => `<li>${
+    o.op === "set" ? `poser <code>${esc(o.key)}=${esc(o.value)}</code>`
+    : o.op === "remove" ? `retirer <code>${esc(o.key)}</code>`
+    : `remplacer par le modèle (${o.template.split("\n").length} lignes)`
+  }<button class="secondary" onclick="ops.splice(${n}, 1); resetMassPreview(); renderMass()">×</button></li>`).join("");
+  $("m-preview").disabled = ops.length === 0;
+}
+
+function resetMassPreview() {
+  massBases = null; $("m-run").hidden = true; $("m-result").innerHTML = ""; $("m-msg").textContent = "";
+}
+
+function clearSelection() { selected.clear(); resetMassPreview(); renderRows(); }
+
+$("m-op").addEventListener("change", () => {
+  const op = $("m-op").value;
+  $("m-template-box").hidden = op !== "template";
+  $("m-key").hidden = op === "template";
+  $("m-value").hidden = op !== "set";
+});
+
+function addOp() {
+  const op = $("m-op").value;
+  const key = $("m-key").value.trim().toUpperCase();
+  if (op === "template") {
+    if (!$("m-template").value.trim()) return;
+    ops.push({ op, template: $("m-template").value });
+  } else {
+    if (!/^[A-Z_][A-Z0-9_]*$/.test(key)) { $("m-msg").textContent = "clé invalide"; return; }
+    ops.push(op === "set" ? { op, key, value: $("m-value").value } : { op, key });
+  }
+  $("m-msg").textContent = "";
+  resetMassPreview(); renderMass();
+}
+
+const STATUS_IMG = { change: ["à reconstruire", ""], unchanged: ["inchangée", "ok"], blocked: ["bloquée", "warn"], error: ["erreur", "err"] };
+
+async function massPreview() {
+  $("m-msg").textContent = "aperçu…";
+  const r = await apiJson("/api/mass/autorun?dry_run=true", { ids: [...selected], ops });
+  if (!r.ok) { $("m-msg").textContent = "erreur : " + await errText(r); return; }
+  const p = await r.json();
+  massBases = Object.fromEntries(p.images.filter(i => i.status === "change").map(i => [i.id, i.base]));
+  const n = Object.keys(massBases).length;
+  const spaceOk = p.space.every(s => s.ok);
+  $("m-result").innerHTML =
+    p.space.map(s => `<p class="${s.ok ? "muted" : ""}">${s.ok ? "" : '<span class="badge err">espace insuffisant</span> '}${esc(s.path)} : ${fmt(s.needed)} nécessaires (les .old sont gardés), ${fmt(s.free)} libres</p>`).join("") +
+    `<table>${p.images.map(i => {
+      const [label, cls] = STATUS_IMG[i.status];
+      const notes = [...(i.blockers || []), ...(i.issues || []).map(x => x.message), i.message].filter(Boolean);
+      return `<tr><td>${esc(i.id)}</td><td><span class="badge ${cls}">${label}</span></td><td>
+        ${notes.length ? `<ul class="issues">${notes.map(m => `<li class="warn">${esc(m)}</li>`).join("")}</ul>` : ""}
+        ${i.status === "change" || i.status === "blocked" ? `<details><summary class="muted">diff</summary><pre>${(i.diff || []).slice(2).map(l => `<span class="${l[0] === "+" ? "add" : l[0] === "-" ? "del" : ""}">${esc(l)}</span>`).join("\n")}</pre></details>` : ""}
+      </td></tr>`;
+    }).join("")}</table>`;
+  $("m-run").hidden = n === 0;
+  $("m-run").disabled = !spaceOk;
+  $("m-run").textContent = `Lancer ${n} reconstruction(s)`;
+  $("m-msg").textContent = "";
+}
+
+async function massRun() {
+  const n = Object.keys(massBases).length;
+  if (!confirm(`Reconstruire ${n} image(s) ? Chaque original sera gardé en .old jusqu'à validation.`)) return;
+  $("m-run").disabled = true;
+  const r = await apiJson("/api/mass/autorun", { ids: Object.keys(massBases), ops, bases: massBases });
+  if (!r.ok) { $("m-msg").textContent = "erreur : " + await errText(r); $("m-run").disabled = false; return; }
+  const res = await r.json();
+  $("m-run").hidden = true;
+  $("m-msg").textContent = `${res.tasks.length} tâche(s) créée(s)` + (res.skipped.length ? `, ${res.skipped.length} écartée(s)` : "");
+  $("m-result").innerHTML = res.skipped.length
+    ? `<ul class="issues">${res.skipped.map(s => `<li class="warn">${esc(s.id)} : ${esc(s.reason)}</li>`).join("")}</ul>` : "";
+  massBases = null;
+  loadTasks();
+}
+
+function showResults(list) {
+  $("m-other").innerHTML = `<ul class="issues">${list.map(x =>
+    `<li class="${x.ok ? "" : "warn"}">${esc(x.id)} : ${x.ok ? esc(x.message || "ok") : esc(x.message)}</li>`).join("")}</ul>`;
+}
+
+async function massOld(action) {
+  const msg = action === "validate"
+    ? `Supprimer les anciennes images (.old) de la sélection et garder les nouvelles ?`
+    : `Remplacer les nouvelles images par les anciennes (.old) ? Les changements seront perdus.`;
+  if (!confirm(msg)) return;
+  const r = await apiJson(`/api/mass/old/${action}`, { ids: [...selected] });
+  if (!r.ok) { $("m-other").textContent = "erreur : " + await errText(r); return; }
+  showResults(await r.json());
+  load(false);
+}
+
+async function massResetSaves() {
+  const ids = [...selected];
+  const p = await (await apiJson("/api/mass/saves/reset?dry_run=true", { ids })).json();
+  const ok = p.filter(x => x.ok);
+  if (!ok.length) { showResults(p); return; }
+  if (!confirm(`Réinitialiser les sauvegardes de ${ok.length} image(s) (${fmt(ok.reduce((s, x) => s + x.saves_size, 0))}) ? Elles sont renommées en .avant-<date>, pas supprimées.`)) return;
+  showResults(await (await apiJson("/api/mass/saves/reset", { ids: ok.map(x => x.id) })).json());
+  load(false);
+}
+
+async function massVerify() {
+  const r = await apiJson("/api/mass/verify", { ids: [...selected] });
+  if (!r.ok) { $("m-other").textContent = "erreur : " + await errText(r); return; }
+  $("m-other").innerHTML = '<p class="muted">vérification lancée : voir les tâches</p>';
+  loadTasks();
+}
 
 // ------------------------------------------------------------ fiche
 
@@ -218,7 +458,7 @@ function arSet(key, value) {
 
 async function openDetail(info) {
   current = info;
-  document.querySelectorAll("#rows tr").forEach(tr => tr.classList.toggle("selected", library[+tr.dataset.n]?.id === info.id));
+  document.querySelectorAll("#rows tr").forEach(tr => tr.classList.toggle("selected", view[+tr.dataset.n]?.id === info.id));
   $("detail").hidden = false;
   $("d-title").textContent = info.id;
   renderInfo();
@@ -226,12 +466,18 @@ async function openDetail(info) {
   $("files-q").value = ""; $("files-list").innerHTML = ""; $("files-count").textContent = "";
   $("ar-form").innerHTML = '<span class="muted">lecture de l\'autorun…</span>';
   $("ar-issues").innerHTML = ""; $("ar-diff").innerHTML = ""; $("ar-msg").textContent = "";
-  if (!keyHelp) keyHelp = await (await api("/api/autorun/keys")).json();
+  await loadKeyHelp();
   const r = await api("/api/image/autorun?id=" + encodeURIComponent(info.id));
   if (!r.ok) { $("ar-form").textContent = "erreur : " + await errText(r); return; }
   original = await r.json();
   resetAutorun();
   $("detail").scrollIntoView({ behavior: "smooth" });
+}
+
+async function loadKeyHelp() {
+  if (keyHelp) return;
+  keyHelp = await (await api("/api/autorun/keys")).json();
+  $("m-keys").innerHTML = Object.keys(keyHelp).map(k => `<option value="${k}">`).join("");
 }
 
 function closeDetail() {
@@ -249,6 +495,14 @@ function renderInfo() {
   ];
   $("d-info").innerHTML = rows.map(([k, v]) => `<div><b>${k}</b>${esc(v)}</div>`).join("");
   $("d-old").hidden = !i.has_old;
+  $("d-saves").hidden = !i.saves_present;
+}
+
+async function resetSaves() {
+  if (!confirm(`Réinitialiser les sauvegardes de ${current.id} (${fmt(current.saves_size)}) ? Elles sont renommées en .avant-<date>, pas supprimées.`)) return;
+  const r = await api("/api/image/saves/reset?id=" + encodeURIComponent(current.id), { method: "POST" });
+  if (!r.ok) { alert(await errText(r)); return; }
+  load(false);
 }
 
 function resetAutorun() {
@@ -362,7 +616,7 @@ async function loadTasks() {
     const active = t.status === "pending" || t.status === "running";
     const cls = t.status === "done" ? "ok" : t.status === "failed" ? "err" : active ? "" : "warn";
     return `<tr>
-      <td>${esc(t.image)}<div class="muted task-log">${esc(t.kind)} · ${new Date(t.created_at * 1000).toLocaleString()}</div></td>
+      <td>${t.image ? esc(t.image) : `${(t.params.images || []).length} image(s)`}<div class="muted task-log">${esc(t.kind)} · ${new Date(t.created_at * 1000).toLocaleString()}</div></td>
       <td><span class="badge ${cls}">${STATUS[t.status] || esc(t.status)}</span></td>
       <td>${t.status === "running" ? `<span class="progress"><div style="width:${Math.round(t.progress * 100)}%"></div></span> ${Math.round(t.progress * 100)} %` : ""}
         <div class="muted task-log">${esc(t.error || t.log.slice(-2).join("\n"))}</div></td>
