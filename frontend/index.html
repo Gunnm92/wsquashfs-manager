@@ -5,134 +5,355 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>wsquashfs-manager</title>
 <style>
+/* Jetons : thème sombre par défaut, clair si le système le demande */
 :root {
   color-scheme: dark;
-  --bg: #14161a; --panel: #1a1d22; --raised: #22262d; --line: #2c313a;
-  --text: #d8dbe0; --muted: #8b919c; --accent: #3b7cf0; --accent-2: #2d6cdf;
-  --ok: #4caf7d; --warn: #e0bb75; --warn-bg: #4a3b1c; --err: #e57373; --err-bg: #4a2224;
-  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --bg: #0e1014; --surface: #15181e; --surface-2: #1b1f27; --surface-3: #242934; --hover: #1d222b;
+  --line: #242933; --line-strong: #333a47;
+  --text: #e7e9ee; --text-2: #b4bac6; --muted: #7d8494; --faint: #4d5462;
+  --accent: #6b93ff; --accent-strong: #4f7cf7; --accent-soft: rgba(107, 147, 255, .14); --on-accent: #fff;
+  --ok: #45c486; --ok-soft: rgba(69, 196, 134, .13);
+  --warn: #e8b552; --warn-soft: rgba(232, 181, 82, .13);
+  --err: #f07070; --err-soft: rgba(240, 112, 112, .13);
+  --violet: #a993fb; --violet-soft: rgba(169, 147, 251, .14);
+  --cyan: #52c7dd; --cyan-soft: rgba(82, 199, 221, .13);
+  --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .35);
+  --shadow-lg: 0 24px 64px rgba(0, 0, 0, .55);
+  --shadow-up: 0 -8px 24px rgba(0, 0, 0, .25);
+  --r-sm: 6px; --r: 9px; --r-lg: 14px;
+  --sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, Consolas, monospace;
 }
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --bg: #f4f5f8; --surface: #ffffff; --surface-2: #f6f7fa; --surface-3: #eceef3; --hover: #f2f4f8;
+    --line: #e4e7ed; --line-strong: #d3d8e0;
+    --text: #161a22; --text-2: #434a58; --muted: #6a7282; --faint: #a6adba;
+    --accent: #3a66ea; --accent-strong: #2c55d6; --accent-soft: rgba(58, 102, 234, .1);
+    --ok: #18925a; --ok-soft: rgba(24, 146, 90, .1);
+    --warn: #a86a0c; --warn-soft: rgba(212, 140, 20, .13);
+    --err: #cf3c3c; --err-soft: rgba(207, 60, 60, .1);
+    --violet: #6d4fd6; --violet-soft: rgba(109, 79, 214, .1);
+    --cyan: #0b809a; --cyan-soft: rgba(11, 128, 154, .1);
+    --shadow: 0 1px 2px rgba(20, 25, 35, .06), 0 6px 20px rgba(20, 25, 35, .08);
+    --shadow-lg: 0 24px 64px rgba(20, 25, 35, .18);
+    --shadow-up: 0 -4px 14px rgba(20, 25, 35, .05);
+  }
+}
+
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans-serif; }
-button, select, input, textarea { font: inherit; color: inherit; }
-button { border: 0; border-radius: 6px; background: var(--accent-2); padding: .4rem .8rem; cursor: pointer; }
-button:hover { background: var(--accent); }
-button.secondary { background: var(--raised); }
-button.secondary:hover { background: #2d323b; }
-button.danger { background: #8e3b3b; }
-button:disabled { opacity: .5; cursor: default; }
-select, input, textarea { background: var(--raised); border: 1px solid var(--line); border-radius: 6px; padding: .35rem .5rem; }
-textarea { font: 12px/1.5 var(--mono); width: 100%; resize: vertical; }
-h1, h2, h3 { margin: 0; font-weight: 600; }
-h1 { font-size: 1.05rem; } h2 { font-size: 1rem; } h3 { font-size: .9rem; margin: 1rem 0 .4rem; color: var(--muted); }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--sans);
+  font-feature-settings: "cv11", "ss01"; -webkit-font-smoothing: antialiased; }
+::selection { background: var(--accent-soft); }
+a { color: var(--accent); }
+code, .mono { font-family: var(--mono); font-size: 12px; }
+code { background: var(--surface-3); padding: .05rem .3rem; border-radius: 4px; }
+h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -.01em; }
+h1 { font-size: 15px; } h2 { font-size: 16px; }
+h3 { font-size: 11px; margin: 1.2rem 0 .5rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
 .muted { color: var(--muted); }
-.mono { font-family: var(--mono); font-size: 12px; }
 .row { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
 .spacer { flex: 1; }
+.num, td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dash { color: var(--faint); }
+.ico { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.8;
+  stroke-linecap: round; stroke-linejoin: round; }
 
-header { display: flex; align-items: center; gap: .8rem; padding: .7rem 1.2rem; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); z-index: 5; }
-main { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; padding: 1rem 1.2rem 14rem; }
-main.with-detail { grid-template-columns: minmax(0, 1fr) 460px; }
-@media (max-width: 1100px) { main.with-detail { grid-template-columns: 1fr; } }
+/* ---------------------------------------------------------------- contrôles */
+button, select, input, textarea { font: inherit; color: inherit; }
+button { display: inline-flex; align-items: center; justify-content: center; gap: .4rem; border: 1px solid transparent;
+  border-radius: var(--r-sm); background: var(--accent-strong); color: var(--on-accent); padding: .42rem .85rem;
+  font-weight: 500; cursor: pointer; white-space: nowrap; transition: background .12s, border-color .12s, color .12s; }
+button:hover { background: var(--accent); }
+button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px; }
+button.secondary { background: var(--surface-2); color: var(--text); border-color: var(--line-strong); }
+button.secondary:hover { background: var(--surface-3); }
+button.ghost { background: transparent; color: var(--text-2); }
+button.ghost:hover { background: var(--surface-3); color: var(--text); }
+button.danger { background: var(--err); }
+button.icon { padding: .42rem; }
+button:disabled { opacity: .45; cursor: default; pointer-events: none; }
+select, input:not([type=checkbox]):not([type=radio]), textarea {
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: .4rem .6rem;
+  transition: border-color .12s; }
+select:hover, input:not([type=checkbox]):not([type=radio]):hover, textarea:hover { border-color: var(--faint); }
+select { appearance: none; padding-right: 1.9rem; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237d8494' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right .6rem center; }
+input[type=checkbox], input[type=radio] { accent-color: var(--accent-strong); width: 15px; height: 15px; margin: 0; cursor: pointer; }
+textarea { font: 12px/1.55 var(--mono); width: 100%; resize: vertical; }
+label { color: var(--text-2); }
+details > summary { cursor: pointer; color: var(--text-2); }
 
-.toolbar { margin-bottom: .7rem; }
-.toolbar input[type=search] { min-width: 14rem; }
-.selection { background: #1d2a40; border: 1px solid #2d4570; border-radius: 6px; padding: .4rem .7rem; margin-bottom: .7rem; }
+/* ---------------------------------------------------------------- en-tête */
+header { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 1rem;
+  padding: .65rem 1.4rem; background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
+.brand { display: flex; align-items: center; gap: .6rem; }
+.brand .logo { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: #fff;
+  background: linear-gradient(140deg, #7aa0ff, #5a6cf0 55%, #8a63e8); box-shadow: 0 2px 10px rgba(90, 108, 240, .35); }
+.brand .logo svg { width: 17px; height: 17px; stroke: #fff; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.brand h1 b { font-weight: 650; } .brand h1 span { color: var(--muted); font-weight: 450; }
+.views { display: flex; gap: 2px; padding: 3px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; }
+.views button { background: transparent; color: var(--muted); border-radius: 7px; padding: .32rem .8rem; }
+.views button:hover { color: var(--text); background: transparent; }
+.views button.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+.views .count { font-size: 11px; font-variant-numeric: tabular-nums; color: var(--muted); background: var(--surface-3);
+  border-radius: 999px; padding: 0 .45rem; min-width: 1.4rem; pointer-events: none; }
+.views button.active .count { background: var(--accent-soft); color: var(--accent); }
+#status { font-size: 12.5px; }
 
-.table-wrap { overflow-x: auto; }
-table { border-collapse: collapse; width: 100%; }
-th, td { padding: .4rem .5rem; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
-th { color: var(--muted); font-weight: 500; white-space: nowrap; cursor: pointer; user-select: none; position: sticky; top: 0; background: var(--bg); }
+/* ---------------------------------------------------------------- mise en page */
+main { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.2rem; padding: 1.2rem 1.4rem 9rem;
+  max-width: 1800px; margin: 0 auto; }
+main.with-detail { grid-template-columns: minmax(0, 1fr) minmax(400px, 480px); }
+@media (max-width: 1150px) { main.with-detail { grid-template-columns: 1fr; } }
+.intro { margin: 0 0 1rem; color: var(--text-2); max-width: 75ch; }
+
+/* Chiffres clés (filtres rapides) */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .7rem; margin-bottom: 1rem; }
+.stat { display: block; text-align: left; background: var(--surface); color: var(--text); border: 1px solid var(--line);
+  border-radius: var(--r); padding: .7rem .9rem; box-shadow: none; }
+.stat:hover { background: var(--hover); border-color: var(--line-strong); }
+.stat.active { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.stat .k { font-size: 11.5px; color: var(--muted); display: flex; align-items: center; gap: .4rem; }
+.stat .v { font-size: 21px; font-weight: 650; letter-spacing: -.02em; font-variant-numeric: tabular-nums; margin-top: .1rem; }
+.stat .v small { font-size: 12px; color: var(--muted); font-weight: 500; margin-left: .3rem; letter-spacing: 0; }
+.stat .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+.stat.warn .dot { background: var(--warn); } .stat.err .dot { background: var(--err); }
+.stat.ok .dot { background: var(--ok); } .stat.info .dot { background: var(--accent); }
+.stat.is-zero .v { color: var(--faint); }
+
+/* Barre de filtres */
+.toolbar { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin-bottom: .9rem; }
+.search { position: relative; flex: 1 1 18rem; max-width: 26rem; }
+.search .ico { position: absolute; left: .65rem; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.search input { width: 100%; padding-left: 2.1rem !important; }
+.toolbar select { background-color: var(--surface); }
+
+/* Barre d'actions de la sélection : flottante au-dessus de la file de tâches */
+.selection { position: fixed; z-index: 9; left: 0; right: 0; margin-inline: auto; width: fit-content;
+  bottom: calc(var(--tasks-h, 2.8rem) + .8rem);
+  display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; justify-content: center;
+  max-width: calc(100vw - 2rem); padding: .45rem .5rem .45rem .9rem; background: var(--surface);
+  border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: var(--shadow-lg); animation: rise .18s ease-out; }
+.selection > span:first-child { font-weight: 600; margin-right: .4rem; font-variant-numeric: tabular-nums; }
+.selection button.secondary { background: transparent; border-color: transparent; color: var(--text-2); }
+.selection button.secondary:hover { background: var(--surface-3); color: var(--text); }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+
+/* ---------------------------------------------------------------- tableaux */
+.table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); }
+table { border-collapse: separate; border-spacing: 0; width: 100%; }
+th, td { padding: .55rem .7rem; text-align: left; vertical-align: middle; border-bottom: 1px solid var(--line); }
+tbody tr:last-child td { border-bottom: 0; }
+th { position: sticky; top: 0; z-index: 1; background: var(--surface-2); color: var(--muted); font-size: 11.5px;
+  font-weight: 550; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; cursor: pointer; user-select: none; }
+th:first-child { border-top-left-radius: var(--r-lg); } th:last-child { border-top-right-radius: var(--r-lg); }
+th:hover { color: var(--text-2); }
 th.nosort { cursor: default; }
-th .dir { font-size: .7rem; }
-tbody tr { cursor: pointer; }
-tbody tr:hover td { background: var(--panel); }
-tbody tr.current td { background: #1d2a40; }
-td.cmd { max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 12px; }
-td.num { text-align: right; white-space: nowrap; }
+th .dir { color: var(--accent); font-size: 10px; }
+th:first-child, td:first-child { width: 2.4rem; padding-right: 0; }
+tbody tr { cursor: pointer; transition: background .08s; }
+tbody tr:hover td { background: var(--hover); }
+tbody tr.current td { background: var(--accent-soft); }
+tbody tr.current td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+tbody tr.is-selected td { background: color-mix(in srgb, var(--accent-soft) 60%, transparent); }
+td.name { font-weight: 550; color: var(--text); }
+td.cmd { max-width: 18rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono);
+  font-size: 12px; color: var(--text-2); }
+td.ver { font-family: var(--mono); font-size: 12px; }
+td.c-system, td.c-runner { color: var(--text-2); }
+td.empty { cursor: default; }
+.empty-state { display: flex; flex-direction: column; align-items: center; gap: .4rem; padding: 3rem 1rem;
+  color: var(--muted); text-align: center; }
+.empty-state .ico { width: 30px; height: 30px; stroke-width: 1.4; color: var(--faint); margin-bottom: .3rem; }
+.empty-state strong { color: var(--text-2); font-weight: 550; }
+tbody tr:has(td.empty):hover td { background: transparent; }
 
-.badge { display: inline-block; border-radius: 4px; padding: .05rem .4rem; font-size: .75rem; background: var(--raised); white-space: nowrap; }
-.badge.warn { background: var(--warn-bg); color: var(--warn); }
-.badge.err { background: var(--err-bg); color: var(--err); }
-.badge.ok { background: #1f3a2c; color: var(--ok); }
-.badge.info { background: #1d2a40; color: #8fb4f5; }
+/* Colonnes secondaires masquées quand la place manque */
+main.with-detail .c-extras, main.with-detail .c-runner, main.with-detail .c-cmd, main.with-detail .c-saves_size { display: none; }
+td.c-system, td.c-size, td.c-state { white-space: nowrap; }
+main.with-detail .search { flex-basis: 12rem; }
+@media (max-width: 1250px) { .c-extras, .c-runner { display: none; } }
+@media (max-width: 1500px) { main.with-detail .c-system, main.with-detail .c-pad { display: none; } }
+@media (max-width: 900px) { .c-cmd, .c-saves_size, .c-pad, .c-type { display: none; } }
+@media (max-width: 760px) { .c-system { display: none; } }
 
-.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 1rem; }
-#detail { position: sticky; top: 3.6rem; align-self: start; max-height: calc(100vh - 5rem); overflow-y: auto; }
-.tabs { display: flex; gap: .2rem; border-bottom: 1px solid var(--line); margin: .8rem 0; }
-.tabs button { background: none; border-radius: 6px 6px 0 0; color: var(--muted); padding: .4rem .7rem; }
-.tabs button.active { color: var(--text); background: var(--raised); }
-dl { display: grid; grid-template-columns: max-content 1fr; gap: .3rem .8rem; margin: 0; }
-dt { color: var(--muted); } dd { margin: 0; overflow-wrap: anywhere; }
-.notice { border-radius: 6px; padding: .6rem .7rem; margin: .6rem 0; }
-.notice.warn { background: var(--warn-bg); color: var(--warn); }
-.notice.err { background: var(--err-bg); color: var(--err); }
-.notice.info { background: #1d2a40; color: #b8cdf5; }
-ul.issues { margin: .4rem 0; padding-left: 1.2rem; color: var(--warn); }
+/* ---------------------------------------------------------------- pastilles */
+.badge { display: inline-flex; align-items: center; gap: .3rem; border-radius: 999px; padding: .08rem .55rem;
+  font-size: 11.5px; font-weight: 550; line-height: 1.5; background: var(--surface-3); color: var(--text-2); white-space: nowrap; }
+.badge + .badge { margin-left: .25rem; }
+.badge.warn { background: var(--warn-soft); color: var(--warn); }
+.badge.err { background: var(--err-soft); color: var(--err); }
+.badge.ok { background: var(--ok-soft); color: var(--ok); }
+.badge.info { background: var(--accent-soft); color: var(--accent); }
+.badge.violet { background: var(--violet-soft); color: var(--violet); }
+.badge.cyan { background: var(--cyan-soft); color: var(--cyan); }
+.status { display: inline-flex; align-items: center; gap: .45rem; font-size: 12.5px; color: var(--text-2); white-space: nowrap; }
+.status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); flex: none; }
+.status.ok::before { background: var(--ok); }
+.status.warn { color: var(--warn); } .status.warn::before { background: var(--warn); }
+.status.info { color: var(--accent); } .status.info::before { background: var(--accent); }
+.status.err { color: var(--err); } .status.err::before { background: var(--err); box-shadow: 0 0 0 0 var(--err); animation: pulse 1.6s infinite; }
+@keyframes pulse { 70% { box-shadow: 0 0 0 6px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+
+/* ---------------------------------------------------------------- fiche */
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 1.1rem 1.2rem; }
+#detail { position: sticky; top: 4.4rem; align-self: start; max-height: calc(100vh - 5.6rem); overflow-y: auto;
+  box-shadow: var(--shadow); animation: slide .18s ease-out; }
+@keyframes slide { from { opacity: 0; transform: translateX(10px); } }
+.detail-head { display: flex; align-items: flex-start; gap: .8rem; }
+.detail-head .cover { width: 42px; height: 42px; border-radius: 10px; flex: none; display: grid; place-items: center;
+  font-weight: 700; font-size: 15px; color: #fff; letter-spacing: -.02em; }
+.detail-head h2 { font-size: 17px; line-height: 1.25; }
+#d-id { display: block; margin-top: .15rem; }
+.chips { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .8rem; }
+.tabs { display: flex; gap: .1rem; border-bottom: 1px solid var(--line); margin: 1rem 0 .9rem; overflow-x: auto; }
+.tabs button { background: none; color: var(--muted); border-radius: 0; padding: .5rem .7rem; border: 0;
+  box-shadow: inset 0 -2px 0 transparent; }
+.tabs button:hover { background: none; color: var(--text); }
+.tabs button.active { color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+#a-tabs { margin-top: .6rem; }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: .45rem 1rem; margin: 0; font-size: 13px; }
+dt { color: var(--muted); } dd { margin: 0; overflow-wrap: anywhere; color: var(--text); }
+.notice { border-radius: var(--r); padding: .65rem .8rem; margin: .7rem 0; border: 1px solid transparent; font-size: 13px; }
+.notice.warn { background: var(--warn-soft); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 25%, transparent); }
+.notice.err { background: var(--err-soft); color: var(--err); border-color: color-mix(in srgb, var(--err) 25%, transparent); }
+.notice.info { background: var(--accent-soft); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 22%, transparent); }
+.notice .row { margin-top: .5rem; }
+ul.issues { margin: .5rem 0; padding-left: 1.2rem; color: var(--warn); font-size: 13px; }
+ul.issues li { margin: .15rem 0; }
 ul.issues li.error { color: var(--err); }
+.actions-bar { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; margin-top: .9rem; padding-top: .9rem;
+  border-top: 1px solid var(--line); }
 
-.form-grid { display: grid; grid-template-columns: max-content 1fr; gap: .35rem .6rem; align-items: center; }
-.form-grid label { font-family: var(--mono); font-size: 12px; color: var(--muted); }
-.form-grid label.set { color: var(--text); }
+.form-grid { display: grid; grid-template-columns: 8.5rem 1fr; gap: .2rem .7rem; align-items: center; }
+.form-grid label { font-family: var(--mono); font-size: 12px; color: var(--muted); padding-top: .2rem; }
+.form-grid label.set { color: var(--text); font-weight: 600; }
 .form-grid input { width: 100%; font-family: var(--mono); font-size: 12px; }
-.form-grid .help { grid-column: 2; font-size: .75rem; color: var(--muted); margin-top: -.25rem; }
+.form-grid .help { grid-column: 2; font-size: 11.5px; color: var(--muted); margin: 0 0 .55rem; line-height: 1.35; }
+.field { display: flex; flex-direction: column; gap: .3rem; margin: .7rem 0; font-size: 12.5px; }
+.field input { width: 100%; }
 
-.files { max-height: 50vh; overflow: auto; font: 12px/1.5 var(--mono); white-space: pre; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: .5rem; }
+.files { max-height: 50vh; overflow: auto; font: 12px/1.6 var(--mono); white-space: pre; background: var(--surface-2);
+  border: 1px solid var(--line); border-radius: var(--r); padding: .6rem .8rem; color: var(--text-2); }
 
-#tasks { position: fixed; left: 0; right: 0; bottom: 0; background: var(--panel); border-top: 1px solid var(--line); z-index: 6; }
-#tasks .head { padding: .5rem 1.2rem; cursor: pointer; }
-#tasks .body { max-height: 32vh; overflow-y: auto; padding: 0 1.2rem .8rem; }
+/* ---------------------------------------------------------------- tâches */
+#tasks { position: fixed; left: 0; right: 0; bottom: 0; z-index: 8; background: var(--surface);
+  border-top: 1px solid var(--line); box-shadow: var(--shadow-up); }
+#tasks .head { padding: .55rem 1.4rem; cursor: pointer; user-select: none; }
+#tasks .head strong { display: inline-flex; align-items: center; gap: .5rem; }
+#tasks .head .chev { transition: transform .15s; color: var(--muted); }
+#tasks:not(.collapsed) .head .chev { transform: rotate(180deg); }
+#tasks .spinner { display: none; width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--accent-soft);
+  border-top-color: var(--accent); animation: spin .8s linear infinite; }
+#tasks.busy .spinner { display: inline-block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+#tasks .body { max-height: 38vh; overflow-y: auto; padding: 0 1.4rem .9rem; }
 #tasks.collapsed .body { display: none; }
-.task { border-top: 1px solid var(--line); padding: .45rem 0; }
-.task .log { font: 11px/1.4 var(--mono); color: var(--muted); white-space: pre-wrap; margin: .3rem 0 0; display: none; }
+#tasks-clear { font-size: 12.5px; padding: .3rem .7rem; }
+.task { border-top: 1px solid var(--line); padding: .55rem 0; }
+.task > .row { cursor: pointer; }
+.task .log { font: 11px/1.5 var(--mono); color: var(--muted); white-space: pre-wrap; margin: .5rem 0 0; display: none;
+  background: var(--surface-2); border-radius: var(--r-sm); padding: .5rem .7rem; max-height: 16rem; overflow: auto; }
 .task.open .log { display: block; }
-progress { width: 10rem; height: .55rem; accent-color: var(--accent); }
+progress { width: 9rem; height: 6px; border: 0; border-radius: 999px; overflow: hidden; background: var(--surface-3);
+  accent-color: var(--accent); appearance: none; }
+progress::-webkit-progress-bar { background: var(--surface-3); }
+progress::-webkit-progress-value { background: var(--accent); border-radius: 999px; }
+progress::-moz-progress-bar { background: var(--accent); }
 
-dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 1.2rem; width: min(980px, 95vw); max-height: 90vh; }
-dialog::backdrop { background: rgba(0, 0, 0, .6); }
-dialog.small { width: min(460px, 95vw); }
-.op { display: grid; grid-template-columns: 9rem 11rem 1fr auto; gap: .5rem; margin-bottom: .5rem; align-items: start; }
+/* ---------------------------------------------------------------- dialogues */
+dialog { background: var(--surface); color: var(--text); border: 1px solid var(--line-strong); border-radius: var(--r-lg);
+  padding: 1.3rem 1.4rem; width: min(980px, calc(100vw - 2rem)); max-height: calc(100vh - 3rem); box-shadow: var(--shadow-lg); }
+dialog[open] { animation: pop .16s ease-out; }
+@keyframes pop { from { opacity: 0; transform: translateY(6px) scale(.985); } }
+dialog::backdrop { background: rgba(5, 7, 10, .55); backdrop-filter: blur(3px); }
+dialog.small { width: min(480px, calc(100vw - 2rem)); }
+dialog.wide { width: min(1240px, calc(100vw - 2rem)); }
+dialog h2 { font-size: 17px; margin-bottom: .3rem; }
+dialog > p.muted, dialog form > p.muted { margin: .2rem 0 1rem; font-size: 13px; }
+.dlg-foot { margin-top: 1.1rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+.op { display: grid; grid-template-columns: 9.5rem 11rem 1fr auto; gap: .5rem; margin-bottom: .55rem; align-items: start; }
 .op textarea { min-height: 6rem; }
-.diff { font: 12px/1.45 var(--mono); white-space: pre-wrap; margin: .3rem 0; }
+.diff { font: 12px/1.5 var(--mono); white-space: pre-wrap; margin: .4rem 0; background: var(--surface-2);
+  border-radius: var(--r-sm); padding: .4rem .6rem; }
 .diff .add { color: var(--ok); } .diff .del { color: var(--err); text-decoration: line-through; }
-.preview-item { border-top: 1px solid var(--line); padding: .5rem 0; }
-label.check { display: flex; gap: .5rem; align-items: flex-start; margin: .4rem 0; }
-label.check input { margin-top: .2rem; flex: none; }
-.views { display: flex; gap: .2rem; margin-left: 1rem; }
-.views button { background: none; color: var(--muted); }
-.views button.active { background: var(--raised); color: var(--text); }
-dialog.wide { width: min(1200px, 97vw); }
-.card { border: 1px solid var(--line); border-radius: 8px; padding: .8rem; margin: .7rem 0; background: var(--bg); }
-.card.off { opacity: .55; }
-.card .cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .8rem; margin-top: .5rem; }
+.preview-item { border-top: 1px solid var(--line); padding: .65rem 0; }
+label.check { display: flex; gap: .55rem; align-items: flex-start; margin: .5rem 0; font-size: 13px; }
+label.check input { margin-top: .15rem; flex: none; }
+.card { border: 1px solid var(--line); border-radius: var(--r-lg); padding: .9rem 1rem; margin: .8rem 0; background: var(--surface-2); }
+.card.off { opacity: .5; }
+.card .cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; margin-top: .7rem; }
 @media (max-width: 900px) { .card .cols { grid-template-columns: 1fr; } }
-.card textarea { min-height: 7rem; }
+.card textarea { min-height: 7rem; background: var(--surface); }
 .card select { max-width: 100%; }
-.items { font-size: .8rem; margin: .3rem 0; padding-left: 1rem; }
+.items { font-size: 12.5px; margin: .4rem 0; padding-left: 1.1rem; color: var(--text-2); }
+.items li { margin: .2rem 0; }
 .items li.default { color: var(--muted); }
 .conf-high { color: var(--ok); } .conf-medium { color: var(--warn); } .conf-low { color: var(--err); }
-pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; border-radius: 6px; max-height: 8rem; overflow: auto; white-space: pre-wrap; }
-.sticky-bottom { position: sticky; bottom: -1.2rem; background: var(--panel); padding: .7rem 0; border-top: 1px solid var(--line); }
+pre.bat { font: 11.5px/1.5 var(--mono); background: var(--surface-2); border: 1px solid var(--line); padding: .55rem .7rem;
+  border-radius: var(--r-sm); max-height: 10rem; overflow: auto; white-space: pre-wrap; color: var(--text-2); margin: .5rem 0; }
+.card pre.bat { background: var(--surface); }
+.sticky-bottom { position: sticky; bottom: -1.3rem; background: var(--surface); padding: .9rem 0; margin-top: .6rem;
+  border-top: 1px solid var(--line); }
+#cfg-systems label.row { padding: .35rem .5rem; border-radius: var(--r-sm); }
+#cfg-systems label.row:hover { background: var(--hover); }
+
+/* ---------------------------------------------------------------- petits écrans */
+@media (max-width: 760px) {
+  header { flex-wrap: wrap; gap: .6rem; padding: .6rem 1rem; }
+  .brand h1 span { display: none; }
+  .views { order: 3; width: 100%; } .views button { flex: 1; }
+  #status { display: none; }
+  header .label { display: none; }
+  main { padding: 1rem 1rem 9rem; }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .search { max-width: none; flex-basis: 100%; }
+  .toolbar select { flex: 1 1 calc(50% - .5rem); min-width: 0; }
+  .form-grid { grid-template-columns: 1fr; } .form-grid .help { grid-column: 1; }
+  .op { grid-template-columns: 1fr; }
+  #tasks .head, #tasks .body { padding-left: 1rem; padding-right: 1rem; }
+  .selection { width: calc(100vw - 1.5rem); justify-content: flex-start; }
+}
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.9-3.5L4 9"/><path d="M4 4v5h5"/><path d="M4 13a8 8 0 0 0 14.9 3.5L20 15"/><path d="M20 20v-5h-5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 15 6-6 6 6"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5Z"/><path d="m3 8 9 5 9-5M12 13v8"/></symbol>
+</svg>
 <header>
-  <h1>wsquashfs-manager</h1>
+  <div class="brand">
+    <div class="logo"><svg viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></svg></div>
+    <h1><b>wsquashfs</b> <span>manager</span></h1>
+  </div>
   <div class="views" id="views">
-    <button data-view="images" class="active">Images</button>
-    <button data-view="folders">Dossiers à empaqueter</button>
+    <button data-view="images" class="active">Images <span class="count" id="count-images"></span></button>
+    <button data-view="folders">Dossiers à empaqueter <span class="count" id="count-folders" hidden></span></button>
   </div>
   <span id="status" class="muted"></span>
   <span class="spacer"></span>
-  <button class="secondary" id="btn-config" title="Dossiers roms/ à scanner">Réglages</button>
-  <button class="secondary" id="btn-refresh" title="Relit les images ajoutées ou modifiées (les autres viennent du cache)">Actualiser</button>
+  <button class="ghost" id="btn-config" title="Systèmes à gérer, tâches de nuit"><svg class="ico" aria-hidden="true"><use href="#i-settings"/></svg><span class="label">Réglages</span></button>
+  <button class="secondary" id="btn-refresh" title="Relit les images ajoutées ou modifiées (les autres viennent du cache)"><svg class="ico" aria-hidden="true"><use href="#i-refresh"/></svg><span class="label">Actualiser</span></button>
 </header>
 
 <main id="main">
   <section>
-    <div class="toolbar row">
-      <input type="search" id="f-search" placeholder="Rechercher un jeu, une commande…">
+    <div class="stats" id="stats"></div>
+    <div class="toolbar">
+      <div class="search"><svg class="ico" aria-hidden="true"><use href="#i-search"/></svg><input type="search" id="f-search" placeholder="Rechercher un jeu, une commande, une version…"></div>
       <select id="f-system"></select>
       <select id="f-type"></select>
       <select id="f-runner"></select>
@@ -154,7 +375,7 @@ pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; 
       <button class="secondary" id="btn-mass-validate">Valider les .old</button>
       <button class="secondary" id="btn-mass-commit" title="Reconstruit chaque image avec son autorun effectif, puis supprime la surcharge">Inscrire les surcharges</button>
       <button class="secondary" id="btn-saves-reset">Réinitialiser les sauvegardes</button>
-      <button class="secondary" id="btn-sel-clear">Désélectionner</button>
+      <button class="ghost icon" id="btn-sel-clear" title="Désélectionner"><svg class="ico" aria-hidden="true"><use href="#i-x"/></svg></button>
     </div>
     <div class="table-wrap">
       <table>
@@ -165,11 +386,12 @@ pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; 
   </section>
 
   <aside id="detail" class="panel" hidden>
-    <div class="row">
-      <div><h2 id="d-title"></h2><span id="d-id" class="muted mono"></span></div>
-      <span class="spacer"></span>
-      <button class="secondary" id="d-close">Fermer</button>
+    <div class="detail-head">
+      <div class="cover" id="d-cover"></div>
+      <div style="flex:1;min-width:0"><h2 id="d-title"></h2><span id="d-id" class="muted mono"></span></div>
+      <button class="ghost icon" id="d-close" title="Fermer"><svg class="ico" aria-hidden="true"><use href="#i-x"/></svg></button>
     </div>
+    <div class="chips" id="d-chips"></div>
     <div id="d-old"></div>
     <div class="tabs" id="d-tabs">
       <button data-tab="info" class="active">Infos</button>
@@ -180,7 +402,7 @@ pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; 
     </div>
     <div data-pane="info">
       <dl id="d-info"></dl>
-      <div class="row" style="margin-top:.8rem">
+      <div class="actions-bar">
         <button class="secondary" id="d-verify">Vérifier l'intégrité</button>
         <button class="secondary" id="d-trial" title="Lance le jeu dans SteamBox, l'observe puis l'arrête : tient-il, fenêtre, erreurs, capture">Lancement d'essai</button>
         <select id="d-trial-duration" title="Durée de l'essai"><option value="30">30 s</option><option value="60" selected>60 s</option><option value="120">2 min</option></select>
@@ -196,7 +418,7 @@ pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; 
       </div>
       <div data-apane="form"><div class="form-grid" id="a-form"></div></div>
       <div data-apane="raw" hidden><textarea id="a-editor" rows="16" spellcheck="false"></textarea></div>
-      <div class="row" style="margin-top:.6rem">
+      <div class="actions-bar">
         <label class="muted">Fins de ligne
           <select id="a-eol"><option value="crlf">CRLF</option><option value="lf">LF</option></select>
         </label>
@@ -215,19 +437,19 @@ pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; 
     </div>
     <div data-pane="version" hidden>
       <p class="muted">Appliquer un nouveau build ou un patch (dossier sur le serveur) au dossier du jeu dans l'image. Aperçu d'abord ; l'original est gardé en .old.</p>
-      <label class="muted">Dossier source<input id="u-source" style="width:100%" placeholder="/config/Téléchargements/Jeu v1.2"></label>
-      <label class="muted">Point d'ancrage dans l'image<input id="u-anchor" style="width:100%" placeholder="(racine)"></label>
+      <label class="field">Dossier source<input id="u-source" placeholder="/config/Téléchargements/Jeu v1.2"></label>
+      <label class="field">Point d'ancrage dans l'image<input id="u-anchor" placeholder="(racine)"></label>
       <label class="check"><input type="checkbox" id="u-delete"><span>Build complet : supprimer de l'image ce qui n'est plus dans la source</span></label>
       <label class="check"><input type="checkbox" id="u-saves" checked><span>Mettre de côté les fichiers du jeu restés dans les sauvegardes (ils masqueraient la mise à jour)</span></label>
-      <label class="muted">Nouvelle version (GAME_VERSION)<input id="u-version" style="width:100%" placeholder="proposée d'après l'exécutable"></label>
-      <div class="row" style="margin-top:.6rem"><span class="spacer"></span>
+      <label class="field">Nouvelle version (GAME_VERSION)<input id="u-version" placeholder="proposée d'après l'exécutable"></label>
+      <div class="actions-bar"><span class="spacer"></span>
         <button class="secondary" id="u-preview">Aperçu</button>
         <select class="when" id="u-when" title="Maintenant, ou pendant la plage de nuit (Réglages)"></select>
         <button id="u-run" disabled>Mettre à jour</button></div>
       <div id="u-result"></div>
     </div>
     <div data-pane="files" hidden>
-      <input type="search" id="files-q" placeholder="Rechercher un fichier (casse ignorée)" style="width:100%">
+      <div class="search" style="max-width:none"><svg class="ico" aria-hidden="true"><use href="#i-search"/></svg><input type="search" id="files-q" placeholder="Rechercher un fichier (casse ignorée)"></div>
       <p class="muted" id="files-count"></p>
       <div class="files" id="files-list"></div>
     </div>
@@ -237,9 +459,9 @@ pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; 
 
 <main id="folders-main" hidden>
   <section>
-    <p class="muted">Dossiers <code>*.pc</code> et <code>*.wine</code> des dossiers roms/ : analyse, autorun proposé et justifié, puis empaquetage en <code>.wsquashfs</code> (renommage en <code>.wine</code>, vérification) dans la file de tâches.</p>
-    <div class="toolbar row">
-      <input type="search" id="g-search" placeholder="Rechercher un dossier…">
+    <p class="intro">Dossiers <code>*.pc</code> et <code>*.wine</code> des dossiers roms/ : analyse, autorun proposé et justifié, puis empaquetage en <code>.wsquashfs</code> (renommage en <code>.wine</code>, vérification) dans la file de tâches.</p>
+    <div class="toolbar">
+      <div class="search"><svg class="ico" aria-hidden="true"><use href="#i-search"/></svg><input type="search" id="g-search" placeholder="Rechercher un dossier…"></div>
       <select id="g-system"></select>
       <select id="g-state">
         <option value="">Tous</option><option value="todo">À empaqueter</option>
@@ -250,7 +472,7 @@ pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; 
       <span id="g-count"></span>
       <button id="g-review">Analyser et empaqueter…</button>
       <button class="secondary" id="g-delete">Supprimer les dossiers déjà empaquetés</button>
-      <button class="secondary" id="g-clear">Désélectionner</button>
+      <button class="ghost icon" id="g-clear" title="Désélectionner"><svg class="ico" aria-hidden="true"><use href="#i-x"/></svg></button>
     </div>
     <div class="table-wrap">
       <table>
@@ -278,9 +500,10 @@ pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; 
 
 <section id="tasks" class="collapsed">
   <div class="head row" id="tasks-head">
-    <strong>Tâches</strong><span id="tasks-summary" class="muted"></span>
+    <strong><span class="spinner"></span>Tâches</strong><span id="tasks-summary" class="muted"></span>
     <span class="spacer"></span>
-    <button class="secondary" id="tasks-clear">Effacer l'historique</button>
+    <button class="ghost" id="tasks-clear">Effacer l'historique</button>
+    <svg class="ico chev" aria-hidden="true"><use href="#i-chev"/></svg>
   </div>
   <div class="body" id="tasks-list"></div>
 </section>
@@ -291,7 +514,7 @@ pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; 
     <p class="muted">L'application réécrit les images : un mot de passe est requis.</p>
     <input type="password" id="login-pw" autocomplete="current-password" style="width:100%" required>
     <p id="login-err" class="notice err" hidden></p>
-    <div class="row" style="margin-top:.8rem"><span class="spacer"></span><button>Se connecter</button></div>
+    <div class="row dlg-foot"><span class="spacer"></span><button>Se connecter</button></div>
   </form>
 </dialog>
 
@@ -308,7 +531,7 @@ pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; 
     <span class="muted">une tâche « cette nuit » ne démarre que dans cette plage</span></div>
   <dl id="cfg-info" style="margin-top:.8rem"></dl>
   <p id="cfg-err" class="notice err" hidden></p>
-  <div class="row" style="margin-top:.8rem"><span class="spacer"></span>
+  <div class="row dlg-foot"><span class="spacer"></span>
     <button class="secondary" data-close>Fermer</button><button id="cfg-save">Enregistrer</button></div>
 </dialog>
 
@@ -316,7 +539,7 @@ pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; 
   <h2>Modifier l'autorun de <span id="m-count"></span> image(s)</h2>
   <p class="muted">Les opérations s'appliquent dans l'ordre, à l'autorun tel qu'il sera au moment de la reconstruction. Variables : <code>{name}</code> (nom de l'image), <code>{system}</code>.</p>
   <div id="m-ops"></div>
-  <div class="row">
+  <div class="row dlg-foot">
     <button class="secondary" id="m-add">+ Opération</button>
     <select id="m-target" title="Dans l'image : reconstruction. En surcharge : <jeu>.wsquashfs.autorun, effet immédiat (ignoré par Batocera)">
       <option value="image">Dans l'image (reconstruction)</option>
@@ -339,7 +562,7 @@ pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; 
     <button class="secondary" id="f-preset-fakeping" title="dinput8.dll à côté de l'exécutable + DllOverrides propre à l'exécutable">Préréglage : relais fakeping</button>
   </div>
   <div id="f-ops"></div>
-  <div class="row">
+  <div class="row dlg-foot">
     <button class="secondary" data-add="copy">+ Ajouter un fichier</button>
     <button class="secondary" data-add="delete">+ Supprimer</button>
     <button class="secondary" data-add="reg">+ Valeur de registre</button>
@@ -355,13 +578,13 @@ pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; 
 <dialog id="dlg-kb" class="small">
   <h2>Ajouter à la base de connaissances</h2>
   <p class="muted">Ce qui ne se déduit pas des fichiers : appliqué en priorité aux prochaines propositions d'autorun pour ce jeu (base locale, dans l'appdata).</p>
-  <label class="muted">Jeu (motif, casse ignorée, * accepté)<input id="kb-game" style="width:100%"></label>
+  <label class="field">Jeu (motif, casse ignorée, * accepté)<input id="kb-game"></label>
   <label class="row" style="margin-top:.5rem"><input type="checkbox" id="kb-prefer-on"> Exécutable à retenir : <code id="kb-prefer"></code></label>
   <h3>Réglages à imposer</h3>
   <div id="kb-keys" class="mono"></div>
-  <label class="muted">Pourquoi (note)<textarea id="kb-note" rows="3" placeholder="ex. écran noir sous DXVK, testé le …"></textarea></label>
+  <label class="field">Pourquoi (note)<textarea id="kb-note" rows="3" placeholder="ex. écran noir sous DXVK, testé le …"></textarea></label>
   <p id="kb-err" class="notice err" hidden></p>
-  <div class="row" style="margin-top:.8rem"><span class="spacer"></span>
+  <div class="row dlg-foot"><span class="spacer"></span>
     <button class="secondary" data-close>Fermer</button><button id="kb-save">Ajouter</button></div>
 </dialog>
 
@@ -384,6 +607,19 @@ const el = (tag, props = {}, ...children) => {
   return node;
 };
 const badge = (text, kind = "") => el("span", { className: `badge ${kind}`, textContent: text });
+const dash = () => el("span", { className: "dash", textContent: "—" });
+const icon = (name) => {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "ico");
+  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  use.setAttribute("href", `#i-${name}`);
+  svg.append(use);
+  return svg;
+};
+// Ligne « rien à afficher » d'un tableau
+const emptyRow = (cols, iconName, title, hint) => el("tr", {}, el("td", { colSpan: cols, className: "empty" },
+  el("div", { className: "empty-state" }, icon(iconName), el("strong", { textContent: title }),
+    hint ? el("span", { textContent: hint }) : null)));
 const size = (n) => n >= 1e9 ? `${(n / 1e9).toFixed(1)} Go` : n >= 1e6 ? `${(n / 1e6).toFixed(0)} Mo`
   : n >= 1e3 ? `${(n / 1e3).toFixed(0)} Ko` : `${n} o`;
 const when = (t) => t ? new Date(t * 1000).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "";
@@ -455,6 +691,7 @@ $("dlg-login").addEventListener("cancel", (event) => event.preventDefault());
 const TYPES = { wine_batocera: "prefix Wine", wine_proton: "prefix Proton", wine_other: "autre prefix",
   game_only: "jeu seul", unknown: "inconnu" };
 const STATES = { ok: ["ok", "ok"], in_use: ["en cours", "err"], modified: ["tâche", "info"], has_old: [".old", "warn"] };
+const TYPE_KINDS = { wine_batocera: "violet", wine_proton: "cyan", wine_other: "violet", game_only: "", unknown: "warn" };
 
 const COLUMNS = [
   { key: "select", label: "", nosort: true },
@@ -487,7 +724,8 @@ async function loadLibrary(refresh = false) {
   fillFilter("f-system", "Système : tous ceux de Réglages", state.items.map((i) => i.system).filter(Boolean));
   fillFilter("f-type", "Tous types", state.items.map((i) => i.type), TYPES);
   fillFilter("f-runner", "Tous runners", state.items.map(runnerLabel));
-  $("status").textContent = `${state.items.length} images`;
+  $("status").textContent = "";
+  $("count-images").textContent = state.items.length;
   renderTable();
   if (state.current && state.byId.has(state.current.id)) {
     state.current = state.byId.get(state.current.id);
@@ -534,7 +772,7 @@ function renderTable() {
       box.onchange = () => { visible.forEach((i) => box.checked ? state.selected.add(i.id) : state.selected.delete(i.id)); renderTable(); };
       return el("th", { className: "nosort" }, box);
     }
-    const th = el("th", { textContent: col.label },
+    const th = el("th", { textContent: col.label, className: `c-${col.key}${col.num ? " num" : ""}` },
       state.sort.key === col.key ? el("span", { className: "dir", textContent: state.sort.dir > 0 ? " ▲" : " ▼" }) : null);
     th.onclick = () => { state.sort = { key: col.key, dir: state.sort.key === col.key ? -state.sort.dir : 1 }; renderTable(); };
     return th;
@@ -543,37 +781,65 @@ function renderTable() {
   const rows = visible.map((i) => {
     const box = el("input", { type: "checkbox", checked: state.selected.has(i.id) });
     box.onclick = (event) => event.stopPropagation();
-    box.onchange = () => { box.checked ? state.selected.add(i.id) : state.selected.delete(i.id); renderSelection(); };
+    box.onchange = () => {
+      box.checked ? state.selected.add(i.id) : state.selected.delete(i.id);
+      box.closest("tr").classList.toggle("is-selected", box.checked);
+      renderSelection();
+    };
     const [stateLabel, stateKind] = STATES[i.state] || [i.state, ""];
-    const row = el("tr", { className: state.current?.id === i.id ? "current" : "" },
-      el("td", {}, box),
-      el("td", { textContent: i.name }),
-      el("td", { textContent: i.system || "—" }),
-      el("td", { className: "num", textContent: size(i.size) }),
-      el("td", {}, i.version ? i.version : badge("—")),
-      el("td", { textContent: TYPES[i.type] || i.type }),
-      el("td", {}, i.runner === "default" ? el("span", { className: "muted", textContent: "défaut" }) : runnerLabel(i)),
-      el("td", {}, i.hidraw ? badge("HIDRAW", "info") : el("span", { className: "muted", textContent: "XInput" })),
-      el("td", { className: "cmd", textContent: i.cmd || "—", title: i.cmd || "" }),
-      el("td", {}, ...(i.extras || []).map((e) => badge(e)),
+    const classes = [state.current?.id === i.id ? "current" : "", state.selected.has(i.id) ? "is-selected" : ""];
+    const row = el("tr", { className: classes.join(" ").trim() },
+      el("td", { className: "c-select" }, box),
+      el("td", { className: "c-name name", textContent: i.name }),
+      el("td", { className: "c-system" }, i.system || dash()),
+      el("td", { className: "c-size num", textContent: size(i.size) }),
+      el("td", { className: "c-version ver" }, i.version || dash()),
+      el("td", { className: "c-type" }, badge(TYPES[i.type] || i.type, TYPE_KINDS[i.type] || "")),
+      el("td", { className: "c-runner" }, i.runner === "default" ? el("span", { className: "dash", textContent: "défaut" }) : runnerLabel(i)),
+      el("td", { className: "c-pad" }, i.hidraw ? badge("HIDRAW", "info") : el("span", { className: "muted", textContent: "XInput" })),
+      el("td", { className: "c-cmd cmd", title: i.cmd || "" }, i.cmd || dash()),
+      el("td", { className: "c-extras" }, ...(i.extras || []).map((e) => badge(e)),
         (i.override || []).length ? Object.assign(badge("surcharge", "warn"), { title: `Surcharge : ${i.override.join(", ")}` }) : null),
-      el("td", { className: "num" }, i.saves_present ? size(i.saves_size) : el("span", { className: "muted", textContent: "—" })),
-      el("td", {}, badge(stateLabel, stateKind)));
+      el("td", { className: "c-saves_size num" }, i.saves_present ? size(i.saves_size) : dash()),
+      el("td", { className: "c-state" }, el("span", { className: `status ${stateKind}`, textContent: stateLabel })));
     row.onclick = () => openDetail(i.id);
     return row;
   });
   if (!rows.length) {
-    const hint = state.items.length ? "aucune image pour ces filtres" : "aucune image — configurer les dossiers roms/ (bouton « Réglages »)";
-    rows.push(el("tr", {}, el("td", { colSpan: COLUMNS.length, className: "muted", textContent: hint })));
+    rows.push(state.items.length
+      ? emptyRow(COLUMNS.length, "search", "Aucune image pour ces filtres", "Élargir la recherche ou retirer un filtre.")
+      : emptyRow(COLUMNS.length, "layers", "Aucune image", "Choisir les systèmes à gérer dans « Réglages »."));
   }
   $("rows").replaceChildren(...rows);
+  renderStats();
   renderSelection();
+}
+
+// Chiffres clés de la bibliothèque ; un clic filtre (deuxième clic : retire le filtre)
+function renderStats() {
+  const items = state.items, special = $("f-special").value;
+  const total = items.reduce((n, i) => n + (i.size || 0), 0);
+  const count = (f) => items.filter(f).length;
+  const tiles = [
+    ["", "Images", items.length, size(total), "info"],
+    ["noversion", "Sans version", count((i) => !i.version), null, "warn"],
+    ["old", "Ancienne image (.old)", count((i) => i.has_old), null, "warn"],
+    ["override", "Surcharge à inscrire", count((i) => (i.override || []).length), null, "warn"],
+    ["inuse", "En cours", count((i) => i.state === "in_use"), null, "err"],
+  ];
+  $("stats").replaceChildren(...tiles.map(([filter, label, n, extra, kind]) => {
+    const tile = el("button", { type: "button", className: `stat ${kind}${special === filter && filter ? " active" : ""}${n ? "" : " is-zero"}` },
+      el("div", { className: "k" }, el("span", { className: "dot" }), label),
+      el("div", { className: "v", textContent: n }, extra ? el("small", { textContent: extra }) : null));
+    tile.onclick = () => { $("f-special").value = filter && special !== filter ? filter : ""; renderTable(); };
+    return tile;
+  }));
 }
 
 function renderSelection() {
   const n = state.selected.size;
   $("selection").hidden = n === 0;
-  $("sel-count").textContent = `${n} image(s) sélectionnée(s)`;
+  $("sel-count").textContent = n > 1 ? `${n} images sélectionnées` : "1 image sélectionnée";
 }
 
 for (const id of ["f-search", "f-system", "f-type", "f-runner", "f-pad", "f-special"]) $(id).addEventListener("input", renderTable);
@@ -598,6 +864,18 @@ function renderDetailHeader() {
   const i = state.current;
   $("d-title").textContent = i.name;
   $("d-id").textContent = i.id;
+  // Vignette : initiales sur une teinte stable tirée du nom
+  const hue = [...i.name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
+  $("d-cover").textContent = i.name.split(/[\s\-:]+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+  $("d-cover").style.background = `linear-gradient(140deg, hsl(${hue} 65% 58%), hsl(${(hue + 40) % 360} 60% 45%))`;
+  const [stateLabel, stateKind] = STATES[i.state] || [i.state, ""];
+  $("d-chips").replaceChildren(...[
+    badge(TYPES[i.type] || i.type, TYPE_KINDS[i.type] || ""),
+    badge(size(i.size)),
+    i.version ? badge(`v${i.version.replace(/^v/i, "")}`, "info") : badge("sans version", "warn"),
+    i.hidraw ? badge("HIDRAW", "info") : null,
+    i.state !== "ok" ? badge(stateLabel, stateKind) : null,
+    (i.override || []).length ? badge("surcharge", "warn") : null].filter(Boolean));
   const info = [
     ["Fichier", i.path], ["Taille", size(i.size)], ["Modifiée", when(i.mtime)],
     ["Version", i.version || "non renseignée"], ["Type", TYPES[i.type] || i.type],
@@ -1082,6 +1360,7 @@ async function refreshTasks() {
     if (opened.has(t.id)) node.classList.add("open");
     return node;
   }));
+  $("tasks").classList.toggle("busy", active.some((t) => t.status === "running"));
   const failed = state.tasks.filter((t) => t.status === "failed").length;
   const nightly = active.filter((t) => t.status === "pending" && t.night).length;
   $("tasks-summary").textContent = active.length ? `${active.length} active(s)${nightly ? `, dont ${nightly} programmée(s) cette nuit` : ""}` : state.tasks.length ? "aucune active" : "";
@@ -1098,6 +1377,9 @@ async function refreshTasks() {
   tasksTimer = setTimeout(refreshTasks, active.length ? 1500 : 10000);
 }
 const openTasks = () => $("tasks").classList.remove("collapsed");
+// La barre de sélection flotte juste au-dessus de la file, ouverte ou non
+new ResizeObserver(([entry]) => document.documentElement.style.setProperty("--tasks-h",
+  `${entry.target.getBoundingClientRect().height}px`)).observe($("tasks"));
 $("tasks-head").onclick = (event) => { if (event.target.tagName !== "BUTTON") $("tasks").classList.toggle("collapsed"); };
 $("tasks-clear").onclick = async () => { await api("/api/tasks/finished", { method: "DELETE" }); refreshTasks(); };
 
@@ -1448,6 +1730,8 @@ async function loadFolders() {
     $("g-rows").replaceChildren(el("tr", {}, el("td", { colSpan: 7, className: "muted", textContent: error.message })));
     return;
   }
+  $("count-folders").textContent = folders.items.filter((f) => !f.image_exists).length;
+  $("count-folders").hidden = false;
   const ids = new Set(folders.items.map((f) => f.id));
   for (const id of [...folders.selected]) if (!ids.has(id)) folders.selected.delete(id);
   fillFilter("g-system", "Système : tous ceux de Réglages", folders.items.map((f) => f.system).filter(Boolean));
@@ -1470,21 +1754,30 @@ function renderFolders() {
   $("g-all").checked = visible.length > 0 && visible.every((f) => folders.selected.has(f.id));
   $("g-rows").replaceChildren(...visible.map((f) => {
     const box = el("input", { type: "checkbox", checked: folders.selected.has(f.id) });
-    box.onchange = () => { box.checked ? folders.selected.add(f.id) : folders.selected.delete(f.id); renderFolderSelection(); };
-    return el("tr", {},
-      el("td", {}, box), el("td", { textContent: f.system || "—" }), el("td", { textContent: f.folder }),
-      el("td", {}, badge(`.${f.kind}`)),
-      el("td", {}, f.has_autorun ? badge("présent", "ok") : badge("absent", "warn")),
-      el("td", {}, f.image_exists ? badge("déjà empaqueté", "info") : el("span", { className: "muted", textContent: "—" })),
+    box.onchange = () => {
+      box.checked ? folders.selected.add(f.id) : folders.selected.delete(f.id);
+      box.closest("tr")?.classList.toggle("is-selected", box.checked);
+      renderFolderSelection();
+    };
+    const row = el("tr", { className: folders.selected.has(f.id) ? "is-selected" : "" },
+      el("td", {}, box), el("td", { className: "c-system" }, f.system || dash()), el("td", { className: "name", textContent: f.folder }),
+      el("td", {}, badge(`.${f.kind}`, f.kind === "wine" ? "violet" : "")),
+      el("td", {}, el("span", { className: `status ${f.has_autorun ? "ok" : "warn"}`, textContent: f.has_autorun ? "présent" : "absent" })),
+      el("td", {}, f.image_exists ? badge("déjà empaqueté", "info") : dash()),
       el("td", {}, f.task ? badge(f.task === "running" ? "en cours" : "en attente", "warn") : ""));
+    // Un clic sur la ligne coche le dossier
+    row.onclick = (event) => { if (event.target !== box) { box.checked = !box.checked; box.onchange(); } };
+    return row;
   }));
-  if (!visible.length) $("g-rows").append(el("tr", {}, el("td", { colSpan: 7, className: "muted", textContent: "aucun dossier *.pc / *.wine" })));
+  if (!visible.length) $("g-rows").append(folders.items.length
+    ? emptyRow(7, "search", "Aucun dossier pour ces filtres", null)
+    : emptyRow(7, "folder", "Aucun dossier à empaqueter", "Les dossiers *.pc et *.wine des systèmes choisis dans « Réglages » apparaissent ici."));
   renderFolderSelection();
 }
 
 function renderFolderSelection() {
   $("g-selection").hidden = folders.selected.size === 0;
-  $("g-count").textContent = `${folders.selected.size} dossier(s) sélectionné(s)`;
+  $("g-count").textContent = folders.selected.size > 1 ? `${folders.selected.size} dossiers sélectionnés` : "1 dossier sélectionné";
 }
 
 for (const id of ["g-search", "g-system", "g-state"]) $(id).addEventListener("input", renderFolders);
