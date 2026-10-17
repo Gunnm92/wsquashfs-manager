@@ -64,7 +64,7 @@ def load_rules(path: Path) -> list[dict[str, Any]]:
 def _dll(name: str) -> str:
     """« D3D11.DLL », « *d3d11 » (DllOverrides global) → « d3d11 »."""
     n = name.lower().lstrip("*")
-    return n[:-4] if n.endswith(".dll") else n
+    return n.removesuffix(".dll")
 
 
 def _version_tuple(v: str) -> tuple[int, ...]:

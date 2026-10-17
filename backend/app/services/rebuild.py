@@ -1,18 +1,18 @@
-"""Reconstruction d'une image sans l'extraire (SPEC § 3.1, § 3.4).
+"""Reconstruction transactionnelle des images ``.wsquashfs`` (SPEC § 3.1, § 3.4).
 
-1. image montée en lecture seule (squashfuse) ;
-2. couche des changements posée par-dessus (fuse-overlayfs en lecture seule,
-   deux `lowerdir` : la vue fusionnée n'est que lue par mksquashfs, il n'y a
-   donc ni `upperdir` ni « whiteout ») ; les fichiers supprimés sont exclus
-   de mksquashfs (`-ef`) ;
-3. mksquashfs depuis la vue fusionnée vers `<jeu>.wsquashfs.part` (mêmes
-   options que `--pack` du lanceur) ;
-4. vérification de la nouvelle image ;
-5. échange : original → `<jeu>.wsquashfs.old`, `.part` → `<jeu>.wsquashfs` ;
-6. démontage, nettoyage.
+Une image squashfs ne se modifie pas en place. Deux façons de la reconstruire :
 
-Repli sans FUSE : extraction complète (unsquashfs), changements appliqués sur
-le disque, puis mksquashfs.
+- **overlay** (si FUSE est disponible) : l'image est montée en lecture seule
+  (squashfuse), une couche fuse-overlayfs reçoit uniquement les changements,
+  et mksquashfs relit la vue fusionnée. Rien n'est extrait sur disque ;
+- **extraction** (repli) : unsquashfs complet dans le dossier temporaire,
+  changements appliqués, puis mksquashfs (≈ 2 × la taille décompressée).
+
+Dans les deux cas la nouvelle image est construite en ``<jeu>.wsquashfs.part``
+à côté de l'original (même disque : échange atomique), vérifiée (table,
+arborescence complète comparée à celle attendue, contenu des fichiers écrits),
+puis échangée : l'original devient ``<jeu>.wsquashfs.old`` et n'est supprimé
+que sur validation explicite ou après le délai de rétention.
 """
 
 from __future__ import annotations
@@ -20,49 +20,87 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import stat as statmod
 import subprocess
 import threading
-import uuid
+import time
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
-from ..config import Settings
-from . import scan
+from ..config import Settings, work_area
+from .scan import _list_files_uncached
 
-# Marge d'espace disque en plus de la taille estimée.
-_SPACE_MARGIN = 64 * 1024 * 1024
-
-_PROGRESS_RE = re.compile(rb"(\d+)/(\d+)\s+(\d+)%")
-
-
-class RebuildError(Exception):
-    pass
+# Marge sur la taille de la nouvelle image (≈ l'ancienne) : la compression
+# d'un fichier remplacé peut différer.
+_SPACE_MARGIN = 1.05
 
 
-class Cancelled(RebuildError):
-    pass
+class RebuildError(RuntimeError):
+    """Une reconstruction n'a pas pu être menée à son terme."""
+
+
+class RebuildCancelled(RebuildError):
+    """Reconstruction annulée à la demande ; rien n'a été modifié."""
 
 
 @dataclass
 class Changes:
-    """Changements à appliquer : chemins relatifs à la racine de l'image."""
-    files: dict[str, bytes] = field(default_factory=dict)   # ajoutés ou remplacés
-    delete: list[str] = field(default_factory=list)          # retirés (fichier ou dossier)
+    """Changements à appliquer, chemins relatifs à la racine de l'image."""
+    write: dict[str, bytes] = field(default_factory=dict)   # contenu fourni
+    copy: dict[str, Path] = field(default_factory=dict)     # fichier source à copier
+    delete: list[str] = field(default_factory=list)         # fichiers ou dossiers
 
-    def size(self) -> int:
-        return sum(len(b) for b in self.files.values())
+    def is_empty(self) -> bool:
+        return not (self.write or self.copy or self.delete)
+
+
+class Job:
+    """Suivi d'une reconstruction : progression, journal, annulation."""
+
+    def __init__(self, on_progress: Callable[[str, float], None] | None = None,
+                 on_log: Callable[[str], None] | None = None):
+        self.cancel_event = threading.Event()
+        self._on_progress = on_progress
+        self._on_log = on_log
+
+    def progress(self, phase: str, fraction: float) -> None:
+        if self._on_progress:
+            self._on_progress(phase, max(0.0, min(1.0, fraction)))
+
+    def log(self, message: str) -> None:
+        if self._on_log:
+            self._on_log(message)
+
+    def cancel(self) -> None:
+        self.cancel_event.set()
+
+    def check(self) -> None:
+        if self.cancel_event.is_set():
+            raise RebuildCancelled("annulée")
 
 
 @dataclass
-class Context:
-    """Liens avec la tâche : journal, progression, annulation."""
-    log: Callable[[str], None] = lambda msg: None
-    progress: Callable[[float], None] = lambda p: None
-    cancel: threading.Event = field(default_factory=threading.Event)
+class RebuildResult:
+    mode: str                 # "overlay" | "extract"
+    size_before: int
+    size_after: int
+    backup: Path
+    duration: float
 
 
-def old_path(image: Path) -> Path:
+# ------------------------------------------------------------------ chemins
+
+def safe_rel(path: str) -> str:
+    """Chemin dans l'image, normalisé ; refuse ce qui sortirait de la racine."""
+    p = PurePosixPath(path.replace("\\", "/").strip("/"))
+    if not p.parts or any(part in ("", ".", "..") for part in p.parts):
+        raise RebuildError(f"chemin invalide dans l'image : {path!r}")
+    return str(p)
+
+
+def backup_path(image: Path) -> Path:
     return image.with_name(image.name + ".old")
 
 
@@ -70,290 +108,402 @@ def part_path(image: Path) -> Path:
     return image.with_name(image.name + ".part")
 
 
-# ----------------------------------------------------------------- montages
-
-def _umount(path: Path) -> None:
-    for args in (["-u"], ["-uz"]):          # puis démontage différé si occupé
-        for tool in ("fusermount3", "fusermount"):
-            try:
-                if subprocess.run([tool, *args, str(path)], capture_output=True,
-                                  timeout=30).returncode == 0:
-                    return
-            except (OSError, subprocess.TimeoutExpired):
-                continue
-
-
-def _fuse_available(settings: Settings) -> bool:
-    return (Path("/dev/fuse").exists() and shutil.which(settings.squashfuse) is not None
-            and shutil.which(settings.fuse_overlayfs) is not None)
-
-
-def _run(cmd: list[str], what: str, timeout: int = 60) -> None:
-    try:
-        r = subprocess.run(cmd, capture_output=True, timeout=timeout)
-    except (OSError, subprocess.TimeoutExpired) as e:
-        raise RebuildError(f"{what} : {e}") from e
-    if r.returncode != 0:
-        err = r.stderr.decode("utf-8", errors="replace").strip()
-        raise RebuildError(f"{what} : {err or 'code ' + str(r.returncode)}")
-
-
-# ----------------------------------------------------------------- étapes
-
-def _stage(changes: Changes, top: Path, lower: Path | None) -> None:
-    """Écrit les fichiers modifiés dans `top`, en gardant les droits du
-    fichier d'origine s'il existe dans `lower`."""
-    for rel, data in changes.files.items():
-        dest = top / rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        if dest.exists() or dest.is_symlink():
-            dest.unlink()                    # fichier extrait en lecture seule
-        dest.write_bytes(data)
-        if lower is not None and (lower / rel).is_file():
-            os.chmod(dest, (lower / rel).stat().st_mode & 0o7777)
-
-
-def _space_needed(settings: Settings, image: Path, changes: Changes) -> int:
-    return image.stat().st_size + changes.size() + _SPACE_MARGIN
-
-
-def _uncompressed_size(settings: Settings, image: Path) -> int:
-    """Taille décompressée (repli par extraction) : somme des fichiers
-    réguliers de `unsquashfs -lln`."""
-    r = subprocess.run([settings.unsquashfs, "-lln", str(image)], capture_output=True,
-                       timeout=300)
-    total = 0
-    for line in r.stdout.decode("utf-8", errors="replace").splitlines():
-        parts = line.split(None, 3)
-        if len(parts) >= 3 and parts[0].startswith("-") and parts[2].isdigit():
-            total += int(parts[2])
-    return total
-
-
-def _check_space(path: Path, needed: int, what: str) -> None:
-    path.mkdir(parents=True, exist_ok=True)
-    free = shutil.disk_usage(path).free
-    if free < needed:
-        raise RebuildError(f"espace insuffisant sur {what} : {needed / 1e9:.1f} Go nécessaires, "
-                           f"{free / 1e9:.1f} Go libres")
-
-
-def _priority_prefix(settings: Settings) -> list[str]:
-    cmd = []
-    if shutil.which("nice"):
-        cmd += ["nice", "-n", str(settings.task_priority_nice)]
-    if shutil.which("ionice"):
-        cmd += ["ionice", "-c", str(settings.task_priority_ionice)]
-    return cmd
-
-
-def _mksquashfs(settings: Settings, src: Path, part: Path, exclude: Path | None,
-                ctx: Context, extra: list[str] | None = None) -> None:
-    cmd = _priority_prefix(settings) + [
-        settings.mksquashfs, str(src), str(part), *settings.mksquashfs_opts,
-        "-noappend", "-quiet", "-progress",
-    ]
-    if exclude is not None:
-        cmd += ["-ef", str(exclude)]
-    cmd += extra or []
-    ctx.log("mksquashfs " + " ".join(cmd[cmd.index(settings.mksquashfs) + 1:]))
-    proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT)
-    tail: list[bytes] = []
-
-    def reader():
-        buf = b""
-        assert proc.stdout is not None
-        while chunk := proc.stdout.read1(4096):
-            buf += chunk
-            # la barre de progression est réécrite avec \r
-            *done, buf = re.split(rb"[\r\n]", buf)
-            for piece in done:
-                m = _PROGRESS_RE.search(piece)
-                if m:
-                    ctx.progress(int(m.group(3)) / 100)
-                elif piece.strip():
-                    tail.append(piece)
-                    del tail[:-20]
-
-    t = threading.Thread(target=reader, daemon=True)
-    t.start()
-    while proc.poll() is None:
-        if ctx.cancel.wait(0.5):
-            proc.terminate()
-            try:
-                proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
-            t.join(timeout=5)
-            raise Cancelled("annulé")
-    t.join(timeout=5)
-    for line in tail:
-        ctx.log(line.decode("utf-8", errors="replace"))
-    if proc.returncode != 0:
-        raise RebuildError(f"mksquashfs a échoué (code {proc.returncode})")
-
-
-def expected_listing(before: list[str], changes: Changes) -> set[str]:
-    """Contenu attendu de la nouvelle image : liste d'origine, plus les
-    fichiers ajoutés (et leurs dossiers), moins les chemins supprimés et leur
-    contenu."""
-    out = set(before)
-    for rel in changes.files:
+def expected_listing(old: list[str], changes: Changes) -> set[str]:
+    """Arborescence attendue après application des changements."""
+    out = set(old)
+    for rel in map(safe_rel, changes.delete):
+        out = {p for p in out if p != rel and not p.startswith(rel + "/")}
+    for rel in map(safe_rel, [*changes.write, *changes.copy]):
         parts = rel.split("/")
         out.update("/".join(parts[:i]) for i in range(1, len(parts) + 1))
-    for d in changes.delete:
-        out = {p for p in out if p != d and not p.startswith(d + "/")}
     return out
 
 
-def verify(settings: Settings, part: Path, expected: set[str], changes: Changes,
-           ctx: Context) -> None:
-    """Vérifications après reconstruction (SPEC § 3.4)."""
-    _run([settings.unsquashfs, "-s", str(part)], "table de la nouvelle image illisible")
-    after = set(scan.list_files(settings, part))
-    if after != expected:
-        missing = sorted(expected - after)[:5]
-        extra = sorted(after - expected)[:5]
-        raise RebuildError(f"contenu inattendu : manquants {missing}, en trop {extra}")
-    ctx.log(f"vérifié : {len(after)} entrées")
-    for rel, data in changes.files.items():
-        if scan.unsquashfs_cat(settings, part, rel) != data:
-            raise RebuildError(f"{rel} : contenu différent de celui attendu")
-    ctx.log(f"vérifié : {len(changes.files)} fichier(s) modifié(s) identiques")
+# ------------------------------------------------------------------ processus
+
+def priority_prefix(settings: Settings) -> list[str]:
+    """Priorité basse (SPEC § 4) : c'est surtout du disque, le jeu passe avant."""
+    prefix: list[str] = []
+    if shutil.which("ionice"):
+        prefix += ["ionice", "-c", str(settings.task_priority_ionice)]
+    if shutil.which("nice"):
+        prefix += ["nice", "-n", str(settings.task_priority_nice)]
+    return prefix
 
 
-def swap(image: Path, part: Path) -> None:
-    """original → .old, .part → original. Le lien physique garde l'image en
-    place pendant l'échange ; sans lui (système de fichiers qui ne les gère
-    pas), renommage puis retour arrière en cas d'échec."""
-    old = old_path(image)
+def _run(command: list[str], *, timeout: int) -> subprocess.CompletedProcess[bytes]:
     try:
-        os.link(image, old)
-        linked = True
-    except OSError:
-        os.rename(image, old)
-        linked = False
+        result = subprocess.run(command, capture_output=True, timeout=timeout, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise RebuildError(f"commande impossible : {' '.join(command)} ({exc})") from exc
+    if result.returncode:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        raise RebuildError(detail or f"commande en échec : {' '.join(command)}")
+    return result
+
+
+def run_progress(command: list[str], job: Job, phase: str, start: float, end: float) -> None:
+    """Commande longue (unsquashfs/mksquashfs -percentage) : chaque ligne
+    numérique est un pourcentage, ramené dans [start, end] ; annulable."""
     try:
-        os.replace(part, image)
-    except OSError:
-        if not linked:
-            os.rename(old, image)
+        proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                stdin=subprocess.DEVNULL)
+    except OSError as exc:
+        raise RebuildError(f"commande impossible : {command[0]} ({exc})") from exc
+
+    def watch() -> None:
+        while proc.poll() is None:
+            if job.cancel_event.wait(0.5):
+                proc.terminate()
+                return
+
+    threading.Thread(target=watch, daemon=True).start()
+    tail: deque[str] = deque(maxlen=15)
+    assert proc.stdout is not None
+    for raw in proc.stdout:
+        line = raw.decode("utf-8", errors="replace").strip()
+        if line.isdigit():
+            job.progress(phase, start + (end - start) * int(line) / 100)
+        elif line:
+            tail.append(line)
+    proc.wait()
+    job.check()
+    if proc.returncode:
+        raise RebuildError(f"{phase} en échec (code {proc.returncode}) : " + " / ".join(tail))
+
+
+# ------------------------------------------------------------------ espace disque
+
+def uncompressed_size(settings: Settings, image: Path) -> int:
+    """Somme des tailles des fichiers de l'image (`unsquashfs -lls`, table seule)."""
+    out = _run([settings.unsquashfs, "-lls", str(image)], timeout=300).stdout
+    total = 0
+    for line in out.decode("utf-8", errors="replace").splitlines():
+        fields = line.split(None, 3)
+        if len(fields) >= 3 and fields[0].startswith("-") and fields[2].isdigit():
+            total += int(fields[2])
+    return total
+
+
+def space_needed(settings: Settings, image: Path, changes: Changes,
+                 mode: str) -> dict[Path, int]:
+    """Octets nécessaires par point de montage (le .part à côté de l'image,
+    l'extraction dans le dossier de travail, à côté de l'image par défaut)."""
+    copies = sum(src.stat().st_size for src in changes.copy.values())
+    writes = sum(len(data) for data in changes.write.values())
+    needs: dict[Path, int] = {}
+    image_dir = image.parent
+    needs[image_dir] = int(image.stat().st_size * _SPACE_MARGIN) + copies + writes
+    if mode == "extract":
+        tmp = settings.tmp_dir or image_dir
+        extract = uncompressed_size(settings, image) + copies + writes
+        if _same_fs(tmp, image_dir):
+            needs[image_dir] += extract
         else:
-            old.unlink()
-        raise
+            needs[tmp] = extract
+    return needs
 
 
-# ----------------------------------------------------------------- point d'entrée
+def _same_fs(a: Path, b: Path) -> bool:
+    try:
+        return existing_parent(a).stat().st_dev == existing_parent(b).stat().st_dev
+    except OSError:
+        return False
 
-def rebuild(settings: Settings, image: Path, changes: Changes, ctx: Context | None = None,
-            in_use: Callable[[], bool] = lambda: False) -> None:
-    """Reconstruit `image` avec `changes`. L'original est gardé en `.old`.
 
-    `in_use` : test « jeu en cours », refait juste avant l'échange (le jeu a
-    pu être lancé pendant la construction)."""
-    ctx = ctx or Context()
-    old, part = old_path(image), part_path(image)
-    if old.exists():
-        raise RebuildError(f"{old.name} existe : valider ou revenir à l'ancienne d'abord")
-    if in_use():
-        raise RebuildError("jeu en cours (monté ou lancé)")
-    if not changes.files and not changes.delete:
-        raise RebuildError("aucun changement")
-    stat = image.stat()
+def existing_parent(path: Path) -> Path:
+    while not path.exists() and path != path.parent:
+        path = path.parent
+    return path
 
-    work = settings.tmp_dir / f"rebuild-{uuid.uuid4().hex[:12]}"
-    lower, top, merged = work / "lower", work / "top", work / "merged"
+
+def check_space(needs: dict[Path, int]) -> None:
+    for path, need in needs.items():
+        free = shutil.disk_usage(existing_parent(path)).free
+        if free < need:
+            raise RebuildError(f"espace insuffisant sur {path} : {_human(need)} nécessaires, "
+                               f"{_human(free)} libres")
+
+
+def _human(n: float) -> str:
+    for unit in ("o", "Ko", "Mo", "Go"):
+        if n < 1024:
+            return f"{n:.0f} {unit}"
+        n /= 1024
+    return f"{n:.1f} To"
+
+
+# ------------------------------------------------------------------ montages
+
+def fuse_missing(settings: Settings) -> str | None:
+    """Ce qui manque au mode overlay, ou None s'il est possible."""
+    if not Path("/dev/fuse").exists():
+        return "/dev/fuse absent (conteneur sans le périphérique FUSE)"
+    for tool in (settings.squashfuse, settings.fuse_overlayfs):
+        if shutil.which(tool) is None:
+            return f"{tool} introuvable"
+    return None
+
+
+def fuse_available(settings: Settings) -> bool:
+    return fuse_missing(settings) is None
+
+
+def choose_mode(settings: Settings) -> str:
+    if settings.rebuild_mode == "overlay":
+        if not fuse_available(settings):
+            raise RebuildError("mode overlay demandé mais FUSE, squashfuse ou fuse-overlayfs "
+                               "est indisponible")
+        return "overlay"
+    if settings.rebuild_mode == "extract":
+        return "extract"
+    return "overlay" if fuse_available(settings) else "extract"
+
+
+def _unmount(mountpoint: Path) -> None:
+    """Démontage avec quelques essais (fichiers encore ouverts juste après
+    mksquashfs), puis démontage différé, comme umount_retry() du lanceur."""
+    for _ in range(5):
+        if not os.path.ismount(mountpoint):
+            return
+        for tool in ("fusermount3", "fusermount"):
+            if shutil.which(tool) and subprocess.run([tool, "-u", str(mountpoint)],
+                                                     capture_output=True, check=False).returncode == 0:
+                return
+        time.sleep(1)
+    for tool in ("fusermount3", "fusermount"):
+        if shutil.which(tool):
+            subprocess.run([tool, "-uz", str(mountpoint)], capture_output=True, check=False)
+
+
+# ------------------------------------------------------------------ application
+
+def apply_changes(root: Path, changes: Changes) -> None:
+    """Applique les changements dans `root` (vue fusionnée ou extraction).
+
+    Un fichier remplacé est d'abord supprimé : sur l'overlay, l'écraser
+    déclencherait la copie complète de l'original dans la couche haute."""
+    for rel in map(safe_rel, changes.delete):
+        target = root / rel
+        if target.is_dir() and not target.is_symlink():
+            shutil.rmtree(target)
+        elif target.exists() or target.is_symlink():
+            target.unlink()
+    for rel, source in [*changes.write.items(), *changes.copy.items()]:
+        target = root / safe_rel(rel)
+        if target.is_dir() and not target.is_symlink():
+            raise RebuildError(f"{rel} est un dossier dans l'image")
+        if target.exists() or target.is_symlink():
+            target.unlink()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(source, bytes):
+            target.write_bytes(source)
+        else:
+            shutil.copy2(source, target)
+
+
+def _build_overlay(settings: Settings, image: Path, part: Path, work: Path,
+                   changes: Changes, job: Job) -> None:
+    lower, upper, ovl_work, merged = (work / n for n in ("lower", "upper", "work", "merged"))
+    for d in (lower, upper, ovl_work, merged):
+        d.mkdir()
     mounted: list[Path] = []
-    part.unlink(missing_ok=True)                 # reste d'une tâche interrompue
-    _check_space(image.parent, _space_needed(settings, image, changes), str(image.parent))
     try:
-        for d in (lower, top, merged):
-            d.mkdir(parents=True)
-        before = scan.list_files(settings, image)
-        if not before:
-            raise RebuildError("liste des fichiers de l'image illisible")
-
-        src = _prepare_overlay(settings, image, changes, lower, top, merged, mounted, ctx)
-        if src is None:
-            src = _prepare_extract(settings, image, changes, work, ctx)
-
-        exclude = None
-        if changes.delete:
-            exclude = work / "exclude.txt"
-            exclude.write_text("".join(p + "\n" for p in changes.delete))
-        _mksquashfs(settings, src, part, exclude, ctx)
-        ctx.progress(1.0)
-        verify(settings, part, expected_listing(before, changes), changes, ctx)
-
-        if ctx.cancel.is_set():
-            raise Cancelled("annulé")
-        cur = image.stat()
-        if (cur.st_size, cur.st_mtime) != (stat.st_size, stat.st_mtime):
-            raise RebuildError("l'image a changé pendant la reconstruction")
-        if in_use():
-            raise RebuildError("jeu lancé pendant la reconstruction : image inchangée")
-        swap(image, part)
-        ctx.log(f"échangée : {image.name} ({image.stat().st_size / 1e6:.0f} Mo), "
-                f"ancienne gardée en {old.name}")
-    finally:
-        for m in reversed(mounted):
-            _umount(m)
-        part.unlink(missing_ok=True)
-        shutil.rmtree(work, ignore_errors=True)
-
-
-def _prepare_overlay(settings: Settings, image: Path, changes: Changes, lower: Path,
-                     top: Path, merged: Path, mounted: list[Path], ctx: Context) -> Path | None:
-    """Vue fusionnée image + changements, ou None si FUSE est indisponible."""
-    if not _fuse_available(settings):
-        ctx.log("FUSE indisponible : repli par extraction")
-        return None
-    try:
-        _run([settings.squashfuse, "-o", "ro", str(image), str(lower)], "squashfuse")
+        job.progress("montage", 0.0)
+        _run([settings.squashfuse, "-o", "ro", str(image), str(lower)], timeout=60)
         mounted.append(lower)
-        _stage(changes, top, lower)
-        # lowerdir : le premier masque le second
-        _run([settings.fuse_overlayfs, "-o", f"lowerdir={top}:{lower}", str(merged)],
-             "fuse-overlayfs")
+        _run([settings.fuse_overlayfs, "-o",
+              f"lowerdir={lower},upperdir={upper},workdir={ovl_work}", str(merged)], timeout=60)
         mounted.append(merged)
-    except RebuildError as e:
-        ctx.log(f"montage impossible ({e}) : repli par extraction")
-        for m in reversed(mounted):
-            _umount(m)
-        mounted.clear()
-        return None
-    ctx.log("image montée, changements superposés (overlay)")
-    return merged
+        apply_changes(merged, changes)
+        job.check()
+        run_progress([*priority_prefix(settings), settings.mksquashfs, str(merged), str(part),
+                       *settings.mksquashfs_opts, "-noappend", "-percentage"],
+                      job, "mksquashfs", 0.02, 0.92)
+    finally:
+        for mountpoint in reversed(mounted):
+            _unmount(mountpoint)
 
 
-def _prepare_extract(settings: Settings, image: Path, changes: Changes, work: Path,
-                     ctx: Context) -> Path:
+def _build_extract(settings: Settings, image: Path, part: Path, work: Path,
+                   changes: Changes, job: Job) -> None:
     root = work / "root"
-    _check_space(work, _uncompressed_size(settings, image) + _SPACE_MARGIN, str(work))
-    ctx.log("extraction complète (unsquashfs)")
-    _run([settings.unsquashfs, "-q", "-no-progress", "-d", str(root), str(image)],
-         "unsquashfs", timeout=3600)
-    _stage(changes, root, None)
-    return root
+    # -no-xattrs : un utilisateur non root ne peut pas les restaurer ; les
+    # images de jeux n'en ont pas besoin.
+    run_progress([*priority_prefix(settings), settings.unsquashfs, "-no-xattrs",
+                   "-percentage", "-d", str(root), str(image)],
+                  job, "extraction", 0.0, 0.45)
+    apply_changes(root, changes)
+    job.check()
+    run_progress([*priority_prefix(settings), settings.mksquashfs, str(root), str(part),
+                   *settings.mksquashfs_opts, "-noappend", "-percentage"],
+                  job, "mksquashfs", 0.45, 0.92)
 
 
-# ----------------------------------------------------------------- .old
+# ------------------------------------------------------------------ vérification
 
-def validate_old(image: Path) -> None:
-    """« Valider » : la nouvelle image est bonne, l'ancienne est supprimée."""
-    old = old_path(image)
-    if not old.exists():
-        raise RebuildError("pas d'ancienne image")
-    old.unlink()
+def verify(settings: Settings, part: Path, expected: set[str], changes: Changes) -> None:
+    """SPEC § 3.4 : table lisible, arborescence identique à celle attendue,
+    fichiers écrits relus à l'octet près."""
+    _run([settings.unsquashfs, "-s", str(part)], timeout=120)
+    listing = _list_files_uncached(settings, part)
+    if listing is None:
+        raise RebuildError("vérification : arborescence de la nouvelle image illisible")
+    actual = set(listing)
+    if actual != expected:
+        missing = sorted(expected - actual)[:5]
+        extra = sorted(actual - expected)[:5]
+        raise RebuildError(f"vérification : arborescence inattendue (manquants : {missing}, "
+                           f"en trop : {extra})")
+    for rel, data in changes.write.items():
+        content = _run([settings.unsquashfs, "-cat", str(part), safe_rel(rel)],
+                       timeout=60).stdout
+        if content != data:
+            raise RebuildError(f"vérification : {rel} reconstruit différent")
+    if changes.copy:
+        # Une seule lecture de la table pour toutes les tailles : relire chaque
+        # fichier copié (-cat) prendrait des heures sur un gros patch
+        sizes = file_sizes(settings, part)
+        for rel, source in changes.copy.items():
+            if sizes.get(safe_rel(rel)) != source.stat().st_size:
+                raise RebuildError(f"vérification : taille de {rel} différente de la source")
 
 
-def revert_old(image: Path, in_use: bool) -> None:
-    """« Revenir à l'ancienne » : l'ancienne remplace la nouvelle."""
-    old = old_path(image)
-    if not old.exists():
-        raise RebuildError("pas d'ancienne image")
-    if in_use:
-        raise RebuildError("jeu en cours (monté ou lancé)")
-    os.replace(old, image)
+_LLS_RE = re.compile(r"^(\S)\S*\s+\S+\s+(\d+)\s+(\S+ \S+)\s+squashfs-root/(.+)$")
+
+
+def table(settings: Settings, image: Path) -> dict[str, tuple[str, int, str]]:
+    """Table de l'image (unsquashfs -lls) : {chemin: (type, taille, date)}, type
+    « - » fichier, « d » dossier, « l » lien ; date « AAAA-MM-JJ HH:MM »."""
+    out = _run([settings.unsquashfs, "-lls", str(image)], timeout=600).stdout
+    entries: dict[str, tuple[str, int, str]] = {}
+    for line in out.decode("utf-8", "replace").splitlines():
+        m = _LLS_RE.match(line)
+        if m:
+            kind, size, date, rel = m.groups()
+            if kind == "l":
+                rel = rel.split(" -> ", 1)[0]
+            entries[rel] = (kind, int(size), date)
+    return entries
+
+
+def file_sizes(settings: Settings, image: Path) -> dict[str, int]:
+    return {rel: size for rel, (kind, size, _) in table(settings, image).items() if kind == "-"}
+
+
+# ------------------------------------------------------------------ reconstruction
+
+def rebuild(settings: Settings, image: Path, changes: Changes, job: Job | None = None,
+            in_use: Callable[[Path], bool] | None = None) -> RebuildResult:
+    """Applique `changes` à l'image ; l'original est gardé en ``.old``.
+
+    `in_use(image)` est rappelé juste avant l'échange : un jeu lancé pendant
+    la reconstruction garde son image d'origine."""
+    job = job or Job()
+    began = time.monotonic()
+    if not image.is_file():
+        raise RebuildError(f"image introuvable : {image}")
+    if changes.is_empty():
+        raise RebuildError("aucun changement à appliquer")
+    backup, part = backup_path(image), part_path(image)
+    if backup.exists():
+        raise RebuildError(f"sauvegarde existante à valider ou restaurer : {backup.name}")
+    if part.exists():
+        raise RebuildError(f"reconstruction inachevée présente : {part.name}")
+    for tool in (settings.unsquashfs, settings.mksquashfs):
+        if not shutil.which(tool):
+            raise RebuildError(f"outil requis introuvable : {tool}")
+    if in_use and in_use(image):
+        raise RebuildError("jeu en cours d'utilisation")
+
+    mode = choose_mode(settings)
+    if mode == "overlay":
+        job.log("Mode : overlay (sans extraction)")
+    elif settings.rebuild_mode == "extract":
+        job.log("Mode : extraction (imposé par la configuration)")
+    else:
+        job.log(f"Mode : extraction complète — overlay impossible : {fuse_missing(settings)}")
+    check_space(space_needed(settings, image, changes, mode))
+    before = image.stat()
+    old_listing = _list_files_uncached(settings, image)
+    if old_listing is None:
+        raise RebuildError("arborescence de l'image illisible (unsquashfs -l)")
+    expected = expected_listing(old_listing, changes)
+
+    swapped = False
+    try:
+        with work_area(settings, image, "rebuild-") as tmp:
+            build = _build_overlay if mode == "overlay" else _build_extract
+            build(settings, image, part, tmp, changes, job)
+        job.check()
+        job.progress("vérification", 0.93)
+        verify(settings, part, expected, changes)
+        job.check()
+        job.progress("échange", 0.98)
+        _swap(image, part, backup, before, in_use)
+        swapped = True
+    finally:
+        if not swapped:
+            part.unlink(missing_ok=True)
+    job.progress("terminé", 1.0)
+    return RebuildResult(mode=mode, size_before=before.st_size, size_after=image.stat().st_size,
+                         backup=backup, duration=time.monotonic() - began)
+
+
+def _swap(image: Path, part: Path, backup: Path, before: os.stat_result,
+          in_use: Callable[[Path], bool] | None) -> None:
+    now = image.stat()
+    if (now.st_size, now.st_mtime_ns) != (before.st_size, before.st_mtime_ns):
+        raise RebuildError("l'image a été modifiée pendant la reconstruction")
+    if in_use and in_use(image):
+        raise RebuildError("jeu lancé pendant la reconstruction : image d'origine conservée")
+    os.chmod(part, statmod.S_IMODE(before.st_mode))
+    try:
+        os.chown(part, before.st_uid, before.st_gid)
+    except PermissionError:
+        pass        # service lancé sous le propriétaire des images : déjà bon
+    try:
+        os.replace(image, backup)
+        try:
+            os.replace(part, image)
+        except OSError:
+            os.replace(backup, image)
+            raise
+    except OSError as exc:
+        raise RebuildError(f"échange final impossible : {exc}") from exc
+
+
+# ------------------------------------------------------------------ .old
+
+def validate_backup(image: Path) -> None:
+    """« Valider » : la nouvelle image convient, l'ancienne est supprimée."""
+    backup = backup_path(image)
+    if not backup.exists():
+        raise RebuildError("aucune sauvegarde .old")
+    backup.unlink()
+
+
+def restore_backup(image: Path) -> None:
+    """« Revenir à l'ancienne » : la nouvelle image est remplacée par l'.old."""
+    backup = backup_path(image)
+    if not backup.exists():
+        raise RebuildError("aucune sauvegarde .old")
+    os.replace(backup, image)
+
+
+def purge_backups(images: list[Path], retention_days: int | None) -> list[Path]:
+    """Supprime les .old plus vieux que la rétention. L'âge est celui de
+    l'échange (ctime : mis à jour par le renommage), pas celui du jeu."""
+    if retention_days is None:
+        return []
+    limit = time.time() - retention_days * 86400
+    removed = []
+    for image in images:
+        backup = backup_path(image)
+        try:
+            if backup.stat().st_ctime < limit:
+                backup.unlink()
+                removed.append(backup)
+        except OSError:
+            continue
+    return removed

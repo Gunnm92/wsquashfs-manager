@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from enum import Enum
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -59,6 +60,7 @@ class ImageInfo(BaseModel):
     saves_size: int = 0
     saves_present: bool = False
     has_old: bool = False
+    override: list[str] = Field(default_factory=list)   # clés de <jeu>.wsquashfs.autorun
     state: ImageState = ImageState.OK
 
 
@@ -79,11 +81,15 @@ class TaskStatus(str, Enum):
 
 class Task(BaseModel):
     id: str
-    kind: str                        # "edit_autorun" | "mass_action" | ...
+    kind: str                        # "autorun" | ...
+    title: str = ""                  # description lisible (« DXVK=0 », « autorun édité »…)
     image: str | None = None         # identifiant <système>/<nom>
-    params: dict = Field(default_factory=dict)   # de quoi rejouer la tâche après redémarrage
+    image_path: str | None = None
+    params: dict[str, Any] = Field(default_factory=dict)   # propres au type, persistés
     status: TaskStatus = TaskStatus.PENDING
+    night: bool = False              # ne démarre que pendant la plage de nuit (Réglages)
     progress: float = 0.0            # 0..1
+    phase: str = ""                  # étape en cours (extraction, mksquashfs, vérification…)
     log: list[str] = Field(default_factory=list)
     error: str | None = None
     created_at: float = 0.0

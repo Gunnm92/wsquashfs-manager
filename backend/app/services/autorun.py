@@ -29,49 +29,46 @@ KNOWN_KEYS = {
     "ENV", "SAVEDIR", "SAVEFILES",
 }
 
-# Aide du formulaire (SPEC § 2.2) : description et valeurs possibles, d'après
-# la documentation du lanceur. `values` vide = saisie libre.
-KEY_HELP: dict[str, dict] = {
-    "CMD": {"help": "Exécutable et arguments, ex. game.exe -fullscreen ou "
-                    "\"My Game.exe\" -fullscreen", "values": []},
-    "DIR": {"help": "Dossier de l'exécutable, relatif à la racine de l'image", "values": []},
-    "GAME_VERSION": {"help": "Version du jeu packagé (ignorée par Batocera)", "values": []},
-    "WINE": {"help": "Wine de /opt/wine-<version>, ou system (Wine du système, WoW64)",
-             "values": ["tkg", "system"]},
-    "PROTON": {"help": "Runner Proton (nom du dossier ou version) ; défaut proton-cachyos",
-               "values": ["proton-cachyos-slr", "GE-Proton8-25"]},
-    "RUNNER": {"help": "Chemin absolu d'un runner personnalisé", "values": []},
-    "ARCH": {"help": "Architecture Wine (défaut win64)", "values": ["win32", "win64"]},
-    "HIDRAW": {"help": "1 : manettes Sony par hidraw si le jeu gère la DualSense lui-même ; "
-                       "bt : DualSense Bluetooth en direct ; absent : XInput",
-               "values": ["1", "bt"]},
-    "DXVK": {"help": "DirectX 8-11 → Vulkan (activé par défaut)", "values": ["0", "1"]},
-    "VKD3D": {"help": "DirectX 12 → Vulkan (activé par défaut)", "values": ["0", "1"]},
-    "D7VK": {"help": "DirectDraw / DirectX 7 → Vulkan (activé par défaut)", "values": ["0", "1"]},
-    "ESYNC": {"help": "Event synchronization", "values": ["0", "1"]},
-    "FSYNC": {"help": "Futex synchronization", "values": ["0", "1"]},
-    "VIRTUAL_DESKTOP": {"help": "Bureau virtuel Wine, ex. 1920x1080", "values": []},
-    "LANG": {"help": "Langue (LC_ALL), ex. fr_FR.UTF-8", "values": []},
-    "ENV": {"help": "Variables d'environnement, ex. VAR1=val1 VAR2=val2 (pas de "
-                    "WINEDLLOVERRIDES)", "values": []},
-    "SAVEDIR": {"help": "Dossier de sauvegarde du jeu, relié à saves/<système>/<jeu>",
-                "values": []},
-    "SAVEFILES": {"help": "Fichiers de sauvegarde séparés par ;, relatifs au prefix",
-                  "values": []},
+# Aide du formulaire : (description, valeurs proposées). Défauts = ceux du
+# lanceur, pas ceux de Batocera (DXVK/VKD3D/D7VK actifs par défaut).
+KEY_HELP: dict[str, tuple[str, list[str]]] = {
+    "CMD": (("Commande lancée, relative à DIR (casse ignorée). Guillemets si le "
+             "nom contient des espaces, arguments ensuite."), []),
+    "DIR": ("Dossier de l'exécutable, relatif à la racine de l'image.", []),
+    "GAME_VERSION": ("Version du jeu packagé (ignorée par Batocera).", []),
+    "WINE": ("Runner Wine imposé. Défaut : wine-tkg pour un prefix Batocera.",
+             ["tkg", "system"]),
+    "PROTON": ("Version de Proton imposée (prefix Proton ou jeu seul).", []),
+    "RUNNER": ("Runner personnalisé (chemin ou nom).", []),
+    "ARCH": ("Architecture du prefix créé.", ["win32", "win64"]),
+    "HIDRAW": (("Manette Sony gérée par le jeu lui-même (DualSense native) au lieu de "
+                "XInput : 1 (pont USB), bt (hidraw direct), 0."), ["1", "bt", "0"]),
+    "DXVK": ("D3D9-11 via Vulkan. Actif par défaut ; 0 pour wined3d.", ["1", "0"]),
+    "VKD3D": ("D3D12 via Vulkan. Actif par défaut.", ["1", "0"]),
+    "D7VK": ("DirectDraw/D3D7 via Vulkan. Actif par défaut.", ["1", "0"]),
+    "ESYNC": ("Synchronisation esync (défaut 0).", ["1", "0"]),
+    "FSYNC": ("Synchronisation fsync (défaut 0).", ["1", "0"]),
+    "VIRTUAL_DESKTOP": ("Bureau virtuel Wine, ex. 1920x1080.", ["1920x1080", "1280x720"]),
+    "LANG": ("Langue passée au jeu, ex. fr_FR.UTF-8.", ["fr_FR.UTF-8", "en_US.UTF-8",
+                                                         "ja_JP.UTF-8"]),
+    "ENV": (("Variables d'environnement supplémentaires (VAR=val VAR2=val). "
+             "Jamais WINEDLLOVERRIDES : il écraserait les réglages DLL du lanceur."), []),
+    "SAVEDIR": ("Dossier de sauvegarde du jeu, redirigé vers saves/<système>/<jeu>.", []),
+    "SAVEFILES": ("Fichiers de sauvegarde (séparés par ;), redirigés comme SAVEDIR.", []),
 }
 
 _KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
+KEY_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
-def decode(data: bytes) -> tuple[str, str]:
-    """UTF-8 si le fichier en est, sinon cp1252 (autorun écrit sous Windows),
-    à défaut latin-1 (décode tout octet, sans perte)."""
-    for enc in ("utf-8", "cp1252", "latin-1"):
-        try:
-            return data.decode(enc), enc
-        except UnicodeDecodeError:
-            continue
-    raise AssertionError("latin-1 décode tout")
+def decode_autorun(data: bytes) -> tuple[str, str]:
+    """Octets → (texte, encodage). UTF-8 si valide, sinon latin-1 : un
+    autorun écrit sous Windows (cp1252, commentaires accentués) est relu et
+    réécrit octet pour octet au lieu d'être corrompu."""
+    try:
+        return data.decode("utf-8"), "utf-8"
+    except UnicodeDecodeError:
+        return data.decode("latin-1"), "latin-1"
 
 
 def unquote(value: str) -> str:
@@ -105,27 +102,25 @@ class Autorun:
     lines: list[str] = field(default_factory=list)   # sans le caractère de fin de ligne
     eol: str = "\r\n"                                # "\r\n" ou "\n" (détecté)
     trailing_eol: bool = True                        # saut de ligne après la dernière ligne
-    encoding: str = "utf-8"                          # conservé à la réécriture (cp1252 : Windows)
 
     # ------------------------------------------------------------------ read
 
     @classmethod
-    def parse(cls, data: bytes | str) -> "Autorun":
-        encoding = "utf-8"
+    def parse(cls, data: bytes | str) -> Autorun:
         if isinstance(data, bytes):
-            data, encoding = decode(data)
+            data = data.decode("utf-8", errors="replace")
         if not data:
-            return cls(lines=[], eol="\r\n", trailing_eol=True, encoding=encoding)
+            return cls(lines=[], eol="\r\n", trailing_eol=True)
         # Fin de ligne majoritaire (un fichier CRLF sans saut de ligne final
         # reste CRLF ; un fichier mixte prend la fin la plus fréquente).
         crlf = data.count("\r\n")
         lf_only = data.count("\n") - crlf
         eol = "\r\n" if crlf > lf_only else "\n"
         trailing = data.endswith("\n")
-        lines = [ln[:-1] if ln.endswith("\r") else ln for ln in data.split("\n")]
+        lines = [ln.removesuffix("\r") for ln in data.split("\n")]
         if trailing:
             lines = lines[:-1]          # élément vide après le dernier \n
-        return cls(lines=lines, eol=eol, trailing_eol=trailing, encoding=encoding)
+        return cls(lines=lines, eol=eol, trailing_eol=trailing)
 
     def get(self, key: str) -> str | None:
         """Première occurrence de la clé (comme le lanceur)."""
@@ -181,19 +176,13 @@ class Autorun:
         self.lines = kept
         return removed
 
+    def encode(self, encoding: str = "utf-8") -> bytes:
+        return self.render().encode(encoding)
+
     def render(self) -> str:
         if not self.lines:
             return ""
         return self.eol.join(self.lines) + (self.eol if self.trailing_eol else "")
-
-    def encode(self) -> bytes:
-        """Contenu à écrire dans l'image, dans l'encodage d'origine. Un
-        caractère absent de cet encodage fait passer le fichier en UTF-8
-        plutôt que d'être perdu."""
-        try:
-            return self.render().encode(self.encoding)
-        except UnicodeEncodeError:
-            return self.render().encode("utf-8")
 
     # ------------------------------------------------------------- validation
 
@@ -218,16 +207,18 @@ class Autorun:
         d = self.get("DIR")
         c = self.get("CMD")
         d_norm = normalize_path(d) if d is not None else ""
-        # DIR= est facultatif : sans lui, l'exécutable est à la racine
+        # DIR absent : l'exécutable est cherché à la racine (comme le lanceur)
         if d is not None and files and d_norm not in dirs:
             issues.append({"level": "warn", "message": f"DIR={d} n'existe pas dans l'image"})
 
         if c is None:
-            issues.append({"level": "warn", "message": "CMD= absent"})
+            issues.append({"level": "error", "message": "CMD= absent : le lanceur refusera "
+                                                         "de démarrer le jeu"})
         elif files:
             exe = exe_from_cmd(c)
-            target = normalize_path(f"{d_norm}/{exe}" if d_norm else exe)
-            if exe and target not in files:
+            # Le lanceur essaie le chemin depuis la racine, puis depuis DIR
+            targets = {normalize_path(exe), normalize_path(f"{d_norm}/{exe}")}
+            if exe and not targets & files:
                 issues.append(
                     {"level": "warn", "message": f"exécutable {exe} introuvable (casse ignorée)"}
                 )
@@ -243,6 +234,72 @@ class Autorun:
         return issues
 
 
+def fill_template(template: str, name: str, system: str | None) -> str:
+    """Variables d'un modèle d'autorun : {name} (nom de l'image), {system}."""
+    return template.replace("{name}", name).replace("{system}", system or "")
+
+
+def apply_ops(current: Autorun | None, ops: list[dict], name: str,
+              system: str | None) -> Autorun:
+    """Applique des opérations d'édition à une copie de l'autorun.
+
+    ops : {"op": "set", "key", "value"} | {"op": "remove", "key"} |
+    {"op": "replace", "template"}. Un remplacement garde la fin de ligne de
+    l'autorun existant (CRLF sinon, comme les autoruns Batocera)."""
+    base = current or Autorun()
+    out = Autorun(lines=list(base.lines), eol=base.eol, trailing_eol=base.trailing_eol)
+    for op in ops:
+        kind = op["op"]
+        if kind == "set":
+            out.set(op["key"], fill_template(op["value"], name, system))
+        elif kind == "remove":
+            out.remove(op["key"])
+        elif kind == "replace":
+            text = fill_template(op["template"], name, system).replace("\r\n", "\n")
+            replaced = Autorun.parse(text)
+            out = Autorun(lines=replaced.lines, eol=base.eol, trailing_eol=True)
+        else:
+            raise ValueError(f"opération inconnue : {kind}")
+    return out
+
+
+# ------------------------------------------------------------------ surcharge
+# <jeu>.wsquashfs.autorun à côté de l'image, lu par le lanceur : une clé qui y
+# figure l'emporte sur celle de l'image, CLÉ= vide la ramène au défaut du
+# lanceur (même règle que override_var() de wsquashfs-launcher).
+
+def override_path(image: Path) -> Path:
+    return image.with_name(image.name + ".autorun")
+
+
+def merge_override(base: Autorun | None, override: Autorun) -> Autorun:
+    """Autorun effectif : celui de l'image, corrigé par la surcharge (une clé
+    modifiée garde sa place, une clé ajoutée va en fin de fichier)."""
+    out = Autorun(lines=list(base.lines) if base else [], eol=base.eol if base else "\r\n",
+                  trailing_eol=base.trailing_eol if base else True)
+    for key in dict.fromkeys(k for k, _, _ in override.items()):
+        value = override.get(key) or ""
+        if value.strip():
+            out.set(key, value)
+        else:
+            out.remove(key)
+    return out
+
+
+def override_from(base: Autorun | None, wanted: Autorun) -> Autorun:
+    """Surcharge minimale pour obtenir `wanted` à partir de l'autorun de
+    l'image : clés ajoutées ou modifiées, et CLÉ= pour les clés retirées."""
+    base_keys = {k: base.get(k) for k, _, _ in base.items()} if base else {}
+    lines = []
+    for key in dict.fromkeys(k for k, _, _ in wanted.items()):
+        if wanted.get(key) != base_keys.get(key):
+            lines.append(f"{key}={wanted.get(key)}")
+    for key in base_keys:
+        if wanted.get(key) is None:
+            lines.append(f"{key}=")
+    return Autorun(lines=lines, eol="\r\n", trailing_eol=True)
+
+
 def read_autorun(image_dir: Path) -> Autorun | None:
     """Lit l'autorun depuis un dossier monté. None s'il n'existe pas."""
     p = image_dir / "autorun.cmd"
@@ -252,4 +309,4 @@ def read_autorun(image_dir: Path) -> Autorun | None:
 
 
 def write_autorun(autorun: Autorun, path: Path) -> None:
-    path.write_bytes(autorun.encode())
+    path.write_bytes(autorun.render().encode("utf-8"))

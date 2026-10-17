@@ -1,0 +1,7 @@
+*
+!backend/pyproject.toml
+!backend/app/
+!backend/rules/
+!frontend/
+!docker/
+**/__pycache__

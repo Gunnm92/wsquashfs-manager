@@ -1,8 +1,5 @@
-"""Tests de la reconstruction (SPEC § 3.1, § 3.4), avec les vrais outils.
-
-Ignorés si squashfs-tools manque ; le mode overlay demande en plus
-squashfuse, fuse-overlayfs et /dev/fuse.
-"""
+"""Reconstruction transactionnelle : vraies images squashfs (mode extraction,
+le seul disponible sans /dev/fuse) et logique pure (arborescence attendue)."""
 
 from __future__ import annotations
 
@@ -15,166 +12,252 @@ import pytest
 
 from app.config import Settings
 from app.services import rebuild
-from app.services.rebuild import Changes, Context, RebuildError
-from app.services.scan import list_files, unsquashfs_cat
+from app.services.rebuild import (
+    Changes,
+    Job,
+    RebuildCancelled,
+    RebuildError,
+    expected_listing,
+    purge_backups,
+    restore_backup,
+    safe_rel,
+    validate_backup,
+)
 
-pytestmark = pytest.mark.skipif(
+needs_tools = pytest.mark.skipif(
     not (shutil.which("mksquashfs") and shutil.which("unsquashfs")),
     reason="squashfs-tools absent",
 )
 
-needs_fuse = pytest.mark.skipif(
-    not (shutil.which("squashfuse") and shutil.which("fuse-overlayfs")
-         and Path("/dev/fuse").exists()),
-    reason="FUSE indisponible",
-)
 
-AUTORUN = b"REM jeu\r\nDIR=Game\r\nCMD=game.exe\r\n"
+def _cat(image: Path, member: str) -> bytes:
+    return subprocess.run(["unsquashfs", "-cat", str(image), member],
+                          capture_output=True, check=True).stdout
+
+
+def _listing(image: Path) -> set[str]:
+    out = subprocess.run(["unsquashfs", "-l", str(image)], capture_output=True,
+                         check=True).stdout.decode()
+    return {ln[len("squashfs-root/"):] for ln in out.splitlines()
+            if ln.startswith("squashfs-root/")}
 
 
 @pytest.fixture
-def settings(tmp_path):
-    return Settings(tmp_dir=tmp_path / "tmp", roms_dirs=[str(tmp_path / "roms")])
-
-
-@pytest.fixture
-def image(tmp_path):
+def image(tmp_path: Path) -> Path:
     src = tmp_path / "src"
-    (src / "Game" / "data").mkdir(parents=True)
-    (src / "autorun.cmd").write_bytes(AUTORUN)
-    (src / "Game" / "game.exe").write_bytes(b"MZ" + b"\0" * 1000)
-    (src / "Game" / "data" / "a.pak").write_bytes(b"a" * 5000)
-    (src / "Game" / "Mon Fichier.txt").write_text("espaces")
-    out = tmp_path / "roms" / "windows" / "jeu.wsquashfs"
+    (src / "Game Dir").mkdir(parents=True)
+    (src / "Game Dir" / "game.exe").write_bytes(b"MZ" + b"\0" * 5000)
+    (src / "Game Dir" / "old.dll").write_bytes(b"dll")
+    (src / "autorun.cmd").write_bytes(b"REM test\r\nCMD=game.exe\r\nDIR=Game Dir\r\n")
+    out = tmp_path / "roms" / "win" / "Jeu.wsquashfs"
     out.parent.mkdir(parents=True)
     subprocess.run(["mksquashfs", str(src), str(out), "-comp", "zstd", "-noappend", "-quiet"],
                    check=True, capture_output=True)
     return out
 
 
-def _new_autorun():
-    return Changes(files={"autorun.cmd": b"REM jeu\r\nDIR=Game\r\nCMD=game.exe\r\nHIDRAW=1\r\n"})
+@pytest.fixture
+def settings(tmp_path: Path) -> Settings:
+    return Settings(tmp_dir=tmp_path / "tmp", rebuild_mode="extract")
 
 
-def _check_result(settings, image, before):
-    assert unsquashfs_cat(settings, image, "autorun.cmd").endswith(b"HIDRAW=1\r\n")
-    assert set(list_files(settings, image)) == set(before)
-    old = rebuild.old_path(image)
-    assert unsquashfs_cat(settings, old, "autorun.cmd") == AUTORUN
-    assert not rebuild.part_path(image).exists()
-    assert list(settings.tmp_dir.iterdir()) == []       # dossier de travail nettoyé
+# ------------------------------------------------------------------ logique pure
+
+def test_safe_rel_refuses_escapes():
+    assert safe_rel("\\drive_c\\game\\a.dll") == "drive_c/game/a.dll"
+    assert safe_rel("a/./b") == "a/b"
+    for bad in ("", "/", "../etc/passwd", "a/../../b", "a/.."):
+        with pytest.raises(RebuildError):
+            safe_rel(bad)
 
 
-@needs_fuse
-def test_rebuild_overlay(settings, image):
-    before = list_files(settings, image)
-    logs = []
-    progress = []
-    rebuild.rebuild(settings, image, _new_autorun(),
-                    Context(log=logs.append, progress=progress.append))
-    _check_result(settings, image, before)
-    assert any("overlay" in m for m in logs)
-    assert progress[-1] == 1.0
-    assert not any(p.is_mount() for p in settings.tmp_dir.rglob("*"))
-
-
-def test_rebuild_extract_fallback(settings, image, monkeypatch):
-    monkeypatch.setattr(rebuild, "_fuse_available", lambda s: False)
-    before = list_files(settings, image)
-    logs = []
-    rebuild.rebuild(settings, image, _new_autorun(), Context(log=logs.append))
-    _check_result(settings, image, before)
-    assert any("extraction" in m for m in logs)
-
-
-@pytest.mark.parametrize("fuse", [pytest.param(True, marks=needs_fuse), False])
-def test_rebuild_delete_and_add(settings, image, monkeypatch, fuse):
-    if not fuse:
-        monkeypatch.setattr(rebuild, "_fuse_available", lambda s: False)
-    changes = Changes(files={"Game/new/patch.dll": b"patch"}, delete=["Game/data"])
-    rebuild.rebuild(settings, image, changes)
-    files = set(list_files(settings, image))
-    assert "Game/new/patch.dll" in files and "Game/new" in files
-    assert not any(f.startswith("Game/data") for f in files)
-    assert "Game/Mon Fichier.txt" in files
-
-
-def test_keeps_file_mode(settings, image, monkeypatch, tmp_path):
-    monkeypatch.setattr(rebuild, "_fuse_available", lambda s: False)
-    rebuild.rebuild(settings, image, Changes(files={"Game/game.exe": b"MZ2"}))
-    out = subprocess.run(["unsquashfs", "-lln", str(image), "Game/game.exe"],
-                         capture_output=True, text=True, check=True).stdout
-    assert "-rw-r--r--" in out
-
-
-def test_refuses_when_old_exists(settings, image):
-    rebuild.old_path(image).write_bytes(b"x")
-    with pytest.raises(RebuildError, match=".old"):
-        rebuild.rebuild(settings, image, _new_autorun())
-
-
-def test_refuses_when_in_use(settings, image):
-    data = image.read_bytes()
-    with pytest.raises(RebuildError, match="en cours"):
-        rebuild.rebuild(settings, image, _new_autorun(), in_use=lambda: True)
-    assert image.read_bytes() == data
-
-
-def test_game_launched_during_build_keeps_image(settings, image, monkeypatch):
-    monkeypatch.setattr(rebuild, "_fuse_available", lambda s: False)
-    data = image.read_bytes()
-    calls = iter([False, True])          # libre au début, lancé avant l'échange
-    with pytest.raises(RebuildError, match="pendant"):
-        rebuild.rebuild(settings, image, _new_autorun(), in_use=lambda: next(calls))
-    assert image.read_bytes() == data
-    assert not rebuild.old_path(image).exists()
-    assert not rebuild.part_path(image).exists()
-
-
-def test_cancel_leaves_image_untouched(settings, image, monkeypatch):
-    monkeypatch.setattr(rebuild, "_fuse_available", lambda s: False)
-    data = image.read_bytes()
-    cancel = threading.Event()
-    cancel.set()
-    with pytest.raises(rebuild.Cancelled):
-        rebuild.rebuild(settings, image, _new_autorun(), Context(cancel=cancel))
-    assert image.read_bytes() == data
-    assert not rebuild.part_path(image).exists()
-    assert not rebuild.old_path(image).exists()
-
-
-def test_stale_part_is_removed(settings, image, monkeypatch):
-    monkeypatch.setattr(rebuild, "_fuse_available", lambda s: False)
-    rebuild.part_path(image).write_bytes(b"reste d'une tache interrompue")
-    rebuild.rebuild(settings, image, _new_autorun())
-    assert not rebuild.part_path(image).exists()
-
-
-def test_verify_detects_unexpected_content(settings, image):
-    expected = set(list_files(settings, image)) | {"manquant.txt"}
-    with pytest.raises(RebuildError, match="manquant"):
-        rebuild.verify(settings, image, expected, Changes(), Context())
-
-
-def test_expected_listing():
-    before = ["autorun.cmd", "Game", "Game/data", "Game/data/a.pak", "Game/database"]
-    changes = Changes(files={"Game/new/x.dll": b""}, delete=["Game/data"])
-    assert rebuild.expected_listing(before, changes) == {
-        "autorun.cmd", "Game", "Game/database", "Game/new", "Game/new/x.dll",
+def test_expected_listing_adds_parents_and_removes_subtrees():
+    old = ["a", "a/x.txt", "a/sub", "a/sub/y", "ab", "autorun.cmd"]
+    changes = Changes(write={"new/dir/f.txt": b"", "autorun.cmd": b"x"}, delete=["a/sub"])
+    assert expected_listing(old, changes) == {
+        "a", "a/x.txt", "ab", "autorun.cmd", "new", "new/dir", "new/dir/f.txt",
     }
 
 
-def test_validate_and_revert(settings, image, monkeypatch):
-    monkeypatch.setattr(rebuild, "_fuse_available", lambda s: False)
-    original = image.read_bytes()
-    rebuild.rebuild(settings, image, _new_autorun())
-    with pytest.raises(RebuildError, match="en cours"):
-        rebuild.revert_old(image, in_use=True)
-    rebuild.revert_old(image, in_use=False)
-    assert image.read_bytes() == original
-    assert not rebuild.old_path(image).exists()
+# ------------------------------------------------------------------ vraies images
 
-    rebuild.rebuild(settings, image, _new_autorun())
-    rebuild.validate_old(image)
-    assert not rebuild.old_path(image).exists()
-    assert unsquashfs_cat(settings, image, "autorun.cmd").endswith(b"HIDRAW=1\r\n")
+@needs_tools
+def test_rebuild_replaces_autorun_and_keeps_old(image: Path, settings: Settings):
+    before = image.read_bytes()
+    listing_before = _listing(image)
+    phases = []
+    job = Job(on_progress=lambda phase, f: phases.append((phase, f)))
+    new = b"REM test\r\nCMD=game.exe\r\nDIR=Game Dir\r\nGAME_VERSION=1.2\r\n"
+
+    result = rebuild.rebuild(settings, image, Changes(write={"autorun.cmd": new}), job)
+
+    assert result.mode == "extract"
+    assert _cat(image, "autorun.cmd") == new
+    assert _listing(image) == listing_before
+    assert image.with_name("Jeu.wsquashfs.old").read_bytes() == before
+    assert not image.with_name("Jeu.wsquashfs.part").exists()
+    assert phases[-1] == ("terminé", 1.0)
+    assert any(phase == "mksquashfs" for phase, _ in phases)
+
+
+@needs_tools
+def test_rebuild_adds_and_deletes_files(image: Path, settings: Settings):
+    patch = image.parent / "patch.dll"
+    patch.write_bytes(b"P" * 1000)
+    changes = Changes(copy={"Game Dir/plugins/new.dll": patch}, delete=["Game Dir/old.dll"])
+    rebuild.rebuild(settings, image, changes)
+
+    files = _listing(image)
+    assert "Game Dir/plugins/new.dll" in files
+    assert "Game Dir/old.dll" not in files
+    assert _cat(image, "Game Dir/plugins/new.dll") == b"P" * 1000
+
+
+@needs_tools
+def test_rebuild_refuses_when_old_exists(image: Path, settings: Settings):
+    image.with_name(image.name + ".old").write_bytes(b"backup")
+    with pytest.raises(RebuildError, match="sauvegarde existante"):
+        rebuild.rebuild(settings, image, Changes(write={"autorun.cmd": b"CMD=x\r\n"}))
+
+
+@needs_tools
+def test_game_started_during_rebuild_keeps_original(image: Path, settings: Settings):
+    before = image.read_bytes()
+    calls = []
+
+    def in_use(_image: Path) -> bool:
+        calls.append(1)
+        return len(calls) > 1        # libre au départ, lancé avant l'échange
+
+    with pytest.raises(RebuildError, match="lancé pendant"):
+        rebuild.rebuild(settings, image, Changes(write={"autorun.cmd": b"CMD=x\r\n"}),
+                        in_use=in_use)
+    assert image.read_bytes() == before
+    assert not image.with_name(image.name + ".old").exists()
+    assert not image.with_name(image.name + ".part").exists()
+
+
+@needs_tools
+def test_failed_verification_leaves_original(image: Path, settings: Settings, monkeypatch):
+    before = image.read_bytes()
+
+    def bad_apply(root: Path, changes: Changes) -> None:
+        (root / "autorun.cmd").write_bytes(b"autre chose")
+
+    monkeypatch.setattr(rebuild, "apply_changes", bad_apply)
+    with pytest.raises(RebuildError, match="vérification"):
+        rebuild.rebuild(settings, image, Changes(write={"autorun.cmd": b"CMD=x\r\n"}))
+    assert image.read_bytes() == before
+    assert not image.with_name(image.name + ".part").exists()
+
+
+@needs_tools
+def test_cancel_cleans_up(image: Path, settings: Settings, monkeypatch):
+    before = image.read_bytes()
+    job = Job()
+    real = rebuild.run_progress
+
+    def cancel_then_run(command, job_, phase, start, end):
+        job_.cancel()
+        real(command, job_, phase, start, end)
+
+    monkeypatch.setattr(rebuild, "run_progress", cancel_then_run)
+    with pytest.raises(RebuildCancelled):
+        rebuild.rebuild(settings, image, Changes(write={"autorun.cmd": b"CMD=x\r\n"}), job)
+    assert image.read_bytes() == before
+    assert not image.with_name(image.name + ".part").exists()
+    assert list(settings.tmp_dir.iterdir()) == []
+
+
+@needs_tools
+def test_space_check_blocks_before_work(image: Path, settings: Settings, monkeypatch):
+    monkeypatch.setattr(rebuild.shutil, "disk_usage",
+                        lambda path: shutil._ntuple_diskusage(10**12, 10**12, 10))
+    with pytest.raises(RebuildError, match="espace insuffisant"):
+        rebuild.rebuild(settings, image, Changes(write={"autorun.cmd": b"CMD=x\r\n"}))
+
+
+def test_overlay_mode_requires_fuse(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(rebuild, "fuse_available", lambda settings: False)
+    with pytest.raises(RebuildError, match="overlay"):
+        rebuild.choose_mode(Settings(rebuild_mode="overlay"))
+    assert rebuild.choose_mode(Settings(rebuild_mode="auto")) == "extract"
+
+
+# ------------------------------------------------------------------ .old
+
+def test_validate_and_restore_backup(tmp_path: Path):
+    image = tmp_path / "Jeu.wsquashfs"
+    image.write_bytes(b"new")
+    image.with_name("Jeu.wsquashfs.old").write_bytes(b"old")
+    restore_backup(image)
+    assert image.read_bytes() == b"old"
+    assert not image.with_name("Jeu.wsquashfs.old").exists()
+    with pytest.raises(RebuildError):
+        validate_backup(image)
+
+    image.with_name("Jeu.wsquashfs.old").write_bytes(b"old2")
+    validate_backup(image)
+    assert image.read_bytes() == b"old"
+    assert not image.with_name("Jeu.wsquashfs.old").exists()
+
+
+def test_purge_backups_respects_retention(tmp_path: Path):
+    image = tmp_path / "Jeu.wsquashfs"
+    image.with_name("Jeu.wsquashfs.old").write_bytes(b"old")
+    assert purge_backups([image], None) == []
+    assert purge_backups([image], 1) == []          # tout juste échangé
+    assert purge_backups([image], -1) == [image.with_name("Jeu.wsquashfs.old")]
+
+
+# ------------------------------------------------------------------ progression
+
+def test_run_progress_parses_percentages(tmp_path: Path):
+    script = tmp_path / "p.sh"
+    script.write_text("#!/bin/sh\necho 'Parallel mksquashfs'\necho 10\necho 50\necho 100\n")
+    script.chmod(0o755)
+    seen = []
+    rebuild.run_progress([str(script)], Job(on_progress=lambda p, f: seen.append(f)),
+                          "mksquashfs", 0.5, 1.0)
+    assert seen == [0.55, 0.75, 1.0]
+
+
+def test_run_progress_reports_tail_on_failure(tmp_path: Path):
+    script = tmp_path / "p.sh"
+    script.write_text("#!/bin/sh\necho 'FATAL ERROR: no space'\nexit 1\n")
+    script.chmod(0o755)
+    with pytest.raises(RebuildError, match="no space"):
+        rebuild.run_progress([str(script)], Job(), "mksquashfs", 0, 1)
+
+
+def test_run_progress_cancel_kills_process(tmp_path: Path):
+    script = tmp_path / "p.sh"
+    script.write_text("#!/bin/sh\nexec sleep 30\n")
+    script.chmod(0o755)
+    job = Job()
+    threading.Timer(0.2, job.cancel).start()
+    with pytest.raises(RebuildCancelled):
+        rebuild.run_progress([str(script)], job, "mksquashfs", 0, 1)
+
+
+@needs_tools
+def test_default_work_dir_is_next_to_image_and_removed(image: Path, tmp_path: Path, monkeypatch):
+    """Sans tmp_dir, le travail se fait à côté de l'image (même disque) ;
+    le dossier caché disparaît ensuite."""
+    seen = []
+    real = rebuild._build_extract
+
+    def spy(settings, image_, part, work, changes, job):
+        seen.append(work)
+        real(settings, image_, part, work, changes, job)
+
+    monkeypatch.setattr(rebuild, "_build_extract", spy)
+    settings = Settings(rebuild_mode="extract")
+    rebuild.rebuild(settings, image, Changes(write={"autorun.cmd": b"CMD=x\r\n"}))
+    assert seen[0].parent == image.parent / ".wsquashfs-manager"
+    assert not (image.parent / ".wsquashfs-manager").exists()
+
+
+def test_fallback_reason_is_explained(monkeypatch, tmp_path):
+    monkeypatch.setattr(rebuild.Path, "exists", lambda self: str(self) != "/dev/fuse")
+    assert "/dev/fuse absent" in rebuild.fuse_missing(Settings())

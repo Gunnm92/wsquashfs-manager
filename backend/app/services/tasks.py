@@ -1,183 +1,290 @@
-"""File de tâches (SPEC § 4).
+"""File de tâches persistante (SPEC § 4).
 
-- exécution en arrière-plan, `task_concurrency` tâches à la fois ;
-- jamais deux tâches actives sur la même image ;
-- état sur disque (`<data_dir>/tasks.json`) : une tâche interrompue par un
-  redémarrage est remise en attente (son `.part` est supprimé par la
-  reconstruction suivante) ;
+- exécution en arrière-plan, concurrence limitée (1 par défaut) ;
+- une seule tâche active (en attente ou en cours) par image ;
+- état sur disque : une tâche interrompue par un redémarrage est remise en
+  attente et son ``.part`` supprimé ;
 - annulation : une tâche en attente est retirée, une tâche en cours est
-  interrompue (mksquashfs arrêté, `.part` supprimé).
+  arrêtée (le ``.part`` est nettoyé par la reconstruction).
+
+Les gestionnaires (`handlers`) reçoivent la tâche et un `Job` ; ils lèvent
+`RebuildError` en cas d'échec et retournent un message de fin facultatif.
 """
 
 from __future__ import annotations
 
+import fcntl
 import json
+import os
+import secrets
 import threading
 import time
-import uuid
 from collections.abc import Callable
 from pathlib import Path
 
 from ..models import Task, TaskStatus
-from .rebuild import Cancelled, Context
+from .rebuild import Job, RebuildCancelled, RebuildError, part_path
+from .scan import _write_atomic
 
-_ACTIVE = (TaskStatus.PENDING, TaskStatus.RUNNING)
-_MAX_LOG = 500
-_KEEP_FINISHED = 200
+Handler = Callable[[Task, Job], str | None]
 
-Runner = Callable[[Task, Context], None]
+ACTIVE = (TaskStatus.PENDING, TaskStatus.RUNNING)
+_HISTORY_LIMIT = 500        # tâches terminées conservées
 
 
-class Busy(Exception):
+class TaskConflict(RuntimeError):
     """Une tâche est déjà active sur cette image."""
 
 
+class QueueLocked(RuntimeError):
+    """Une autre instance du manager utilise déjà cette file."""
+
+
 class TaskQueue:
-    def __init__(self, state_file: Path, runners: dict[str, Runner], concurrency: int = 1):
+    def __init__(self, state_file: Path, handlers: dict[str, Handler], concurrency: int = 1,
+                 night_now: Callable[[], bool] = lambda: True):
         self.state_file = state_file
-        self.runners = runners
+        # Journal permanent des tâches terminées : historique de chaque image,
+        # conservé quand on efface la liste des tâches
+        self.history_file = state_file.with_name("history.jsonl")
+        self.handlers = handlers
         self.concurrency = max(1, concurrency)
+        # Vrai pendant la plage horaire des tâches « de nuit »
+        self.night_now = night_now
         self._tasks: dict[str, Task] = {}
-        self._cancels: dict[str, threading.Event] = {}
-        self._lock = threading.Lock()
-        self._wake = threading.Condition(self._lock)
-        self._started = False
-        self._load()
+        self._jobs: dict[str, Job] = {}
+        self._cond = threading.Condition(threading.RLock())
+        self._threads: list[threading.Thread] = []
+        self._stopping = False
 
-    # ------------------------------------------------------------ état disque
+    # -------------------------------------------------------------- état
 
-    def _load(self) -> None:
+    def lock(self) -> None:
+        """Verrou exclusif sur la file : deux instances prendraient la même
+        tâche et reconstruiraient la même image en même temps. Libéré à la
+        fin du processus (y compris en cas de plantage)."""
+        self.state_file.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(self.state_file.with_suffix(".lock"), os.O_RDWR | os.O_CREAT, 0o644)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            os.close(fd)
+            raise QueueLocked(f"une autre instance utilise déjà {self.state_file}") from None
+        self._lock_fd = fd
+
+    def load(self) -> None:
+        """Relit l'état ; une tâche « en cours » a été interrompue."""
         try:
             data = json.loads(self.state_file.read_text())
-        except (OSError, json.JSONDecodeError):
-            return
-        for raw in data.get("tasks", []):
-            t = Task.model_validate(raw)
-            if t.status == TaskStatus.RUNNING:
-                t.status = TaskStatus.PENDING
-                t.progress = 0.0
-                t.log.append("interrompue par un redémarrage : remise en attente")
-            self._tasks[t.id] = t
+        except (OSError, ValueError):
+            data = []
+        with self._cond:
+            for raw in data:
+                try:
+                    task = Task.model_validate(raw)
+                except ValueError:
+                    continue
+                if task.status == TaskStatus.RUNNING:
+                    task.status = TaskStatus.PENDING
+                    task.progress, task.phase = 0.0, ""
+                    task.log.append("Interrompue par un redémarrage : remise en attente")
+                    if task.image_path:
+                        part_path(Path(task.image_path)).unlink(missing_ok=True)
+                self._tasks[task.id] = task
+            self._save()
 
     def _save(self) -> None:
-        """Appelé verrou pris."""
-        finished = sorted((t for t in self._tasks.values() if t.status not in _ACTIVE),
-                          key=lambda t: t.created_at)
-        for t in finished[:-_KEEP_FINISHED]:
-            del self._tasks[t.id]
-        self.state_file.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.state_file.with_suffix(".tmp")
-        tmp.write_text(json.dumps(
-            {"tasks": [t.model_dump(mode="json") for t in self._tasks.values()]}, indent=1))
-        tmp.replace(self.state_file)
+        with self._cond:
+            finished = sorted((t for t in self._tasks.values() if t.status not in ACTIVE),
+                              key=lambda t: t.created_at)
+            for old in finished[:-_HISTORY_LIMIT]:
+                del self._tasks[old.id]
+            text = json.dumps([t.model_dump(mode="json") for t in self._tasks.values()],
+                              indent=1)
+        _write_atomic(self.state_file, text)
 
-    # ------------------------------------------------------------ API
+    # -------------------------------------------------------------- API
 
-    def start(self) -> None:
-        with self._lock:
-            if self._started:
-                return
-            self._started = True
-        for _ in range(self.concurrency):
-            threading.Thread(target=self._worker, daemon=True).start()
-
-    def submit(self, kind: str, image: str | None, params: dict) -> Task:
-        if kind not in self.runners:
+    def submit(self, kind: str, image: str | None, image_path: Path | None,
+               params: dict, title: str = "", night: bool = False) -> Task:
+        if kind not in self.handlers:
             raise ValueError(f"type de tâche inconnu : {kind}")
-        with self._lock:
-            if image and any(t.image == image and t.status in _ACTIVE
-                             for t in self._tasks.values()):
-                raise Busy(f"une tâche est déjà en cours sur {image}")
-            t = Task(id=uuid.uuid4().hex[:12], kind=kind, image=image, params=params,
-                     created_at=time.time())
-            self._tasks[t.id] = t
+        with self._cond:
+            if image and self.active_for(image):
+                raise TaskConflict(f"une tâche est déjà en attente ou en cours pour {image}")
+            task = Task(id=secrets.token_hex(6), kind=kind, title=title, image=image,
+                        image_path=str(image_path) if image_path else None, params=params,
+                        night=night, created_at=time.time())
+            self._tasks[task.id] = task
             self._save()
-            self._wake.notify()
-        self.start()
-        return t
-
-    def list(self) -> list[Task]:
-        with self._lock:
-            return sorted((t.model_copy(deep=True) for t in self._tasks.values()),
-                          key=lambda t: t.created_at, reverse=True)
-
-    def get(self, task_id: str) -> Task | None:
-        with self._lock:
-            t = self._tasks.get(task_id)
-            return t.model_copy(deep=True) if t else None
+            self._cond.notify_all()
+            return task
 
     def active_for(self, image: str) -> Task | None:
-        with self._lock:
-            for t in self._tasks.values():
-                if t.image == image and t.status in _ACTIVE:
-                    return t.model_copy(deep=True)
-        return None
+        with self._cond:
+            return next((t for t in self._tasks.values()
+                         if t.image == image and t.status in ACTIVE), None)
 
-    def cancel(self, task_id: str) -> Task | None:
-        with self._lock:
-            t = self._tasks.get(task_id)
-            if t is None:
-                return None
-            if t.status == TaskStatus.PENDING:
-                t.status = TaskStatus.CANCELLED
-                t.finished_at = time.time()
+    def list(self, image: str | None = None) -> list[Task]:
+        with self._cond:
+            tasks = [t.model_copy(deep=True) for t in self._tasks.values()
+                     if image is None or t.image == image]
+        if image is not None:                 # fiche : ajouter le journal permanent
+            known = {t.id for t in tasks}
+            tasks += [t for t in self._history(image) if t.id not in known]
+        return sorted(tasks, key=lambda t: t.created_at, reverse=True)
+
+    def _history(self, image: str) -> list[Task]:
+        try:
+            lines = self.history_file.read_text().splitlines()
+        except OSError:
+            return []
+        out = []
+        for line in lines:
+            try:
+                task = Task.model_validate_json(line)
+            except ValueError:
+                continue
+            if task.image == image:
+                out.append(task)
+        return out
+
+    def _record(self, task: Task) -> None:
+        """Ajoute la tâche terminée au journal (journal abrégé aux 20
+        dernières lignes : l'historique sert à savoir ce qui a été fait)."""
+        entry = task.model_copy(update={"log": task.log[-20:]})
+        try:
+            with open(self.history_file, "a", encoding="utf-8") as f:
+                f.write(entry.model_dump_json() + "\n")
+        except OSError:
+            pass
+
+    def get(self, task_id: str) -> Task | None:
+        with self._cond:
+            task = self._tasks.get(task_id)
+            return task.model_copy(deep=True) if task else None
+
+    def cancel(self, task_id: str) -> Task:
+        with self._cond:
+            task = self._tasks.get(task_id)
+            if task is None:
+                raise KeyError(task_id)
+            if task.status == TaskStatus.PENDING:
+                task.status = TaskStatus.CANCELLED
+                task.finished_at = time.time()
+                task.log.append("Annulée avant démarrage")
+                self._record(task)
                 self._save()
-            elif t.status == TaskStatus.RUNNING:
-                self._cancels[t.id].set()       # le worker termine et enregistre
-                t.log.append("annulation demandée")
-            return t.model_copy(deep=True)
+            elif task.status == TaskStatus.RUNNING:
+                task.log.append("Annulation demandée")
+                self._jobs[task_id].cancel()
+            return task.model_copy(deep=True)
 
-    # ------------------------------------------------------------ exécution
+    def run_now(self, task_id: str) -> Task:
+        """Une tâche programmée la nuit démarre dès que possible."""
+        with self._cond:
+            task = self._tasks.get(task_id)
+            if task is None:
+                raise KeyError(task_id)
+            if task.status == TaskStatus.PENDING and task.night:
+                task.night = False
+                task.log.append("Programmation de nuit levée : lancement dès que possible")
+                self._save()
+                self._cond.notify_all()
+            return task.model_copy(deep=True)
 
-    def _next(self) -> Task:
-        with self._lock:
-            while True:
-                pending = sorted((t for t in self._tasks.values()
-                                  if t.status == TaskStatus.PENDING),
-                                 key=lambda t: t.created_at)
-                if pending:
-                    t = pending[0]
-                    t.status = TaskStatus.RUNNING
-                    t.started_at = time.time()
-                    self._cancels[t.id] = threading.Event()
-                    self._save()
-                    return t
-                self._wake.wait()
+    def clear_finished(self) -> int:
+        with self._cond:
+            done = [k for k, t in self._tasks.items() if t.status not in ACTIVE]
+            for k in done:
+                del self._tasks[k]
+            self._save()
+            return len(done)
+
+    # -------------------------------------------------------------- exécution
+
+    def start(self) -> None:
+        self._stopping = False
+        for i in range(self.concurrency):
+            thread = threading.Thread(target=self._worker, name=f"tâches-{i}", daemon=True)
+            thread.start()
+            self._threads.append(thread)
+
+    def stop(self) -> None:
+        with self._cond:
+            self._stopping = True
+            for job in self._jobs.values():
+                job.cancel()
+            self._cond.notify_all()
+        for thread in self._threads:
+            thread.join(timeout=10)
+        self._threads.clear()
+
+    def _next(self) -> Task | None:
+        """Plus ancienne tâche en attente dont l'image n'est pas déjà occupée ;
+        une tâche de nuit attend la plage horaire (réévalué toutes les 5 s)."""
+        busy = {t.image for t in self._tasks.values() if t.status == TaskStatus.RUNNING}
+        night = self.night_now()
+        pending = sorted((t for t in self._tasks.values() if t.status == TaskStatus.PENDING
+                          and (night or not t.night)), key=lambda t: t.created_at)
+        return next((t for t in pending if t.image is None or t.image not in busy), None)
 
     def _worker(self) -> None:
         while True:
-            t = self._next()
-            self.run_one(t)
-
-    def run_one(self, t: Task) -> None:
-        cancel = self._cancels.setdefault(t.id, threading.Event())
-        last_save = [0.0]
-
-        def log(msg: str) -> None:
-            with self._lock:
-                t.log.append(msg)
-                del t.log[:-_MAX_LOG]
+            with self._cond:
+                while not self._stopping and (task := self._next()) is None:
+                    self._cond.wait(timeout=5)
+                if self._stopping:
+                    return
+                assert task is not None
+                task.status = TaskStatus.RUNNING
+                task.started_at = time.time()
+                task.log.append("Démarrée")
+                job = Job(on_progress=lambda phase, f, t=task: self._progress(t, phase, f),
+                          on_log=lambda msg, t=task: self._log(t, msg))
+                self._jobs[task.id] = job
                 self._save()
+            self.run_one(task, job)
 
-        def progress(p: float) -> None:
-            with self._lock:
-                t.progress = p
-                if time.time() - last_save[0] > 2:      # pas une écriture par pourcent
-                    last_save[0] = time.time()
-                    self._save()
-
-        status, error = TaskStatus.DONE, None
+    def run_one(self, task: Task, job: Job) -> None:
+        """Exécute une tâche déjà marquée « en cours » (appelé par les workers)."""
         try:
-            self.runners[t.kind](t, Context(log=log, progress=progress, cancel=cancel))
-        except Cancelled:
-            status = TaskStatus.CANCELLED
-        except Exception as e:      # noqa: BLE001 — l'erreur va dans la tâche
-            status, error = TaskStatus.FAILED, str(e) or type(e).__name__
-        with self._lock:
-            t.status = status
-            t.error = error
-            if error:
-                t.log.append(f"échec : {error}")
-            t.finished_at = time.time()
-            self._cancels.pop(t.id, None)
+            message = self.handlers[task.kind](task, job)
+        except RebuildCancelled:
+            if self._stopping:
+                # Arrêt du service, pas demande de l'utilisateur : la tâche
+                # reprendra au prochain démarrage (SPEC § 4)
+                status, error = TaskStatus.PENDING, None
+                message = "Interrompue par l'arrêt du service : remise en attente"
+                task.progress, task.phase, task.started_at = 0.0, "", None
+            else:
+                status, error, message = TaskStatus.CANCELLED, None, "Annulée, image inchangée"
+        except RebuildError as exc:
+            status, error, message = TaskStatus.FAILED, str(exc), f"Échec : {exc}"
+        except Exception as exc:  # noqa: BLE001 — un bug ne doit pas tuer la file
+            status, error = TaskStatus.FAILED, f"erreur interne : {exc!r}"
+            message = f"Échec : {error}"
+        else:
+            status, error = TaskStatus.DONE, None
+            task.progress = 1.0
+        with self._cond:
+            task.status = status
+            task.error = error
+            task.finished_at = time.time() if status != TaskStatus.PENDING else None
+            if message:
+                task.log.append(message)
+            self._jobs.pop(task.id, None)
+            if status != TaskStatus.PENDING:
+                self._record(task)
             self._save()
+            self._cond.notify_all()
+
+    def _progress(self, task: Task, phase: str, fraction: float) -> None:
+        with self._cond:
+            if phase != task.phase:
+                task.log.append(f"Étape : {phase}")
+            task.phase, task.progress = phase, fraction
+
+    def _log(self, task: Task, message: str) -> None:
+        with self._cond:
+            task.log.append(message)

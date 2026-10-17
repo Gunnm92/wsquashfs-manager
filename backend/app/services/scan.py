@@ -11,22 +11,38 @@ avec repli squashfuse pour l'autorun si unsquashfs est absent.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 from ..config import Settings
 from ..models import ImageInfo, ImageState, ImageType, RunnerKind
-from .autorun import Autorun, unquote
+from .autorun import Autorun, decode_autorun, merge_override, override_path, unquote
 
 _CACHE_DIR = Path.home() / ".cache/wsquashfs-manager"
 _CACHE_VERSION = 2          # à incrémenter quand le contenu mis en cache change
 
 # Dossiers système du prefix : un dinput8.dll qui s'y trouve n'est pas un relais.
 _SYSTEM_DIRS = ("drive_c/windows/",)
+
+
+def _write_atomic(target: Path, text: str) -> None:
+    """Écriture atomique : la file de tâches et les requêtes écrivent en
+    parallèle, un lecteur ne doit jamais voir un fichier à moitié écrit."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=target.name + ".", suffix=".part")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+        os.replace(tmp, target)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 def image_id(image: Path, system: str | None) -> str:
@@ -38,6 +54,7 @@ def _find_images(roms_dirs: list[str], max_depth: int) -> list[tuple[Path, str |
     `max_depth` niveaux sous chaque dossier roms/. système = premier
     sous-dossier si l'image est dans roms/<système>/."""
     out: list[tuple[Path, str | None]] = []
+    seen: set[Path] = set()         # roms/ et roms/<système> cochés ensemble
     for d in roms_dirs:
         root = Path(d).expanduser()
         if not root.is_dir():
@@ -51,54 +68,80 @@ def _find_images(roms_dirs: list[str], max_depth: int) -> list[tuple[Path, str |
                 if f.startswith(".") or not f.endswith(".wsquashfs"):
                     continue
                 p = Path(cur) / f
+                if p.resolve() in seen:
+                    continue
+                seen.add(p.resolve())
                 rel = p.relative_to(root)
-                system = rel.parts[0] if len(rel.parts) > 1 else None
+                if len(rel.parts) > 1:
+                    system = rel.parts[0]
+                elif root.resolve().parent.name == "roms":
+                    # Dossier choisi = roms/<système> lui-même : même déduction
+                    # que le lanceur (batocera_saves_dir)
+                    system = root.resolve().name
+                else:
+                    system = None
                 out.append((p, system))
     return out
 
 
-def unsquashfs_cat(settings: Settings, image: Path, member: str) -> bytes | None:
+def _unsquashfs_cat(settings: Settings, image: Path, member: str) -> bytes | None:
     if not shutil.which(settings.unsquashfs):
         return None
     try:
         r = subprocess.run([settings.unsquashfs, "-cat", str(image), member],
-                           capture_output=True, timeout=60)
+                           capture_output=True, timeout=60, check=False)
     except (subprocess.TimeoutExpired, OSError):
         return None
     return r.stdout if r.returncode == 0 else None
 
 
+def _unsquashfs_ok(settings: Settings, image: Path) -> bool:
+    """Superbloc et table lisibles (`unsquashfs -s`)."""
+    try:
+        return subprocess.run([settings.unsquashfs, "-s", str(image)], capture_output=True,
+                              timeout=60, check=False).returncode == 0
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+
+
 def read_autorun_bytes(settings: Settings, image: Path) -> bytes | None:
-    """Lit l'autorun sans montage complet, tel quel (l'encodage est conservé
-    à la réécriture).
+    """Lit l'autorun sans montage complet, octets bruts (l'encodage est
+    conservé à la réécriture).
 
     1) `unsquashfs -cat <image> autorun.cmd` (sans montage) ;
     2) repli : squashfuse + lecture du fichier.
-    Retourne le contenu, ou None.
-    """
-    data = unsquashfs_cat(settings, image, "autorun.cmd")
-    if data:
+    Retourne None s'il n'y a pas d'autorun."""
+    data = _unsquashfs_cat(settings, image, "autorun.cmd")
+    if data is not None:
         return data
-    if shutil.which(settings.squashfuse):
-        mnt = _CACHE_DIR / "mnt" / image.stem
-        mnt.mkdir(parents=True, exist_ok=True)
+    if shutil.which(settings.unsquashfs) or not shutil.which(settings.squashfuse):
+        return None             # unsquashfs a répondu : pas d'autorun dans l'image
+    _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    mnt = Path(tempfile.mkdtemp(prefix="autorun-", dir=_CACHE_DIR))
+    try:
+        subprocess.run([settings.squashfuse, "-o", "ro", str(image), str(mnt)],
+                       check=True, timeout=30, capture_output=True)
+        p = mnt / "autorun.cmd"
+        return p.read_bytes() if p.exists() else None
+    except (subprocess.SubprocessError, OSError):
+        return None
+    finally:
+        for tool in ("fusermount3", "fusermount"):
+            try:
+                if subprocess.run([tool, "-u", str(mnt)], capture_output=True,
+                                  timeout=10, check=False).returncode == 0:
+                    break
+            except OSError:
+                continue
         try:
-            subprocess.run([settings.squashfuse, "-o", "ro", str(image), str(mnt)],
-                           check=True, timeout=30)
-            p = mnt / "autorun.cmd"
-            if p.exists():
-                return p.read_bytes()
-        except (subprocess.SubprocessError, OSError):
+            mnt.rmdir()
+        except OSError:
             pass
-        finally:
-            for tool in ("fusermount3", "fusermount"):
-                try:
-                    if subprocess.run([tool, "-u", str(mnt)], capture_output=True,
-                                      timeout=10).returncode == 0:
-                        break
-                except OSError:
-                    continue
-    return None
+
+
+def _read_autorun_from_image(settings: Settings, image: Path) -> str | None:
+    data = read_autorun_bytes(settings, image)
+    return decode_autorun(data)[0] if data is not None else None
 
 
 def parse_listing(text: str) -> list[str]:
@@ -113,17 +156,41 @@ def parse_listing(text: str) -> list[str]:
     return out
 
 
-def list_files(settings: Settings, image: Path) -> list[str]:
+def _list_files_uncached(settings: Settings, image: Path) -> list[str] | None:
     if not shutil.which(settings.unsquashfs):
-        return []
+        return None
     try:
         r = subprocess.run([settings.unsquashfs, "-l", str(image)],
-                           capture_output=True, timeout=120)
+                           capture_output=True, timeout=120, check=False)
     except (subprocess.TimeoutExpired, OSError):
-        return []
+        return None
     if r.returncode != 0:
-        return []
+        return None
     return parse_listing(r.stdout.decode("utf-8", errors="replace"))
+
+
+def _list_files(settings: Settings, image: Path) -> list[str]:
+    """Arborescence de l'image, mise en cache par (taille, mtime) : un prefix
+    compte des dizaines de milliers d'entrées, relues à chaque validation
+    d'autorun et à chaque aperçu d'action en masse."""
+    try:
+        stat = image.stat()
+    except OSError:
+        return []
+    key = hashlib.sha1(str(image).encode()).hexdigest()
+    cache_file = _CACHE_DIR / "listings" / f"{key}.json"
+    try:
+        cached = json.loads(cache_file.read_text())
+        if cached["size"] == stat.st_size and cached["mtime"] == stat.st_mtime:
+            return cached["files"]
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    files = _list_files_uncached(settings, image)
+    if files is None:
+        return []
+    _write_atomic(cache_file, json.dumps({"size": stat.st_size, "mtime": stat.st_mtime,
+                                          "files": files}))
+    return files
 
 
 def detect_type(files: list[str]) -> ImageType:
@@ -147,7 +214,7 @@ def _fakeping_candidates(files: list[str]) -> list[str]:
 
 def _has_fakeping(settings: Settings, image: Path, files: list[str]) -> bool:
     for member in _fakeping_candidates(files):
-        data = unsquashfs_cat(settings, image, member)
+        data = _unsquashfs_cat(settings, image, member)
         if data and b"fakeping" in data:
             return True
     return False
@@ -190,6 +257,12 @@ def is_in_use(stem: str, prefixes: set[str], mounts: list[str]) -> bool:
     return any(pat.search(p) for p in prefixes) or any(pat.search(m) for m in mounts)
 
 
+def image_in_use(image: Path) -> bool:
+    """Test « jeu en cours » à l'instant (avant une reconstruction, avant
+    l'échange final) ; le scan, lui, lit /proc une fois pour toutes."""
+    return is_in_use(image.stem, _running_prefixes(), _mount_points())
+
+
 def _saves_size(settings: Settings, stem: str) -> tuple[bool, int]:
     d = settings.saves_dir / stem
     if not d.is_dir():
@@ -213,6 +286,12 @@ def _apply_dynamic(settings: Settings, info: ImageInfo, prefixes: set[str],
     info.extras = [e for e in info.extras if e != ".keys"]
     if image.with_name(image.name + ".keys").exists():    # fichier À CÔTÉ de l'image
         info.extras.insert(0, ".keys")
+    # Surcharge <jeu>.wsquashfs.autorun : valeurs effectives (comme le lanceur)
+    override = read_override(image)
+    info.override = sorted({k for k, _, _ in override.items()}) if override else []
+    if override is not None:
+        base = _read_autorun_from_image(settings, image)
+        _autorun_fields(info, merge_override(Autorun.parse(base) if base else None, override))
     if is_in_use(image.stem, prefixes, mounts):
         info.state = ImageState.IN_USE
     elif info.has_old:
@@ -224,13 +303,46 @@ def _apply_dynamic(settings: Settings, info: ImageInfo, prefixes: set[str],
 
 # ----------------------------------------------------------------- scan
 
+def _autorun_fields(info: ImageInfo, a: Autorun) -> None:
+    """Champs de la bibliothèque tirés de l'autorun (celui de l'image, ou
+    l'autorun effectif quand une surcharge existe)."""
+    version = a.get("GAME_VERSION")
+    info.version = unquote(version.strip()) if version else None
+    info.wine = a.get("WINE")
+    info.proton = a.get("PROTON")
+    info.runner = RunnerKind.DEFAULT
+    if a.get("RUNNER"):
+        info.runner = RunnerKind.CUSTOM
+    elif info.proton:
+        info.runner = RunnerKind.PROTON
+    elif info.wine:
+        info.runner = RunnerKind.WINE
+    info.cmd = a.get("CMD")
+    info.dir = a.get("DIR")
+    hidraw = a.get("HIDRAW")
+    # 1 : pont USB ; bt : hidraw direct (wsquashfs-launcher, 02/10)
+    info.hidraw = (hidraw.strip().lower() in ("1", "bt")) if hidraw is not None else None
+    # DXVK/VKD3D actifs par défaut dans le lanceur : seul "0" les coupe
+    info.dxvk = (a.get("DXVK") or "1").strip() != "0"
+    info.vkd3d = (a.get("VKD3D") or "1").strip() != "0"
+    info.xinput = info.hidraw is not True
+
+
+def read_override(image: Path) -> Autorun | None:
+    try:
+        data = override_path(image).read_bytes()
+    except OSError:
+        return None
+    return Autorun.parse(decode_autorun(data)[0])
+
+
 def scan_image(settings: Settings, image: Path, system: str | None) -> ImageInfo:
     """Contenu de l'image (mis en cache) ; l'état dynamique est ajouté par
     scan_all."""
     stat = image.stat()
-    autorun_data = read_autorun_bytes(settings, image)
-    files = list_files(settings, image)
-    a = Autorun.parse(autorun_data) if autorun_data else None
+    autorun_text = _read_autorun_from_image(settings, image)
+    files = _list_files(settings, image)
+    a = Autorun.parse(autorun_text) if autorun_text else None
 
     info = ImageInfo(
         id=image_id(image, system),
@@ -242,24 +354,7 @@ def scan_image(settings: Settings, image: Path, system: str | None) -> ImageInfo
         type=detect_type(files),
     )
     if a:
-        version = a.get("GAME_VERSION")
-        info.version = unquote(version.strip()) if version else None
-        info.wine = a.get("WINE")
-        info.proton = a.get("PROTON")
-        if a.get("RUNNER"):
-            info.runner = RunnerKind.CUSTOM
-        elif info.proton:
-            info.runner = RunnerKind.PROTON
-        elif info.wine:
-            info.runner = RunnerKind.WINE
-        info.cmd = a.get("CMD")
-        info.dir = a.get("DIR")
-        hidraw = a.get("HIDRAW")
-        info.hidraw = (hidraw.strip() == "1") if hidraw is not None else None
-        # DXVK/VKD3D actifs par défaut dans le lanceur : seul "0" les coupe
-        info.dxvk = (a.get("DXVK") or "1").strip() != "0"
-        info.vkd3d = (a.get("VKD3D") or "1").strip() != "0"
-    info.xinput = info.hidraw is not True
+        _autorun_fields(info, a)
     if _has_fakeping(settings, image, files):
         info.extras.append("fakeping")
     return info
@@ -289,6 +384,8 @@ def scan_all(settings: Settings, force: bool = False) -> list[ImageInfo]:
         entry = entries.get(key)
         if entry and entry.get("size") == stat.st_size and entry.get("mtime") == stat.st_mtime:
             info = ImageInfo.model_validate(entry["info"])
+            # Le système dépend du dossier choisi, pas du contenu de l'image
+            info.system, info.id = system, image_id(image, system)
         else:
             info = scan_image(settings, image, system)
         new_entries[key] = {
@@ -298,7 +395,6 @@ def scan_all(settings: Settings, force: bool = False) -> list[ImageInfo]:
         }
         results.append(_apply_dynamic(settings, info, prefixes, mounts))
 
-    _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    cache_file.write_text(json.dumps({"version": _CACHE_VERSION, "images": new_entries},
-                                     indent=1))
+    _write_atomic(cache_file, json.dumps({"version": _CACHE_VERSION, "images": new_entries},
+                                         indent=1))
     return results

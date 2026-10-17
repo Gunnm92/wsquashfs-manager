@@ -5,900 +5,1652 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>wsquashfs-manager</title>
 <style>
-  :root { color-scheme: dark; }
-  body { font-family: system-ui, sans-serif; margin: 0; background: #14161a; color: #d8dbe0; }
-  header { padding: 1rem 1.5rem; border-bottom: 1px solid #2a2e35; display: flex; gap: 1rem; align-items: center; }
-  h1 { font-size: 1.1rem; margin: 0; }
-  h2 { font-size: 1rem; margin: 0 0 0.8rem; }
-  h3 { font-size: 0.9rem; margin: 1rem 0 0.5rem; color: #8b919c; font-weight: 500; }
-  main { padding: 1.5rem; max-width: 1200px; margin: 0 auto; }
-  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-  th, td { text-align: left; padding: 0.5rem 0.7rem; border-bottom: 1px solid #2a2e35; }
-  th { color: #8b919c; font-weight: 500; }
-  #rows tr { cursor: pointer; }
-  tr:hover td, tr.selected td { background: #1c1f25; }
-  .badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 4px; font-size: 0.75rem; background: #2a2e35; }
-  .badge.warn { background: #5a4620; }
-  .badge.err { background: #5a2020; }
-  .badge.ok { background: #1f4a2e; }
-  button { background: #2d6cdf; color: white; border: 0; padding: 0.4rem 0.9rem; border-radius: 6px; cursor: pointer; font: inherit; }
-  button.secondary { background: #2a2e35; }
-  button.danger { background: #8a2b2b; }
-  button:disabled { opacity: 0.5; cursor: default; }
-  .muted { color: #8b919c; }
-  input, textarea { background: #1c1f25; color: inherit; border: 1px solid #2a2e35; border-radius: 6px; padding: 0.4rem 0.6rem; font: inherit; }
-  textarea { width: 100%; box-sizing: border-box; min-height: 18rem; font-family: ui-monospace, monospace; font-size: 0.85rem; }
-  #login { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1rem; }
-  [hidden] { display: none !important; }
-  .panel { border: 1px solid #2a2e35; border-radius: 8px; padding: 1rem 1.2rem; margin-bottom: 1.5rem; background: #171a1f; }
-  .panel-head { display: flex; gap: 1rem; align-items: center; justify-content: space-between; }
-  .info { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: 0.4rem 1.5rem; font-size: 0.9rem; }
-  .info b { color: #8b919c; font-weight: 500; margin-right: 0.4rem; }
-  .tabs { display: flex; gap: 0.3rem; margin: 1rem 0 0.8rem; border-bottom: 1px solid #2a2e35; }
-  .tabs button { background: none; color: #8b919c; border-radius: 6px 6px 0 0; }
-  .tabs button.active { background: #2a2e35; color: #d8dbe0; }
-  .form { display: grid; grid-template-columns: 10rem 1fr; gap: 0.5rem 1rem; align-items: start; }
-  .form label { padding-top: 0.4rem; font-family: ui-monospace, monospace; font-size: 0.85rem; }
-  .form input { width: 100%; box-sizing: border-box; }
-  .form .help { font-size: 0.78rem; color: #8b919c; margin-top: 0.2rem; }
-  .actions { display: flex; gap: 0.5rem; align-items: center; margin-top: 1rem; flex-wrap: wrap; }
-  ul.issues { margin: 0.5rem 0; padding-left: 1.2rem; font-size: 0.85rem; }
-  ul.issues li.warn { color: #e0b864; }
-  ul.issues li.error, ul.issues li.blocker { color: #e07a7a; }
-  pre { background: #1c1f25; border-radius: 6px; padding: 0.6rem 0.8rem; overflow-x: auto; font-size: 0.82rem; margin: 0.5rem 0; }
-  pre .add { color: #7fcf8f; } pre .del { color: #e07a7a; }
-  #files-list { max-height: 24rem; overflow: auto; font-family: ui-monospace, monospace; font-size: 0.82rem; }
-  .progress { height: 6px; background: #2a2e35; border-radius: 3px; overflow: hidden; width: 10rem; display: inline-block; vertical-align: middle; }
-  .progress > div { height: 100%; background: #2d6cdf; }
-  .task-log { font-size: 0.78rem; margin: 0.3rem 0 0; white-space: pre-wrap; }
-  .filters { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.8rem; font-size: 0.9rem; }
-  select { background: #1c1f25; color: inherit; border: 1px solid #2a2e35; border-radius: 6px; padding: 0.4rem 0.5rem; font: inherit; }
-  th[data-sort] { cursor: pointer; user-select: none; }
-  th[data-sort].asc::after { content: " ▲"; } th[data-sort].desc::after { content: " ▼"; }
-  #m-ops li { color: inherit; }
-  #m-ops button { padding: 0 0.4rem; margin-left: 0.5rem; }
-  details summary { cursor: pointer; }
-  dialog { background: #171a1f; color: inherit; border: 1px solid #2a2e35; border-radius: 8px; width: min(40rem, calc(100vw - 2rem)); padding: 1rem 1.2rem; }
-  dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
-  #p-list { max-height: 50vh; overflow: auto; margin: 0.5rem 0; }
-  #p-list div { padding: 0.35rem 0.5rem; border-radius: 4px; cursor: pointer; }
-  #p-list div:hover { background: #2a2e35; }
-  #c-cands tr { cursor: pointer; }
-  #c-cands input { margin: 0; }
-  @media (max-width: 700px) {
-    main { padding: 1rem; }
-    .form { grid-template-columns: 1fr; }
-    .form label { padding-top: 0; }
-    #library { display: block; overflow-x: auto; }
-  }
+:root {
+  color-scheme: dark;
+  --bg: #14161a; --panel: #1a1d22; --raised: #22262d; --line: #2c313a;
+  --text: #d8dbe0; --muted: #8b919c; --accent: #3b7cf0; --accent-2: #2d6cdf;
+  --ok: #4caf7d; --warn: #e0bb75; --warn-bg: #4a3b1c; --err: #e57373; --err-bg: #4a2224;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans-serif; }
+button, select, input, textarea { font: inherit; color: inherit; }
+button { border: 0; border-radius: 6px; background: var(--accent-2); padding: .4rem .8rem; cursor: pointer; }
+button:hover { background: var(--accent); }
+button.secondary { background: var(--raised); }
+button.secondary:hover { background: #2d323b; }
+button.danger { background: #8e3b3b; }
+button:disabled { opacity: .5; cursor: default; }
+select, input, textarea { background: var(--raised); border: 1px solid var(--line); border-radius: 6px; padding: .35rem .5rem; }
+textarea { font: 12px/1.5 var(--mono); width: 100%; resize: vertical; }
+h1, h2, h3 { margin: 0; font-weight: 600; }
+h1 { font-size: 1.05rem; } h2 { font-size: 1rem; } h3 { font-size: .9rem; margin: 1rem 0 .4rem; color: var(--muted); }
+.muted { color: var(--muted); }
+.mono { font-family: var(--mono); font-size: 12px; }
+.row { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+.spacer { flex: 1; }
+
+header { display: flex; align-items: center; gap: .8rem; padding: .7rem 1.2rem; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); z-index: 5; }
+main { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; padding: 1rem 1.2rem 14rem; }
+main.with-detail { grid-template-columns: minmax(0, 1fr) 460px; }
+@media (max-width: 1100px) { main.with-detail { grid-template-columns: 1fr; } }
+
+.toolbar { margin-bottom: .7rem; }
+.toolbar input[type=search] { min-width: 14rem; }
+.selection { background: #1d2a40; border: 1px solid #2d4570; border-radius: 6px; padding: .4rem .7rem; margin-bottom: .7rem; }
+
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; }
+th, td { padding: .4rem .5rem; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 500; white-space: nowrap; cursor: pointer; user-select: none; position: sticky; top: 0; background: var(--bg); }
+th.nosort { cursor: default; }
+th .dir { font-size: .7rem; }
+tbody tr { cursor: pointer; }
+tbody tr:hover td { background: var(--panel); }
+tbody tr.current td { background: #1d2a40; }
+td.cmd { max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 12px; }
+td.num { text-align: right; white-space: nowrap; }
+
+.badge { display: inline-block; border-radius: 4px; padding: .05rem .4rem; font-size: .75rem; background: var(--raised); white-space: nowrap; }
+.badge.warn { background: var(--warn-bg); color: var(--warn); }
+.badge.err { background: var(--err-bg); color: var(--err); }
+.badge.ok { background: #1f3a2c; color: var(--ok); }
+.badge.info { background: #1d2a40; color: #8fb4f5; }
+
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 1rem; }
+#detail { position: sticky; top: 3.6rem; align-self: start; max-height: calc(100vh - 5rem); overflow-y: auto; }
+.tabs { display: flex; gap: .2rem; border-bottom: 1px solid var(--line); margin: .8rem 0; }
+.tabs button { background: none; border-radius: 6px 6px 0 0; color: var(--muted); padding: .4rem .7rem; }
+.tabs button.active { color: var(--text); background: var(--raised); }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: .3rem .8rem; margin: 0; }
+dt { color: var(--muted); } dd { margin: 0; overflow-wrap: anywhere; }
+.notice { border-radius: 6px; padding: .6rem .7rem; margin: .6rem 0; }
+.notice.warn { background: var(--warn-bg); color: var(--warn); }
+.notice.err { background: var(--err-bg); color: var(--err); }
+.notice.info { background: #1d2a40; color: #b8cdf5; }
+ul.issues { margin: .4rem 0; padding-left: 1.2rem; color: var(--warn); }
+ul.issues li.error { color: var(--err); }
+
+.form-grid { display: grid; grid-template-columns: max-content 1fr; gap: .35rem .6rem; align-items: center; }
+.form-grid label { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.form-grid label.set { color: var(--text); }
+.form-grid input { width: 100%; font-family: var(--mono); font-size: 12px; }
+.form-grid .help { grid-column: 2; font-size: .75rem; color: var(--muted); margin-top: -.25rem; }
+
+.files { max-height: 50vh; overflow: auto; font: 12px/1.5 var(--mono); white-space: pre; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: .5rem; }
+
+#tasks { position: fixed; left: 0; right: 0; bottom: 0; background: var(--panel); border-top: 1px solid var(--line); z-index: 6; }
+#tasks .head { padding: .5rem 1.2rem; cursor: pointer; }
+#tasks .body { max-height: 32vh; overflow-y: auto; padding: 0 1.2rem .8rem; }
+#tasks.collapsed .body { display: none; }
+.task { border-top: 1px solid var(--line); padding: .45rem 0; }
+.task .log { font: 11px/1.4 var(--mono); color: var(--muted); white-space: pre-wrap; margin: .3rem 0 0; display: none; }
+.task.open .log { display: block; }
+progress { width: 10rem; height: .55rem; accent-color: var(--accent); }
+
+dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 1.2rem; width: min(980px, 95vw); max-height: 90vh; }
+dialog::backdrop { background: rgba(0, 0, 0, .6); }
+dialog.small { width: min(460px, 95vw); }
+.op { display: grid; grid-template-columns: 9rem 11rem 1fr auto; gap: .5rem; margin-bottom: .5rem; align-items: start; }
+.op textarea { min-height: 6rem; }
+.diff { font: 12px/1.45 var(--mono); white-space: pre-wrap; margin: .3rem 0; }
+.diff .add { color: var(--ok); } .diff .del { color: var(--err); text-decoration: line-through; }
+.preview-item { border-top: 1px solid var(--line); padding: .5rem 0; }
+label.check { display: flex; gap: .5rem; align-items: flex-start; margin: .4rem 0; }
+label.check input { margin-top: .2rem; flex: none; }
+.views { display: flex; gap: .2rem; margin-left: 1rem; }
+.views button { background: none; color: var(--muted); }
+.views button.active { background: var(--raised); color: var(--text); }
+dialog.wide { width: min(1200px, 97vw); }
+.card { border: 1px solid var(--line); border-radius: 8px; padding: .8rem; margin: .7rem 0; background: var(--bg); }
+.card.off { opacity: .55; }
+.card .cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .8rem; margin-top: .5rem; }
+@media (max-width: 900px) { .card .cols { grid-template-columns: 1fr; } }
+.card textarea { min-height: 7rem; }
+.card select { max-width: 100%; }
+.items { font-size: .8rem; margin: .3rem 0; padding-left: 1rem; }
+.items li.default { color: var(--muted); }
+.conf-high { color: var(--ok); } .conf-medium { color: var(--warn); } .conf-low { color: var(--err); }
+pre.bat { font: 11px/1.4 var(--mono); background: var(--panel); padding: .4rem; border-radius: 6px; max-height: 8rem; overflow: auto; white-space: pre-wrap; }
+.sticky-bottom { position: sticky; bottom: -1.2rem; background: var(--panel); padding: .7rem 0; border-top: 1px solid var(--line); }
 </style>
 </head>
 <body>
 <header>
   <h1>wsquashfs-manager</h1>
+  <div class="views" id="views">
+    <button data-view="images" class="active">Images</button>
+    <button data-view="folders">Dossiers à empaqueter</button>
+  </div>
   <span id="status" class="muted"></span>
-  <span style="flex: 1"></span>
-  <button class="secondary" onclick="openCreate()">Créer une image</button>
-  <button class="secondary" onclick="openSettings()">Réglages</button>
-  <button onclick="load(true)">Rescanner</button>
+  <span class="spacer"></span>
+  <button class="secondary" id="btn-config" title="Dossiers roms/ à scanner">Réglages</button>
+  <button class="secondary" id="btn-refresh" title="Relit les images ajoutées ou modifiées (les autres viennent du cache)">Actualiser</button>
 </header>
-<main>
-  <form id="login" hidden>
-    <label for="password">Mot de passe</label>
-    <input id="password" type="password" autocomplete="current-password" required>
-    <button type="submit">Se connecter</button>
-    <span id="login-error" class="muted"></span>
-  </form>
 
-  <section id="settings" class="panel" hidden>
-    <div class="panel-head">
-      <h2>Réglages</h2>
-      <button class="secondary" onclick="$('settings').hidden = true">Fermer</button>
+<main id="main">
+  <section>
+    <div class="toolbar row">
+      <input type="search" id="f-search" placeholder="Rechercher un jeu, une commande…">
+      <select id="f-system"></select>
+      <select id="f-type"></select>
+      <select id="f-runner"></select>
+      <select id="f-pad">
+        <option value="">Toutes manettes</option><option value="hidraw">HIDRAW</option><option value="xinput">XInput</option>
+      </select>
+      <select id="f-special">
+        <option value="">Tous états</option><option value="noversion">Sans version</option>
+        <option value="old">Avec .old</option><option value="inuse">En cours</option>
+        <option value="noautorun">Sans autorun</option>
+        <option value="override">Avec surcharge</option>
+      </select>
     </div>
-    <h3>Dossiers roms/ à scanner</h3>
-    <ul id="s-roms" class="issues"></ul>
-    <button class="secondary" onclick="pickDir(null, p => { cfg.roms_dirs.push(p); renderSettings(); })">Ajouter un dossier…</button>
-    <h3>Dossiers</h3>
-    <div class="form">
-      <label for="s-saves">Sauvegardes</label>
-      <div class="filters"><input id="s-saves" style="flex: 1"><button class="secondary" onclick="pickDir($('s-saves').value, p => $('s-saves').value = p)">Parcourir…</button></div>
-      <label for="s-tmp">Temporaire</label>
-      <div class="filters"><input id="s-tmp" style="flex: 1"><button class="secondary" onclick="pickDir($('s-tmp').value, p => $('s-tmp').value = p)">Parcourir…</button></div>
+    <div class="selection row" id="selection" hidden>
+      <span id="sel-count"></span>
+      <button id="btn-mass">Modifier l'autorun…</button>
+      <button id="btn-files">Fichiers / registre…</button>
+      <button class="secondary" id="btn-verify">Vérifier</button>
+      <button class="secondary" id="btn-mass-validate">Valider les .old</button>
+      <button class="secondary" id="btn-mass-commit" title="Reconstruit chaque image avec son autorun effectif, puis supprime la surcharge">Inscrire les surcharges</button>
+      <button class="secondary" id="btn-saves-reset">Réinitialiser les sauvegardes</button>
+      <button class="secondary" id="btn-sel-clear">Désélectionner</button>
     </div>
-    <p class="muted" id="s-info"></p>
-    <div class="actions">
-      <button onclick="saveSettings()">Enregistrer</button>
-      <span id="s-msg" class="muted"></span>
+    <div class="table-wrap">
+      <table>
+        <thead><tr id="thead"></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
     </div>
   </section>
 
-  <section id="create" class="panel" hidden>
-    <div class="panel-head">
-      <h2>Créer une image</h2>
-      <button class="secondary" onclick="$('create').hidden = true">Fermer</button>
+  <aside id="detail" class="panel" hidden>
+    <div class="row">
+      <div><h2 id="d-title"></h2><span id="d-id" class="muted mono"></span></div>
+      <span class="spacer"></span>
+      <button class="secondary" id="d-close">Fermer</button>
     </div>
-    <p class="muted">Depuis un dossier : prefix Wine (<code>*.wine</code>) ou jeu seul. Le dossier n'est pas modifié ; l'autorun validé ci-dessous est placé dans l'image.</p>
-    <div class="filters">
-      <input id="c-folder" placeholder="/chemin/du/dossier" style="flex: 1">
-      <button class="secondary" onclick="pickDir($('c-folder').value, p => { $('c-folder').value = p; analyze(); })">Parcourir…</button>
-      <button onclick="analyze()">Analyser</button>
-    </div>
-    <p id="c-msg" class="muted"></p>
-    <div id="c-result" hidden>
-      <div id="c-info" class="info"></div>
-      <ul class="issues" id="c-warnings"></ul>
-      <h3>Exécutable</h3>
-      <table><tbody id="c-cands"></tbody></table>
-      <h3>Autorun</h3>
-      <textarea id="c-autorun" spellcheck="false" style="min-height: 9rem"></textarea>
-      <ul class="issues" id="c-issues"></ul>
-      <div id="c-sugg-box" hidden>
-        <h3>Suggestions des règles</h3>
-        <ul class="issues" id="c-sugg"></ul>
-      </div>
-      <h3>Destination</h3>
-      <div class="filters">
-        <select id="c-roms"></select>
-        <span class="muted">/</span>
-        <input id="c-system" list="c-systems" placeholder="système (ex. windows)" size="16">
-        <datalist id="c-systems"></datalist>
-        <span class="muted">/</span>
-        <input id="c-name" size="28">
-        <span class="muted">.wsquashfs</span>
-      </div>
-      <p class="muted" id="c-space"></p>
-      <div class="actions">
-        <button onclick="createImage()">Créer l'image</button>
-        <span id="c-create-msg" class="muted"></span>
-      </div>
-    </div>
-  </section>
-
-  <dialog id="picker">
-    <div class="panel-head">
-      <h2 id="p-path" style="word-break: break-all"></h2>
-    </div>
-    <div class="filters">
-      <input id="p-input" style="flex: 1" placeholder="aller à…">
-      <button class="secondary" onclick="browse($('p-input').value)">Aller</button>
-    </div>
-    <div id="p-list"></div>
-    <p class="muted" id="p-msg"></p>
-    <div class="actions">
-      <button onclick="pickDone()">Choisir ce dossier</button>
-      <button class="secondary" onclick="$('picker').close()">Annuler</button>
-    </div>
-  </dialog>
-
-  <section id="tasks" class="panel" hidden>
-    <h2>Tâches</h2>
-    <table><tbody id="task-rows"></tbody></table>
-  </section>
-
-  <section id="detail" class="panel" hidden>
-    <div class="panel-head">
-      <h2 id="d-title"></h2>
-      <button class="secondary" onclick="closeDetail()">Fermer</button>
-    </div>
-    <div id="d-info" class="info"></div>
-    <div id="d-old" class="actions" hidden>
-      <span class="badge warn">ancienne image (.old) présente</span>
-      <button onclick="oldAction('validate')">Valider la nouvelle</button>
-      <button class="danger" onclick="oldAction('revert')">Revenir à l'ancienne</button>
-    </div>
-    <div id="d-saves" class="actions" hidden>
-      <button class="secondary" onclick="resetSaves()">Réinitialiser les sauvegardes</button>
-    </div>
-    <div class="tabs">
-      <button data-tab="form" class="active">Autorun</button>
-      <button data-tab="raw">Texte brut</button>
+    <div id="d-old"></div>
+    <div class="tabs" id="d-tabs">
+      <button data-tab="info" class="active">Infos</button>
+      <button data-tab="autorun">Autorun</button>
+      <button data-tab="version">Version</button>
       <button data-tab="files">Fichiers</button>
+      <button data-tab="history">Historique</button>
     </div>
-    <div data-pane="form"><div id="ar-form" class="form"></div></div>
-    <div data-pane="raw" hidden>
-      <textarea id="ar-raw" spellcheck="false"></textarea>
-      <p class="muted" id="ar-format"></p>
+    <div data-pane="info">
+      <dl id="d-info"></dl>
+      <div class="row" style="margin-top:.8rem">
+        <button class="secondary" id="d-verify">Vérifier l'intégrité</button>
+        <button class="secondary" id="d-trial" title="Lance le jeu dans SteamBox, l'observe puis l'arrête : tient-il, fenêtre, erreurs, capture">Lancement d'essai</button>
+        <select id="d-trial-duration" title="Durée de l'essai"><option value="30">30 s</option><option value="60" selected>60 s</option><option value="120">2 min</option></select>
+        <button class="secondary" id="d-saves-reset">Réinitialiser les sauvegardes</button>
+      </div>
+    </div>
+    <div data-pane="autorun" hidden>
+      <div id="a-override-box"></div>
+      <p id="a-note" class="muted"></p>
+      <div class="tabs" id="a-tabs">
+        <button data-atab="form" class="active">Formulaire</button>
+        <button data-atab="raw">Texte brut</button>
+      </div>
+      <div data-apane="form"><div class="form-grid" id="a-form"></div></div>
+      <div data-apane="raw" hidden><textarea id="a-editor" rows="16" spellcheck="false"></textarea></div>
+      <div class="row" style="margin-top:.6rem">
+        <label class="muted">Fins de ligne
+          <select id="a-eol"><option value="crlf">CRLF</option><option value="lf">LF</option></select>
+        </label>
+        <span class="spacer"></span>
+        <button class="secondary" id="a-kb" title="Mémoriser un réglage validé pour ce jeu : appliqué aux prochaines propositions">Ajouter à la base…</button>
+        <button class="secondary" id="a-propose" title="Analyse de l'image (exécutables, règles, base de connaissances)">Proposer un autorun</button>
+        <button class="secondary" id="a-reset">Annuler</button>
+        <button class="secondary" id="a-check">Vérifier</button>
+        <button class="secondary" id="a-override" title="Écrit <jeu>.wsquashfs.autorun à côté de l'image : effet au prochain lancement, sans reconstruction (ignoré par Batocera)">Appliquer tout de suite</button>
+        <select id="a-when" class="when" title="Maintenant, ou pendant la plage de nuit (Réglages)"></select>
+        <button id="a-save">Reconstruire</button>
+      </div>
+      <ul class="issues" id="a-issues"></ul>
+      <div id="a-proposal"></div>
+      <div id="a-result"></div>
+    </div>
+    <div data-pane="version" hidden>
+      <p class="muted">Appliquer un nouveau build ou un patch (dossier sur le serveur) au dossier du jeu dans l'image. Aperçu d'abord ; l'original est gardé en .old.</p>
+      <label class="muted">Dossier source<input id="u-source" style="width:100%" placeholder="/config/Téléchargements/Jeu v1.2"></label>
+      <label class="muted">Point d'ancrage dans l'image<input id="u-anchor" style="width:100%" placeholder="(racine)"></label>
+      <label class="check"><input type="checkbox" id="u-delete"><span>Build complet : supprimer de l'image ce qui n'est plus dans la source</span></label>
+      <label class="check"><input type="checkbox" id="u-saves" checked><span>Mettre de côté les fichiers du jeu restés dans les sauvegardes (ils masqueraient la mise à jour)</span></label>
+      <label class="muted">Nouvelle version (GAME_VERSION)<input id="u-version" style="width:100%" placeholder="proposée d'après l'exécutable"></label>
+      <div class="row" style="margin-top:.6rem"><span class="spacer"></span>
+        <button class="secondary" id="u-preview">Aperçu</button>
+        <select class="when" id="u-when" title="Maintenant, ou pendant la plage de nuit (Réglages)"></select>
+        <button id="u-run" disabled>Mettre à jour</button></div>
+      <div id="u-result"></div>
     </div>
     <div data-pane="files" hidden>
-      <input id="files-q" placeholder="Rechercher un fichier…" style="width: 100%; box-sizing: border-box">
+      <input type="search" id="files-q" placeholder="Rechercher un fichier (casse ignorée)" style="width:100%">
       <p class="muted" id="files-count"></p>
-      <div id="files-list"></div>
+      <div class="files" id="files-list"></div>
     </div>
-    <div id="ar-check">
-      <ul class="issues" id="ar-issues"></ul>
-      <div id="ar-diff"></div>
-    </div>
-    <div class="actions" id="ar-actions">
-      <button id="ar-save" onclick="saveAutorun()" disabled>Reconstruire avec cet autorun</button>
-      <button class="secondary" onclick="resetAutorun()">Annuler les changements</button>
-      <span id="ar-msg" class="muted"></span>
-    </div>
-  </section>
-
-  <section id="mass" class="panel" hidden>
-    <div class="panel-head">
-      <h2 id="m-title"></h2>
-      <button class="secondary" onclick="clearSelection()">Vider la sélection</button>
-    </div>
-    <h3>Autorun</h3>
-    <div class="filters">
-      <select id="m-op">
-        <option value="set">Poser / modifier la clé</option>
-        <option value="remove">Retirer la clé</option>
-        <option value="template">Remplacer par un modèle</option>
-      </select>
-      <input id="m-key" placeholder="CLÉ" list="m-keys" size="14">
-      <datalist id="m-keys"></datalist>
-      <input id="m-value" placeholder="valeur" size="24">
-      <button class="secondary" onclick="addOp()">Ajouter l'opération</button>
-    </div>
-    <div id="m-template-box" hidden>
-      <textarea id="m-template" spellcheck="false" style="min-height: 8rem" placeholder="REM {name}&#10;DIR={DIR}&#10;CMD={CMD}"></textarea>
-      <p class="muted">Variables : <code>{name}</code>, <code>{system}</code> et les clés de l'autorun actuel (<code>{CMD}</code>, <code>{DIR}</code>, <code>{GAME_VERSION}</code>…). <code>{{</code> et <code>}}</code> pour des accolades.</p>
-    </div>
-    <ol id="m-ops" class="issues"></ol>
-    <div class="actions">
-      <button id="m-preview" onclick="massPreview()" disabled>Aperçu</button>
-      <button id="m-run" onclick="massRun()" hidden>Lancer</button>
-      <span id="m-msg" class="muted"></span>
-    </div>
-    <div id="m-result"></div>
-    <h3>Autres actions</h3>
-    <div class="actions">
-      <button class="secondary" onclick="massOld('validate')">Valider les .old</button>
-      <button class="secondary" onclick="massOld('revert')">Revenir aux .old</button>
-      <button class="secondary" onclick="massResetSaves()">Réinitialiser les sauvegardes</button>
-      <button class="secondary" onclick="massVerify()">Vérifier l'intégrité</button>
-    </div>
-    <div id="m-other"></div>
-  </section>
-
-  <div class="filters">
-    <input id="f-q" placeholder="Rechercher…" size="18">
-    <select id="f-system"><option value="">tous systèmes</option></select>
-    <select id="f-type"><option value="">tous types</option></select>
-    <select id="f-runner"><option value="">tous runners</option></select>
-    <select id="f-pad"><option value="">toutes manettes</option><option value="hidraw">HIDRAW</option><option value="xinput">XInput</option></select>
-    <label><input type="checkbox" id="f-noversion"> sans version</label>
-    <label><input type="checkbox" id="f-old"> a une .old</label>
-    <span id="f-count" class="muted"></span>
-  </div>
-  <table id="library">
-    <thead>
-      <tr>
-        <th><input type="checkbox" id="sel-all" title="Tout sélectionner (images affichées)"></th>
-        <th data-sort="name">Nom</th><th data-sort="system">Système</th><th data-sort="size">Taille</th>
-        <th data-sort="version">Version</th><th data-sort="type">Type</th>
-        <th data-sort="runner">Runner</th><th>Manettes</th><th data-sort="cmd">Commande</th><th>Extras</th>
-        <th data-sort="saves_size">Sauvegardes</th><th data-sort="state">État</th>
-      </tr>
-    </thead>
-    <tbody id="rows"></tbody>
-  </table>
+    <div data-pane="history" hidden><div id="d-history"></div></div>
+  </aside>
 </main>
+
+<main id="folders-main" hidden>
+  <section>
+    <p class="muted">Dossiers <code>*.pc</code> et <code>*.wine</code> des dossiers roms/ : analyse, autorun proposé et justifié, puis empaquetage en <code>.wsquashfs</code> (renommage en <code>.wine</code>, vérification) dans la file de tâches.</p>
+    <div class="toolbar row">
+      <input type="search" id="g-search" placeholder="Rechercher un dossier…">
+      <select id="g-system"></select>
+      <select id="g-state">
+        <option value="">Tous</option><option value="todo">À empaqueter</option>
+        <option value="noautorun">Sans autorun</option><option value="done">Déjà empaquetés</option>
+      </select>
+    </div>
+    <div class="selection row" id="g-selection" hidden>
+      <span id="g-count"></span>
+      <button id="g-review">Analyser et empaqueter…</button>
+      <button class="secondary" id="g-delete">Supprimer les dossiers déjà empaquetés</button>
+      <button class="secondary" id="g-clear">Désélectionner</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr id="g-head"><th class="nosort"><input type="checkbox" id="g-all"></th><th data-sort="system">Système</th><th data-sort="folder">Dossier</th><th data-sort="kind">Type</th><th data-sort="has_autorun">Autorun</th><th data-sort="image_exists">Image</th><th data-sort="task">Tâche</th></tr></thead>
+        <tbody id="g-rows"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<dialog id="dlg-pack" class="wide">
+  <div class="row"><h2>Empaqueter <span id="p-count"></span> dossier(s)</h2><span class="spacer"></span><span id="p-progress" class="muted"></span></div>
+  <p class="muted">Chaque proposition est justifiée et modifiable ; rien n'est écrit dans les dossiers (l'autorun choisi est injecté dans l'image). Les dossiers décochés sont ignorés.</p>
+  <div id="p-cards"></div>
+  <div class="sticky-bottom row">
+    <label><input type="checkbox" id="p-rename" checked> Renommer <code>.pc</code> en <code>.wine</code></label>
+    <label title="Seulement après vérification de l'image"><input type="checkbox" id="p-delete"> Supprimer le dossier après vérification</label>
+    <span class="spacer"></span>
+    <button class="secondary" data-close>Fermer</button>
+    <select id="p-when" class="when" title="Maintenant, ou pendant la plage de nuit (Réglages)"></select>
+    <button id="p-run" disabled>Empaqueter</button>
+  </div>
+  <div id="p-result"></div>
+</dialog>
+
+<section id="tasks" class="collapsed">
+  <div class="head row" id="tasks-head">
+    <strong>Tâches</strong><span id="tasks-summary" class="muted"></span>
+    <span class="spacer"></span>
+    <button class="secondary" id="tasks-clear">Effacer l'historique</button>
+  </div>
+  <div class="body" id="tasks-list"></div>
+</section>
+
+<dialog id="dlg-login" class="small">
+  <form method="dialog" id="login-form">
+    <h2>Connexion</h2>
+    <p class="muted">L'application réécrit les images : un mot de passe est requis.</p>
+    <input type="password" id="login-pw" autocomplete="current-password" style="width:100%" required>
+    <p id="login-err" class="notice err" hidden></p>
+    <div class="row" style="margin-top:.8rem"><span class="spacer"></span><button>Se connecter</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-config" class="small">
+  <h2>Systèmes à gérer</h2>
+  <p class="muted">Systèmes trouvés dans le dossier des roms (images <code>.wsquashfs</code> / dossiers <code>.pc</code>, <code>.wine</code>).</p>
+  <div id="cfg-systems" style="max-height:45vh;overflow:auto"></div>
+  <details style="margin-top:.6rem"><summary class="muted">Autres chemins (un par ligne)</summary>
+    <textarea id="cfg-dirs" rows="3" placeholder="/chemin/vers/roms/systeme"></textarea>
+  </details>
+  <h3>Tâches de nuit</h3>
+  <div class="row"><label class="muted">De <input type="time" id="cfg-night-start" required></label>
+    <label class="muted">à <input type="time" id="cfg-night-end" required></label>
+    <span class="muted">une tâche « cette nuit » ne démarre que dans cette plage</span></div>
+  <dl id="cfg-info" style="margin-top:.8rem"></dl>
+  <p id="cfg-err" class="notice err" hidden></p>
+  <div class="row" style="margin-top:.8rem"><span class="spacer"></span>
+    <button class="secondary" data-close>Fermer</button><button id="cfg-save">Enregistrer</button></div>
+</dialog>
+
+<dialog id="dlg-mass">
+  <h2>Modifier l'autorun de <span id="m-count"></span> image(s)</h2>
+  <p class="muted">Les opérations s'appliquent dans l'ordre, à l'autorun tel qu'il sera au moment de la reconstruction. Variables : <code>{name}</code> (nom de l'image), <code>{system}</code>.</p>
+  <div id="m-ops"></div>
+  <div class="row">
+    <button class="secondary" id="m-add">+ Opération</button>
+    <select id="m-target" title="Dans l'image : reconstruction. En surcharge : <jeu>.wsquashfs.autorun, effet immédiat (ignoré par Batocera)">
+      <option value="image">Dans l'image (reconstruction)</option>
+      <option value="override">En surcharge (immédiat)</option>
+    </select>
+    <span class="spacer"></span>
+    <button class="secondary" data-close>Fermer</button>
+    <button class="secondary" id="m-preview">Aperçu</button>
+    <select id="m-when" class="when" title="Maintenant, ou pendant la plage de nuit (Réglages)"></select>
+    <button id="m-run" disabled>Lancer</button>
+  </div>
+  <div id="m-result"></div>
+</dialog>
+
+<dialog id="dlg-files">
+  <h2>Fichiers et registre de <span id="f-count"></span> image(s)</h2>
+  <p class="muted">Sources : chemins de fichiers <strong>sur le serveur</strong>. Variables : <code>{exe_dir}</code> et <code>{exe_name}</code> (exécutable de CMD, casse de l'image), <code>{name}</code>, <code>{system}</code>.
+    Une valeur de registre est aussi posée dans la couche de sauvegardes du jeu si elle contient le fichier (Wine le réécrit à chaque partie).</p>
+  <div class="row" style="margin-bottom:.6rem">
+    <button class="secondary" id="f-preset-fakeping" title="dinput8.dll à côté de l'exécutable + DllOverrides propre à l'exécutable">Préréglage : relais fakeping</button>
+  </div>
+  <div id="f-ops"></div>
+  <div class="row">
+    <button class="secondary" data-add="copy">+ Ajouter un fichier</button>
+    <button class="secondary" data-add="delete">+ Supprimer</button>
+    <button class="secondary" data-add="reg">+ Valeur de registre</button>
+    <span class="spacer"></span>
+    <button class="secondary" data-close>Fermer</button>
+    <button class="secondary" id="f-preview">Aperçu</button>
+    <select id="f-when" class="when" title="Maintenant, ou pendant la plage de nuit (Réglages)"></select>
+    <button id="f-run" disabled>Lancer</button>
+  </div>
+  <div id="f-result"></div>
+</dialog>
+
+<dialog id="dlg-kb" class="small">
+  <h2>Ajouter à la base de connaissances</h2>
+  <p class="muted">Ce qui ne se déduit pas des fichiers : appliqué en priorité aux prochaines propositions d'autorun pour ce jeu (base locale, dans l'appdata).</p>
+  <label class="muted">Jeu (motif, casse ignorée, * accepté)<input id="kb-game" style="width:100%"></label>
+  <label class="row" style="margin-top:.5rem"><input type="checkbox" id="kb-prefer-on"> Exécutable à retenir : <code id="kb-prefer"></code></label>
+  <h3>Réglages à imposer</h3>
+  <div id="kb-keys" class="mono"></div>
+  <label class="muted">Pourquoi (note)<textarea id="kb-note" rows="3" placeholder="ex. écran noir sous DXVK, testé le …"></textarea></label>
+  <p id="kb-err" class="notice err" hidden></p>
+  <div class="row" style="margin-top:.8rem"><span class="spacer"></span>
+    <button class="secondary" data-close>Fermer</button><button id="kb-save">Ajouter</button></div>
+</dialog>
+
+<datalist id="known-keys"></datalist>
+
 <script>
+"use strict";
+
+// ------------------------------------------------------------------ état
+
+const state = {
+  items: [], byId: new Map(), selected: new Set(), current: null,
+  sort: { key: "name", dir: 1 }, keys: [], tasks: [],
+  autorun: null,          // dernière lecture de l'autorun de la fiche
+};
 const $ = (id) => document.getElementById(id);
-const fmt = (b) => b > 1e9 ? (b/1e9).toFixed(1)+" Go" : b > 1e6 ? (b/1e6).toFixed(0)+" Mo" : (b/1e3).toFixed(0)+" Ko";
-const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const dash = '<span class="muted">—</span>';
+const el = (tag, props = {}, ...children) => {
+  const node = Object.assign(document.createElement(tag), props);
+  node.append(...children.filter((c) => c !== null && c !== undefined && c !== false));
+  return node;
+};
+const badge = (text, kind = "") => el("span", { className: `badge ${kind}`, textContent: text });
+const size = (n) => n >= 1e9 ? `${(n / 1e9).toFixed(1)} Go` : n >= 1e6 ? `${(n / 1e6).toFixed(0)} Mo`
+  : n >= 1e3 ? `${(n / 1e3).toFixed(0)} Ko` : `${n} o`;
+const when = (t) => t ? new Date(t * 1000).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "";
+const storage = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { v === null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch { /* navigation privée */ } },
+};
 
-// Jeton (le mot de passe) gardé dans le navigateur, envoyé dans x-wsfs-token.
-const getToken = () => { try { return localStorage.getItem("wsfs-token") || ""; } catch { return ""; } };
-const setToken = (t) => { try { localStorage.setItem("wsfs-token", t); } catch {} };
-const api = (url, opts = {}) =>
-  fetch(url, { ...opts, headers: { ...(opts.headers || {}), "x-wsfs-token": getToken() } });
-const apiJson = (url, body) => api(url, {
-  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
-});
-const errText = async (r) => { try { return (await r.json()).detail || r.status; } catch { return r.status; } };
+// ------------------------------------------------------------------ API
 
-$("login").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const r = await fetch("/login", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ password: $("password").value }),
-  });
-  if (!r.ok) { $("login-error").textContent = "mot de passe refusé"; return; }
-  setToken((await r.json()).token);
-  $("login").hidden = true;
-  load(false);
-});
+let loginWaiters = null;
 
-// ------------------------------------------------------------ bibliothèque
-
-let library = [];
-
-async function load(refresh) {
-  const r = await api("/api/library" + (refresh ? "?refresh=true" : ""));
-  if (r.status === 401) {
-    $("status").textContent = "connexion requise";
-    $("login").hidden = false;
-    $("password").focus();
-    return;
+async function api(path, { method = "GET", body } = {}) {
+  const headers = { "x-wsfs-token": storage.get("wsfs-token") || "" };
+  if (body !== undefined) headers["content-type"] = "application/json";
+  // Délai maximal : une requête perdue en route (proxy, disque saturé par
+  // un empaquetage) ne doit pas laisser la page en attente sans fin
+  let response;
+  try {
+    response = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(120000) });
+  } catch (error) {
+    throw new Error(error.name === "TimeoutError" ? "le serveur n'a pas répondu en 2 minutes (réessayer)" : `connexion impossible : ${error.message}`);
   }
-  if (!r.ok) { $("status").textContent = "erreur API " + r.status; return; }
-  loadKeyHelp();
-  library = await r.json();
-  $("status").textContent = library.length + " images";
-  const known = new Set(library.map(i => i.id));
-  selected.forEach(id => { if (!known.has(id)) selected.delete(id); });
-  fillFilter("f-system", library.map(i => i.system).filter(Boolean));
-  fillFilter("f-type", library.map(i => i.type));
-  fillFilter("f-runner", library.map(i => i.runner));
-  renderRows();
-  if (current) {
-    const fresh = library.find(i => i.id === current.id);
-    if (fresh) { current = fresh; renderInfo(); }
+  if (response.status === 401 && path !== "/login") {
+    await askLogin();
+    return api(path, { method, body });
   }
-  loadTasks();
+  const data = await response.json().catch(() => ({}));
+  if (response.status === 404 && data.detail === "Not Found") {
+    // Route inconnue (pas une image inconnue) : le serveur sert une ancienne
+    // version de l'API alors que la page, elle, est à jour.
+    throw new Error("API introuvable : le serveur tourne sur une ancienne version, le redémarrer.");
+  }
+  if (!response.ok) {
+    const detail = Array.isArray(data.detail) ? data.detail.map((d) => d.msg).join(" ; ") : data.detail;
+    throw new Error(detail || `erreur ${response.status}`);
+  }
+  return data;
 }
 
-// Filtres et tri (côté navigateur : la bibliothèque est déjà chargée)
-let view = [];                  // images affichées, dans l'ordre
-let sortKey = "name", sortDir = 1;
-const selected = new Set();     // identifiants sélectionnés
+function askLogin() {
+  if (!loginWaiters) {
+    loginWaiters = [];
+    $("login-err").hidden = true;
+    $("dlg-login").showModal();
+  }
+  return new Promise((resolve) => loginWaiters.push(resolve));
+}
 
-function fillFilter(id, values) {
-  const sel = $(id), cur = sel.value;
-  const first = sel.options[0].outerHTML;
-  sel.innerHTML = first + [...new Set(values)].sort().map(v => `<option>${esc(v)}</option>`).join("");
-  sel.value = [...sel.options].some(o => o.value === cur) ? cur : "";
+$("login-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    const { token } = await api("/login", { method: "POST", body: { password: $("login-pw").value } });
+    storage.set("wsfs-token", token);
+    $("dlg-login").close();
+    const waiters = loginWaiters || [];
+    loginWaiters = null;
+    waiters.forEach((resolve) => resolve());
+  } catch (error) {
+    $("login-err").textContent = error.message;
+    $("login-err").hidden = false;
+  }
+});
+$("dlg-login").addEventListener("cancel", (event) => event.preventDefault());
+
+// ------------------------------------------------------------------ bibliothèque
+
+const TYPES = { wine_batocera: "prefix Wine", wine_proton: "prefix Proton", wine_other: "autre prefix",
+  game_only: "jeu seul", unknown: "inconnu" };
+const STATES = { ok: ["ok", "ok"], in_use: ["en cours", "err"], modified: ["tâche", "info"], has_old: [".old", "warn"] };
+
+const COLUMNS = [
+  { key: "select", label: "", nosort: true },
+  { key: "name", label: "Nom" },
+  { key: "system", label: "Système" },
+  { key: "size", label: "Taille", num: true },
+  { key: "version", label: "Version" },
+  { key: "type", label: "Type" },
+  { key: "runner", label: "Runner", value: (i) => runnerLabel(i) },
+  { key: "pad", label: "Manettes", value: (i) => i.hidraw ? "HIDRAW" : "XInput" },
+  { key: "cmd", label: "Commande" },
+  { key: "extras", label: "Extras", value: (i) => (i.extras || []).join(", ") },
+  { key: "saves_size", label: "Sauvegardes", num: true },
+  { key: "state", label: "État" },
+];
+
+const runnerLabel = (i) => i.runner === "default" ? "défaut" : [i.runner, i.wine || i.proton || ""].join(" ").trim();
+
+async function loadLibrary(refresh = false) {
+  $("status").textContent = refresh ? "scan en cours…" : "chargement…";
+  try {
+    state.items = await api(`/api/library${refresh ? "?refresh=true" : ""}`);
+  } catch (error) {
+    $("status").textContent = `erreur : ${error.message}`;
+    return;
+  }
+  state.byId = new Map(state.items.map((i) => [i.id, i]));
+  for (const id of [...state.selected]) if (!state.byId.has(id)) state.selected.delete(id);
+  // Les systèmes proposés sont ceux choisis dans « Réglages » ; ce filtre ne fait qu'affiner l'affichage
+  fillFilter("f-system", "Système : tous ceux de Réglages", state.items.map((i) => i.system).filter(Boolean));
+  fillFilter("f-type", "Tous types", state.items.map((i) => i.type), TYPES);
+  fillFilter("f-runner", "Tous runners", state.items.map(runnerLabel));
+  $("status").textContent = `${state.items.length} images`;
+  renderTable();
+  if (state.current && state.byId.has(state.current.id)) {
+    state.current = state.byId.get(state.current.id);
+    renderDetailHeader();
+  }
+}
+
+function fillFilter(id, label, values, names = {}) {
+  const node = $(id), keep = node.value;
+  node.replaceChildren(new Option(label, ""), ...[...new Set(values)].sort().map((v) => new Option(names[v] || v, v)));
+  node.value = keep;
 }
 
 function filtered() {
-  const q = $("f-q").value.toLowerCase();
-  const sys = $("f-system").value, type = $("f-type").value, runner = $("f-runner").value;
-  const pad = $("f-pad").value;
-  return library.filter(i =>
-    (!q || (i.name + " " + (i.cmd || "")).toLowerCase().includes(q)) &&
-    (!sys || i.system === sys) && (!type || i.type === type) && (!runner || i.runner === runner) &&
-    (!pad || (pad === "hidraw") === !!i.hidraw) &&
-    (!$("f-noversion").checked || !i.version) && (!$("f-old").checked || i.has_old));
+  const q = $("f-search").value.trim().toLowerCase();
+  const system = $("f-system").value, type = $("f-type").value, runner = $("f-runner").value;
+  const pad = $("f-pad").value, special = $("f-special").value;
+  return state.items.filter((i) =>
+    (!q || [i.name, i.cmd, i.dir, i.version].some((v) => v && v.toLowerCase().includes(q)))
+    && (!system || i.system === system) && (!type || i.type === type) && (!runner || runnerLabel(i) === runner)
+    && (!pad || (pad === "hidraw") === (i.hidraw === true))
+    && (special !== "noversion" || !i.version) && (special !== "old" || i.has_old)
+    && (special !== "inuse" || i.state === "in_use") && (special !== "noautorun" || !i.cmd)
+    && (special !== "override" || (i.override || []).length));
 }
 
-function renderRows() {
-  view = filtered().sort((a, b) => {
-    const x = a[sortKey] ?? "", y = b[sortKey] ?? "";
-    return (typeof x === "number" ? x - y : String(x).localeCompare(String(y), "fr", { numeric: true })) * sortDir;
+function sorted(items) {
+  const col = COLUMNS.find((c) => c.key === state.sort.key);
+  const value = col.value || ((i) => i[col.key]);
+  return [...items].sort((a, b) => {
+    const x = value(a) ?? "", y = value(b) ?? "";
+    const cmp = typeof x === "number" && typeof y === "number" ? x - y
+      : String(x).localeCompare(String(y), "fr", { numeric: true, sensitivity: "base" });
+    return cmp * state.sort.dir;
   });
-  document.querySelectorAll("th[data-sort]").forEach(th => {
-    th.classList.toggle("asc", th.dataset.sort === sortKey && sortDir === 1);
-    th.classList.toggle("desc", th.dataset.sort === sortKey && sortDir === -1);
+}
+
+function renderTable() {
+  const visible = sorted(filtered());
+  const allSelected = visible.length > 0 && visible.every((i) => state.selected.has(i.id));
+  $("thead").replaceChildren(...COLUMNS.map((col) => {
+    if (col.key === "select") {
+      const box = el("input", { type: "checkbox", checked: allSelected, title: "Tout sélectionner (filtre actuel)" });
+      box.onchange = () => { visible.forEach((i) => box.checked ? state.selected.add(i.id) : state.selected.delete(i.id)); renderTable(); };
+      return el("th", { className: "nosort" }, box);
+    }
+    const th = el("th", { textContent: col.label },
+      state.sort.key === col.key ? el("span", { className: "dir", textContent: state.sort.dir > 0 ? " ▲" : " ▼" }) : null);
+    th.onclick = () => { state.sort = { key: col.key, dir: state.sort.key === col.key ? -state.sort.dir : 1 }; renderTable(); };
+    return th;
+  }));
+
+  const rows = visible.map((i) => {
+    const box = el("input", { type: "checkbox", checked: state.selected.has(i.id) });
+    box.onclick = (event) => event.stopPropagation();
+    box.onchange = () => { box.checked ? state.selected.add(i.id) : state.selected.delete(i.id); renderSelection(); };
+    const [stateLabel, stateKind] = STATES[i.state] || [i.state, ""];
+    const row = el("tr", { className: state.current?.id === i.id ? "current" : "" },
+      el("td", {}, box),
+      el("td", { textContent: i.name }),
+      el("td", { textContent: i.system || "—" }),
+      el("td", { className: "num", textContent: size(i.size) }),
+      el("td", {}, i.version ? i.version : badge("—")),
+      el("td", { textContent: TYPES[i.type] || i.type }),
+      el("td", {}, i.runner === "default" ? el("span", { className: "muted", textContent: "défaut" }) : runnerLabel(i)),
+      el("td", {}, i.hidraw ? badge("HIDRAW", "info") : el("span", { className: "muted", textContent: "XInput" })),
+      el("td", { className: "cmd", textContent: i.cmd || "—", title: i.cmd || "" }),
+      el("td", {}, ...(i.extras || []).map((e) => badge(e)),
+        (i.override || []).length ? Object.assign(badge("surcharge", "warn"), { title: `Surcharge : ${i.override.join(", ")}` }) : null),
+      el("td", { className: "num" }, i.saves_present ? size(i.saves_size) : el("span", { className: "muted", textContent: "—" })),
+      el("td", {}, badge(stateLabel, stateKind)));
+    row.onclick = () => openDetail(i.id);
+    return row;
   });
-  $("f-count").textContent = `${view.length} affichée(s)` + (selected.size ? `, ${selected.size} sélectionnée(s)` : "");
-  $("sel-all").checked = view.length > 0 && view.every(i => selected.has(i.id));
-  $("rows").innerHTML = view.map((i, n) => `<tr data-n="${n}" class="${current && current.id === i.id ? "selected" : ""}">
-    <td><input type="checkbox" data-sel="${n}" ${selected.has(i.id) ? "checked" : ""}></td>
-    <td>${esc(i.name)}</td>
-    <td>${esc(i.system)}</td>
-    <td>${fmt(i.size)}</td>
-    <td>${i.version ? esc(i.version) : dash}</td>
-    <td><span class="badge">${esc(i.type)}</span></td>
-    <td>${i.runner === "default" ? '<span class="muted">défaut</span>' : esc(i.runner + (i.wine ? " " + i.wine : i.proton ? " " + i.proton : ""))}</td>
-    <td>${i.hidraw ? "HIDRAW" : i.xinput ? "XInput" : dash}</td>
-    <td>${i.cmd ? esc(i.cmd) : dash}</td>
-    <td>${esc((i.extras || []).join(", ")) || dash}</td>
-    <td>${i.saves_present ? fmt(i.saves_size) : dash}</td>
-    <td>${i.state !== "ok" ? `<span class="badge warn">${esc(i.state)}</span>` : '<span class="muted">ok</span>'}</td>
-  </tr>`).join("") || `<tr><td colspan="12" class="muted">${library.length ? "aucune image ne correspond aux filtres" : "aucune image — WSQUASHFS_MGR_ROMS_DIRS ?"}</td></tr>`;
-  renderMass();
-}
-
-["f-q", "f-system", "f-type", "f-runner", "f-pad", "f-noversion", "f-old"].forEach(id =>
-  $(id).addEventListener("input", renderRows));
-document.querySelectorAll("th[data-sort]").forEach(th => th.addEventListener("click", () => {
-  if (sortKey === th.dataset.sort) sortDir = -sortDir; else { sortKey = th.dataset.sort; sortDir = 1; }
-  renderRows();
-}));
-$("sel-all").addEventListener("change", (e) => {
-  view.forEach(i => e.target.checked ? selected.add(i.id) : selected.delete(i.id));
-  renderRows();
-});
-
-$("rows").addEventListener("click", (e) => {
-  const tr = e.target.closest("tr[data-n]");
-  if (!tr) return;
-  const info = view[+tr.dataset.n];
-  if (e.target.dataset.sel !== undefined) {
-    e.target.checked ? selected.add(info.id) : selected.delete(info.id);
-    renderRows();
-    return;
+  if (!rows.length) {
+    const hint = state.items.length ? "aucune image pour ces filtres" : "aucune image — configurer les dossiers roms/ (bouton « Réglages »)";
+    rows.push(el("tr", {}, el("td", { colSpan: COLUMNS.length, className: "muted", textContent: hint })));
   }
-  openDetail(info);
-});
-
-// ------------------------------------------------------------ actions en masse
-
-let ops = [];           // opérations d'autorun, appliquées dans l'ordre
-let massBases = null;   // images de l'aperçu ({id: {size, mtime}}) : seules lancées
-
-function renderMass() {
-  $("mass").hidden = selected.size === 0;
-  $("m-title").textContent = `Sélection : ${selected.size} image(s)`;
-  $("m-ops").innerHTML = ops.map((o, n) => `<li>${
-    o.op === "set" ? `poser <code>${esc(o.key)}=${esc(o.value)}</code>`
-    : o.op === "remove" ? `retirer <code>${esc(o.key)}</code>`
-    : `remplacer par le modèle (${o.template.split("\n").length} lignes)`
-  }<button class="secondary" onclick="ops.splice(${n}, 1); resetMassPreview(); renderMass()">×</button></li>`).join("");
-  $("m-preview").disabled = ops.length === 0;
+  $("rows").replaceChildren(...rows);
+  renderSelection();
 }
 
-function resetMassPreview() {
-  massBases = null; $("m-run").hidden = true; $("m-result").innerHTML = ""; $("m-msg").textContent = "";
+function renderSelection() {
+  const n = state.selected.size;
+  $("selection").hidden = n === 0;
+  $("sel-count").textContent = `${n} image(s) sélectionnée(s)`;
 }
 
-function clearSelection() { selected.clear(); resetMassPreview(); renderRows(); }
+for (const id of ["f-search", "f-system", "f-type", "f-runner", "f-pad", "f-special"]) $(id).addEventListener("input", renderTable);
+$("btn-refresh").onclick = () => loadLibrary();
+$("btn-sel-clear").onclick = () => { state.selected.clear(); renderTable(); };
 
-$("m-op").addEventListener("change", () => {
-  const op = $("m-op").value;
-  $("m-template-box").hidden = op !== "template";
-  $("m-key").hidden = op === "template";
-  $("m-value").hidden = op !== "set";
-});
+// ------------------------------------------------------------------ fiche
 
-function addOp() {
-  const op = $("m-op").value;
-  const key = $("m-key").value.trim().toUpperCase();
-  if (op === "template") {
-    if (!$("m-template").value.trim()) return;
-    ops.push({ op, template: $("m-template").value });
-  } else {
-    if (!/^[A-Z_][A-Z0-9_]*$/.test(key)) { $("m-msg").textContent = "clé invalide"; return; }
-    ops.push(op === "set" ? { op, key, value: $("m-value").value } : { op, key });
+async function openDetail(id) {
+  state.current = state.byId.get(id);
+  delete $("u-anchor").dataset.edited;
+  $("u-source").value = ""; $("u-version").value = "";
+  $("main").classList.add("with-detail");
+  $("detail").hidden = false;
+  renderTable();
+  renderDetailHeader();
+  showTab("info");
+  await loadAutorun();
+}
+
+function renderDetailHeader() {
+  const i = state.current;
+  $("d-title").textContent = i.name;
+  $("d-id").textContent = i.id;
+  const info = [
+    ["Fichier", i.path], ["Taille", size(i.size)], ["Modifiée", when(i.mtime)],
+    ["Version", i.version || "non renseignée"], ["Type", TYPES[i.type] || i.type],
+    ["Runner", runnerLabel(i)], ["Manettes", i.hidraw ? "HIDRAW" : "XInput"],
+    ["Dossier", i.dir || "—"], ["Commande", i.cmd || "—"],
+    ["DXVK / VKD3D", `${i.dxvk ? "oui" : "non"} / ${i.vkd3d ? "oui" : "non"}`],
+    ["Extras", (i.extras || []).join(", ") || "—"],
+    ["Surcharge", (i.override || []).length ? `${i.override.join(", ")} (à inscrire dans l'image)` : "aucune"],
+    ["Sauvegardes", i.saves_present ? size(i.saves_size) : "aucune"],
+  ];
+  $("d-info").replaceChildren(...info.flatMap(([k, v]) => [el("dt", { textContent: k }), el("dd", { textContent: v })]));
+  $("d-saves-reset").disabled = !i.saves_present;
+
+  const old = $("d-old");
+  old.replaceChildren();
+  if (i.state === "in_use") old.append(el("div", { className: "notice err", textContent: "Jeu en cours : aucune reconstruction possible." }));
+  if (i.has_old) {
+    const keep = el("button", { textContent: "Valider (supprimer l'ancienne)" });
+    const back = el("button", { className: "secondary", textContent: "Revenir à l'ancienne" });
+    keep.onclick = () => oldAction("validate", "Supprimer définitivement l'ancienne image (.old) ?");
+    back.onclick = () => oldAction("restore", "Remplacer l'image actuelle par l'ancienne (.old) ? La reconstruction sera perdue.");
+    old.append(el("div", { className: "notice warn" },
+      el("div", { textContent: "Une ancienne version (.old) est conservée : vérifier le jeu, puis valider ou revenir en arrière." }),
+      el("div", { className: "row", style: "margin-top:.5rem" }, keep, back)));
   }
-  $("m-msg").textContent = "";
-  resetMassPreview(); renderMass();
 }
 
-const STATUS_IMG = { change: ["à reconstruire", ""], unchanged: ["inchangée", "ok"], blocked: ["bloquée", "warn"], error: ["erreur", "err"] };
-
-async function massPreview() {
-  $("m-msg").textContent = "aperçu…";
-  const r = await apiJson("/api/mass/autorun?dry_run=true", { ids: [...selected], ops });
-  if (!r.ok) { $("m-msg").textContent = "erreur : " + await errText(r); return; }
-  const p = await r.json();
-  massBases = Object.fromEntries(p.images.filter(i => i.status === "change").map(i => [i.id, i.base]));
-  const n = Object.keys(massBases).length;
-  const spaceOk = p.space.every(s => s.ok);
-  $("m-result").innerHTML =
-    p.space.map(s => `<p class="${s.ok ? "muted" : ""}">${s.ok ? "" : '<span class="badge err">espace insuffisant</span> '}${esc(s.path)} : ${fmt(s.needed)} nécessaires (les .old sont gardés), ${fmt(s.free)} libres</p>`).join("") +
-    `<table>${p.images.map(i => {
-      const [label, cls] = STATUS_IMG[i.status];
-      const notes = [...(i.blockers || []), ...(i.issues || []).map(x => x.message), i.message].filter(Boolean);
-      return `<tr><td>${esc(i.id)}</td><td><span class="badge ${cls}">${label}</span></td><td>
-        ${notes.length ? `<ul class="issues">${notes.map(m => `<li class="warn">${esc(m)}</li>`).join("")}</ul>` : ""}
-        ${i.status === "change" || i.status === "blocked" ? `<details><summary class="muted">diff</summary><pre>${(i.diff || []).slice(2).map(l => `<span class="${l[0] === "+" ? "add" : l[0] === "-" ? "del" : ""}">${esc(l)}</span>`).join("\n")}</pre></details>` : ""}
-      </td></tr>`;
-    }).join("")}</table>`;
-  $("m-run").hidden = n === 0;
-  $("m-run").disabled = !spaceOk;
-  $("m-run").textContent = `Lancer ${n} reconstruction(s)`;
-  $("m-msg").textContent = "";
+async function oldAction(action, question) {
+  if (!confirm(question)) return;
+  try {
+    await api(`/api/image/old/${action}?id=${encodeURIComponent(state.current.id)}`, { method: "POST" });
+    await loadLibrary();
+    await loadAutorun();
+  } catch (error) {
+    alert(error.message);
+  }
 }
 
-async function massRun() {
-  const n = Object.keys(massBases).length;
-  if (!confirm(`Reconstruire ${n} image(s) ? Chaque original sera gardé en .old jusqu'à validation.`)) return;
-  $("m-run").disabled = true;
-  const r = await apiJson("/api/mass/autorun", { ids: Object.keys(massBases), ops, bases: massBases });
-  if (!r.ok) { $("m-msg").textContent = "erreur : " + await errText(r); $("m-run").disabled = false; return; }
-  const res = await r.json();
-  $("m-run").hidden = true;
-  $("m-msg").textContent = `${res.tasks.length} tâche(s) créée(s)` + (res.skipped.length ? `, ${res.skipped.length} écartée(s)` : "");
-  $("m-result").innerHTML = res.skipped.length
-    ? `<ul class="issues">${res.skipped.map(s => `<li class="warn">${esc(s.id)} : ${esc(s.reason)}</li>`).join("")}</ul>` : "";
-  massBases = null;
-  loadTasks();
+function showTab(name) {
+  for (const b of $("d-tabs").children) b.classList.toggle("active", b.dataset.tab === name);
+  for (const pane of document.querySelectorAll("[data-pane]")) pane.hidden = pane.dataset.pane !== name;
+  if (name === "files") loadFiles();
+  if (name === "version") loadUpdateDefaults();
+  if (name === "history") renderHistory();
 }
+$("d-tabs").onclick = (event) => event.target.dataset.tab && showTab(event.target.dataset.tab);
+$("d-close").onclick = () => { $("detail").hidden = true; $("main").classList.remove("with-detail"); state.current = null; renderTable(); };
 
-function showResults(list) {
-  $("m-other").innerHTML = `<ul class="issues">${list.map(x =>
-    `<li class="${x.ok ? "" : "warn"}">${esc(x.id)} : ${x.ok ? esc(x.message || "ok") : esc(x.message)}</li>`).join("")}</ul>`;
-}
-
-async function massOld(action) {
-  const msg = action === "validate"
-    ? `Supprimer les anciennes images (.old) de la sélection et garder les nouvelles ?`
-    : `Remplacer les nouvelles images par les anciennes (.old) ? Les changements seront perdus.`;
-  if (!confirm(msg)) return;
-  const r = await apiJson(`/api/mass/old/${action}`, { ids: [...selected] });
-  if (!r.ok) { $("m-other").textContent = "erreur : " + await errText(r); return; }
-  showResults(await r.json());
-  load(false);
-}
-
-async function massResetSaves() {
-  const ids = [...selected];
-  const p = await (await apiJson("/api/mass/saves/reset?dry_run=true", { ids })).json();
-  const ok = p.filter(x => x.ok);
-  if (!ok.length) { showResults(p); return; }
-  if (!confirm(`Réinitialiser les sauvegardes de ${ok.length} image(s) (${fmt(ok.reduce((s, x) => s + x.saves_size, 0))}) ? Elles sont renommées en .avant-<date>, pas supprimées.`)) return;
-  showResults(await (await apiJson("/api/mass/saves/reset", { ids: ok.map(x => x.id) })).json());
-  load(false);
-}
-
-async function massVerify() {
-  const r = await apiJson("/api/mass/verify", { ids: [...selected] });
-  if (!r.ok) { $("m-other").textContent = "erreur : " + await errText(r); return; }
-  $("m-other").innerHTML = '<p class="muted">vérification lancée : voir les tâches</p>';
-  loadTasks();
-}
-
-// ------------------------------------------------------------ fiche
-
-let current = null;     // ImageInfo
-let keyHelp = null;     // clés connues (aide, valeurs)
-let original = null;    // autorun lu (réponse de l'API)
-let ar = null;          // autorun en cours d'édition : {lines, eol, trailing_eol, encoding}
+// ------------------------------------------------------------------ autorun : texte ⇄ formulaire
+// Mêmes règles que le serveur (services/autorun.py) : clé en début de ligne,
+// première occurrence retenue ; une clé modifiée garde sa place, une clé
+// ajoutée va en fin de fichier ; vider un champ retire la clé.
 
 const KEY_RE = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/;
 
-// Mêmes règles que le backend (Autorun.get / set / remove) : première
-// occurrence lue, modifiée en place, ajoutée en fin de fichier, valeur vide =
-// toutes les occurrences retirées.
-function arGet(key) {
-  for (const l of ar.lines) { const m = KEY_RE.exec(l); if (m && m[1] === key) return m[2]; }
+function editorLines() {
+  const raw = $("a-editor").value.replace(/\r\n/g, "\n");
+  const trailing = raw.endsWith("\n");
+  const content = trailing ? raw.slice(0, -1) : raw;
+  return { lines: content ? content.split("\n") : [], trailing };
+}
+
+function setEditorLines(lines, trailing) {
+  $("a-editor").value = lines.join("\n") + (trailing && lines.length ? "\n" : "");
+}
+
+function getKey(lines, key) {
+  for (const line of lines) {
+    const m = KEY_RE.exec(line);
+    if (m && m[1] === key) return m[2];
+  }
   return null;
 }
-function arSet(key, value) {
-  if (value === "") { ar.lines = ar.lines.filter(l => { const m = KEY_RE.exec(l); return !(m && m[1] === key); }); return; }
-  const i = ar.lines.findIndex(l => { const m = KEY_RE.exec(l); return m && m[1] === key; });
-  if (i >= 0) ar.lines[i] = `${key}=${value}`; else ar.lines.push(`${key}=${value}`);
+
+function setKey(key, value) {
+  let { lines, trailing } = editorLines();
+  const index = lines.findIndex((line) => KEY_RE.exec(line)?.[1] === key);
+  if (value === "") {
+    lines = lines.filter((line) => KEY_RE.exec(line)?.[1] !== key);
+  } else if (index >= 0) {
+    lines[index] = `${key}=${value}`;
+  } else {
+    lines.push(`${key}=${value}`);
+    if (lines.length === 1) trailing = true;
+  }
+  setEditorLines(lines, trailing);
+  syncForm();
 }
 
-async function openDetail(info) {
-  current = info;
-  document.querySelectorAll("#rows tr").forEach(tr => tr.classList.toggle("selected", view[+tr.dataset.n]?.id === info.id));
-  $("detail").hidden = false;
-  $("d-title").textContent = info.id;
-  renderInfo();
-  showTab("form");
-  $("files-q").value = ""; $("files-list").innerHTML = ""; $("files-count").textContent = "";
-  $("ar-form").innerHTML = '<span class="muted">lecture de l\'autorun…</span>';
-  $("ar-issues").innerHTML = ""; $("ar-diff").innerHTML = ""; $("ar-msg").textContent = "";
-  await loadKeyHelp();
-  const r = await api("/api/image/autorun?id=" + encodeURIComponent(info.id));
-  if (!r.ok) { $("ar-form").textContent = "erreur : " + await errText(r); return; }
-  original = await r.json();
-  resetAutorun();
-  $("detail").scrollIntoView({ behavior: "smooth" });
-}
-
-async function loadKeyHelp() {
-  if (keyHelp) return;
-  keyHelp = await (await api("/api/autorun/keys")).json();
-  $("m-keys").innerHTML = Object.keys(keyHelp).map(k => `<option value="${k}">`).join("");
-}
-
-function closeDetail() {
-  current = null; $("detail").hidden = true;
-  document.querySelectorAll("#rows tr.selected").forEach(tr => tr.classList.remove("selected"));
-}
-
-function renderInfo() {
-  const i = current;
-  const rows = [
-    ["Fichier", i.path], ["Taille", fmt(i.size)], ["Version", i.version || "—"],
-    ["Type", i.type], ["Runner", i.runner + (i.wine ? " " + i.wine : i.proton ? " " + i.proton : "")],
-    ["Manettes", i.hidraw ? "HIDRAW" : "XInput"], ["Extras", (i.extras || []).join(", ") || "—"],
-    ["Sauvegardes", i.saves_present ? fmt(i.saves_size) : "—"], ["État", i.state],
-  ];
-  $("d-info").innerHTML = rows.map(([k, v]) => `<div><b>${k}</b>${esc(v)}</div>`).join("");
-  $("d-old").hidden = !i.has_old;
-  $("d-saves").hidden = !i.saves_present;
-}
-
-async function resetSaves() {
-  if (!confirm(`Réinitialiser les sauvegardes de ${current.id} (${fmt(current.saves_size)}) ? Elles sont renommées en .avant-<date>, pas supprimées.`)) return;
-  const r = await api("/api/image/saves/reset?id=" + encodeURIComponent(current.id), { method: "POST" });
-  if (!r.ok) { alert(await errText(r)); return; }
-  load(false);
-}
-
-function resetAutorun() {
-  ar = { lines: [...original.lines], eol: original.eol, trailing_eol: original.trailing_eol, encoding: original.encoding };
-  renderForm(); renderRaw(); preview();
-}
-
-function renderForm() {
-  $("ar-form").innerHTML = Object.entries(keyHelp).map(([k, h]) => `
-    <label for="k-${k}">${k}</label>
-    <div>
-      <input id="k-${k}" data-key="${k}" list="v-${k}" value="${esc(arGet(k) ?? "")}">
-      ${h.values.length ? `<datalist id="v-${k}">${h.values.map(v => `<option value="${esc(v)}">`).join("")}</datalist>` : ""}
-      <div class="help">${esc(h.help)}</div>
-    </div>`).join("");
-}
-
-function renderRaw() {
-  $("ar-raw").value = ar.lines.join("\n") + (ar.trailing_eol && ar.lines.length ? "\n" : "");
-  $("ar-format").textContent = `Fins de ligne ${ar.eol === "\r\n" ? "CRLF" : "LF"}, encodage ${ar.encoding} (conservés à l'écriture).`;
-}
-
-$("ar-form").addEventListener("input", (e) => {
-  if (!e.target.dataset.key) return;
-  arSet(e.target.dataset.key, e.target.value);
-  renderRaw(); schedulePreview();
-});
-
-$("ar-raw").addEventListener("input", () => {
-  const lines = $("ar-raw").value.split("\n").map(l => l.replace(/\r$/, ""));
-  ar.trailing_eol = lines.length > 1 && lines[lines.length - 1] === "";
-  if (ar.trailing_eol) lines.pop();
-  ar.lines = lines.length === 1 && lines[0] === "" ? [] : lines;
-  renderForm(); schedulePreview();
-});
-
-// Aperçu : validations, diff et ce qui bloquerait la reconstruction
-let previewTimer = null;
-const schedulePreview = () => { clearTimeout(previewTimer); previewTimer = setTimeout(preview, 400); };
-const arBody = () => ({ ...ar, base: original.base });
-
-async function preview() {
-  if (!current) return;
-  const id = current.id;
-  const r = await apiJson("/api/image/autorun?dry_run=true&id=" + encodeURIComponent(id), arBody());
-  if (!current || current.id !== id) return;
-  if (!r.ok) { $("ar-issues").innerHTML = `<li class="error">${esc(await errText(r))}</li>`; return; }
-  const p = await r.json();
-  $("ar-issues").innerHTML =
-    p.blockers.map(b => `<li class="blocker">${esc(b)}</li>`).join("") +
-    p.issues.map(i => `<li class="${esc(i.level)}">${esc(i.message)}</li>`).join("");
-  $("ar-diff").innerHTML = p.changed
-    ? "<pre>" + p.diff.slice(2).map(l => `<span class="${l[0] === "+" ? "add" : l[0] === "-" ? "del" : ""}">${esc(l)}</span>`).join("\n") + "</pre>"
-    : '<p class="muted">aucun changement</p>';
-  $("ar-save").disabled = !p.changed || p.blockers.length > 0;
-}
-
-async function saveAutorun() {
-  if (!confirm(`Reconstruire ${current.id} ? L'image actuelle sera gardée en .old jusqu'à validation.`)) return;
-  $("ar-save").disabled = true;
-  const r = await apiJson("/api/image/autorun?id=" + encodeURIComponent(current.id), arBody());
-  if (!r.ok) { $("ar-msg").textContent = "refusé : " + await errText(r); preview(); return; }
-  $("ar-msg").textContent = "tâche " + (await r.json()).task + " créée";
-  loadTasks();
-}
-
-async function oldAction(action) {
-  const msg = action === "validate"
-    ? "Supprimer l'ancienne image et garder la nouvelle ?"
-    : "Remplacer la nouvelle image par l'ancienne ? Les changements seront perdus.";
-  if (!confirm(msg)) return;
-  const r = await api(`/api/image/old/${action}?id=` + encodeURIComponent(current.id), { method: "POST" });
-  if (!r.ok) { alert(await errText(r)); return; }
-  await load(false);
-  if (current) openDetail(current);
-}
-
-// Onglets
-function showTab(name) {
-  document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("active", b.dataset.tab === name));
-  document.querySelectorAll("[data-pane]").forEach(p => p.hidden = p.dataset.pane !== name);
-  $("ar-check").hidden = $("ar-actions").hidden = name === "files";
-  if (name === "files" && !$("files-list").innerHTML) loadFiles();
-}
-document.querySelector(".tabs").addEventListener("click", (e) => { if (e.target.dataset.tab) showTab(e.target.dataset.tab); });
-
-let filesTimer = null;
-$("files-q").addEventListener("input", () => { clearTimeout(filesTimer); filesTimer = setTimeout(loadFiles, 300); });
-async function loadFiles() {
-  $("files-count").textContent = "lecture…";
-  const r = await api(`/api/image/files?id=${encodeURIComponent(current.id)}&q=${encodeURIComponent($("files-q").value)}`);
-  if (!r.ok) { $("files-count").textContent = "erreur : " + await errText(r); return; }
-  const f = await r.json();
-  $("files-count").textContent = `${f.total} entrée(s)` + (f.total > f.files.length ? `, ${f.files.length} affichées` : "");
-  $("files-list").innerHTML = f.files.map(p => `<div>${esc(p)}</div>`).join("");
-}
-
-// ------------------------------------------------------------ tâches
-
-const KINDS = { edit_autorun: "autorun", verify: "vérification", pack: "création" };
-const STATUS = { pending: "en attente", running: "en cours", done: "terminée", failed: "échec", cancelled: "annulée" };
-let tasksTimer = null;
-let wasActive = false;
-
-async function loadTasks() {
-  clearTimeout(tasksTimer);
-  const r = await api("/api/tasks");
-  if (!r.ok) return;
-  const tasks = (await r.json()).slice(0, 10);
-  $("tasks").hidden = tasks.length === 0;
-  $("task-rows").innerHTML = tasks.map(t => {
-    const active = t.status === "pending" || t.status === "running";
-    const cls = t.status === "done" ? "ok" : t.status === "failed" ? "err" : active ? "" : "warn";
-    return `<tr>
-      <td>${t.image ? esc(t.image) : `${(t.params.images || []).length} image(s)`}<div class="muted task-log">${esc(KINDS[t.kind] || t.kind)} · ${new Date(t.created_at * 1000).toLocaleString()}</div></td>
-      <td><span class="badge ${cls}">${STATUS[t.status] || esc(t.status)}</span></td>
-      <td>${t.status === "running" ? `<span class="progress"><div style="width:${Math.round(t.progress * 100)}%"></div></span> ${Math.round(t.progress * 100)} %` : ""}
-        <div class="muted task-log">${esc(t.error || t.log.slice(-2).join("\n"))}</div></td>
-      <td>${active ? `<button class="secondary" onclick="cancelTask('${esc(t.id)}')">Annuler</button>` : ""}</td>
-    </tr>`;
-  }).join("");
-  const active = tasks.some(t => t.status === "pending" || t.status === "running");
-  const finished = wasActive && !active;
-  wasActive = active;             // avant load(), qui rappelle loadTasks()
-  if (active) tasksTimer = setTimeout(loadTasks, 1500);
-  else if (finished) {            // une tâche vient de finir : bibliothèque et fiche à jour
-    await load(false);
-    if (current) openDetail(current);
+function buildForm() {
+  const grid = $("a-form");
+  grid.replaceChildren();
+  for (const { key, help, values } of state.keys) {
+    const input = el("input", { id: `k-${key}`, placeholder: "—", autocomplete: "off" });
+    if (values.length) {
+      const list = el("datalist", { id: `v-${key}` }, ...values.map((v) => new Option(v, v)));
+      grid.append(list);
+      input.setAttribute("list", list.id);
+    }
+    input.addEventListener("change", () => setKey(key, input.value.trim()));
+    grid.append(el("label", { htmlFor: input.id, textContent: key, title: help }), input,
+      el("div", { className: "help", textContent: help }));
   }
 }
 
-async function cancelTask(id) {
-  await api(`/api/tasks/${id}/cancel`, { method: "POST" });
-  loadTasks();
+function syncForm() {
+  const { lines } = editorLines();
+  for (const { key } of state.keys) {
+    const value = getKey(lines, key);
+    const input = $(`k-${key}`);
+    if (document.activeElement !== input) input.value = value ?? "";
+    input.previousElementSibling.classList.toggle("set", value !== null);
+  }
+  const unknown = [...new Set(lines.map((l) => KEY_RE.exec(l)?.[1]).filter((k) => k && !state.keys.some((x) => x.key === k)))];
+  $("a-note").textContent = unknown.length
+    ? `Clés non reconnues (conservées, ignorées par Batocera) : ${unknown.join(", ")}`
+    : (state.autorun?.found ? "Modifier le formulaire ou le texte brut, vérifier, puis reconstruire." : "Pas d'autorun dans l'image : il sera créé.");
 }
 
-// ------------------------------------------------------------ explorateur de dossiers
+$("a-editor").addEventListener("input", syncForm);
+$("a-tabs").onclick = (event) => {
+  const tab = event.target.dataset.atab;
+  if (!tab) return;
+  for (const b of $("a-tabs").children) b.classList.toggle("active", b.dataset.atab === tab);
+  for (const pane of document.querySelectorAll("[data-apane]")) pane.hidden = pane.dataset.apane !== tab;
+};
 
-let pickCb = null, pickPath = null;
-
-function pickDir(start, cb) {
-  pickCb = cb;
-  $("picker").showModal();
-  browse(start || "");
+async function loadAutorun() {
+  const id = state.current.id;
+  $("a-issues").replaceChildren();
+  $("a-result").replaceChildren();
+  $("a-proposal").replaceChildren();
+  try {
+    const data = await api(`/api/image/autorun?id=${encodeURIComponent(id)}`);
+    if (state.current?.id !== id) return;
+    state.autorun = data;
+    // L'éditeur montre l'autorun effectif : image + surcharge, ce que le lanceur applique
+    $("a-editor").value = (data.effective ?? data.text).replace(/\r\n/g, "\n");
+    renderOverrideBox(data);
+    $("a-eol").value = data.eol === "\n" ? "lf" : "crlf";
+  } catch (error) {
+    state.autorun = null;
+    $("a-editor").value = "";
+    $("a-result").append(el("div", { className: "notice err", textContent: `Lecture impossible : ${error.message}` }));
+  }
+  syncForm();
 }
 
-async function browse(path) {
-  $("p-msg").textContent = "";
-  const r = await api("/api/fs/dirs?path=" + encodeURIComponent(path));
-  if (!r.ok) { $("p-msg").textContent = await errText(r); return; }
-  const d = await r.json();
-  pickPath = d.path;
-  $("p-path").textContent = d.path;
-  $("p-input").value = d.path;
-  $("p-list").innerHTML = (d.parent ? `<div data-path="${esc(d.parent)}">↑ ..</div>` : "") +
-    d.dirs.map(x => `<div data-path="${esc(x.path)}">📁 ${esc(x.name)}${x.prefix ? ' <span class="badge">prefix</span>' : ""}${x.autorun ? ' <span class="badge">autorun</span>' : ""}</div>`).join("") +
-    (d.dirs.length ? "" : '<p class="muted">aucun sous-dossier</p>');
-}
-
-$("p-list").addEventListener("click", (e) => {
-  const el = e.target.closest("[data-path]");
-  if (el) browse(el.dataset.path);
-});
-$("p-input").addEventListener("keydown", (e) => { if (e.key === "Enter") browse($("p-input").value); });
-
-function pickDone() {
-  $("picker").close();
-  if (pickCb && pickPath) pickCb(pickPath);
-}
-
-// ------------------------------------------------------------ réglages
-
-let cfg = null;
-
-async function openSettings() {
-  const r = await api("/api/config");
-  if (!r.ok) return;
-  cfg = await r.json();
-  $("s-saves").value = cfg.saves_dir;
-  $("s-tmp").value = cfg.tmp_dir;
-  $("s-info").textContent = `Enregistrés dans ${cfg.data_dir}/config.json (priment sur les variables d'environnement).`;
-  $("s-msg").textContent = "";
-  renderSettings();
-  $("settings").hidden = false;
-  $("settings").scrollIntoView({ behavior: "smooth" });
-}
-
-function renderSettings() {
-  $("s-roms").innerHTML = cfg.roms_dirs.map((d, n) =>
-    `<li style="color: inherit">${esc(d)}<button class="secondary" style="padding: 0 0.4rem; margin-left: 0.5rem" onclick="cfg.roms_dirs.splice(${n}, 1); renderSettings()">×</button></li>`).join("")
-    || '<li class="warn">aucun dossier : la bibliothèque est vide</li>';
-}
-
-async function saveSettings() {
-  const r = await api("/api/config", {
-    method: "PUT", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ roms_dirs: cfg.roms_dirs, saves_dir: $("s-saves").value, tmp_dir: $("s-tmp").value }),
-  });
-  if (!r.ok) { $("s-msg").textContent = "refusé : " + await errText(r); return; }
-  cfg = { ...cfg, ...(await r.json()) };
-  renderSettings();
-  $("s-msg").textContent = "enregistré";
-  load(false);
-}
-
-// ------------------------------------------------------------ création
-
-let analysis = null;
-
-function openCreate() {
-  $("create").hidden = false;
-  $("create").scrollIntoView({ behavior: "smooth" });
-  if (!$("c-folder").value) pickDir("", p => { $("c-folder").value = p; analyze(); });
-}
-
-const TYPES = { batocera: "prefix Batocera (system.reg)", proton: "prefix Proton (config_info)", other: "autre prefix", none: "jeu seul" };
-
-async function analyze() {
-  const folder = $("c-folder").value.trim();
-  if (!folder) return;
-  $("c-msg").textContent = "analyse…"; $("c-result").hidden = true; $("c-create-msg").textContent = "";
-  const r = await apiJson("/api/create/analyze", { folder });
-  if (!r.ok) { $("c-msg").textContent = "erreur : " + await errText(r); return; }
-  analysis = await r.json();
-  const a = analysis;
-  $("c-msg").textContent = "";
-  $("c-info").innerHTML = [
-    ["Type", TYPES[a.type] || a.type], ["Architecture", a.arch || "—"], ["Proton", a.proton_version || "—"],
-    ["Taille", fmt(a.size)], ["Entrées", a.files], ["Autorun", a.has_autorun ? "présent dans le dossier (repris)" : "généré"],
-  ].map(([k, v]) => `<div><b>${k}</b>${esc(v)}</div>`).join("");
-  $("c-warnings").innerHTML = a.warnings.map(w => `<li class="warn">${esc(w)}</li>`).join("");
-  $("c-cands").innerHTML = a.candidates.map((c, n) => `<tr data-c="${n}">
-    <td><input type="radio" name="c-cand" ${n === 0 && !a.has_autorun ? "checked" : ""}></td>
-    <td><code>${esc(c.path)}</code><div class="muted task-log">${esc(c.why.join(", "))}${c.version ? " · version " + esc(c.version) : ""}${c.bits ? " · " + c.bits + " bits" : ""}</div>
-      ${(c.warnings || []).map(w => `<div class="task-log" style="color: #e0b864">${esc(w)}</div>`).join("")}
-      ${c.content ? `<details><summary class="muted">contenu</summary><pre>${esc(c.content)}</pre></details>` : ""}</td>
-    <td class="muted">${c.size ? fmt(c.size) : ""}</td>
-  </tr>`).join("") || '<tr><td class="muted">aucun exécutable trouvé : renseigner DIR= et CMD= à la main</td></tr>';
-  $("c-autorun").value = a.autorun.lines.join("\n") + (a.autorun.lines.length ? "\n" : "");
-  $("c-issues").innerHTML = a.issues.map(i => `<li class="${esc(i.level)}">${esc(i.message)}</li>`).join("");
-  $("c-sugg-box").hidden = a.suggestions.length === 0;
-  $("c-sugg").innerHTML = a.suggestions.map((s, n) => `<li class="${s.key ? "" : "warn"}" style="${s.key ? "color: inherit" : ""}">
-    ${s.key ? `<code>${esc(s.key)}=${esc(s.value)}</code> <button class="secondary" style="padding: 0 0.5rem" onclick="addSuggestion(${n})">ajouter</button> ` : ""}${esc(s.warning || "")}
-    <span class="muted">— ${esc(s.justification || s.source)} (${esc(s.confidence)})</span></li>`).join("");
-  $("c-roms").innerHTML = a.destinations.map((d, n) => `<option value="${n}">${esc(d.roms_dir)}</option>`).join("");
-  if (!a.destinations.length) $("c-space").textContent = "aucun dossier roms/ : en ajouter un dans les réglages";
-  $("c-name").value = a.name;
-  fillSystems();
-  $("c-result").hidden = false;
-}
-
-function fillSystems() {
-  const d = analysis.destinations[+$("c-roms").value];
-  if (!d) return;
-  $("c-systems").innerHTML = d.systems.map(s => `<option value="${esc(s)}">`).join("");
-  if (!$("c-system").value && d.systems.length === 1) $("c-system").value = d.systems[0];
-  $("c-space").textContent = `${fmt(d.free)} libres ; au plus ${fmt(analysis.size)} nécessaires (sans compression).`;
-}
-$("c-roms").addEventListener("change", fillSystems);
-
-// Même lecture que le backend : première occurrence modifiée en place, sinon ajout en fin
-function setInText(text, key, value) {
-  const lines = text.trim() === "" ? [] : text.replace(/\n$/, "").split("\n");
-  const i = lines.findIndex(l => { const m = KEY_RE.exec(l.replace(/\r$/, "")); return m && m[1] === key; });
-  const line = `${key}=${value}`;
-  if (value === null) { if (i >= 0) lines.splice(i, 1); }
-  else if (i >= 0) lines[i] = line;
-  else lines.push(line);
-  return lines.filter((l, n) => l !== "" || n < lines.length - 1).join("\n") + "\n";
-}
-
-$("c-cands").addEventListener("click", (e) => {
-  const tr = e.target.closest("tr[data-c]");
-  if (!tr || e.target.closest("details")) return;
-  const c = analysis.candidates[+tr.dataset.c];
-  tr.querySelector("input").checked = true;
-  let t = $("c-autorun").value;
-  t = setInText(t, "DIR", c.dir || null);
-  t = setInText(t, "CMD", c.cmd);
-  if (c.version) t = setInText(t, "GAME_VERSION", c.version);
-  $("c-autorun").value = t;
-});
-
-function addSuggestion(n) {
-  const s = analysis.suggestions[n];
-  $("c-autorun").value = setInText($("c-autorun").value, s.key, s.value);
-}
-
-async function createImage() {
-  const lines = $("c-autorun").value.split("\n").map(l => l.replace(/\r$/, ""));
-  if (lines[lines.length - 1] === "") lines.pop();
-  if (!lines.some(l => /^CMD=/.test(l)) && !confirm("L'autorun n'a pas de CMD= : créer quand même ?")) return;
-  const d = analysis.destinations[+$("c-roms").value];
-  if (!d) return;
-  const body = {
-    folder: analysis.folder, roms_dir: d.roms_dir, system: $("c-system").value.trim(), name: $("c-name").value.trim(),
-    autorun: { ...analysis.autorun, lines, trailing_eol: true },
+function autorunBody() {
+  const { lines, trailing } = editorLines();
+  return {
+    lines, trailing_eol: trailing || !state.autorun?.found,
+    eol: $("a-eol").value === "crlf" ? "\r\n" : "\n",
+    encoding: state.autorun?.encoding || "utf-8",
+    base_sha: state.autorun?.sha ?? null,
+    when: whenOf("a-when"),
   };
-  const r = await apiJson("/api/create", body);
-  if (!r.ok) { $("c-create-msg").textContent = "refusé : " + await errText(r); return; }
-  const res = await r.json();
-  $("c-create-msg").textContent = `tâche ${res.task} : ${res.dest}`;
-  loadTasks();
 }
 
-load(false);
+function showIssues(list) {
+  $("a-issues").replaceChildren(...list.map((x) => el("li", { className: x.level, textContent: x.message })));
+}
+
+$("a-reset").onclick = loadAutorun;
+
+$("a-propose").onclick = async () => {
+  const id = state.current.id, box = $("a-proposal");
+  box.replaceChildren(el("p", { className: "muted", textContent: "Analyse de l'image (lecture des exécutables)…" }));
+  try {
+    const r = await api(`/api/image/analyze?id=${encodeURIComponent(id)}`);
+    if (state.current?.id !== id) return;
+    const use = el("button", { textContent: "Utiliser cette proposition" });
+    use.onclick = () => { $("a-editor").value = r.generated.text; syncForm(); box.replaceChildren(el("div", { className: "notice info", textContent: "Proposition placée dans l'éditeur : vérifier puis reconstruire." })); };
+    const differences = (r.existing?.issues || []).filter((i) => i.message.startsWith("la proposition ajoute") || i.message.startsWith("base de connaissances"));
+    box.replaceChildren(el("div", { className: "card" },
+      el("div", { className: "row" }, el("strong", { textContent: "Proposition" }),
+        r.engine ? badge(r.engine, "info") : null,
+        badge(r.recommended === "generated" ? "recommandée" : "l'autorun actuel convient", r.recommended === "generated" ? "warn" : "ok")),
+      el("pre", { className: "bat", textContent: r.generated.text || "(aucun exécutable trouvé)" }),
+      el("ul", { className: "items" }, ...r.generated.items.map((i) => el("li", { className: i.written ? "" : "default" },
+        el("code", { textContent: `${i.key}=${i.value}` }), " — ", i.justification, " (", confidence(i.confidence), ")",
+        i.written ? "" : el("div", { className: "muted", textContent: "→ déjà le comportement par défaut du lanceur : rien à ajouter à l'autorun" })))),
+      ...(r.generated.warnings.length ? [el("ul", { className: "issues" }, ...r.generated.warnings.map((w) => el("li", { textContent: w })))] : []),
+      ...(differences.length ? [el("ul", { className: "issues" }, ...differences.map((i) => el("li", { className: i.level, textContent: i.message })))] : []),
+      el("div", { className: "row" }, use)));
+  } catch (error) {
+    box.replaceChildren(el("div", { className: "notice err", textContent: error.message }));
+  }
+};
+$("a-check").onclick = async () => {
+  try {
+    const data = await api(`/api/image/autorun/preview?id=${encodeURIComponent(state.current.id)}`, { method: "POST", body: autorunBody() });
+    showIssues(data.issues);
+    $("a-result").replaceChildren(el("div", { className: "notice info",
+      textContent: !data.changed ? "Aucun changement." : data.issues.length ? "Avertissements ci-dessus (non bloquants)." : "Aucun problème détecté." }));
+  } catch (error) {
+    $("a-result").replaceChildren(el("div", { className: "notice err", textContent: error.message }));
+  }
+};
+$("a-save").onclick = async () => {
+  if (!confirm("Reconstruire l'image avec cet autorun ? L'original sera conservé en .old jusqu'à validation.")) return;
+  try {
+    const data = await api(`/api/image/autorun?id=${encodeURIComponent(state.current.id)}`, { method: "POST", body: autorunBody() });
+    showIssues(data.issues);
+    if (data.override_removed) {
+      $("a-result").replaceChildren(el("div", { className: "notice info", textContent: "Autorun identique à l'image : surcharge supprimée, pas de reconstruction." }));
+      await loadLibrary();
+      return;
+    }
+    $("a-result").replaceChildren(el("div", { className: "notice info", textContent: state.autorun?.override
+      ? "Reconstruction ajoutée à la file : l'autorun effectif sera inscrit dans l'image, puis la surcharge supprimée."
+      : "Reconstruction ajoutée à la file de tâches." }));
+    openTasks();
+    refreshTasks();
+  } catch (error) {
+    $("a-result").replaceChildren(el("div", { className: "notice err", textContent: error.message }));
+  }
+};
+
+function renderOverrideBox(data) {
+  const box = $("a-override-box");
+  box.replaceChildren();
+  if (!data?.override) return;
+  const commit = el("button", { textContent: "Inscrire dans l'image" });
+  const drop = el("button", { className: "secondary", textContent: "Supprimer la surcharge" });
+  commit.onclick = () => commitOverrides([state.current.id]);
+  drop.onclick = async () => {
+    if (!confirm("Supprimer la surcharge ? Le jeu reprendra l'autorun de l'image.")) return;
+    try {
+      await api(`/api/image/override?id=${encodeURIComponent(state.current.id)}`, { method: "DELETE" });
+      await loadLibrary();
+      await loadAutorun();
+    } catch (error) { alert(error.message); }
+  };
+  box.append(el("div", { className: "notice warn" },
+    el("div", { textContent: `Surcharge active (${data.override.keys.join(", ")}) : appliquée par le lanceur, mais pas par Batocera tant qu'elle n'est pas inscrite dans l'image. L'éditeur montre l'autorun effectif.` }),
+    el("pre", { className: "bat", textContent: data.override.text }),
+    el("div", { className: "row" }, commit, drop)));
+}
+
+$("a-override").onclick = async () => {
+  try {
+    const data = await api(`/api/image/override?id=${encodeURIComponent(state.current.id)}`, { method: "PUT", body: autorunBody() });
+    await loadLibrary();
+    await loadAutorun();          // recharge l'autorun effectif (et efface les messages)
+    showIssues(data.issues);
+    $("a-result").replaceChildren(el("div", { className: "notice info", textContent: data.keys.length
+      ? `Surcharge écrite (${data.keys.join(", ")}) : effet au prochain lancement, sans reconstruction.`
+      : "Identique à l'image : surcharge supprimée." }));
+  } catch (error) {
+    $("a-result").replaceChildren(el("div", { className: "notice err", textContent: error.message }));
+  }
+};
+
+async function commitOverrides(ids) {
+  const withOverride = ids.filter((id) => (state.byId.get(id)?.override || []).length);
+  if (!withOverride.length) { alert("Aucune image sélectionnée n'a de surcharge."); return; }
+  if (!confirm(`Inscrire la surcharge dans ${withOverride.length} image(s) ? Chaque image est reconstruite (original gardé en .old), puis sa surcharge supprimée.`)) return;
+  try {
+    const data = await api("/api/mass/override/commit", { method: "POST", body: { ids: withOverride, when: storage.get("wsfs-when") || "now" } });
+    reportSkipped(data.skipped);
+    openTasks();
+    refreshTasks();
+  } catch (error) { alert(error.message); }
+}
+
+// ------------------------------------------------------------------ montée de version
+
+async function loadUpdateDefaults() {
+  const id = state.current.id;
+  $("u-result").replaceChildren();
+  $("u-run").disabled = true;
+  try {
+    const d = await api(`/api/image/update?id=${encodeURIComponent(id)}`);
+    if (state.current?.id !== id) return;
+    if (!$("u-anchor").dataset.edited) $("u-anchor").value = d.anchor;
+    $("u-version").placeholder = d.version ? `actuelle : ${d.version} — proposée d'après l'exécutable` : "proposée d'après l'exécutable";
+  } catch (error) {
+    $("u-result").replaceChildren(el("div", { className: "notice err", textContent: error.message }));
+  }
+}
+for (const id of ["u-source", "u-anchor", "u-version"]) $(id).addEventListener("input", () => { $("u-run").disabled = true; });
+for (const id of ["u-delete"]) $(id).addEventListener("change", () => { $("u-run").disabled = true; });
+$("u-anchor").addEventListener("input", () => { $("u-anchor").dataset.edited = "1"; });
+
+const updateBody = () => ({ source: $("u-source").value.trim(), anchor: $("u-anchor").value.trim(),
+  delete_missing: $("u-delete").checked, clean_saves: $("u-saves").checked,
+  version: $("u-version").value.trim() || null, when: whenOf("u-when") });
+
+function fileList(title, items, render) {
+  if (!items.length) return null;
+  return el("details", {}, el("summary", { textContent: title }),
+    el("div", { className: "files", textContent: items.map(render).join("\n") }));
+}
+
+$("u-preview").onclick = async () => {
+  $("u-result").replaceChildren(el("p", { className: "muted", textContent: "Comparaison de la source et de l'image…" }));
+  try {
+    const r = await api(`/api/image/update/preview?id=${encodeURIComponent(state.current.id)}`, { method: "POST", body: updateBody() });
+    if (r.version && !$("u-version").value) $("u-version").value = r.version;
+    const more = (n, shown) => n > shown ? ` (${shown} affichés)` : "";
+    $("u-result").replaceChildren(
+      el("h3", { textContent: r.changed ? `Dans ${r.anchor || "la racine"} : ${r.added_count} ajouté(s), ${r.replaced_count} remplacé(s), ${r.deleted_count} supprimé(s), ${r.same} identique(s)` : "Rien à mettre à jour" }),
+      el("dl", {}, el("dt", { textContent: "Version" }), el("dd", { textContent: `${r.version_before || "—"} → ${r.version || "inchangée"}${r.version_hint ? ` (${r.version_hint})` : ""}` }),
+        el("dt", { textContent: "À copier" }), el("dd", { textContent: size(r.copy_size) }),
+        el("dt", { textContent: "Disque" }), el("dd", { textContent: `${size(r.space.needed)} nécessaires (ancienne image gardée en .old), ${size(r.space.free)} libres` })),
+      ...[fileList(`Ajoutés${more(r.added_count, r.added.length)}`, r.added, (a) => `+ ${a.path}  (${size(a.size)})`),
+        fileList(`Remplacés${more(r.replaced_count, r.replaced.length)}`, r.replaced, (x) => `~ ${x.path}  (${size(x.before)} → ${size(x.after)})`),
+        fileList(`Supprimés${more(r.deleted_count, r.deleted.length)}`, r.deleted, (d) => `- ${d}`),
+        fileList(`Masqués par les sauvegardes${more(r.masked_count, r.masked.length)}`, r.masked, (m) => `! ${m}`)].filter(Boolean),
+      ...(r.warnings.length ? [el("ul", { className: "issues" }, ...r.warnings.map((w) => el("li", { textContent: w })))] : []),
+      ...(r.blocked ? [el("div", { className: "notice warn", textContent: r.blocked })] : []));
+    $("u-run").disabled = !r.changed || Boolean(r.blocked);
+  } catch (error) {
+    $("u-result").replaceChildren(el("div", { className: "notice err", textContent: error.message }));
+  }
+};
+
+$("u-run").onclick = async () => {
+  if (!confirm("Mettre à jour l'image ? L'original sera conservé en .old jusqu'à validation.")) return;
+  try {
+    await api(`/api/image/update?id=${encodeURIComponent(state.current.id)}`, { method: "POST", body: updateBody() });
+    $("u-result").replaceChildren(el("div", { className: "notice info", textContent: "Montée de version ajoutée à la file de tâches." }));
+    $("u-run").disabled = true;
+    openTasks();
+    refreshTasks();
+  } catch (error) {
+    $("u-result").replaceChildren(el("div", { className: "notice err", textContent: error.message }));
+  }
+};
+
+// ------------------------------------------------------------------ base de connaissances
+
+$("a-kb").onclick = () => {
+  const { lines } = editorLines();
+  const autorun = Object.fromEntries(lines.map((l) => KEY_RE.exec(l)).filter(Boolean).map((m) => [m[1], m[2]]));
+  const exe = (autorun.CMD || "").startsWith('"') ? autorun.CMD.split('"')[1] : (autorun.CMD || "").split(" ")[0];
+  const dir = (autorun.DIR || "").replace(/^["']|["']$/g, "").replace(/\\/g, "/").replace(/\/+$/, "");
+  $("kb-game").value = state.current.name;
+  $("kb-prefer").textContent = exe ? [dir, exe].filter(Boolean).join("/") : "—";
+  $("kb-prefer-on").checked = false;
+  $("kb-prefer-on").disabled = !exe;
+  const keys = Object.entries(autorun).filter(([k]) => !["CMD", "DIR", "GAME_VERSION"].includes(k));
+  $("kb-keys").replaceChildren(...(keys.length ? keys.map(([k, v]) => {
+    const box = el("input", { type: "checkbox", checked: true });
+    box.dataset.key = k; box.dataset.value = v;
+    return el("label", { className: "row" }, box, `${k}=${v}`);
+  }) : [el("span", { className: "muted", textContent: "aucun réglage hors CMD/DIR/GAME_VERSION dans l'autorun" })]));
+  $("kb-note").value = "";
+  $("kb-err").hidden = true;
+  $("dlg-kb").showModal();
+};
+
+$("kb-save").onclick = async () => {
+  const keys = Object.fromEntries([...$("kb-keys").querySelectorAll("input:checked")].map((b) => [b.dataset.key, b.dataset.value]));
+  const body = { game: $("kb-game").value.trim(), keys, note: $("kb-note").value.trim(),
+    prefer: $("kb-prefer-on").checked ? $("kb-prefer").textContent : null };
+  try {
+    if (!body.game) throw new Error("Nom du jeu requis.");
+    if (!Object.keys(keys).length && !body.prefer) throw new Error("Rien à mémoriser : cocher un réglage ou l'exécutable.");
+    await api("/api/knowledge", { method: "POST", body });
+    $("dlg-kb").close();
+    $("a-result").replaceChildren(el("div", { className: "notice info", textContent: "Ajouté à la base : appliqué aux prochaines propositions pour ce jeu." }));
+  } catch (error) {
+    $("kb-err").textContent = error.message;
+    $("kb-err").hidden = false;
+  }
+};
+
+// ------------------------------------------------------------------ fichiers, historique
+
+let filesTimer = null;
+async function loadFiles() {
+  const id = state.current.id, q = $("files-q").value.trim();
+  $("files-count").textContent = "lecture…";
+  try {
+    const data = await api(`/api/image/files?id=${encodeURIComponent(id)}&q=${encodeURIComponent(q)}`);
+    if (state.current?.id !== id) return;
+    $("files-count").textContent = q ? `${data.matches} sur ${data.total} entrées` : `${data.total} entrées`;
+    $("files-list").textContent = data.files.join("\n") + (data.matches > data.files.length ? `\n… (${data.matches - data.files.length} de plus)` : "");
+  } catch (error) {
+    $("files-count").textContent = error.message;
+  }
+}
+$("files-q").addEventListener("input", () => { clearTimeout(filesTimer); filesTimer = setTimeout(loadFiles, 250); });
+
+async function renderHistory() {
+  if (!state.current) return;
+  const id = state.current.id;
+  let tasks;
+  try {
+    // File en cours + journal permanent (conservé après « Effacer l'historique »)
+    tasks = await api(`/api/tasks?image=${encodeURIComponent(id)}`);
+  } catch (error) {
+    $("d-history").replaceChildren(el("p", { className: "notice err", textContent: error.message }));
+    return;
+  }
+  if (state.current?.id !== id) return;
+  $("d-history").replaceChildren(...(tasks.length ? tasks.map(taskNode) : [el("p", { className: "muted", textContent: "Aucune opération enregistrée." })]));
+}
+
+// ------------------------------------------------------------------ tâches
+
+const TASK_STATES = { pending: ["en attente", "info"], running: ["en cours", "warn"], done: ["terminée", "ok"],
+  failed: ["échec", "err"], cancelled: ["annulée", ""] };
+
+function taskNode(t) {
+  const [label, kind] = TASK_STATES[t.status];
+  const node = el("div", { className: "task" });
+  const head = el("div", { className: "row" },
+    badge(label, kind),
+    t.status === "pending" && t.night ? badge(state.config ? `nuit ${state.config.night_start}` : "nuit", "info") : null,
+    el("strong", { textContent: t.image || t.kind }),
+    el("span", { className: "muted", textContent: t.title }),
+    t.status === "running" ? el("progress", { value: t.progress, max: 1 }) : null,
+    t.status === "running" ? el("span", { className: "muted", textContent: `${t.phase} ${Math.round(t.progress * 100)} %` }) : null,
+    t.error ? el("span", { className: "muted", style: "color:var(--err)", textContent: t.error }) : null,
+    el("span", { className: "spacer" }),
+    el("span", { className: "muted", textContent: when(t.created_at) }));
+  if (t.status === "pending" || t.status === "running") {
+    const cancel = el("button", { className: "secondary", textContent: "Annuler" });
+    cancel.onclick = async (event) => {
+      event.stopPropagation();
+      try { await api(`/api/tasks/${t.id}/cancel`, { method: "POST" }); } catch (error) { alert(error.message); }
+      refreshTasks();
+    };
+    if (t.status === "pending" && t.night) {
+      const now = el("button", { className: "secondary", textContent: "Lancer maintenant" });
+      now.onclick = async (event) => {
+        event.stopPropagation();
+        try { await api(`/api/tasks/${t.id}/now`, { method: "POST" }); } catch (error) { alert(error.message); }
+        refreshTasks();
+      };
+      head.append(now);
+    }
+    head.append(cancel);
+  }
+  head.onclick = () => node.classList.toggle("open");
+  node.append(head);
+  const result = t.kind === "trial" ? t.params?.result : null;
+  if (result) node.append(trialReport(t, result));
+  node.append(el("pre", { className: "log", textContent: t.log.join("\n") }));
+  return node;
+}
+
+function trialReport(t, r) {
+  const box = el("div", { className: `notice ${r.ok ? "info" : "warn"}`, style: "margin:.3rem 0" },
+    el("strong", { textContent: `${r.ok ? "✔" : "✘"} ${r.verdict}` }));
+  for (const w of r.windows || []) box.append(el("div", { className: "mono", textContent: `fenêtre : ${w.name} [${w.state || "normale"}]` }));
+  if ((r.errors || []).length) box.append(el("ul", { className: "issues" }, ...r.errors.map((e) => el("li", { textContent: `${e.meaning} — ${e.line}` }))));
+  if (r.screenshot) {
+    const show = el("button", { className: "secondary", textContent: "Voir la capture" });
+    show.onclick = async (event) => {
+      event.stopPropagation();
+      try {
+        const response = await fetch(`/api/tasks/${t.id}/screenshot`, { headers: { "x-wsfs-token": storage.get("wsfs-token") || "" } });
+        if (!response.ok) throw new Error(`erreur ${response.status}`);
+        const img = el("img", { src: URL.createObjectURL(await response.blob()), style: "max-width:100%;margin-top:.4rem;border-radius:6px" });
+        show.replaceWith(img);
+      } catch (error) { alert(error.message); }
+    };
+    box.append(el("div", {}, show));
+  }
+  return box;
+}
+
+let tasksTimer = null;
+let activeBefore = new Set();
+async function refreshTasks() {
+  clearTimeout(tasksTimer);
+  try {
+    state.tasks = await api("/api/tasks");
+  } catch {
+    tasksTimer = setTimeout(refreshTasks, 10000);
+    return;
+  }
+  const active = state.tasks.filter((t) => t.status === "pending" || t.status === "running");
+  const opened = new Set([...document.querySelectorAll("#tasks-list .task.open")].map((n) => n.dataset.id));
+  $("tasks-list").replaceChildren(...state.tasks.slice(0, 100).map((t) => {
+    const node = taskNode(t);
+    node.dataset.id = t.id;
+    if (opened.has(t.id)) node.classList.add("open");
+    return node;
+  }));
+  const failed = state.tasks.filter((t) => t.status === "failed").length;
+  const nightly = active.filter((t) => t.status === "pending" && t.night).length;
+  $("tasks-summary").textContent = active.length ? `${active.length} active(s)${nightly ? `, dont ${nightly} programmée(s) cette nuit` : ""}` : state.tasks.length ? "aucune active" : "";
+  if (failed) $("tasks-summary").textContent += ` · ${failed} en échec`;
+  // Une tâche vient de se terminer : l'image a changé
+  const nowActive = new Set(active.map((t) => t.id));
+  if ([...activeBefore].some((id) => !nowActive.has(id))) {
+    await loadLibrary();
+    if (state.current) await loadAutorun();
+    if (!$("folders-main").hidden) loadFolders();
+  }
+  activeBefore = nowActive;
+  if (state.current && !$("detail").hidden && !document.querySelector('[data-pane="history"]').hidden) renderHistory();
+  tasksTimer = setTimeout(refreshTasks, active.length ? 1500 : 10000);
+}
+const openTasks = () => $("tasks").classList.remove("collapsed");
+$("tasks-head").onclick = (event) => { if (event.target.tagName !== "BUTTON") $("tasks").classList.toggle("collapsed"); };
+$("tasks-clear").onclick = async () => { await api("/api/tasks/finished", { method: "DELETE" }); refreshTasks(); };
+
+// ------------------------------------------------------------------ dossiers
+
+$("btn-config").onclick = async () => {
+  let cfg, systems = [], systemsError = null;
+  try {
+    cfg = await api("/api/config");
+  } catch (error) {
+    alert(`Réglages indisponibles : ${error.message}`);
+    return;
+  }
+  try {
+    systems = await api("/api/config/systems");
+  } catch (error) {
+    // Serveur plus ancien que la page : la fenêtre s'ouvre quand même, chemins à saisir
+    systemsError = `Liste des systèmes indisponible (${error.message}) — chemins à saisir ci-dessous.`;
+  }
+  const chosen = new Set(cfg.roms_dirs.map((d) => d.replace(/\/+$/, "")));
+  const roots = [...new Set(systems.map((x) => x.root))];
+  const box = (path, label, detail) => {
+    const input = el("input", { type: "checkbox", checked: chosen.has(path), value: path });
+    input.dataset.path = path;
+    return el("label", { className: "row", style: "gap:.4rem" }, input, el("span", { textContent: label }),
+      el("span", { className: "muted", textContent: detail }));
+  };
+  $("cfg-systems").replaceChildren(
+    ...roots.map((root) => box(root, `${root} (tout)`, "tous les systèmes")),
+    ...systems.map((x) => box(x.path, x.name, [x.images && `${x.images} image(s)`, x.folders && `${x.folders} dossier(s)`].filter(Boolean).join(", "))));
+  const known = new Set([...roots, ...systems.map((x) => x.path)]);
+  $("cfg-dirs").value = [...chosen].filter((d) => !known.has(d)).join("\n");
+  $("cfg-info").replaceChildren(...[
+    ["Sauvegardes", cfg.saves_dir], ["Dossier de travail", cfg.tmp_dir], ["Reconstruction", cfg.rebuild_mode],
+    ["Rétention .old", cfg.old_retention_days == null ? "manuelle" : `${cfg.old_retention_days} jours`],
+  ].flatMap(([k, v]) => [el("dt", { textContent: k }), el("dd", { textContent: v })]));
+  $("cfg-night-start").value = cfg.night_start || "01:00";
+  $("cfg-night-end").value = cfg.night_end || "07:00";
+  $("cfg-err").textContent = systemsError || "";
+  $("cfg-err").hidden = !systemsError;
+  if (!systems.length) $("cfg-dirs").closest("details").open = true;
+  $("dlg-config").showModal();
+};
+$("cfg-save").onclick = async () => {
+  try {
+    const dirs = [...$("cfg-systems").querySelectorAll("input:checked")].map((i) => i.dataset.path)
+      .concat($("cfg-dirs").value.split("\n").map((d) => d.trim()).filter(Boolean));
+    if (!dirs.length) throw new Error("Cocher au moins un système.");
+    await api("/api/config/roms_dirs", { method: "PUT", body: { roms_dirs: dirs } });
+    state.config = await api("/api/config/night", { method: "PUT",
+      body: { start: $("cfg-night-start").value, end: $("cfg-night-end").value } });
+    fillWhen();
+    $("dlg-config").close();
+    loadLibrary();
+  } catch (error) {
+    $("cfg-err").textContent = error.message;
+    $("cfg-err").hidden = false;
+  }
+};
+for (const button of document.querySelectorAll("[data-close]")) button.onclick = () => button.closest("dialog").close();
+
+// ------------------------------------------------------------------ actions en masse
+
+function opRow(op = { op: "set", key: "", value: "" }) {
+  const kind = el("select", {}, new Option("Poser / modifier", "set"), new Option("Retirer", "remove"), new Option("Remplacer tout", "replace"));
+  const key = el("input", { placeholder: "CLÉ", value: op.key || "" });
+  key.setAttribute("list", "known-keys");
+  const value = el("input", { placeholder: "valeur", value: op.value || "" });
+  const template = el("textarea", { placeholder: "CMD=…\nDIR=…\nGAME_VERSION=…", value: op.template || "" });
+  const remove = el("button", { className: "secondary", textContent: "✕", title: "Retirer l'opération" });
+  const row = el("div", { className: "op" }, kind, key, value, remove);
+  const update = () => {
+    const replace = kind.value === "replace";
+    key.hidden = replace;
+    value.hidden = replace;
+    value.style.visibility = kind.value === "remove" ? "hidden" : "";   // garde la grille alignée
+    if (replace && !template.isConnected) row.insertBefore(template, remove);
+    if (!replace) template.remove();
+    if (replace) row.style.gridTemplateColumns = "9rem 1fr auto";
+    else row.style.gridTemplateColumns = "";
+    $("m-run").disabled = true;
+  };
+  kind.value = op.op;
+  kind.onchange = update;
+  for (const input of [key, value, template]) input.addEventListener("input", () => { $("m-run").disabled = true; });
+  remove.onclick = () => { row.remove(); $("m-run").disabled = true; };
+  row.read = () => kind.value === "replace" ? { op: "replace", template: template.value }
+    : kind.value === "remove" ? { op: "remove", key: key.value.trim() }
+    : { op: "set", key: key.value.trim(), value: value.value };
+  update();
+  return row;
+}
+
+const massBody = () => ({ ids: [...state.selected], ops: [...$("m-ops").children].map((row) => row.read()), when: whenOf("m-when"), target: $("m-target").value });
+
+$("btn-mass").onclick = () => {
+  $("m-count").textContent = state.selected.size;
+  if (!$("m-ops").children.length) $("m-ops").append(opRow());
+  $("m-result").replaceChildren();
+  $("m-run").disabled = true;
+  $("dlg-mass").showModal();
+};
+$("m-add").onclick = () => $("m-ops").append(opRow());
+$("m-target").onchange = () => { $("m-run").disabled = true; };
+
+function lineDiff(before, after) {
+  const a = (before || "").replace(/\r\n/g, "\n").split("\n").filter(Boolean);
+  const b = after.replace(/\r\n/g, "\n").split("\n").filter(Boolean);
+  const out = el("div", { className: "diff" });
+  for (const line of a) if (!b.includes(line)) out.append(el("div", { className: "del", textContent: `- ${line}` }));
+  for (const line of b) if (!a.includes(line)) out.append(el("div", { className: "add", textContent: `+ ${line}` }));
+  return out;
+}
+
+$("m-preview").onclick = async () => {
+  $("m-result").replaceChildren(el("p", { className: "muted", textContent: "Calcul de l'aperçu…" }));
+  try {
+    const data = await api("/api/mass/autorun/preview", { method: "POST", body: massBody() });
+    const items = data.items.map((item) => {
+      const head = el("div", { className: "row" }, el("strong", { textContent: item.name || item.id }));
+      if (item.error) head.append(badge(item.error, "err"));
+      else if (!item.changed) head.append(badge("inchangé"));
+      else if (item.blocked) head.append(badge(item.blocked, "warn"));
+      else head.append(badge($("m-target").value === "override" ? "surcharge" : "à reconstruire", "ok"));
+      const node = el("div", { className: "preview-item" }, head);
+      if (item.changed) node.append(lineDiff(item.before, item.after));
+      if (item.issues?.length) node.append(el("ul", { className: "issues" }, ...item.issues.map((x) => el("li", { textContent: x.message }))));
+      return node;
+    });
+    const space = data.space.map((s) => el("div", { className: `notice ${s.needed > s.free ? "err" : "info"}`,
+      textContent: `${s.path} : ${size(s.needed)} nécessaires (anciennes images gardées en .old), ${size(s.free)} libres` }));
+    const overrideMode = $("m-target").value === "override";
+    $("m-result").replaceChildren(el("h3", { textContent: overrideMode
+      ? `${data.ready} surcharge(s) à écrire — effet au prochain lancement, sans reconstruction`
+      : `${data.ready} image(s) à reconstruire` }), ...space, ...items);
+    $("m-run").disabled = data.ready === 0;
+    $("m-run").textContent = `Lancer ${data.ready} reconstruction(s)`;
+  } catch (error) {
+    $("m-result").replaceChildren(el("div", { className: "notice err", textContent: error.message }));
+  }
+};
+
+$("m-run").onclick = async () => {
+  try {
+    const data = await api("/api/mass/autorun", { method: "POST", body: massBody() });
+    const skipped = data.skipped.map((s) => el("li", { textContent: `${s.id} : ${s.reason}` }));
+    const done = data.overrides ? `${data.overrides.length} surcharge(s) écrite(s) : effet au prochain lancement.` : `${data.tasks.length} tâche(s) créée(s).`;
+    if (data.overrides) loadLibrary();
+    $("m-result").replaceChildren(el("div", { className: "notice info", textContent: done }),
+      ...(skipped.length ? [el("ul", { className: "issues" }, ...skipped)] : []));
+    $("m-run").disabled = true;
+    openTasks();
+    refreshTasks();
+  } catch (error) {
+    $("m-result").replaceChildren(el("div", { className: "notice err", textContent: error.message }));
+  }
+};
+
+$("btn-mass-commit").onclick = () => commitOverrides([...state.selected]);
+
+$("btn-mass-validate").onclick = async () => {
+  const ids = [...state.selected].filter((id) => state.byId.get(id)?.has_old);
+  if (!ids.length) { alert("Aucune image sélectionnée n'a de .old."); return; }
+  if (!confirm(`Supprimer définitivement l'ancienne version de ${ids.length} image(s) ?`)) return;
+  const data = await api("/api/mass/old/validate", { method: "POST", body: { ids } });
+  if (data.skipped.length) alert(data.skipped.map((s) => `${s.id} : ${s.reason}`).join("\n"));
+  loadLibrary();
+};
+
+// ------------------------------------------------------------------ fichiers et registre en masse
+
+function fileOpRow(kind, values = {}) {
+  const input = (placeholder, value = "", style = "") => el("input", { placeholder, value, style });
+  const remove = el("button", { className: "secondary", textContent: "✕", title: "Retirer l'opération" });
+  let row, read;
+  if (kind === "copy") {
+    const dest = input("destination dans l'image, ex. {exe_dir}/dinput8.dll", values.dest);
+    const source = input("fichier source sur le serveur, ex. /config/tools/dinput8.dll", values.source);
+    row = el("div", { className: "op", style: "grid-template-columns:9rem 1fr 1fr auto" },
+      el("div", {}, badge("ajouter", "ok")), dest, source, remove);
+    read = () => ({ copy: { dest: dest.value.trim(), source: source.value.trim() } });
+  } else if (kind === "delete") {
+    const path = input("chemin dans l'image", values.path);
+    row = el("div", { className: "op", style: "grid-template-columns:9rem 1fr auto" }, el("div", {}, badge("supprimer", "err")), path, remove);
+    read = () => ({ delete: path.value.trim() });
+  } else {
+    const file = el("select", {}, new Option("user.reg", "user.reg"), new Option("system.reg", "system.reg"));
+    file.value = values.file || "user.reg";
+    const key = input("clé, ex. Software\\Wine\\DllOverrides", values.key);
+    const name = input("nom", values.name, "max-width:9rem");
+    const value = input("valeur", values.value, "max-width:11rem");
+    row = el("div", { className: "op", style: "grid-template-columns:9rem 1fr auto auto auto" },
+      file, key, name, value, remove);
+    read = () => ({ reg: { file: file.value, key: key.value.trim(), name: name.value.trim(), value: value.value } });
+  }
+  remove.onclick = () => { row.remove(); $("f-run").disabled = true; };
+  row.addEventListener("input", () => { $("f-run").disabled = true; });
+  row.read = read;
+  return row;
+}
+
+function filesBody() {
+  const body = { ids: [...state.selected], copy: [], delete: [], reg: [], when: whenOf("f-when") };
+  for (const row of $("f-ops").children) {
+    const [kind, value] = Object.entries(row.read())[0];
+    body[kind].push(value);
+  }
+  return body;
+}
+
+$("btn-files").onclick = () => {
+  $("f-count").textContent = state.selected.size;
+  $("f-result").replaceChildren();
+  $("f-run").disabled = true;
+  $("dlg-files").showModal();
+};
+for (const button of document.querySelectorAll("[data-add]")) {
+  button.onclick = () => { $("f-ops").append(fileOpRow(button.dataset.add)); $("f-run").disabled = true; };
+}
+$("f-preset-fakeping").onclick = () => {
+  const source = prompt("Chemin de dinput8.dll (relais fakeping compilé) sur le serveur :", storage.get("wsfs-fakeping") || "");
+  if (source === null) return;
+  storage.set("wsfs-fakeping", source.trim());
+  $("f-ops").replaceChildren(
+    fileOpRow("copy", { dest: "{exe_dir}/dinput8.dll", source: source.trim() }),
+    fileOpRow("reg", { file: "user.reg", key: "Software\\Wine\\AppDefaults\\{exe_name}\\DllOverrides", name: "dinput8", value: "native,builtin" }));
+  $("f-run").disabled = true;
+};
+
+const ACTIONS = { add: ["ajouté", "ok"], replace: ["remplacé", "warn"], delete: ["supprimé", "err"], reg: ["registre", "info"], same: ["identique", ""] };
+
+$("f-preview").onclick = async () => {
+  $("f-result").replaceChildren(el("p", { className: "muted", textContent: "Calcul de l'aperçu…" }));
+  try {
+    const data = await api("/api/mass/files/preview", { method: "POST", body: filesBody() });
+    const items = data.items.map((item) => {
+      const head = el("div", { className: "row" }, el("strong", { textContent: item.name || item.id }));
+      if (item.error) head.append(badge(item.error, "err"));
+      else if (!item.changed) head.append(badge("inchangé"));
+      else if (item.blocked) head.append(badge(item.blocked, "warn"));
+      else head.append(badge("à appliquer", "ok"));
+      const node = el("div", { className: "preview-item" }, head);
+      for (const a of item.actions || []) {
+        const [label, kind] = ACTIONS[a.action] || [a.action, ""];
+        node.append(el("div", { className: "row mono" }, badge(label, kind), a.path, el("span", { className: "muted", textContent: a.detail })));
+      }
+      if (item.warnings?.length) node.append(el("ul", { className: "issues" }, ...item.warnings.map((w) => el("li", { textContent: w }))));
+      return node;
+    });
+    const space = data.space.map((s) => el("div", { className: `notice ${s.needed > s.free ? "err" : "info"}`,
+      textContent: `${s.path} : ${size(s.needed)} nécessaires (anciennes images gardées en .old), ${size(s.free)} libres` }));
+    $("f-result").replaceChildren(el("h3", { textContent: `${data.ready} image(s) à modifier` }), ...space, ...items);
+    $("f-run").disabled = data.ready === 0;
+    $("f-run").textContent = `Lancer ${data.ready} tâche(s)`;
+  } catch (error) {
+    $("f-result").replaceChildren(el("div", { className: "notice err", textContent: error.message }));
+  }
+};
+
+$("f-run").onclick = async () => {
+  try {
+    const data = await api("/api/mass/files", { method: "POST", body: filesBody() });
+    const skipped = data.skipped.map((s) => el("li", { textContent: `${s.id} : ${s.reason}` }));
+    $("f-result").replaceChildren(el("div", { className: "notice info", textContent: `${data.tasks.length} tâche(s) créée(s).` }),
+      ...(skipped.length ? [el("ul", { className: "issues" }, ...skipped)] : []));
+    $("f-run").disabled = true;
+    openTasks();
+    refreshTasks();
+  } catch (error) {
+    $("f-result").replaceChildren(el("div", { className: "notice err", textContent: error.message }));
+  }
+};
+
+// ------------------------------------------------------------------ vérification, sauvegardes
+
+function reportSkipped(skipped) {
+  if (skipped.length) alert(skipped.map((s) => `${s.id} : ${s.reason}`).join("\n"));
+}
+
+async function verify(ids) {
+  const data = await api("/api/mass/verify", { method: "POST", body: { ids } });
+  reportSkipped(data.skipped);
+  openTasks();
+  refreshTasks();
+}
+
+async function resetSaves(ids) {
+  const names = ids.filter((id) => state.byId.get(id)?.saves_present);
+  if (!names.length) { alert("Aucune image sélectionnée n'a de sauvegardes."); return; }
+  if (!confirm(`Réinitialiser les sauvegardes de ${names.length} jeu(x) ? Elles sont renommées en <jeu>.avant-<date>, pas supprimées.`)) return;
+  const data = await api("/api/mass/saves/reset", { method: "POST", body: { ids: names } });
+  reportSkipped(data.skipped);
+  await loadLibrary();
+}
+
+$("d-trial").onclick = async () => {
+  const duration = Number($("d-trial-duration").value);
+  if (!confirm(`Lancer « ${state.current.name} » dans SteamBox pendant ${duration} s ? Le jeu s'affiche sur l'écran de la session : ne rien lancer pendant ce temps. Il est ensuite arrêté.`)) return;
+  try {
+    await api(`/api/image/trial?id=${encodeURIComponent(state.current.id)}`, { method: "POST", body: { duration, when: "now" } });
+    openTasks();
+    refreshTasks();
+  } catch (error) { alert(error.message); }
+};
+$("d-verify").onclick = () => verify([state.current.id]).catch((error) => alert(error.message));
+$("d-saves-reset").onclick = () => resetSaves([state.current.id]).catch((error) => alert(error.message));
+$("btn-verify").onclick = () => verify([...state.selected]).catch((error) => alert(error.message));
+$("btn-saves-reset").onclick = () => resetSaves([...state.selected]).catch((error) => alert(error.message));
+
+// ------------------------------------------------------------------ vues
+
+function showView(name) {
+  for (const b of $("views").children) b.classList.toggle("active", b.dataset.view === name);
+  $("main").hidden = name !== "images";
+  $("folders-main").hidden = name !== "folders";
+  storage.set("wsfs-view", name);
+  if (name === "folders") loadFolders();
+}
+$("views").onclick = (event) => event.target.dataset.view && showView(event.target.dataset.view);
+
+// ------------------------------------------------------------------ dossiers à empaqueter
+
+const folders = { items: [], selected: new Set(), sort: { key: "folder", dir: 1 } };
+
+function sortedFolders(items) {
+  const { key, dir } = folders.sort;
+  return [...items].sort((a, b) => {
+    const x = a[key] ?? "", y = b[key] ?? "";
+    const cmp = typeof x === "boolean" || typeof y === "boolean" ? Number(Boolean(x)) - Number(Boolean(y))
+      : String(x).localeCompare(String(y), "fr", { numeric: true, sensitivity: "base" });
+    // À égalité, ordre alphabétique des dossiers
+    return cmp * dir || a.folder.localeCompare(b.folder, "fr", { numeric: true, sensitivity: "base" });
+  });
+}
+
+for (const th of document.querySelectorAll("#g-head th[data-sort]")) {
+  th.onclick = () => {
+    const key = th.dataset.sort;
+    folders.sort = { key, dir: folders.sort.key === key ? -folders.sort.dir : 1 };
+    renderFolders();
+  };
+}
+
+async function loadFolders() {
+  try {
+    folders.items = await api("/api/folders");
+  } catch (error) {
+    $("g-rows").replaceChildren(el("tr", {}, el("td", { colSpan: 7, className: "muted", textContent: error.message })));
+    return;
+  }
+  const ids = new Set(folders.items.map((f) => f.id));
+  for (const id of [...folders.selected]) if (!ids.has(id)) folders.selected.delete(id);
+  fillFilter("g-system", "Système : tous ceux de Réglages", folders.items.map((f) => f.system).filter(Boolean));
+  renderFolders();
+}
+
+function visibleFolders() {
+  const q = $("g-search").value.trim().toLowerCase(), system = $("g-system").value, st = $("g-state").value;
+  return folders.items.filter((f) => (!q || f.folder.toLowerCase().includes(q)) && (!system || f.system === system)
+    && (st !== "todo" || !f.image_exists) && (st !== "done" || f.image_exists)
+    && (st !== "noautorun" || !f.has_autorun));
+}
+
+function renderFolders() {
+  const visible = sortedFolders(visibleFolders());
+  for (const th of document.querySelectorAll("#g-head th[data-sort]")) {
+    th.querySelector(".dir")?.remove();
+    if (th.dataset.sort === folders.sort.key) th.append(el("span", { className: "dir", textContent: folders.sort.dir > 0 ? " ▲" : " ▼" }));
+  }
+  $("g-all").checked = visible.length > 0 && visible.every((f) => folders.selected.has(f.id));
+  $("g-rows").replaceChildren(...visible.map((f) => {
+    const box = el("input", { type: "checkbox", checked: folders.selected.has(f.id) });
+    box.onchange = () => { box.checked ? folders.selected.add(f.id) : folders.selected.delete(f.id); renderFolderSelection(); };
+    return el("tr", {},
+      el("td", {}, box), el("td", { textContent: f.system || "—" }), el("td", { textContent: f.folder }),
+      el("td", {}, badge(`.${f.kind}`)),
+      el("td", {}, f.has_autorun ? badge("présent", "ok") : badge("absent", "warn")),
+      el("td", {}, f.image_exists ? badge("déjà empaqueté", "info") : el("span", { className: "muted", textContent: "—" })),
+      el("td", {}, f.task ? badge(f.task === "running" ? "en cours" : "en attente", "warn") : ""));
+  }));
+  if (!visible.length) $("g-rows").append(el("tr", {}, el("td", { colSpan: 7, className: "muted", textContent: "aucun dossier *.pc / *.wine" })));
+  renderFolderSelection();
+}
+
+function renderFolderSelection() {
+  $("g-selection").hidden = folders.selected.size === 0;
+  $("g-count").textContent = `${folders.selected.size} dossier(s) sélectionné(s)`;
+}
+
+for (const id of ["g-search", "g-system", "g-state"]) $(id).addEventListener("input", renderFolders);
+$("g-all").onchange = () => { visibleFolders().forEach((f) => $("g-all").checked ? folders.selected.add(f.id) : folders.selected.delete(f.id)); renderFolders(); };
+$("g-clear").onclick = () => { folders.selected.clear(); renderFolders(); };
+
+$("g-delete").onclick = async () => {
+  const ids = folders.items.filter((f) => folders.selected.has(f.id) && f.image_exists).map((f) => f.id);
+  if (!ids.length) { alert("Aucun dossier sélectionné n'a encore son image .wsquashfs."); return; }
+  if (!confirm(`Supprimer DÉFINITIVEMENT ${ids.length} dossier(s) déjà empaqueté(s) ? L'image de chacun est vérifiée avant.`)) return;
+  const data = await api("/api/folders/delete", { method: "POST", body: { ids } });
+  reportSkipped(data.skipped);
+  loadFolders();
+};
+
+// Revue : une carte par dossier, analysée l'une après l'autre
+const review = { cards: [] };
+
+function confidence(level) {
+  return el("span", { className: `conf-${level}`, textContent: { high: "sûr", medium: "probable", low: "incertain" }[level] || level });
+}
+
+function renderCard(card) {
+  const r = card.report, node = card.node;
+  const include = el("input", { type: "checkbox", checked: card.include, disabled: card.sent });
+  include.onchange = () => { card.include = include.checked; node.classList.toggle("off", !card.include); updatePackButton(); };
+  const head = el("div", { className: "row" }, include, el("strong", { textContent: card.folder.folder }),
+    badge(r.prefix === "none" ? "jeu seul" : `prefix ${r.prefix}${r.arch ? " " + r.arch : ""}`),
+    r.engine ? badge(r.engine, "info") : null,
+    el("span", { className: "muted", textContent: `${size(r.size)} · ${r.file_count} fichiers` }),
+    card.folder.image_exists ? badge("image déjà présente", "err") : null,
+    card.sent ? badge("envoyé dans la file", "ok") : null);
+  node.replaceChildren(head);
+  node.classList.toggle("off", !card.include);
+
+  const choice = el("div", { className: "row" });
+  const radio = (value, label, disabled = false) => {
+    const input = el("input", { type: "radio", name: `src-${card.folder.id}`, value, checked: card.source === value, disabled });
+    input.onchange = () => { card.source = value; renderCard(card); updatePackButton(); };
+    return el("label", {}, input, ` ${label}`);
+  };
+  choice.append(radio("existing", "Autorun existant", !r.existing), radio("generated", "Autorun proposé"),
+    el("span", { className: "muted", textContent: `recommandé : ${r.recommended === "existing" ? "existant" : "proposé"}` }));
+  node.append(choice);
+
+  const left = el("div"), right = el("div");
+  if (card.source === "existing" && r.existing) {
+    left.append(el("pre", { className: "bat", textContent: r.existing.text }));
+    if (r.existing.issues.length) left.append(el("ul", { className: "issues" }, ...r.existing.issues.map((i) => el("li", { className: i.level, textContent: i.message }))));
+  } else {
+    const select = el("select", {}, ...r.candidates.map((c) => new Option(`${c.path}  (score ${c.score}${c.bits ? `, ${c.bits} bits` : ""}${c.version ? `, v${c.version}` : ""})`, c.path)));
+    select.value = r.chosen || "";
+    select.onchange = () => analyzeCard(card, select.value);
+    const text = el("textarea", { value: card.text, spellcheck: false });
+    text.oninput = () => { card.text = text.value; updatePackButton(); };
+    left.append(r.candidates.length ? el("label", { className: "muted" }, "Exécutable : ", select) : el("div", { className: "notice err", textContent: "Aucun exécutable Windows : jeu absent ou version Linux ?" }), text);
+    const issues = r.generated.issues;     // validation de la proposition d'origine
+    if (issues.length) left.append(el("ul", { className: "issues" }, ...issues.map((i) => el("li", { className: i.level, textContent: i.message }))));
+  }
+  right.append(el("ul", { className: "items" }, ...r.generated.items.map((i) => el("li", { className: i.written ? "" : "default" },
+    el("code", { textContent: `${i.key}=${i.value}` }), " — ", i.justification, " (", confidence(i.confidence), ")",
+    i.written ? "" : el("div", { className: "muted", textContent: "→ déjà le comportement par défaut du lanceur : rien à ajouter à l'autorun" })))));
+  if (r.generated.warnings.length) right.append(el("ul", { className: "issues" }, ...r.generated.warnings.map((w) => el("li", { textContent: w }))));
+  for (const bat of r.bats) {
+    right.append(el("div", { className: "muted mono", textContent: bat.path }), el("pre", { className: "bat", textContent: bat.content }));
+    if (bat.suspicious.length) right.append(el("ul", { className: "issues" }, ...bat.suspicious.map((x) => el("li", { textContent: x }))));
+  }
+  if (r.excluded.length) right.append(el("details", {}, el("summary", { className: "muted", textContent: `${r.excluded.length} exécutable(s) écarté(s)` }),
+    el("ul", { className: "items" }, ...r.excluded.map((e) => el("li", { textContent: `${e.path} — ${e.reason}` })))));
+  node.append(el("div", { className: "cols" }, left, right));
+}
+
+async function analyzeCard(card, exe = null) {
+  card.node.replaceChildren(el("div", { className: "row" }, el("strong", { textContent: card.folder.folder }), el("span", { className: "muted", textContent: "analyse…" })));
+  try {
+    const r = await api(`/api/folders/analyze?id=${encodeURIComponent(card.folder.id)}${exe ? `&exe=${encodeURIComponent(exe)}` : ""}`);
+    card.report = r;
+    card.text = r.generated.text;
+    if (!exe) card.source = r.recommended;
+    card.include = !card.folder.image_exists && !card.folder.task && (card.source === "existing" || /^CMD=/m.test(card.text));
+    renderCard(card);
+  } catch (error) {
+    card.include = false;
+    card.node.replaceChildren(el("div", { className: "notice err", textContent: `${card.folder.folder} : ${error.message}` }));
+  }
+  updatePackButton();
+}
+
+function updatePackButton() {
+  const ready = review.cards.filter((c) => c.include && !c.sent && c.report && (c.source === "existing" || /^CMD=/m.test(c.text)));
+  $("p-run").disabled = ready.length === 0;
+  $("p-run").textContent = `Empaqueter ${ready.length} dossier(s)`;
+  return ready;
+}
+
+$("g-review").onclick = async () => {
+  const selected = folders.items.filter((f) => folders.selected.has(f.id));
+  $("p-count").textContent = selected.length;
+  $("p-result").replaceChildren();
+  review.cards = selected.map((folder) => ({ folder, node: el("div", { className: "card" }), include: false, source: "generated", text: "" }));
+  $("p-cards").replaceChildren(...review.cards.map((c) => c.node));
+  updatePackButton();
+  $("dlg-pack").showModal();
+  for (const [index, card] of review.cards.entries()) {
+    if (!$("dlg-pack").open) break;
+    $("p-progress").textContent = `analyse ${index + 1}/${review.cards.length}…`;
+    await analyzeCard(card);
+  }
+  $("p-progress").textContent = "";
+};
+
+$("p-delete").onchange = () => {
+  if ($("p-delete").checked && !confirm("Supprimer chaque dossier une fois son image créée et vérifiée ? Sans retour possible.")) $("p-delete").checked = false;
+};
+
+$("p-run").onclick = async () => {
+  // autorun null : celui du dossier est gardé tel quel
+  const cards = updatePackButton();
+  const items = cards.map((c) => ({ id: c.folder.id, autorun: c.source === "existing" ? null : c.text }));
+  try {
+    const data = await api("/api/folders/pack", { method: "POST", body: { items, rename_wine: $("p-rename").checked, delete_source: $("p-delete").checked, when: whenOf("p-when") } });
+    const skipped = data.skipped.map((s) => el("li", { textContent: `${s.id} : ${s.reason}` }));
+    // Un dossier envoyé est renommé (.pc → .wine) : ne plus le renvoyer
+    const refused = new Set(data.skipped.map((s) => s.id));
+    for (const card of cards) {
+      if (!refused.has(card.folder.id)) { card.sent = true; card.include = false; renderCard(card); }
+    }
+    updatePackButton();
+    $("p-result").replaceChildren(el("div", { className: "notice info", textContent: `${data.tasks.length} empaquetage(s) ajouté(s) à la file.` }),
+      ...(skipped.length ? [el("ul", { className: "issues" }, ...skipped)] : []));
+    openTasks();
+    refreshTasks();
+    loadFolders();
+  } catch (error) {
+    $("p-result").replaceChildren(el("div", { className: "notice err", textContent: error.message }));
+  }
+};
+
+// ------------------------------------------------------------------ programmation de nuit
+
+function fillWhen() {
+  const night = state.config ? `Cette nuit (${state.config.night_start}–${state.config.night_end})` : "Cette nuit";
+  const saved = storage.get("wsfs-when") || "now";
+  for (const select of document.querySelectorAll("select.when")) {
+    select.replaceChildren(new Option("Maintenant", "now"), new Option(night, "night"));
+    select.value = saved;
+    select.onchange = () => {
+      storage.set("wsfs-when", select.value);
+      for (const other of document.querySelectorAll("select.when")) other.value = select.value;
+    };
+  }
+}
+const whenOf = (id) => $(id).value || "now";
+
+// ------------------------------------------------------------------ démarrage
+
+(async () => {
+  state.keys = await api("/api/autorun/keys");
+  try { state.config = await api("/api/config"); } catch { state.config = null; }
+  fillWhen();
+  $("known-keys").replaceChildren(...state.keys.map((k) => new Option(k.key, k.key)));
+  buildForm();
+  await loadLibrary();
+  refreshTasks();
+  if (storage.get("wsfs-view") === "folders") showView("folders");
+})();
 </script>
 </body>
 </html>
