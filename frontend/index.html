@@ -640,8 +640,11 @@ function paintInitials(node, name) {
   node.style.background = `linear-gradient(140deg, hsl(${hue} 62% 56%), hsl(${(hue + 40) % 360} 58% 42%))`;
   node.classList.remove("icon", "es");
 }
+// Version de l'illustration : change avec l'image et avec l'exécutable de
+// CMD (adresse différente, donc jamais l'ancienne servie par le cache HTTP)
+const artVersion = (item) => `${item.mtime}|${item.dir || ""}|${item.cmd || ""}`;
 function loadArt(item) {
-  const key = `${item.id}:${item.mtime}`;
+  const key = `${item.id}:${artVersion(item)}`;
   if (!art.cache.has(key)) {
     art.cache.set(key, new Promise((resolve) => { art.waiting.push({ item, resolve }); pumpArt(); })
       .then((result) => { art.done.set(key, result); return result; }));
@@ -652,7 +655,7 @@ function pumpArt() {
   while (art.active < 4 && art.waiting.length) {
     const { item, resolve } = art.waiting.shift();
     art.active++;
-    fetch(`/api/image/art?id=${encodeURIComponent(item.id)}`, { headers: { "x-wsfs-token": storage.get("wsfs-token") || "" } })
+    fetch(`/api/image/art?id=${encodeURIComponent(item.id)}&v=${encodeURIComponent(artVersion(item))}`, { headers: { "x-wsfs-token": storage.get("wsfs-token") || "" } })
       .then(async (r) => r.ok ? { url: URL.createObjectURL(await r.blob()), kind: r.headers.get("X-Art-Kind") || "icon" } : null)
       .catch(() => null)
       .then((result) => { art.active--; resolve(result); pumpArt(); });
@@ -666,7 +669,7 @@ function putArt(node, a, animate) {
 }
 // Vrai si l'illustration était déjà connue (posée sans attendre)
 function artReady(node, item) {
-  const key = `${item.id}:${item.mtime}`;
+  const key = `${item.id}:${artVersion(item)}`;
   if (!art.done.has(key)) return false;
   const a = art.done.get(key);
   if (a) putArt(node, a, false); else paintInitials(node, item.name);

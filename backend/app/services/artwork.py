@@ -164,7 +164,10 @@ def _scratch(settings: Settings, image: Path):
 def exe_icon(settings: Settings, image: Path, cmd: str | None, dir_: str | None) -> Artwork | None:
     st = image.stat()
     key = hashlib.sha1(str(image).encode()).hexdigest()[:16]
-    stamp = f"{key}-{int(st.st_mtime)}-{st.st_size}"
+    # L'exécutable fait partie de la clé : corrigé par une surcharge (image
+    # inchangée), il donne une autre icône
+    exe = hashlib.sha1(f"{dir_ or ''}|{cmd or ''}".encode()).hexdigest()[:8]
+    stamp = f"{key}-{int(st.st_mtime)}-{st.st_size}-{exe}"
     cache = settings.state_dir / "art"
     for ext, media in ((".png", "image/png"), (".ico", "image/x-icon")):
         if (cache / f"{stamp}{ext}").is_file():

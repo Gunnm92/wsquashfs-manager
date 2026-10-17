@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from app.config import Settings
+from app.services import artwork
 from app.services.artwork import es_artwork
 
 GAMELIST = """<?xml version="1.0"?>
@@ -55,3 +57,18 @@ def test_path_outside_system_dir_refused(tmp_path):
 def test_broken_gamelist_ignored(tmp_path):
     d = _system(tmp_path, "<gameList><game>", ["Mon Jeu-thumb.png"])
     assert es_artwork(d / "Mon Jeu.wsquashfs").path.name == "Mon Jeu-thumb.png"
+
+
+def test_icon_cache_follows_the_executable(tmp_path, monkeypatch):
+    """Exécutable corrigé (par une surcharge : image inchangée) : nouvelle
+    lecture, pas l'icône de l'ancien exécutable."""
+    image = tmp_path / "jeu.wsquashfs"
+    image.write_bytes(b"img")
+    looked_up: list[str | None] = []
+    monkeypatch.setattr(artwork, "_exe_path",
+                        lambda image, cmd, dir_, unsquashfs: looked_up.append(cmd))
+    settings = Settings(state_dir=tmp_path / "state")
+    assert artwork.exe_icon(settings, image, "launcher.exe", "") is None
+    assert artwork.exe_icon(settings, image, "launcher.exe", "") is None   # en cache
+    assert artwork.exe_icon(settings, image, "game.exe", "Binaries") is None
+    assert looked_up == ["launcher.exe", "game.exe"]
