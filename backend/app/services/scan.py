@@ -23,6 +23,7 @@ from pathlib import Path
 from ..config import Settings
 from ..models import ImageInfo, ImageState, ImageType, RunnerKind
 from .autorun import Autorun, decode_autorun, merge_override, override_path, unquote
+from .durable import write_atomic
 
 _CACHE_DIR = Path.home() / ".cache/wsquashfs-manager"
 _CACHE_VERSION = 2          # à incrémenter quand le contenu mis en cache change
@@ -31,28 +32,23 @@ _CACHE_VERSION = 2          # à incrémenter quand le contenu mis en cache chan
 _SYSTEM_DIRS = ("drive_c/windows/",)
 
 
-def _write_atomic(target: Path, text: str) -> None:
+def _write_atomic(target: Path, text: str, durable: bool = False) -> None:
     """Écriture atomique : la file de tâches et les requêtes écrivent en
-    parallèle, un lecteur ne doit jamais voir un fichier à moitié écrit."""
-    target.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=target.name + ".", suffix=".part")
-    try:
-        with os.fdopen(fd, "w") as f:
-            f.write(text)
-        os.replace(tmp, target)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
+    parallèle, un lecteur ne doit jamais voir un fichier à moitié écrit.
+    `durable` : attendre le disque (état de la file ; pas pour un cache)."""
+    write_atomic(target, text, durable=durable)
 
 
 def image_id(image: Path, system: str | None) -> str:
     return f"{system}/{image.stem}" if system else image.stem
 
 
-def _find_images(roms_dirs: list[str], max_depth: int) -> list[tuple[Path, str | None]]:
+def _find_images(roms_dirs: list[str], max_depth: int,
+                 suffix: str = ".wsquashfs") -> list[tuple[Path, str | None]]:
     """Retourne [(chemin image, système), ...], sans descendre au-delà de
     `max_depth` niveaux sous chaque dossier roms/. système = premier
-    sous-dossier si l'image est dans roms/<système>/."""
+    sous-dossier si l'image est dans roms/<système>/. `suffix` : extension
+    cherchée (« .wsquashfs.old » pour les anciennes versions)."""
     out: list[tuple[Path, str | None]] = []
     seen: set[Path] = set()         # roms/ et roms/<système> cochés ensemble
     for d in roms_dirs:
@@ -65,7 +61,7 @@ def _find_images(roms_dirs: list[str], max_depth: int) -> list[tuple[Path, str |
                 dirnames[:] = []            # ne pas descendre plus bas
             dirnames[:] = sorted(n for n in dirnames if not n.startswith("."))
             for f in sorted(filenames):
-                if f.startswith(".") or not f.endswith(".wsquashfs"):
+                if f.startswith(".") or not f.endswith(suffix):
                     continue
                 p = Path(cur) / f
                 if p.resolve() in seen:
@@ -81,6 +77,26 @@ def _find_images(roms_dirs: list[str], max_depth: int) -> list[tuple[Path, str |
                 else:
                     system = None
                 out.append((p, system))
+    return out
+
+
+def find_damaged(settings: Settings) -> list[dict]:
+    """Images absentes ou illisibles dont l'ancienne version (.old) est
+    intacte : ce qu'une coupure pendant un échange aurait pu laisser."""
+    out = []
+    for old, system in _find_images(settings.roms_dirs, settings.scan_max_depth,
+                                    ".wsquashfs.old"):
+        image = old.with_name(old.name[:-len(".old")])
+        if not image.exists():
+            problem = "image absente"
+        elif not _unsquashfs_ok(settings, image):
+            problem = "image illisible"
+        else:
+            continue
+        if not _unsquashfs_ok(settings, old):
+            continue                    # rien de sain à remettre
+        out.append({"id": image_id(image, system), "image": str(image), "old": str(old),
+                    "problem": problem, "old_size": old.stat().st_size})
     return out
 
 

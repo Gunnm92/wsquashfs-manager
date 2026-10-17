@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
 from ..config import Settings, work_area
+from .durable import fsync_dir, restore, swap_keep_old
 from .scan import _list_files_uncached
 
 # Marge sur la taille de la nouvelle image (≈ l'ancienne) : la compression
@@ -463,12 +464,8 @@ def _swap(image: Path, part: Path, backup: Path, before: os.stat_result,
     except PermissionError:
         pass        # service lancé sous le propriétaire des images : déjà bon
     try:
-        os.replace(image, backup)
-        try:
-            os.replace(part, image)
-        except OSError:
-            os.replace(backup, image)
-            raise
+        # .part sur le disque avant l'échange ; l'original reste en .old
+        swap_keep_old(image, part, backup)
     except OSError as exc:
         raise RebuildError(f"échange final impossible : {exc}") from exc
 
@@ -481,6 +478,7 @@ def validate_backup(image: Path) -> None:
     if not backup.exists():
         raise RebuildError("aucune sauvegarde .old")
     backup.unlink()
+    fsync_dir(image.parent)
 
 
 def restore_backup(image: Path) -> None:
@@ -488,7 +486,7 @@ def restore_backup(image: Path) -> None:
     backup = backup_path(image)
     if not backup.exists():
         raise RebuildError("aucune sauvegarde .old")
-    os.replace(backup, image)
+    restore(backup, image)
 
 
 def purge_backups(images: list[Path], retention_days: int | None) -> list[Path]:

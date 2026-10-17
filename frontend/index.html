@@ -360,6 +360,7 @@ pre.bat { font: 11.5px/1.5 var(--mono); background: var(--surface-2); border: 1p
 
 <main id="main">
   <section>
+    <div id="recovery"></div>
     <div class="stats" id="stats"></div>
     <div class="toolbar">
       <div class="search"><svg class="ico" aria-hidden="true"><use href="#i-search"/></svg><input type="search" id="f-search" placeholder="Rechercher un jeu, une commande, une version…"></div>
@@ -804,6 +805,7 @@ async function loadLibrary(refresh = false) {
   $("status").textContent = "";
   $("count-images").textContent = state.items.length;
   renderTable();
+  loadRecovery();
   if (state.current && state.byId.has(state.current.id)) {
     state.current = state.byId.get(state.current.id);
     renderDetailHeader();
@@ -891,6 +893,25 @@ function renderTable() {
   $("rows").replaceChildren(...rows);
   renderStats();
   renderSelection();
+}
+
+// Images absentes ou illisibles dont l'ancienne version (.old) est saine
+// (coupure pendant un échange, par exemple) : remise en un clic
+async function loadRecovery() {
+  let damaged = [];
+  try { damaged = await api("/api/recovery"); } catch { /* serveur plus ancien */ }
+  $("recovery").replaceChildren(...damaged.map((d) => {
+    const fix = el("button", { textContent: "Remettre l'ancienne version" });
+    fix.onclick = async () => {
+      if (!confirm(`Remettre l'ancienne version de ${d.id} (${size(d.old_size)}) ?`)) return;
+      try {
+        await api("/api/recovery/restore", { method: "POST", body: { old: d.old } });
+        await loadLibrary();
+      } catch (error) { alert(error.message); }
+    };
+    return el("div", { className: "notice err row" },
+      el("span", { className: "spacer", textContent: `${d.id} : ${d.problem}. L'ancienne version (.old) est intacte.` }), fix);
+  }));
 }
 
 // Chiffres clés de la bibliothèque ; un clic filtre (deuxième clic : retire le filtre)

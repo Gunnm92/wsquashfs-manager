@@ -15,6 +15,8 @@ from typing import Annotated, Literal
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from .services.durable import write_atomic
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="WSQUASHFS_MGR_", env_file=".env")
@@ -131,10 +133,7 @@ def _save_runtime(settings: Settings, **values) -> None:
     data = _read_runtime(settings)
     data.update(values)
     target = settings.runtime_config_file
-    target.parent.mkdir(parents=True, exist_ok=True)
-    part = target.with_name(target.name + ".part")
-    part.write_text(json.dumps(data, indent=2) + "\n")
-    part.replace(target)
+    write_atomic(target, json.dumps(data, indent=2) + "\n")
 
 
 def save_roms_dirs(settings: Settings, roms_dirs: list[str]) -> None:

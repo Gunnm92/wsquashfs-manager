@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
+import stat
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -36,6 +37,7 @@ from .autorun import (
     override_from,
     override_path,
 )
+from .durable import fsync_dir, publish_new, write_atomic
 from .rebuild import (
     Changes,
     Job,
@@ -150,10 +152,7 @@ def write_override(settings: Settings, image: Path, wanted: Autorun) -> list[str
     if not over.lines:
         target.unlink(missing_ok=True)
         return []
-    part = target.with_name(target.name + ".wsfs-part")
-    part.write_bytes(over.encode("utf-8"))
-    os.chmod(part, 0o644)
-    os.replace(part, target)
+    write_atomic(target, over.encode("utf-8"), mode=0o644)
     return [line.split("=", 1)[0] for line in over.lines]
 
 
@@ -311,11 +310,7 @@ def plan_files(settings: Settings, image: Path, name: str, system: str | None,
 
 def _write_saves(writes: dict[Path, bytes]) -> None:
     for path, data in writes.items():
-        mode = path.stat().st_mode
-        part = path.with_name(path.name + ".wsfs-part")
-        part.write_bytes(data)
-        os.chmod(part, mode)
-        os.replace(part, path)
+        write_atomic(path, data, mode=stat.S_IMODE(path.stat().st_mode))
 
 
 def run_files(settings: Settings, task: Task, job: Job) -> str:
@@ -380,6 +375,7 @@ def reset_saves(settings: Settings, image: Path) -> Path:
         raise RebuildError("aucune sauvegarde pour ce jeu")
     target = saves.with_name(f"{saves.name}.avant-{time.strftime('%Y%m%d-%H%M%S')}")
     os.rename(saves, target)
+    fsync_dir(saves.parent)
     return target
 
 
@@ -502,6 +498,7 @@ def run_pack(settings: Settings, task: Task, job: Job) -> str:
         if wine.exists():
             raise RebuildError(f"{wine.name} existe déjà")
         os.rename(source, wine)
+        fsync_dir(source.parent)
         job.log(f"Renommé : {source.name} → {wine.name}")
         source = wine
         params["source"] = str(wine)
@@ -535,9 +532,11 @@ def run_pack(settings: Settings, task: Task, job: Job) -> str:
         verify(settings, part, expected, Changes(write={"autorun.cmd": autorun}
                                                  if autorun is not None else {}))
         os.chmod(part, 0o644)
-        if target.exists():
-            raise RebuildError(f"{target.name} est apparu pendant l'empaquetage")
-        os.replace(part, target)
+        job.progress("écriture sur le disque", 0.97)
+        try:
+            publish_new(part, target)        # jamais d'écrasement, même en course
+        except FileExistsError:
+            raise RebuildError(f"{target.name} est apparu pendant l'empaquetage") from None
         done = True
     finally:
         if not done:

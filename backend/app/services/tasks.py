@@ -23,6 +23,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from ..models import Task, TaskStatus
+from .durable import append_line
 from .rebuild import Job, RebuildCancelled, RebuildError, part_path
 from .scan import _write_atomic
 
@@ -101,7 +102,7 @@ class TaskQueue:
                 del self._tasks[old.id]
             text = json.dumps([t.model_dump(mode="json") for t in self._tasks.values()],
                               indent=1)
-        _write_atomic(self.state_file, text)
+        _write_atomic(self.state_file, text, durable=True)
 
     # -------------------------------------------------------------- API
 
@@ -154,8 +155,7 @@ class TaskQueue:
         dernières lignes : l'historique sert à savoir ce qui a été fait)."""
         entry = task.model_copy(update={"log": task.log[-20:]})
         try:
-            with open(self.history_file, "a", encoding="utf-8") as f:
-                f.write(entry.model_dump_json() + "\n")
+            append_line(self.history_file, entry.model_dump_json())
         except OSError:
             pass
 

@@ -32,6 +32,7 @@ import pefile
 import yaml
 
 from .autorun import Autorun, decode_autorun
+from .durable import write_atomic
 from .registry import section_values
 from .rules import Analysis, load_rules, run_rules
 
@@ -121,11 +122,10 @@ def add_local_game(entry: dict) -> dict:
         data = yaml.safe_load(LOCAL_GAMES_FILE.read_text()) or {"games": []}
     data.setdefault("games", []).append(entry)
     LOCAL_GAMES_FILE.parent.mkdir(parents=True, exist_ok=True)
-    part = LOCAL_GAMES_FILE.with_name(LOCAL_GAMES_FILE.name + ".part")
-    part.write_text("# Base de connaissances locale (ajouts depuis wsquashfs-manager),\n"
-                    "# prioritaire sur rules/games.yaml. Même format.\n"
-                    + yaml.safe_dump(data, allow_unicode=True, sort_keys=False))
-    part.replace(LOCAL_GAMES_FILE)
+    write_atomic(LOCAL_GAMES_FILE,
+                 "# Base de connaissances locale (ajouts depuis wsquashfs-manager),\n"
+                 "# prioritaire sur rules/games.yaml. Même format.\n"
+                 + yaml.safe_dump(data, allow_unicode=True, sort_keys=False))
     return entry
 
 

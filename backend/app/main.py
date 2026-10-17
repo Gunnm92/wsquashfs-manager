@@ -20,8 +20,8 @@ from .config import WORK_DIR_NAME, Settings, get_settings, in_night, save_night,
 from .models import ImageInfo, ImageState, Task
 from .services import analyze as analyze_mod
 from .services import scan
-from .services.artwork import artwork
 from .services.analyze import FolderAnalysis, add_local_game, analyze_folder, analyze_image, report
+from .services.artwork import artwork
 from .services.autorun import (
     KEY_HELP,
     KEY_NAME_RE,
@@ -31,6 +31,7 @@ from .services.autorun import (
     merge_override,
     override_path,
 )
+from .services.durable import restore
 from .services.operations import (
     autorun_sha,
     commit_params,
@@ -263,6 +264,31 @@ def _fresh_image(image_id: str) -> ImageInfo:
 @app.get("/api/image")
 def image_detail(id: str):
     return _with_task_state(_find_image(id))
+
+
+@app.get("/api/recovery")
+def recovery():
+    """Images absentes ou illisibles dont l'ancienne version (.old) est saine."""
+    return [d for d in scan.find_damaged(_settings) if not queue.active_for(d["id"])]
+
+
+class RecoveryRestore(BaseModel):
+    old: str
+
+
+@app.post("/api/recovery/restore")
+def recovery_restore(body: RecoveryRestore):
+    """Remet l'ancienne version d'une image abîmée (seulement une image
+    signalée par /api/recovery)."""
+    damaged = {d["old"]: d for d in recovery()}
+    if body.old not in damaged:
+        raise HTTPException(status_code=404, detail="rien à remettre pour ce fichier")
+    image = Path(damaged[body.old]["image"])
+    if image.exists() and scan.image_in_use(image):
+        raise HTTPException(status_code=409, detail="jeu en cours")
+    restore(Path(body.old), image)
+    _refresh_library(force=False)
+    return {"restored": str(image)}
 
 
 @app.get("/api/image/art")
