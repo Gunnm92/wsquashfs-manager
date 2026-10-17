@@ -268,8 +268,10 @@ def _unmount(mountpoint: Path) -> None:
         if not os.path.ismount(mountpoint):
             return
         for tool in ("fusermount3", "fusermount"):
-            if shutil.which(tool) and subprocess.run([tool, "-u", str(mountpoint)],
-                                                     capture_output=True, check=False).returncode == 0:
+            if not shutil.which(tool):
+                continue
+            if subprocess.run([tool, "-u", str(mountpoint)], capture_output=True,
+                              check=False).returncode == 0:
                 return
         time.sleep(1)
     for tool in ("fusermount3", "fusermount"):
@@ -290,7 +292,8 @@ def apply_changes(root: Path, changes: Changes) -> None:
             shutil.rmtree(target)
         elif target.exists() or target.is_symlink():
             target.unlink()
-    for rel, source in [*changes.write.items(), *changes.copy.items()]:
+    items: list[tuple[str, bytes | Path]] = [*changes.write.items(), *changes.copy.items()]
+    for rel, source in items:
         target = root / safe_rel(rel)
         if target.is_dir() and not target.is_symlink():
             raise RebuildError(f"{rel} est un dossier dans l'image")

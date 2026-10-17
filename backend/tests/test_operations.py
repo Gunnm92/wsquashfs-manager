@@ -148,7 +148,8 @@ def test_override_write_effective_and_commit(env):
     from app.services import operations
     from app.services.autorun import override_path
     settings, image, _ = env                 # autorun : DIR=drive_c/GAME/bin, CMD=game.exe
-    wanted = Autorun.parse("DIR=drive_c/GAME/bin\r\nCMD=game.exe\r\nGAME_VERSION=1.4\r\nHIDRAW=1\r\n")
+    wanted = Autorun.parse("DIR=drive_c/GAME/bin\r\nCMD=game.exe\r\n"
+                           "GAME_VERSION=1.4\r\nHIDRAW=1\r\n")
     keys = operations.write_override(settings, image, wanted)
     assert keys == ["GAME_VERSION", "HIDRAW"]
     assert override_path(image).read_bytes() == b"GAME_VERSION=1.4\r\nHIDRAW=1\r\n"
@@ -174,10 +175,11 @@ def test_override_removed_when_identical_to_image(env):
     from app.services import operations
     from app.services.autorun import override_path
     settings, image, _ = env
-    operations.write_override(settings, image, Autorun.parse("DIR=drive_c/GAME/bin\r\nCMD=game.exe\r\nX=1\r\n"))
+    with_x = Autorun.parse("DIR=drive_c/GAME/bin\r\nCMD=game.exe\r\nX=1\r\n")
+    operations.write_override(settings, image, with_x)
     assert override_path(image).exists()
-    assert operations.write_override(settings, image,
-                                     Autorun.parse("DIR=drive_c/GAME/bin\r\nCMD=game.exe\r\n")) == []
+    same = Autorun.parse("DIR=drive_c/GAME/bin\r\nCMD=game.exe\r\n")
+    assert operations.write_override(settings, image, same) == []
     assert not override_path(image).exists()
 
 

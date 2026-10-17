@@ -9,15 +9,21 @@ from pathlib import Path
 
 import pytest
 
-from app.models import TaskStatus
+from app.models import Task, TaskStatus
 from app.services.rebuild import Job, RebuildError
 from app.services.tasks import QueueLocked, TaskConflict, TaskQueue
+
+
+def _task(queue: TaskQueue, task_id: str) -> Task:
+    task = queue.get(task_id)
+    assert task is not None, f"tâche {task_id} introuvable"
+    return task
 
 
 def _wait(queue: TaskQueue, task_id: str, timeout: float = 5) -> TaskStatus:
     end = time.monotonic() + timeout
     while time.monotonic() < end:
-        status = queue.get(task_id).status
+        status = _task(queue, task_id).status
         if status not in (TaskStatus.PENDING, TaskStatus.RUNNING):
             return status
         time.sleep(0.02)
@@ -47,7 +53,7 @@ def test_state_survives_restart_and_running_is_requeued(tmp_path: Path):
 
     reloaded = TaskQueue(state, {"x": lambda task, job: None})
     reloaded.load()
-    again = reloaded.get(task.id)
+    again = _task(reloaded, task.id)
     assert again.status == TaskStatus.PENDING
     assert again.params == {"a": 1} and again.title == "titre"
     assert "redémarrage" in again.log[-1]
@@ -76,10 +82,10 @@ def test_worker_runs_tasks_and_records_failures(tmp_path: Path):
         assert _wait(queue, c.id) == TaskStatus.FAILED
     finally:
         queue.stop()
-    done = queue.get(a.id)
+    done = _task(queue, a.id)
     assert done.progress == 1.0 and done.log[-1] == "fini" and "Étape : mksquashfs" in done.log
-    assert queue.get(b.id).error == "disque plein"
-    assert "erreur interne" in queue.get(c.id).error
+    assert _task(queue, b.id).error == "disque plein"
+    assert "erreur interne" in (_task(queue, c.id).error or "")
     # Une image libérée accepte une nouvelle tâche
     queue.submit("ok", "s/a", None, {})
 
@@ -102,7 +108,7 @@ def test_cancel_pending_and_running(tmp_path: Path):
         queue.cancel(pending.id)
         queue.cancel(running.id)
         assert _wait(queue, running.id) == TaskStatus.CANCELLED
-        assert queue.get(pending.id).status == TaskStatus.CANCELLED
+        assert _task(queue, pending.id).status == TaskStatus.CANCELLED
     finally:
         queue.stop()
 
@@ -131,11 +137,11 @@ def test_service_stop_requeues_running_task(tmp_path: Path):
     queue.start()
     assert started.wait(5)
     queue.stop()
-    assert queue.get(task.id).status == TaskStatus.PENDING
-    assert "remise en attente" in queue.get(task.id).log[-1]
+    assert _task(queue, task.id).status == TaskStatus.PENDING
+    assert "remise en attente" in _task(queue, task.id).log[-1]
     reloaded = TaskQueue(state, {"slow": slow})
     reloaded.load()
-    assert reloaded.get(task.id).status == TaskStatus.PENDING
+    assert _task(reloaded, task.id).status == TaskStatus.PENDING
 
 
 def test_second_instance_is_refused(tmp_path: Path):
@@ -155,7 +161,7 @@ def test_night_tasks_wait_for_the_window(tmp_path: Path):
     try:
         assert _wait(queue, now.id) == TaskStatus.DONE
         time.sleep(0.3)
-        assert queue.get(later.id).status == TaskStatus.PENDING     # hors plage
+        assert _task(queue, later.id).status == TaskStatus.PENDING     # hors plage
         night["now"] = True
         with queue._cond:
             queue._cond.notify_all()

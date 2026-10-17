@@ -180,7 +180,7 @@ def test_damaged_images_found_and_restored(tmp_path, monkeypatch):
     assert client.post("/api/recovery/restore", json={"old": old}).status_code == 200
     assert not (roms / "abimee.wsquashfs.old").exists()
     assert subprocess.run(["unsquashfs", "-s", str(roms / "abimee.wsquashfs")],
-                          capture_output=True).returncode == 0
+                          capture_output=True, check=False).returncode == 0
     assert [d["id"] for d in client.get("/api/recovery").json()] == ["windows/absente"]
     # seul un fichier signalé peut être remis
     r = client.post("/api/recovery/restore", json={"old": str(roms / "saine.wsquashfs.old")})

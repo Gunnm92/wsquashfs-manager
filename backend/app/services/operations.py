@@ -98,8 +98,8 @@ def plan_autorun(settings: Settings, image: Path, name: str, system: str | None,
     try:
         after = after_text.encode(encoding)
     except UnicodeEncodeError as exc:
-        raise RebuildError(f"caractère impossible à écrire en {encoding} : {exc.object[exc.start]!r}"
-                           ) from exc
+        char = exc.object[exc.start]
+        raise RebuildError(f"caractère impossible à écrire en {encoding} : {char!r}") from exc
     issues = new.validate(set(scan._list_files(settings, image))) if validate else []
     return AutorunPlan(before=before, after=after, after_text=after_text, encoding=encoding,
                        issues=issues)

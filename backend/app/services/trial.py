@@ -59,7 +59,8 @@ RE=$(printf '%s' "$STEM" | sed 's/[][\.*^$(){}?+|/]/\\&/g')
 SYS='services|winedevice|plugplay|svchost|explorer|rpcss|tabtip|xalia|umu|conhost|start|wineboot|winemenubuilder'
 prefix_pids() {
   for p in /proc/[0-9]*; do
-    tr '\0' '\n' < "$p/environ" 2>/dev/null | grep -qE "^WINEPREFIX=.*/wsquashfs/wine/${RE}(/.*)?$" && echo "${p#/proc/}"
+    tr '\0' '\n' < "$p/environ" 2>/dev/null \
+      | grep -qE "^WINEPREFIX=.*/wsquashfs/wine/${RE}(/.*)?$" && echo "${p#/proc/}"
   done
 }
 game_pids() {

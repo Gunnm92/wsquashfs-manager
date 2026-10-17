@@ -166,6 +166,7 @@ def test_cancel_cleans_up(image: Path, settings: Settings, monkeypatch):
         rebuild.rebuild(settings, image, Changes(write={"autorun.cmd": b"CMD=x\r\n"}), job)
     assert image.read_bytes() == before
     assert not image.with_name(image.name + ".part").exists()
+    assert settings.tmp_dir is not None
     assert list(settings.tmp_dir.iterdir()) == []
 
 

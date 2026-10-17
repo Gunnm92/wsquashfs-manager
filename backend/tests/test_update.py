@@ -25,7 +25,8 @@ def _cat(image: Path, member: str) -> bytes:
 def _listing(image: Path) -> set[str]:
     out = subprocess.run(["unsquashfs", "-l", str(image)], capture_output=True,
                          check=True).stdout.decode()
-    return {ln[len("squashfs-root/"):] for ln in out.splitlines() if ln.startswith("squashfs-root/")}
+    prefix = "squashfs-root/"
+    return {ln[len(prefix):] for ln in out.splitlines() if ln.startswith(prefix)}
 
 
 @pytest.fixture

@@ -182,8 +182,8 @@ def exe_icon(settings: Settings, image: Path, cmd: str | None, dir_: str | None)
         if rel:
             with _scratch(settings, image) as tmp:
                 exe = tmp / "exe.bin"
-                with open(exe, "wb") as out:
-                    subprocess.run([settings.unsquashfs, "-cat", str(image), rel], stdout=out,
+                with open(exe, "wb") as dest:
+                    subprocess.run([settings.unsquashfs, "-cat", str(image), rel], stdout=dest,
                                    stderr=subprocess.DEVNULL, timeout=900, check=False)
                 try:
                     pe = pefile.PE(str(exe), fast_load=True)

@@ -56,7 +56,8 @@ def test_steambox_path():
 def test_script_is_valid_bash(tmp_path):
     script = tmp_path / "s.sh"
     script.write_text(trial._SCRIPT)
-    assert subprocess.run(["bash", "-n", str(script)], capture_output=True, check=False).returncode == 0
+    check = subprocess.run(["bash", "-n", str(script)], capture_output=True, check=False)
+    assert check.returncode == 0
 
 
 def _frame(kind: int, data: bytes) -> bytes:

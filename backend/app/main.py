@@ -171,7 +171,8 @@ def config_systems():
         except OSError:
             continue
         for d in entries:
-            if not d.is_dir() or d.name.startswith(".") or d.name.lower().endswith((".pc", ".wine")):
+            hidden_or_game = d.name.startswith(".") or d.name.lower().endswith((".pc", ".wine"))
+            if not d.is_dir() or hidden_or_game:
                 continue
             try:
                 names = [e.name.lower() for e in d.iterdir()]
@@ -649,7 +650,7 @@ class MassAutorun(BaseModel):
 def mass_autorun_preview(body: MassAutorun):
     """Aperçu image par image, et espace disque nécessaire (chaque image
     reconstruite garde son .old jusqu'à validation)."""
-    items = []
+    items: list[dict] = []
     needs: dict[str, dict] = {}
     for image_id in body.ids:
         try:
@@ -751,7 +752,8 @@ class FileCopy(BaseModel):
 
 class RegValue(BaseModel):
     file: Literal["user.reg", "system.reg"] = "user.reg"
-    key: str = Field(min_length=1)        # ex. Software\\Wine\\AppDefaults\\{exe_name}\\DllOverrides
+    # ex. Software\\Wine\\AppDefaults\\{exe_name}\\DllOverrides
+    key: str = Field(min_length=1)
     name: str = Field(min_length=1)
     value: str
 
@@ -791,7 +793,8 @@ class MassFiles(BaseModel):
 def mass_files_preview(body: MassFiles):
     """Aperçu : fichiers ajoutés/remplacés/supprimés et valeurs de registre,
     image par image, avec les sauvegardes qui masqueraient un changement."""
-    items, needs = [], {}
+    items: list[dict] = []
+    needs: dict[str, dict] = {}
     for image_id in body.ids:
         try:
             info = _find_image(image_id)
@@ -1048,7 +1051,8 @@ def folders_delete(body: MassIds):
             continue
         image = pack_target(Path(folder["path"]))
         if not image.exists() or not scan._unsquashfs_ok(_settings, image):
-            skipped.append({"id": folder_id, "reason": "image absente ou illisible : dossier gardé"})
+            skipped.append({"id": folder_id,
+                            "reason": "image absente ou illisible : dossier gardé"})
             continue
         if folder["task"]:
             skipped.append({"id": folder_id, "reason": "tâche en cours"})

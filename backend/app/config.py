@@ -171,6 +171,7 @@ def get_settings() -> Settings:
     if chosen:
         settings.roms_dirs = chosen
     runtime = _read_runtime(settings)
-    if _HHMM.match(str(runtime.get("night_start", ""))) and _HHMM.match(str(runtime.get("night_end", ""))):
+    start, end = str(runtime.get("night_start", "")), str(runtime.get("night_end", ""))
+    if _HHMM.match(start) and _HHMM.match(end):
         settings.night_start, settings.night_end = runtime["night_start"], runtime["night_end"]
     return settings

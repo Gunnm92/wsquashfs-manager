@@ -13,7 +13,9 @@ Les gestionnaires (`handlers`) reçoivent la tâche et un `Job` ; ils lèvent
 
 from __future__ import annotations
 
+import builtins
 import fcntl
+import functools
 import json
 import os
 import secrets
@@ -135,7 +137,7 @@ class TaskQueue:
             tasks += [t for t in self._history(image) if t.id not in known]
         return sorted(tasks, key=lambda t: t.created_at, reverse=True)
 
-    def _history(self, image: str) -> list[Task]:
+    def _history(self, image: str) -> builtins.list[Task]:
         try:
             lines = self.history_file.read_text().splitlines()
         except OSError:
@@ -240,8 +242,8 @@ class TaskQueue:
                 task.status = TaskStatus.RUNNING
                 task.started_at = time.time()
                 task.log.append("Démarrée")
-                job = Job(on_progress=lambda phase, f, t=task: self._progress(t, phase, f),
-                          on_log=lambda msg, t=task: self._log(t, msg))
+                job = Job(on_progress=functools.partial(self._progress, task),
+                          on_log=functools.partial(self._log, task))
                 self._jobs[task.id] = job
                 self._save()
             self.run_one(task, job)

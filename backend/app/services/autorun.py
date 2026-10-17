@@ -19,6 +19,7 @@ premier mot.
 from __future__ import annotations
 
 import re
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -191,7 +192,8 @@ class Autorun:
         stripped = line.lstrip()
         return stripped.upper().startswith("REM") or stripped.startswith("#")
 
-    def validate(self, file_paths: set[str] | None = None) -> list[dict]:
+    # `set` désigne ici la méthode Autorun.set : annotation en Collection
+    def validate(self, file_paths: Collection[str] | None = None) -> list[dict]:
         """Validations (SPEC § 2.2).
 
         `file_paths` : fichiers de l'image, chemins relatifs à sa racine (sans
@@ -200,7 +202,7 @@ class Autorun:
         seules les vérifications de forme sont faites.
         Retourne une liste de {level: warn|error, message}."""
         issues: list[dict] = []
-        files = {normalize_path(p) for p in (file_paths or set())}
+        files = {normalize_path(p) for p in (file_paths or ())}
         dirs = {"/".join(p.split("/")[:i]) for p in files for i in range(1, p.count("/") + 1)}
         dirs.add("")                    # racine
 
@@ -230,7 +232,8 @@ class Autorun:
                                               "les réglages DLL du lanceur"}
             )
         for k in self.unknown_keys():
-            issues.append({"level": "warn", "message": f"clé inconnue : {k} (ignorée par Batocera)"})
+            issues.append({"level": "warn",
+                           "message": f"clé inconnue : {k} (ignorée par Batocera)"})
         return issues
 
 

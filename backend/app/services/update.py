@@ -77,7 +77,8 @@ def default_anchor(settings: Settings, image: Path) -> str:
     """Point d'ancrage proposé : le DIR= de l'autorun (dossier du jeu)."""
     autorun, _ = _image_autorun(settings, image)
     d = (autorun.get("DIR") if autorun else None) or ""
-    return "/".join(p for p in d.strip().strip("\"'").replace("\\", "/").split("/") if p not in ("", "."))
+    parts = d.strip().strip("\"'").replace("\\", "/").split("/")
+    return "/".join(p for p in parts if p not in ("", "."))
 
 
 def _source_mtime(path: Path) -> str:
@@ -149,11 +150,12 @@ def plan_update(settings: Settings, image: Path, source: Path, anchor: str,
     # GAME_VERSION : saisie, sinon ressources de l'exécutable de CMD dans la source
     autorun, encoding = _image_autorun(settings, image)
     plan.version_before = autorun.get("GAME_VERSION") if autorun else None
-    if version is None and autorun and autorun.get("CMD"):
-        exe = normalize_path(f"{autorun.get('DIR') or ''}/{exe_from_cmd(autorun.get('CMD'))}")
-        rel = next((r for r in src.sizes if f"{prefix}{r}".lower() == exe), None)
-        if rel:
-            found, why = _game_version(read_exe(source / rel), None)
+    cmd = autorun.get("CMD") if autorun else None
+    if version is None and autorun and cmd:
+        exe = normalize_path(f"{autorun.get('DIR') or ''}/{exe_from_cmd(cmd)}")
+        exe_rel = next((r for r in src.sizes if f"{prefix}{r}".lower() == exe), None)
+        if exe_rel:
+            found, why = _game_version(read_exe(source / exe_rel), None)
             plan.version, plan.version_hint = found, why
     else:
         plan.version = version or None
@@ -212,10 +214,11 @@ def run_update(settings: Settings, task: Task, job: Job) -> str:
                f"original conservé en {result.backup.name}")
     if plan.version:
         message += f" ; GAME_VERSION={plan.version}"
-    if p.get("clean_saves") and plan.masked:
-        aside = set_aside_masked(settings, image, plan.masked)
+    aside = set_aside_masked(settings, image, plan.masked) if p.get("clean_saves") else None
+    if aside is not None:
         message += f" ; {len(plan.masked)} fichier(s) masquant(s) mis de côté dans {aside.name}"
     elif plan.masked:
-        message += f" ; attention : {len(plan.masked)} fichier(s) des sauvegardes masquent la mise à jour"
+        message += (f" ; attention : {len(plan.masked)} fichier(s) des sauvegardes "
+                    "masquent la mise à jour")
     return message
 

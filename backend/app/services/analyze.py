@@ -60,7 +60,8 @@ _EXCLUDED_NAMES = (
     ("dotnetfx*", "installeur .NET"), ("ndp*-kb*", "installeur .NET"),
     ("unins*", "désinstalleur"), ("*uninstall*", "désinstalleur"),
     ("*setup*", "installeur"), ("*install*", "installeur"),
-    ("unitycrashhandler*", "rapporteur de plantage"), ("crashreportclient*", "rapporteur de plantage"),
+    ("unitycrashhandler*", "rapporteur de plantage"),
+    ("crashreportclient*", "rapporteur de plantage"),
     ("*crashhandler*", "rapporteur de plantage"), ("*crashpad*", "rapporteur de plantage"),
     ("*crashreport*", "rapporteur de plantage"), ("*crack*", "intro de crack"),
     ("quicksfv*", "outil de vérification"), ("dxdiag*", "outil système"),
@@ -117,7 +118,7 @@ def add_local_game(entry: dict) -> dict:
         raise ValueError("base locale non configurée")
     entry = {k: v for k, v in entry.items() if v not in (None, "", [], {})}
     validate_game(entry)
-    data = {"games": []}
+    data: dict = {"games": []}
     if LOCAL_GAMES_FILE.exists():
         data = yaml.safe_load(LOCAL_GAMES_FILE.read_text()) or {"games": []}
     data.setdefault("games", []).append(entry)
@@ -256,11 +257,7 @@ class FolderScan:
     files: list[str]                # fichiers, dossiers et liens, relatifs
     sizes: dict[str, int]
     total_size: int
-    source: FolderSource | ImageSource | None = None
-
-    def __post_init__(self):
-        if self.source is None:
-            self.source = FolderSource(self.root)
+    source: FolderSource | ImageSource      # lecture des fichiers (dossier ou image)
 
     def read_text(self, rel: str, limit: int | None = None) -> str:
         data = self.source.read_bytes(rel, limit)
@@ -289,7 +286,8 @@ def scan_folder(root: Path) -> FolderScan:
                 continue
             sizes[rel] = st.st_size
             total += st.st_size
-    return FolderScan(root=root, files=sorted(files), sizes=sizes, total_size=total)
+    return FolderScan(root=root, files=sorted(files), sizes=sizes, total_size=total,
+                      source=FolderSource(root))
 
 
 _LLS_RE = re.compile(r"^(\S)\S*\s+\S+\s+(\d+)\s+\S+\s+\S+\s+squashfs-root/(.+)$")
@@ -407,7 +405,8 @@ def _acronym(text: str) -> str:
 
 
 def name_similarity(exe: str, game: str) -> float:
-    stem = _norm(exe.rsplit(".", 1)[0].replace("-Win64-Shipping", "").replace("-Win32-Shipping", ""))
+    base = exe.rsplit(".", 1)[0]
+    stem = _norm(base.replace("-Win64-Shipping", "").replace("-Win32-Shipping", ""))
     if not stem:
         return 0.0
     game_norm = _norm(game)
@@ -440,7 +439,8 @@ def find_candidates(scan: FolderScan, game: str) -> tuple[list[Candidate], list[
     unity_dirs = {f.rpartition("/")[0].lower() for f in scan.files
                   if f.lower().rsplit("/", 1)[-1] == "unityplayer.dll"}
     unreal = any(re.search(r"(^|/)binaries/win(64|32)/[^/]+-win(64|32)-shipping\.exe$", f.lower())
-                 for f in exes) or any(f.lower() in ("engine", "engine/binaries") for f in scan.files)
+                 for f in exes) or any(f.lower() in ("engine", "engine/binaries")
+                                       for f in scan.files)
     tekno = next((lower[k] for k in lower if k.endswith("teknoparrot/teknoparrotui.exe")), None)
     engine = "teknoparrot" if tekno else "unity" if unity_dirs else "unreal" if unreal else None
 
@@ -476,7 +476,8 @@ def find_candidates(scan: FolderScan, game: str) -> tuple[list[Candidate], list[
                 and c.size < 10 * 2**20:
             c.score += 65
             c.reasons.append("lanceur racine Unreal (démarre l'exécutable Shipping)")
-        elif engine == "unreal" and re.search(r"binaries/win(64|32)/[^/]+-win(64|32)-shipping\.exe$", low):
+        elif engine == "unreal" and re.search(
+                r"binaries/win(64|32)/[^/]+-win(64|32)-shipping\.exe$", low):
             c.score += 40
             c.reasons.append("exécutable Shipping d'Unreal Engine (alternative au lanceur racine)")
         elif engine == "unreal" and re.search(r"binaries/win(64|32)/[^/]+\.exe$", low):
@@ -544,7 +545,7 @@ def _tekno_profile(scan: FolderScan, tekno: str, game: str) -> str | None:
 
 def bat_details(scan: FolderScan | Path, rel: str) -> dict:
     if isinstance(scan, Path):
-        scan = FolderScan(root=scan, files=[], sizes={}, total_size=0)
+        scan = FolderScan(root=scan, files=[], sizes={}, total_size=0, source=FolderSource(scan))
     text = scan.read_text(rel, limit=64 * 1024)
     suspicious = []
     for number, line in enumerate(text.splitlines(), start=1):
@@ -577,11 +578,13 @@ def _game_version(info: ExeInfo | None, engine: str | None) -> tuple[str | None,
         return None, "aucune version dans les ressources de l'exécutable"
     product = (info.product_name or "").strip().lower()
     if _ENGINE_VERSION_RE.search(version) or product in _ENGINE_PRODUCTS:
-        return None, f"{version} : version du moteur ou numéro de build, pas celle du jeu — à saisir"
+        return None, (f"{version} : version du moteur ou numéro de build, "
+                      "pas celle du jeu — à saisir")
     if not re.fullmatch(r"v?\d+(?:[.\-_]\d+){1,4}[a-z]?", version, re.IGNORECASE):
         return None, f"« {version} » n'est pas un numéro de version (chaîne de build ?) — à saisir"
     if re.fullmatch(r"1(\.0){1,3}", version):
-        return None, f"{version} : valeur par défaut des projets, rarement la vraie version — à saisir"
+        return None, (f"{version} : valeur par défaut des projets, "
+                      "rarement la vraie version — à saisir")
     if engine in ("unreal", "unity") and not product:
         return None, f"{version} sans nom de produit : probablement la version du moteur — à saisir"
     source = "ProductVersion" if info.product_version else "FileVersion"
@@ -715,7 +718,7 @@ def _merge_shipping(candidates: list[Candidate]) -> None:
     for ship in shipping:
         base = _ue_base(ship.path)
         for c in candidates:
-            if c.info and c is not ship and c.path.rpartition("/")[0].lower() == base:
+            if c.info and ship.info and c is not ship and c.path.rpartition("/")[0].lower() == base:
                 c.info.imports |= ship.info.imports
                 c.info.markers |= ship.info.markers
 
@@ -743,7 +746,8 @@ def _apply_preference(candidates: list[Candidate], excluded: list[dict], scan: F
         pick = Candidate(path=rel, kind="exe", size=scan.sizes.get(rel, 0))
         pick.info = _read_pe(scan, rel)
         candidates.append(pick)
-    pick.reasons.insert(0, f"base de connaissances : {entry.get('note') or 'exécutable choisi pour ce jeu'}")
+    note = entry.get("note") or "exécutable choisi pour ce jeu"
+    pick.reasons.insert(0, f"base de connaissances : {note}")
     pick.score = max(c.score for c in candidates) + 1
     candidates.remove(pick)
     candidates.insert(0, pick)

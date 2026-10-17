@@ -81,7 +81,8 @@ def test_spaces_quoted_and_existing_autorun_compared(tmp_path):
 
 
 def test_existing_valid_autorun_is_recommended(tmp_path):
-    root = _tree(tmp_path / "Jeu.pc", {"bin/jeu.exe": 1000, "autorun.cmd": b"DIR=bin\nCMD=jeu.exe\n"})
+    root = _tree(tmp_path / "Jeu.pc",
+                 {"bin/jeu.exe": 1000, "autorun.cmd": b"DIR=bin\nCMD=jeu.exe\n"})
     assert report(analyze_folder(root, "Jeu"))["recommended"] == "existing"
 
 
@@ -147,7 +148,8 @@ def pack_env(tmp_path):
         base = {"source": str(folder), "autorun": None, "rename_wine": True,
                 "delete_source": False}
         return Task(id="p", kind="pack", image="win/Mon Jeu",
-                    image_path=str(folder.with_name("Mon Jeu.wsquashfs")), params={**base, **params})
+                    image_path=str(folder.with_name("Mon Jeu.wsquashfs")),
+                    params={**base, **params})
     return settings, folder, task
 
 
@@ -249,7 +251,8 @@ def test_shipped_games_yaml_is_valid():
 def test_knowledge_requires_file(tmp_path):
     from app.services import analyze
     games = tmp_path / "games.yaml"
-    games.write_text("games:\n  - exe: jeu.exe\n    requires: [d3dx9_43.dll]\n    note: DLL native\n")
+    games.write_text("games:\n  - exe: jeu.exe\n    requires: [d3dx9_43.dll]\n"
+                     "    note: DLL native\n")
     root = _tree(tmp_path / "Jeu.pc", {"bin/jeu.exe": b"MZ"})
     fa = analyze_folder(root, "Jeu")
     proposal = analyze.propose(fa.scan, fa.candidates[0], "none", None, None, None, {},
