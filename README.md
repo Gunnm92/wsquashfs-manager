@@ -92,6 +92,7 @@ Variables `WSQUASHFS_MGR_*` (ou fichier `backend/.env`) :
 |---|---|---|
 | `ROMS_DIRS` | — | dossiers de roms de base (ex. `/roms`) ; le choix fait dans « Réglages » l'emporte |
 | `SAVES_DIR` | `~/.local/share/wsquashfs/saves` | sauvegardes du lanceur |
+| `LAUNCHER_CACHE` | `$WSQUASHFS_CACHE`, sinon `~/.cache/wsquashfs` | cache du lanceur : verrous par jeu (`locks/`) et montages, pour reconnaître un jeu en cours, même en préparation |
 | `TMP_DIR` | — (à côté de l'image) | dossier de travail imposé ; par défaut `.wsquashfs-manager/` à côté de chaque image, même disque |
 | `STATE_DIR` | `~/.local/state/wsquashfs-manager` | état de la file de tâches |
 | `REBUILD_MODE` | `auto` | `overlay` (FUSE), `extract` (repli) ou `auto` |

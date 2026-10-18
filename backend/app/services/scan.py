@@ -265,18 +265,64 @@ def _mount_points() -> list[str]:
     return [ln.split()[1].replace("\\040", " ") for ln in text.splitlines() if len(ln.split()) > 1]
 
 
-def is_in_use(stem: str, prefixes: set[str], mounts: list[str]) -> bool:
-    """Même test que le lanceur : montage actif du jeu, ou processus dont le
-    WINEPREFIX est …/wsquashfs/wine/<jeu> (avec ou sans sous-dossier, ex.
-    pfx/ de Proton). Le nom exact est exigé : « Frogger » ≠ « Frogger 2 »."""
-    pat = re.compile(r"/wsquashfs/(wine|mnt)/" + re.escape(stem) + r"(/.*)?$")
-    return any(pat.search(p) for p in prefixes) or any(pat.search(m) for m in mounts)
+# Cache du lanceur, fixé au démarrage du service (main) ; lu par image_in_use
+LAUNCHER_CACHE: Path = Path.home() / ".cache/wsquashfs"
+
+
+def _held_lock_inodes() -> set[int]:
+    """Inodes des fichiers verrouillés par flock, lus dans /proc/locks : on
+    voit le verrou d'un lancement sans le prendre (le prendre, même un
+    instant, ferait échouer un lancement simultané)."""
+    try:
+        text = Path("/proc/locks").read_text()
+    except OSError:
+        return set()
+    out: set[int] = set()
+    for line in text.splitlines():
+        fields = line.split()
+        # « 1: FLOCK ADVISORY WRITE <pid> <maj>:<min>:<inode> 0 EOF » ;
+        # les lignes « -> » sont des attentes, pas des verrous tenus
+        if len(fields) >= 6 and fields[1] == "FLOCK" and "->" not in fields[0]:
+            try:
+                out.add(int(fields[5].rsplit(":", 1)[1]))
+            except (IndexError, ValueError):
+                continue
+    return out
+
+
+def is_locked(cache: Path, stem: str, held: set[int]) -> bool:
+    """Verrou du lanceur (cache/locks/<jeu>.lock), pris avant le moindre
+    montage et tenu toute la partie. Comparé par inode seulement : sur btrfs,
+    le périphérique affiché par /proc/locks n'est pas celui de stat()."""
+    try:
+        return (cache / "locks" / f"{stem}.lock").stat().st_ino in held
+    except OSError:
+        return False
+
+
+def is_in_use(stem: str, prefixes: set[str], mounts: list[str], cache: Path | None = None,
+              held: set[int] | None = None) -> bool:
+    """Même test que le lanceur : verrou du jeu (préparation et partie), ou
+    processus dont le WINEPREFIX est <cache>/wine/<jeu> (avec ou sans
+    sous-dossier, ex. pfx/ de Proton), ou montage <cache>/(wine|mnt)/<jeu>
+    (mode fuse-overlayfs ; ceux de l'overlay du noyau sont invisibles hors du
+    namespace du lanceur, d'où le verrou). Comme le lanceur, …/wsquashfs/ est
+    aussi reconnu, pour un jeu lancé avec un autre cache. Le nom exact est
+    exigé : « Frogger » ≠ « Frogger 2 »."""
+    roots = [r"/wsquashfs"]
+    if cache is not None:
+        roots += ["^" + re.escape(str(cache)), "^" + re.escape(str(cache.resolve()))]
+    pat = re.compile(f"(?:{'|'.join(roots)})/(?:wine|mnt)/{re.escape(stem)}(?:/.*)?$")
+    if any(pat.search(p) for p in prefixes) or any(pat.search(m) for m in mounts):
+        return True
+    return cache is not None and held is not None and is_locked(cache, stem, held)
 
 
 def image_in_use(image: Path) -> bool:
     """Test « jeu en cours » à l'instant (avant une reconstruction, avant
     l'échange final) ; le scan, lui, lit /proc une fois pour toutes."""
-    return is_in_use(image.stem, _running_prefixes(), _mount_points())
+    return is_in_use(image.stem, _running_prefixes(), _mount_points(), LAUNCHER_CACHE,
+                     _held_lock_inodes())
 
 
 def _saves_size(settings: Settings, stem: str) -> tuple[bool, int]:
@@ -294,7 +340,7 @@ def _saves_size(settings: Settings, stem: str) -> tuple[bool, int]:
 
 
 def _apply_dynamic(settings: Settings, info: ImageInfo, prefixes: set[str],
-                   mounts: list[str]) -> ImageInfo:
+                   mounts: list[str], held: set[int] | None = None) -> ImageInfo:
     """État qui change sans que l'image change : recalculé à chaque scan."""
     image = info.path
     info.saves_present, info.saves_size = _saves_size(settings, image.stem)
@@ -308,7 +354,7 @@ def _apply_dynamic(settings: Settings, info: ImageInfo, prefixes: set[str],
     if override is not None:
         base = _read_autorun_from_image(settings, image)
         _autorun_fields(info, merge_override(Autorun.parse(base) if base else None, override))
-    if is_in_use(image.stem, prefixes, mounts):
+    if is_in_use(image.stem, prefixes, mounts, settings.launcher_cache, held):
         info.state = ImageState.IN_USE
     elif info.has_old:
         info.state = ImageState.HAS_OLD
@@ -388,7 +434,7 @@ def scan_all(settings: Settings, force: bool = False) -> list[ImageInfo]:
         cache = {}
     entries = cache.get("images", {})
 
-    prefixes, mounts = _running_prefixes(), _mount_points()
+    prefixes, mounts, held = _running_prefixes(), _mount_points(), _held_lock_inodes()
     results: list[ImageInfo] = []
     new_entries: dict[str, dict] = {}
     for image, system in _find_images(settings.roms_dirs, settings.scan_max_depth):
@@ -409,7 +455,7 @@ def scan_all(settings: Settings, force: bool = False) -> list[ImageInfo]:
             "mtime": info.mtime,
             "info": info.model_dump(mode="json"),
         }
-        results.append(_apply_dynamic(settings, info, prefixes, mounts))
+        results.append(_apply_dynamic(settings, info, prefixes, mounts, held))
 
     _write_atomic(cache_file, json.dumps({"version": _CACHE_VERSION, "images": new_entries},
                                          indent=1))

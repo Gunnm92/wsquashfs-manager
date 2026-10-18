@@ -5,6 +5,7 @@ Valeurs par défaut alignées sur les conventions de wsquashfs-launcher
 """
 
 import json
+import os
 import re
 import tempfile
 from contextlib import contextmanager
@@ -36,6 +37,11 @@ class Settings(BaseSettings):
 
     # Sauvegardes (même convention que wsquashfs-launcher)
     saves_dir: Path = Path.home() / ".local/share/wsquashfs/saves"
+
+    # Cache de wsquashfs-launcher (son WSQUASHFS_CACHE) : montages des jeux et
+    # verrous par jeu (locks/<jeu>.lock), pour reconnaître un jeu en cours
+    launcher_cache: Path = Path(os.environ.get("WSQUASHFS_CACHE")
+                                or Path.home() / ".cache/wsquashfs")
 
     # Dossier de travail (couches overlay, extraction de repli, exécutables
     # extraits pour l'analyse). Par défaut, un dossier caché .wsquashfs-manager

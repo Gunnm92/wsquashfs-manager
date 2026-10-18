@@ -2,8 +2,16 @@
 
 from __future__ import annotations
 
+import fcntl
+
 from app.models import ImageType
-from app.services.scan import _fakeping_candidates, detect_type, is_in_use, parse_listing
+from app.services.scan import (
+    _fakeping_candidates,
+    _held_lock_inodes,
+    detect_type,
+    is_in_use,
+    parse_listing,
+)
 
 LISTING = """Parallel unsquashfs: Using 8 processors
 squashfs-root
@@ -71,3 +79,27 @@ def test_find_images_no_duplicates_when_root_and_system_chosen(tmp_path):
     (win / "Jeu.wsquashfs").write_bytes(b"")
     found = _find_images([str(tmp_path / "roms"), str(win)], 3)
     assert found == [(win / "Jeu.wsquashfs", "win")]
+
+
+def test_is_in_use_with_custom_launcher_cache(tmp_path):
+    cache = tmp_path / "cache-ailleurs"
+    prefixes = {f"{cache}/wine/Ride 6/pfx"}
+    assert is_in_use("Ride 6", prefixes, [], cache)
+    assert not is_in_use("Ride 6", prefixes, [])          # cache inconnu : pas reconnu
+    assert is_in_use("Ride 6", set(), [f"{cache}/mnt/Ride 6"], cache)
+    assert not is_in_use("Ride", set(), [f"{cache}/mnt/Ride 6"], cache)
+
+
+def test_launcher_lock_seen_without_taking_it(tmp_path):
+    """Lancement en préparation (verrou tenu, Wine pas encore démarré, montages
+    de l'overlay du noyau invisibles) : jeu en cours."""
+    cache = tmp_path / "cache"
+    (cache / "locks").mkdir(parents=True)
+    lock = cache / "locks" / "Hell is Us.lock"
+    lock.touch()
+    assert not is_in_use("Hell is Us", set(), [], cache, _held_lock_inodes())
+    with open(lock) as f:
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)      # comme `flock -n` du lanceur
+        assert is_in_use("Hell is Us", set(), [], cache, _held_lock_inodes())
+        assert not is_in_use("Hell", set(), [], cache, _held_lock_inodes())
+    assert not is_in_use("Hell is Us", set(), [], cache, _held_lock_inodes())

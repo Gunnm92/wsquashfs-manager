@@ -67,6 +67,7 @@ FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
 RULES_FILE = Path(__file__).resolve().parent.parent / "rules" / "rules.yaml"
 
 _settings: Settings = get_settings()
+scan.LAUNCHER_CACHE = _settings.launcher_cache      # verrous et montages du lanceur
 # Base de connaissances locale (ajouts faits dans l'interface), dans l'appdata
 analyze_mod.LOCAL_GAMES_FILE = _settings.state_dir / "games.yaml"
 queue = TaskQueue(
