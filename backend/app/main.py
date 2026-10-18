@@ -1147,12 +1147,24 @@ def healthz():
     return {"ok": True, "time": time.time()}
 
 
+def check_access(settings: Settings) -> None:
+    """Écoute réseau sans mot de passe : refusée, sauf renoncement explicite
+    (WSQUASHFS_MGR_ALLOW_NO_PASSWORD=1, réseau de confiance)."""
+    local = settings.host in ("127.0.0.1", "localhost", "::1")
+    if local or settings.password:
+        return
+    if not settings.allow_no_password:
+        raise SystemExit("Écoute réseau sans mot de passe refusée : poser "
+                         "WSQUASHFS_MGR_PASSWORD (l'application réécrit les images), "
+                         "ou WSQUASHFS_MGR_ALLOW_NO_PASSWORD=1 sur un réseau de confiance.")
+    logger.warning("écoute sur %s sans mot de passe : tout le réseau peut modifier les images",
+                   settings.host)
+
+
 def run() -> None:
     import uvicorn
 
-    if _settings.host not in ("127.0.0.1", "localhost", "::1") and not _settings.password:
-        raise SystemExit("Écoute réseau sans mot de passe refusée : poser "
-                         "WSQUASHFS_MGR_PASSWORD (l'application réécrit les images).")
+    check_access(_settings)
     uvicorn.run(app, host=_settings.host, port=_settings.port)
 
 

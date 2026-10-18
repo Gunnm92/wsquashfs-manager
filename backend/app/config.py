@@ -75,10 +75,12 @@ class Settings(BaseSettings):
     scan_max_depth: int = 3
 
     # Accès. Écoute locale par défaut : l'API modifie les images. Pour
-    # l'ouvrir au réseau, poser host=0.0.0.0 ET un mot de passe.
+    # l'ouvrir au réseau, poser host=0.0.0.0 ET un mot de passe, ou renoncer
+    # explicitement au mot de passe (réseau domestique de confiance).
     host: str = "127.0.0.1"
     port: int = 8765
     password: str = ""
+    allow_no_password: bool = False
 
     # Outils (chemins sur la SteamBox)
     squashfuse: str = "squashfuse"

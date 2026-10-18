@@ -182,6 +182,11 @@ lancement est refusé sans mot de passe) : l'application lit et réécrit les
 images. L'interface demande le mot de passe et envoie ensuite un jeton dérivé
 dans l'en-tête `x-wsfs-token`.
 
+Sur un réseau domestique de confiance, on peut renoncer au mot de passe en
+posant `WSQUASHFS_MGR_ALLOW_NO_PASSWORD=1` : toute machine du réseau peut
+alors modifier et supprimer des images. Le template Unraid ne pose pas ce
+réglage : le mot de passe y reste obligatoire.
+
 Le service doit tourner sous l'utilisateur propriétaire des images et des
 sauvegardes (`arcade` sur SteamBox) : il n'élève pas ses privilèges.
 

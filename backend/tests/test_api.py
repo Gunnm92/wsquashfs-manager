@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import main
+from app.config import Settings
 from app.models import ImageInfo, TaskStatus
 from app.services.tasks import TaskQueue
 
@@ -375,3 +376,11 @@ def test_update_endpoints_validate_input(client):
     r = client.post("/api/image/update/preview", params={"id": "arcade/jeu"},
                     json={"source": "/nexiste/pas"})
     assert r.status_code == 409 and "introuvable" in r.json()["detail"]
+
+
+def test_network_access_needs_password_or_explicit_waiver():
+    main.check_access(Settings(host="127.0.0.1"))                       # local : libre
+    main.check_access(Settings(host="0.0.0.0", password="sésame"))
+    with pytest.raises(SystemExit, match="ALLOW_NO_PASSWORD"):
+        main.check_access(Settings(host="0.0.0.0"))
+    main.check_access(Settings(host="0.0.0.0", allow_no_password=True))  # renoncement
