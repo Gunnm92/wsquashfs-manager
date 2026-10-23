@@ -17,7 +17,7 @@
   <Privileged>false</Privileged>
   <Shell>bash</Shell>
   <WebUI>http://[IP]:[PORT:8765]/</WebUI>
-  <Icon>https://raw.githubusercontent.com/walkxcode/dashboard-icons/main/png/steam.png</Icon>
+  <Icon>https://raw.githubusercontent.com/Gunnm92/wsquashfs-manager/main/frontend/icon.png</Icon>
   <Category>Tools: GameServers:</Category>
   <Overview>Gestion des jeux Windows .wsquashfs (format Batocera) : ludothèque, édition de l'autorun, empaquetage des dossiers .pc/.wine avec autorun généré, actions en masse, reconstruction vérifiée (l'original est gardé en .old).</Overview>
   <!--
