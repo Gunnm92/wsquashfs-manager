@@ -221,6 +221,42 @@ def detect_type(files: list[str]) -> ImageType:
     return ImageType.GAME_ONLY
 
 
+def joined_runners(files: list[str]) -> list[str]:
+    """Runners joints à l'image : dossiers runners/<nom> contenant un wine
+    (Proton : files/bin/wine ; Wine : bin/wine), comme le lanceur."""
+    names = set()
+    for p in files:
+        parts = p.split("/")
+        if (len(parts) >= 4 and parts[0] == "runners"
+                and parts[2:] in (["files", "bin", "wine"], ["bin", "wine"])):
+            names.add(parts[1])
+    return sorted(names, key=str.lower)
+
+
+def _is_joined_proton(files: list[str], name: str) -> bool:
+    return f"runners/{name}/proton" in files and f"runners/{name}/files/bin/wine" in files
+
+
+def _apply_joined(info: ImageInfo, files: list[str] | None = None) -> None:
+    """Runner joint, résolu comme resolve_image_runner du lanceur : PROTON= ou
+    WINE= désignant runners/<nom> (aussi wine-<nom>, casse ignorée), sinon un
+    runner seul dans runners/."""
+    joined = info.joined_runners
+    lower = {n.lower() for n in joined}
+    info.runner_joined = False
+    if info.runner == RunnerKind.CUSTOM:
+        return
+    name = info.proton or info.wine
+    if name:
+        info.runner_joined = name.lower() in lower or f"wine-{name.lower()}" in lower
+    elif len(joined) == 1:
+        info.runner_joined = True
+        if files is not None and _is_joined_proton(files, joined[0]):
+            info.runner, info.proton = RunnerKind.PROTON, joined[0]
+        else:
+            info.runner, info.wine = RunnerKind.WINE, joined[0]
+
+
 def _fakeping_candidates(files: list[str]) -> list[str]:
     """dinput8.dll hors des dossiers système : relais fakeping possible."""
     return [p for p in files
@@ -354,6 +390,7 @@ def _apply_dynamic(settings: Settings, info: ImageInfo, prefixes: set[str],
     if override is not None:
         base = _read_autorun_from_image(settings, image)
         _autorun_fields(info, merge_override(Autorun.parse(base) if base else None, override))
+        _apply_joined(info, _list_files(settings, image) if len(info.joined_runners) == 1 else None)
     if is_in_use(image.stem, prefixes, mounts, settings.launcher_cache, held):
         info.state = ImageState.IN_USE
     elif info.has_old:
@@ -417,6 +454,8 @@ def scan_image(settings: Settings, image: Path, system: str | None) -> ImageInfo
     )
     if a:
         _autorun_fields(info, a)
+    info.joined_runners = joined_runners(files)
+    _apply_joined(info, files)
     if _has_fakeping(settings, image, files):
         info.extras.append("fakeping")
     return info

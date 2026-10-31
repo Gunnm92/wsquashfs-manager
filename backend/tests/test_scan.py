@@ -103,3 +103,51 @@ def test_launcher_lock_seen_without_taking_it(tmp_path):
         assert is_in_use("Hell is Us", set(), [], cache, _held_lock_inodes())
         assert not is_in_use("Hell", set(), [], cache, _held_lock_inodes())
     assert not is_in_use("Hell is Us", set(), [], cache, _held_lock_inodes())
+
+
+# ----------------------------------------------------------------- runner joint
+
+PROTON_FILES = ["runners/DenuvOwO-11", "runners/DenuvOwO-11/proton",
+                "runners/DenuvOwO-11/files/bin/wine"]
+WINE_FILES = ["runners/wine-mine/bin/wine"]
+
+
+def _info(**kw):
+    from pathlib import Path
+
+    from app.models import ImageInfo
+    return ImageInfo(path=Path("/x/Jeu.wsquashfs"), name="Jeu", **kw)
+
+
+def test_joined_runners_lists_dirs_with_wine():
+    from app.services.scan import joined_runners
+    files = PROTON_FILES + WINE_FILES + ["runners/vide/readme.txt", "drive_c/runners/x/bin/wine"]
+    assert joined_runners(files) == ["DenuvOwO-11", "wine-mine"]
+
+
+def test_joined_runner_named_by_proton_or_wine():
+    from app.models import RunnerKind
+    from app.services.scan import _apply_joined
+    info = _info(runner=RunnerKind.PROTON, proton="denuvowo-11", joined_runners=["DenuvOwO-11"])
+    _apply_joined(info, PROTON_FILES)
+    assert info.runner_joined
+    info = _info(runner=RunnerKind.WINE, wine="mine", joined_runners=["wine-mine"])
+    _apply_joined(info, WINE_FILES)
+    assert info.runner_joined
+    info = _info(runner=RunnerKind.PROTON, proton="GE-Proton9-1", joined_runners=["DenuvOwO-11"])
+    _apply_joined(info, PROTON_FILES)
+    assert not info.runner_joined
+
+
+def test_single_joined_runner_used_without_key():
+    from app.models import RunnerKind
+    from app.services.scan import _apply_joined
+    info = _info(joined_runners=["DenuvOwO-11"])
+    _apply_joined(info, PROTON_FILES)
+    assert (info.runner, info.proton, info.runner_joined) == (RunnerKind.PROTON, "DenuvOwO-11", True)
+    info = _info(joined_runners=["wine-mine"])
+    _apply_joined(info, WINE_FILES)
+    assert (info.runner, info.wine, info.runner_joined) == (RunnerKind.WINE, "wine-mine", True)
+    info = _info(joined_runners=["a", "b"])
+    _apply_joined(info, [])
+    assert (info.runner, info.runner_joined) == (RunnerKind.DEFAULT, False)

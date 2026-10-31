@@ -117,6 +117,24 @@ main.with-detail { grid-template-columns: minmax(0, 1fr) minmax(400px, 480px); }
 @media (max-width: 1150px) { main.with-detail { grid-template-columns: 1fr; } }
 .intro { margin: 0 0 1rem; color: var(--text-2); max-width: 75ch; }
 
+/* Aide : types d'image et standard de construction */
+.help section { max-width: 980px; }
+.help-toc { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: 1rem; }
+.help-toc a { color: var(--text-2); text-decoration: none; background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: 999px; padding: .2rem .7rem; font-size: 12.5px; }
+.help-toc a:hover { color: var(--text); border-color: var(--line-strong); }
+.help-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 1rem 1.2rem;
+  margin-bottom: 1rem; scroll-margin-top: 1rem; }
+.help-card h2 { margin: 0 0 .3rem; } .help-card h3 { font-size: 14px; margin: 1.1rem 0 .3rem; }
+.help-card p, .help-card li { color: var(--text-2); max-width: 85ch; }
+.help-card ul { padding-left: 1.2rem; margin: .5rem 0 0; } .help-card li { margin: .25rem 0; }
+.help-card pre { font-family: var(--mono); font-size: 12px; background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: var(--r-sm); padding: .6rem .8rem; margin: .5rem 0; overflow-x: auto; white-space: pre; }
+.help-card pre.autorun { border-left: 3px solid var(--accent); }
+.help-note { margin-top: .8rem; padding: .6rem .8rem; border-radius: var(--r-sm); background: var(--surface-2);
+  border: 1px solid var(--line); color: var(--text-2); }
+.help-note.warn { border-left: 3px solid var(--warn); }
+
 /* Chiffres clés (filtres rapides) */
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .7rem; margin-bottom: 1rem; }
 .stat { display: block; text-align: left; background: var(--surface); color: var(--text); border: 1px solid var(--line);
@@ -354,6 +372,7 @@ pre.bat { font: 11.5px/1.5 var(--mono); background: var(--surface-2); border: 1p
   <div class="views" id="views">
     <button data-view="images" class="active">Images <span class="count" id="count-images"></span></button>
     <button data-view="folders">Dossiers à empaqueter <span class="count" id="count-folders" hidden></span></button>
+    <button data-view="help">Aide</button>
   </div>
   <span id="status" class="muted"></span>
   <span class="spacer"></span>
@@ -493,6 +512,136 @@ pre.bat { font: 11.5px/1.5 var(--mono); background: var(--surface-2); border: 1p
         <tbody id="g-rows"></tbody>
       </table>
     </div>
+  </section>
+</main>
+
+<main id="help-main" class="help" hidden>
+  <section>
+    <p class="intro">Une image <code>.wsquashfs</code> est un dossier compressé en lecture seule. Le lanceur la monte, ajoute une couche de sauvegardes par jeu par-dessus, puis lance la commande de son <code>autorun.cmd</code>. La façon de construire l'image dépend de son <b>type</b>, déterminé par ce qui se trouve à sa racine.</p>
+
+    <nav class="help-toc">
+      <a href="#h-batocera">Prefix Wine (Batocera)</a>
+      <a href="#h-proton">Prefix Proton</a>
+      <a href="#h-solo">Jeu seul</a>
+      <a href="#h-runner">Runner joint</a>
+      <a href="#h-common">Règles communes</a>
+      <a href="#h-summary">Récapitulatif</a>
+    </nav>
+
+    <article class="help-card" id="h-batocera">
+      <h2>Prefix Wine (Batocera)</h2>
+      <p class="muted">Reconnu par <code>system.reg</code> à la racine. Jeux arcade (TeknoParrot, Taito Type X, Sega…), format natif de Batocera.</p>
+      <pre class="tree">MonJeu.wine/
+├── autorun.cmd
+├── system.reg   user.reg   userdef.reg
+├── drive_c/
+│   └── MonJeu/game.exe
+└── *.reg        (facultatif : importés au lancement)</pre>
+      <pre class="autorun">DIR=drive_c/MonJeu
+CMD=game.exe
+GAME_VERSION=1.04
+REM facultatif : WINE=tkg | system, ARCH=win32</pre>
+      <ul>
+        <li><b>Runner</b> : wine-tkg par défaut. <code>WINE=system</code> pour un jeu 32 bits qui ne passe qu'en WoW64 (GTI Club).</li>
+        <li><b>Racine de l'image</b> = le prefix. <code>DIR</code> est relatif à cette racine.</li>
+        <li>Reste lisible par Batocera tel quel : il ignore les clés qu'il ne connaît pas (<code>GAME_VERSION</code>, <code>WINE</code>…).</li>
+      </ul>
+    </article>
+
+    <article class="help-card" id="h-proton">
+      <h2>Prefix Proton</h2>
+      <p class="muted">Reconnu par <code>config_info</code> à la racine (prefix créé par Heroic, Steam ou umu). Jeux PC récents.</p>
+      <pre class="tree">MonJeu.wine/
+├── autorun.cmd
+├── config_info   version   tracked_files
+├── pfx -&gt; .     (lien créé par Proton)
+├── system.reg …
+└── drive_c/MonJeu/Bin/game.exe</pre>
+      <pre class="autorun">DIR=drive_c/MonJeu/Bin
+CMD=game.exe
+PROTON=UMU-Proton-10.0-4   (facultatif)</pre>
+      <ul>
+        <li><b>Runner</b> : le Proton qui a créé le prefix (1<sup>re</sup> ligne de <code>config_info</code>), sinon proton-cachyos, puis UMU-Proton, puis GE-Proton. Lancé <b>via umu</b>.</li>
+        <li><code>PROTON=&lt;nom&gt;</code> impose un Proton ; <b>introuvable = erreur</b>, plus de repli silencieux.</li>
+        <li>Les DLL de Proton sont des <b>liens</b> vers le runner (<code>PROTON_DLL_COPY</code> vide), pas des copies.</li>
+        <li>Batocera n'a pas umu : ces images n'y sont pas prévues.</li>
+      </ul>
+    </article>
+
+    <article class="help-card" id="h-solo">
+      <h2>Jeu seul</h2>
+      <p class="muted">Ni <code>system.reg</code> ni <code>config_info</code> : seulement les fichiers du jeu.</p>
+      <pre class="tree">MonJeu/
+├── autorun.cmd
+└── game/
+    └── run me.exe</pre>
+      <pre class="autorun">CMD="game/run me.exe" --arg</pre>
+      <ul>
+        <li>Le prefix est créé au premier lancement par Proton via umu, <b>dans les sauvegardes</b> : l'image reste légère.</li>
+        <li><code>CMD</code> est relatif à la racine ; guillemets si le chemin contient des espaces.</li>
+        <li><code>WINE=tkg</code> pour garder un prefix Wine au lieu de Proton.</li>
+      </ul>
+    </article>
+
+    <article class="help-card" id="h-runner">
+      <h2>Runner joint à l'image</h2>
+      <p class="muted">Pour un jeu qui ne marche qu'avec <b>un runner précis</b> (Proton modifié comme DenuvOwO, build Wine particulier). Se combine avec les trois types ci-dessus. L'image devient autonome : rien à installer sur la machine.</p>
+      <pre class="tree">MonJeu.wine/                 → --pack habituel, sans option
+├── autorun.cmd    PROTON=DenuvOwO-cachyos-11.0
+├── runners/
+│   └── DenuvOwO-cachyos-11.0/     le dossier du runner tel quel
+│       ├── proton                (Proton)
+│       └── files/bin/wine
+└── drive_c/ …</pre>
+      <ul>
+        <li><code>PROTON=&lt;nom&gt;</code> ou <code>WINE=&lt;nom&gt;</code> cherchent d'abord <code>runners/&lt;nom&gt;/</code>. Sans clé, un runner <b>seul</b> dans <code>runners/</code> est utilisé.</li>
+        <li><b>Priorité</b> : <code>--wine</code> &gt; runner joint &gt; runners de la machine.</li>
+        <li>Utilisé en <b>lecture seule</b> depuis l'image : Proton n'écrit rien dans les sauvegardes.</li>
+        <li><b>À réserver aux runners propres à un jeu.</b> Un Proton standard (UMU-Proton, GE, cachyos) n'a pas à être joint. Comptez ~250 Mo compressés.</li>
+        <li><code>RUNNER=</code> ne sert qu'aux chemins <b>absolus</b> de la machine ; un chemin relatif est refusé.</li>
+      </ul>
+      <div class="help-note warn">
+        <b>Liens du prefix.</b> Dans un prefix Proton, les DLL de Wine sont des liens vers le runner. Avant <code>--pack</code>, ils doivent pointer <b>en relatif dans <code>runners/&lt;nom&gt;/</code></b> (ex. <code>../../../runners/&lt;nom&gt;/files/lib/wine/…</code>). Un lien vers un autre emplacement (ancien <code>runner/</code>, <code>compatibilitytools.d</code> de la machine) est cassé ailleurs, et Proton ne répare pas un lien cassé : le jeu ne démarre plus (<code>failed to open umu.exe</code>).
+        <br>Vérifier : <code>find MonJeu.wine -type l -lname '*compatibilitytools.d*'</code> doit être vide.
+      </div>
+      <h3>Préparation et correctif du jeu : dans le runner (Proton)</h3>
+      <p>Un Proton joint peut porter le correctif du jeu : un <b>protonfix</b> que Proton exécute avant chaque lancement (Call of Duty MW4).</p>
+      <pre class="tree">runners/GE-Proton11-9/protonfixes/gamefixes-umu/umu-mw4.py</pre>
+      <pre class="autorun">PROTON=GE-Proton11-9
+ENV=GAMEID=umu-mw4</pre>
+      <ul>
+        <li><code>main()</code> du protonfix : préparation (un <code>sys.exit(1)</code> arrête le lancement), puis un fil pour le patch à chaud. Ce fil vit dans le processus Proton jusqu'à la fin du jeu, donc rien ne reste derrière.</li>
+        <li>N'agir que si l'exécutable du jeu est dans <code>sys.argv</code> : umu sert aussi à d'autres commandes (reg, wineboot).</li>
+        <li>Sinon, pour tout runner, Wine compris : <code>PRE=</code> et <code>ATTACH=</code> de l'autorun (ci-dessous).</li>
+      </ul>
+    </article>
+
+    <article class="help-card" id="h-common">
+      <h2>Règles communes</h2>
+      <ul>
+        <li><b>Sauvegardes</b> : tout ce que le jeu écrit va dans <code>saves/&lt;jeu&gt;</code>, jamais dans l'image. <code>SAVEDIR=</code> / <code>SAVEFILES=</code> relient en plus un dossier ou des fichiers à <code>saves/&lt;système&gt;/&lt;jeu&gt;</code>, comme Batocera.</li>
+        <li><b>Commandes autour du jeu</b> : <code>PRE=</code> (une fois avant, dans <code>DIR</code> ; un échec arrête le lancement) et <code>ATTACH=</code> (pendant le jeu, avec <code>GAME_PID</code> ; <code>ATTACH_PROCESS=</code> si <code>CMD</code> est un lanceur). Ce sont des commandes Linux, exécutées hors de Wine : à n'utiliser que pour des images de confiance. Batocera les ignore.</li>
+        <li><b>Contrôles</b> : <code>HIDRAW=1</code> (DualSense gérée par le jeu, présentée en USB) ou <code>bt</code> ; défaut XInput. Touches clavier : fichier <code>&lt;jeu&gt;.wsquashfs.keys</code> à côté de l'image.</li>
+        <li><b>Version</b> : <code>GAME_VERSION=</code>, affichée par <code>--info</code> et ici.</li>
+        <li><b>Surcharge</b> sans reconstruire : <code>&lt;jeu&gt;.wsquashfs.autorun</code> à côté de l'image (non lu par Batocera).</li>
+        <li><b>Construction</b> : <code>wsquashfs-launcher --pack &lt;dossier&gt;</code> (zstd), ou « Dossiers à empaqueter » ici. Vérifier ensuite avec <code>--info</code>.</li>
+      </ul>
+    </article>
+
+    <article class="help-card" id="h-summary">
+      <h2>Récapitulatif</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Type</th><th>Reconnu par</th><th>Runner par défaut</th><th>Lancement</th><th>Batocera</th></tr></thead>
+          <tbody>
+            <tr><td>Prefix Wine</td><td><code>system.reg</code></td><td>wine-tkg</td><td>Wine direct</td><td>oui</td></tr>
+            <tr><td>Prefix Proton</td><td><code>config_info</code></td><td>Proton du prefix</td><td>umu</td><td>non prévu</td></tr>
+            <tr><td>Jeu seul</td><td>ni l'un ni l'autre</td><td>proton-cachyos, UMU-Proton…</td><td>umu, prefix dans les sauvegardes</td><td>non prévu</td></tr>
+            <tr><td>+ runner joint</td><td><code>runners/&lt;nom&gt;/</code></td><td>le runner joint</td><td>umu (Proton) ou direct (Wine)</td><td>ignoré</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </article>
   </section>
 </main>
 
@@ -792,7 +941,8 @@ const COLUMNS = [
   { key: "state", label: "État" },
 ];
 
-const runnerLabel = (i) => i.runner === "default" ? "défaut" : [i.runner, i.wine || i.proton || ""].join(" ").trim();
+const runnerLabel = (i) => i.runner === "default" ? "défaut"
+  : [i.runner, i.proton || i.wine || "", i.runner_joined ? "(joint)" : ""].join(" ").replace(/\s+/g, " ").trim();
 
 async function loadLibrary(refresh = false) {
   $("status").textContent = refresh ? "scan en cours…" : "chargement…";
@@ -1803,6 +1953,7 @@ function showView(name) {
   for (const b of $("views").children) b.classList.toggle("active", b.dataset.view === name);
   $("main").hidden = name !== "images";
   $("folders-main").hidden = name !== "folders";
+  $("help-main").hidden = name !== "help";
   storage.set("wsfs-view", name);
   if (name === "folders") loadFolders();
 }
@@ -2050,7 +2201,7 @@ const whenOf = (id) => $(id).value || "now";
   buildForm();
   await loadLibrary();
   refreshTasks();
-  if (storage.get("wsfs-view") === "folders") showView("folders");
+  if (["folders", "help"].includes(storage.get("wsfs-view"))) showView(storage.get("wsfs-view"));
 })();
 </script>
 </body>

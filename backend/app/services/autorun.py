@@ -37,10 +37,13 @@ KEY_HELP: dict[str, tuple[str, list[str]]] = {
              "nom contient des espaces, arguments ensuite."), []),
     "DIR": ("Dossier de l'exécutable, relatif à la racine de l'image.", []),
     "GAME_VERSION": ("Version du jeu packagé (ignorée par Batocera).", []),
-    "WINE": ("Runner Wine imposé. Défaut : wine-tkg pour un prefix Batocera.",
+    "WINE": (("Runner Wine imposé : runners/<nom> joint à l'image d'abord, puis la "
+              "machine ; introuvable : erreur. Défaut : wine-tkg pour un prefix Batocera."),
              ["tkg", "system"]),
-    "PROTON": ("Version de Proton imposée (prefix Proton ou jeu seul).", []),
-    "RUNNER": ("Runner personnalisé (chemin ou nom).", []),
+    "PROTON": (("Proton imposé (prefix Proton ou jeu seul) : runners/<nom> joint à "
+                "l'image d'abord, puis Heroic/Steam ; introuvable : erreur."), []),
+    "RUNNER": (("Chemin absolu d'un binaire wine de la machine. Runner joint au jeu : "
+                "runners/<nom>/ et PROTON= ou WINE=."), []),
     "ARCH": ("Architecture du prefix créé.", ["win32", "win64"]),
     "HIDRAW": (("Manette Sony gérée par le jeu lui-même (DualSense native) au lieu de "
                 "XInput : 1 (pont USB), bt (hidraw direct), 0."), ["1", "bt", "0"]),
