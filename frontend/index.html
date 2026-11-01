@@ -117,23 +117,54 @@ main.with-detail { grid-template-columns: minmax(0, 1fr) minmax(400px, 480px); }
 @media (max-width: 1150px) { main.with-detail { grid-template-columns: 1fr; } }
 .intro { margin: 0 0 1rem; color: var(--text-2); max-width: 75ch; }
 
-/* Aide : types d'image et standard de construction */
-.help section { max-width: 980px; }
-.help-toc { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: 1rem; }
-.help-toc a { color: var(--text-2); text-decoration: none; background: var(--surface-2); border: 1px solid var(--line);
-  border-radius: 999px; padding: .2rem .7rem; font-size: 12.5px; }
-.help-toc a:hover { color: var(--text); border-color: var(--line-strong); }
+/* Aide : construction des images, autorun.cmd, lanceur */
+main.help-page { grid-template-columns: 210px minmax(0, 920px); justify-content: center; gap: 2rem; align-items: start; }
+.help-toc { position: sticky; top: 4.6rem; display: flex; flex-direction: column; gap: 1px; max-height: calc(100vh - 6rem);
+  overflow-y: auto; padding-bottom: 1rem; }
+.help-toc p { margin: .9rem 0 .3rem .6rem; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em;
+  font-weight: 600; }
+.help-toc p:first-child { margin-top: 0; }
+.help-toc a { color: var(--text-2); text-decoration: none; padding: .28rem .6rem; border-radius: var(--r-sm); font-size: 13px;
+  border-left: 2px solid transparent; }
+.help-toc a:hover { color: var(--text); background: var(--surface-2); }
+.help-toc a.current { color: var(--text); background: var(--surface-2); border-left-color: var(--accent); }
+.help-title { font-size: 20px; margin-bottom: .3rem; }
+.help-group { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin: 2rem 0 .7rem; }
+.help-group code { text-transform: none; letter-spacing: 0; }
 .help-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 1rem 1.2rem;
-  margin-bottom: 1rem; scroll-margin-top: 1rem; }
-.help-card h2 { margin: 0 0 .3rem; } .help-card h3 { font-size: 14px; margin: 1.1rem 0 .3rem; }
-.help-card p, .help-card li { color: var(--text-2); max-width: 85ch; }
+  margin-bottom: 1rem; scroll-margin-top: 4.6rem; }
+.help-card h3 { font-size: 16px; color: var(--text); text-transform: none; letter-spacing: -.01em; margin: 0 0 .4rem; }
+.help-card h4 { font-size: 13.5px; margin: 1.1rem 0 .3rem; }
+.help-card p, .help-card li, .help-card dd { color: var(--text-2); max-width: 85ch; }
 .help-card ul { padding-left: 1.2rem; margin: .5rem 0 0; } .help-card li { margin: .25rem 0; }
+.help-card a { color: var(--accent); }
 .help-card pre { font-family: var(--mono); font-size: 12px; background: var(--surface-2); border: 1px solid var(--line);
   border-radius: var(--r-sm); padding: .6rem .8rem; margin: .5rem 0; overflow-x: auto; white-space: pre; }
 .help-card pre.autorun { border-left: 3px solid var(--accent); }
+.help-card .table-wrap { margin: .6rem 0; border-radius: var(--r); }
+.help-card th { cursor: default; } .help-card th:hover { color: var(--muted); }
+.help-card th, .help-card td { vertical-align: top; }
+.help-card th:first-child, .help-card td:first-child { width: auto; padding-right: .7rem; }
+.help-card th:first-child { border-top-left-radius: var(--r); } .help-card th:last-child { border-top-right-radius: var(--r); }
+.help-card td { color: var(--text-2); } .help-card td:last-child code { white-space: nowrap; } .help-card td:first-child { white-space: nowrap; color: var(--text); }
+.help-card tr:last-child td { border-bottom: 0; }
+.help-card .tag { display: inline-block; font-size: 10.5px; color: var(--accent); background: var(--accent-soft);
+  border-radius: 999px; padding: 0 .45rem; margin-left: .2rem; }
+.help-cmds { display: block; margin: .6rem 0 0; } .help-cmds dt { margin-top: .8rem; color: var(--text); font-weight: 550; }
+.help-cmds dt:first-child { margin-top: 0; } .help-cmds dd { margin: .25rem 0 0 1rem; }
+.help-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: .2rem 1rem; }
+.help-cols p { margin: .6rem 0 0; }
 .help-note { margin-top: .8rem; padding: .6rem .8rem; border-radius: var(--r-sm); background: var(--surface-2);
   border: 1px solid var(--line); color: var(--text-2); }
 .help-note.warn { border-left: 3px solid var(--warn); }
+button.ghost.active { background: var(--accent-soft); color: var(--accent); }
+@media (max-width: 900px) {
+  main.help-page { grid-template-columns: minmax(0, 1fr); gap: .6rem; }
+  .help-toc { position: static; flex-direction: row; flex-wrap: wrap; gap: .35rem; max-height: none; padding: 0; }
+  .help-toc p { display: none; }
+  .help-toc a { border: 1px solid var(--line); border-radius: 999px; background: var(--surface-2); padding: .2rem .7rem; font-size: 12.5px; }
+  .help-card td:first-child { white-space: normal; }
+}
 
 /* Chiffres clés (filtres rapides) */
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .7rem; margin-bottom: 1rem; }
@@ -357,6 +388,7 @@ pre.bat { font: 11.5px/1.5 var(--mono); background: var(--surface-2); border: 1p
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
   <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></symbol>
+  <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 0 1 4.8 1c0 1.7-2.4 2.2-2.4 3.8"/><path d="M12 17.2h.01"/></symbol>
   <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.9-3.5L4 9"/><path d="M4 4v5h5"/><path d="M4 13a8 8 0 0 0 14.9 3.5L20 15"/><path d="M20 20v-5h-5"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
   <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 15 6-6 6 6"/></symbol>
@@ -372,10 +404,10 @@ pre.bat { font: 11.5px/1.5 var(--mono); background: var(--surface-2); border: 1p
   <div class="views" id="views">
     <button data-view="images" class="active">Images <span class="count" id="count-images"></span></button>
     <button data-view="folders">Dossiers à empaqueter <span class="count" id="count-folders" hidden></span></button>
-    <button data-view="help">Aide</button>
   </div>
   <span id="status" class="muted"></span>
   <span class="spacer"></span>
+  <button class="ghost icon" id="btn-help" title="Aide : images, autorun.cmd, lanceur" aria-label="Aide" aria-pressed="false"><svg class="ico" aria-hidden="true"><use href="#i-help"/></svg></button>
   <button class="ghost" id="btn-config" title="Systèmes à gérer, tâches de nuit"><svg class="ico" aria-hidden="true"><use href="#i-settings"/></svg><span class="label">Réglages</span></button>
   <button class="secondary" id="btn-refresh" title="Relit les images ajoutées ou modifiées (les autres viennent du cache)"><svg class="ico" aria-hidden="true"><use href="#i-refresh"/></svg><span class="label">Actualiser</span></button>
 </header>
@@ -515,21 +547,52 @@ pre.bat { font: 11.5px/1.5 var(--mono); background: var(--surface-2); border: 1p
   </section>
 </main>
 
-<main id="help-main" class="help" hidden>
-  <section>
-    <p class="intro">Une image <code>.wsquashfs</code> est un dossier compressé en lecture seule. Le lanceur la monte, ajoute une couche de sauvegardes par jeu par-dessus, puis lance la commande de son <code>autorun.cmd</code>. La façon de construire l'image dépend de son <b>type</b>, déterminé par ce qui se trouve à sa racine.</p>
+<main id="help-main" class="help-page" hidden>
+  <nav class="help-toc" aria-label="Sommaire de l'aide">
+    <p>Construire une image</p>
+    <a href="#h-principe">Principe</a>
+    <a href="#h-batocera">Prefix Wine (Batocera)</a>
+    <a href="#h-proton">Prefix Proton</a>
+    <a href="#h-solo">Jeu seul</a>
+    <a href="#h-runner">Runner joint</a>
+    <a href="#h-summary">Récapitulatif</a>
+    <p>autorun.cmd</p>
+    <a href="#h-ar-base">Clés de base</a>
+    <a href="#h-ar-wine">Wine et Proton</a>
+    <a href="#h-ar-choice">Choix automatique du runner</a>
+    <a href="#h-ar-saves">Sauvegardes</a>
+    <a href="#h-ar-optim">Rendu et optimisations</a>
+    <a href="#h-ar-override">Surcharge sans reconstruire</a>
+    <a href="#h-ar-examples">Exemples</a>
+    <p>Lanceur</p>
+    <a href="#h-cli">Commandes</a>
+    <a href="#h-modes">Modes de montage</a>
+    <a href="#h-env">Variables d'environnement</a>
+    <a href="#h-data">Emplacements des données</a>
+    <a href="#h-install">Installation</a>
+    <a href="#h-frontends">Frontends</a>
+    <a href="#h-trouble">Dépannage</a>
+  </nav>
 
-    <nav class="help-toc">
-      <a href="#h-batocera">Prefix Wine (Batocera)</a>
-      <a href="#h-proton">Prefix Proton</a>
-      <a href="#h-solo">Jeu seul</a>
-      <a href="#h-runner">Runner joint</a>
-      <a href="#h-common">Règles communes</a>
-      <a href="#h-summary">Récapitulatif</a>
-    </nav>
+  <section class="help-body">
+    <h1 class="help-title">Aide</h1>
+    <p class="intro">Construction des images <code>.wsquashfs</code>, référence de l'<code>autorun.cmd</code> et usage de <code>wsquashfs-launcher</code>, le lanceur sur lequel s'appuie ce gestionnaire.</p>
+
+    <!-- ============================================================ Construire une image -->
+    <h2 class="help-group">Construire une image</h2>
+
+    <article class="help-card" id="h-principe">
+      <h3>Principe</h3>
+      <p>Une image <code>.wsquashfs</code> est un dossier compressé en lecture seule (format Batocera pour les jeux Windows). Le lanceur la monte, ajoute par-dessus une couche de sauvegardes propre au jeu, puis lance la commande de son <code>autorun.cmd</code>. L'image n'est jamais modifiée : tout ce que le jeu écrit va dans ses sauvegardes.</p>
+      <p>La construction dépend du <b>type</b> de l'image, déterminé par ce qui se trouve à sa racine : <code>system.reg</code> (prefix Wine), <code>config_info</code> (prefix Proton) ou rien de tout cela (jeu seul).</p>
+      <ul>
+        <li><b>Construire</b> : <code>wsquashfs-launcher --pack &lt;dossier&gt;</code> (zstd), ou l'onglet « Dossiers à empaqueter » ici, qui propose aussi l'autorun. Vérifier ensuite avec <code>--info</code>.</li>
+        <li><b>Ne jamais abîmer un original</b> : la nouvelle image est construite à côté et ne remplace l'ancienne qu'une fois terminée.</li>
+      </ul>
+    </article>
 
     <article class="help-card" id="h-batocera">
-      <h2>Prefix Wine (Batocera)</h2>
+      <h3>Prefix Wine (Batocera)</h3>
       <p class="muted">Reconnu par <code>system.reg</code> à la racine. Jeux arcade (TeknoParrot, Taito Type X, Sega…), format natif de Batocera.</p>
       <pre class="tree">MonJeu.wine/
 ├── autorun.cmd
@@ -542,14 +605,14 @@ CMD=game.exe
 GAME_VERSION=1.04
 REM facultatif : WINE=tkg | system, ARCH=win32</pre>
       <ul>
-        <li><b>Runner</b> : wine-tkg par défaut. <code>WINE=system</code> pour un jeu 32 bits qui ne passe qu'en WoW64 (GTI Club).</li>
+        <li><b>Runner</b> : wine-tkg par défaut. <code>WINE=system</code> pour un jeu 32 bits qui ne passe qu'en WoW64 (GTI Club – Supermini Festa).</li>
         <li><b>Racine de l'image</b> = le prefix. <code>DIR</code> est relatif à cette racine.</li>
         <li>Reste lisible par Batocera tel quel : il ignore les clés qu'il ne connaît pas (<code>GAME_VERSION</code>, <code>WINE</code>…).</li>
       </ul>
     </article>
 
     <article class="help-card" id="h-proton">
-      <h2>Prefix Proton</h2>
+      <h3>Prefix Proton</h3>
       <p class="muted">Reconnu par <code>config_info</code> à la racine (prefix créé par Heroic, Steam ou umu). Jeux PC récents.</p>
       <pre class="tree">MonJeu.wine/
 ├── autorun.cmd
@@ -561,15 +624,15 @@ REM facultatif : WINE=tkg | system, ARCH=win32</pre>
 CMD=game.exe
 PROTON=UMU-Proton-10.0-4   (facultatif)</pre>
       <ul>
-        <li><b>Runner</b> : le Proton qui a créé le prefix (1<sup>re</sup> ligne de <code>config_info</code>), sinon proton-cachyos, puis UMU-Proton, puis GE-Proton. Lancé <b>via umu</b>.</li>
-        <li><code>PROTON=&lt;nom&gt;</code> impose un Proton ; <b>introuvable = erreur</b>, plus de repli silencieux.</li>
+        <li><b>Runner</b> : le Proton qui a créé le prefix (1<sup>re</sup> ligne de <code>config_info</code>), sinon le repli décrit dans <a href="#h-ar-choice">Choix automatique du runner</a>. Lancé <b>via umu</b>.</li>
+        <li><code>PROTON=&lt;nom&gt;</code> impose un Proton ; <b>introuvable = erreur</b>, sans repli silencieux.</li>
         <li>Les DLL de Proton sont des <b>liens</b> vers le runner (<code>PROTON_DLL_COPY</code> vide), pas des copies.</li>
         <li>Batocera n'a pas umu : ces images n'y sont pas prévues.</li>
       </ul>
     </article>
 
     <article class="help-card" id="h-solo">
-      <h2>Jeu seul</h2>
+      <h3>Jeu seul</h3>
       <p class="muted">Ni <code>system.reg</code> ni <code>config_info</code> : seulement les fichiers du jeu.</p>
       <pre class="tree">MonJeu/
 ├── autorun.cmd
@@ -579,32 +642,34 @@ PROTON=UMU-Proton-10.0-4   (facultatif)</pre>
       <ul>
         <li>Le prefix est créé au premier lancement par Proton via umu, <b>dans les sauvegardes</b> : l'image reste légère.</li>
         <li><code>CMD</code> est relatif à la racine ; guillemets si le chemin contient des espaces.</li>
-        <li><code>WINE=tkg</code> pour garder un prefix Wine au lieu de Proton.</li>
+        <li><code>WINE=tkg</code> pour garder un prefix Wine au lieu de Proton. Un prefix Wine déjà présent dans les sauvegardes reste sous Wine (Proton ne sait pas le convertir) : réinitialiser les sauvegardes du jeu pour passer sous Proton.</li>
       </ul>
     </article>
 
     <article class="help-card" id="h-runner">
-      <h2>Runner joint à l'image</h2>
-      <p class="muted">Pour un jeu qui ne marche qu'avec <b>un runner précis</b> (Proton modifié comme DenuvOwO, build Wine particulier). Se combine avec les trois types ci-dessus. L'image devient autonome : rien à installer sur la machine.</p>
+      <h3>Runner joint à l'image</h3>
+      <p class="muted">Pour un jeu qui ne marche qu'avec <b>un runner précis</b> (Proton modifié comme DenuvOwO pour Anno 117, Wine particulier d'un jeu arcade). Se combine avec les trois types ci-dessus. L'image devient autonome : rien à installer sur la machine.</p>
       <pre class="tree">MonJeu.wine/                 → --pack habituel, sans option
 ├── autorun.cmd    PROTON=DenuvOwO-cachyos-11.0
 ├── runners/
 │   └── DenuvOwO-cachyos-11.0/     le dossier du runner tel quel
-│       ├── proton                (Proton)
-│       └── files/bin/wine
+│       ├── proton                (Proton : proton + files/bin/wine)
+│       └── files/bin/wine        (Wine : bin/wine)
 └── drive_c/ …</pre>
       <ul>
-        <li><code>PROTON=&lt;nom&gt;</code> ou <code>WINE=&lt;nom&gt;</code> cherchent d'abord <code>runners/&lt;nom&gt;/</code>. Sans clé, un runner <b>seul</b> dans <code>runners/</code> est utilisé.</li>
+        <li><code>PROTON=&lt;nom&gt;</code> ou <code>WINE=&lt;nom&gt;</code> cherchent d'abord <code>runners/&lt;nom&gt;/</code> (aussi <code>runners/wine-&lt;nom&gt;/</code>, casse ignorée), puis les runners de la machine. Sans clé, un runner <b>seul</b> dans <code>runners/</code> est utilisé.</li>
         <li><b>Priorité</b> : <code>--wine</code> &gt; runner joint &gt; runners de la machine.</li>
-        <li>Utilisé en <b>lecture seule</b> depuis l'image : Proton n'écrit rien dans les sauvegardes.</li>
-        <li><b>À réserver aux runners propres à un jeu.</b> Un Proton standard (UMU-Proton, GE, cachyos) n'a pas à être joint. Comptez ~250 Mo compressés.</li>
+        <li>Utilisé en <b>lecture seule</b> depuis l'image : Proton n'écrit rien dans les sauvegardes, et son chemin ne change pas d'un lancement à l'autre (sinon Proton refait la mise en place du prefix).</li>
+        <li>Runner nommé introuvable (ni dans l'image ni sur la machine) : le lancement s'arrête avec un message, le jeu ne part pas sous un autre runner.</li>
+        <li><b>À réserver aux runners propres à un jeu.</b> Un Proton standard (UMU-Proton, GE-Proton, proton-cachyos) n'a pas à être joint : le choix automatique de la machine reste meilleur. Compter ~250 Mo compressés pour un Proton.</li>
         <li><code>RUNNER=</code> ne sert qu'aux chemins <b>absolus</b> de la machine ; un chemin relatif est refusé.</li>
+        <li>Batocera ignore <code>runners/</code> (seulement de la place). <code>--info</code> et la colonne Runner indiquent « joint ».</li>
       </ul>
       <div class="help-note warn">
         <b>Liens du prefix.</b> Dans un prefix Proton, les DLL de Wine sont des liens vers le runner. Avant <code>--pack</code>, ils doivent pointer <b>en relatif dans <code>runners/&lt;nom&gt;/</code></b> (ex. <code>../../../runners/&lt;nom&gt;/files/lib/wine/…</code>). Un lien vers un autre emplacement (ancien <code>runner/</code>, <code>compatibilitytools.d</code> de la machine) est cassé ailleurs, et Proton ne répare pas un lien cassé : le jeu ne démarre plus (<code>failed to open umu.exe</code>).
         <br>Vérifier : <code>find MonJeu.wine -type l -lname '*compatibilitytools.d*'</code> doit être vide.
       </div>
-      <h3>Préparation et correctif du jeu : dans le runner (Proton)</h3>
+      <h4>Préparation et correctif du jeu : dans le runner (Proton)</h4>
       <p>Un Proton joint peut porter le correctif du jeu : un <b>protonfix</b> que Proton exécute avant chaque lancement (Call of Duty MW4).</p>
       <pre class="tree">runners/GE-Proton11-9/protonfixes/gamefixes-umu/umu-mw4.py</pre>
       <pre class="autorun">PROTON=GE-Proton11-9
@@ -612,24 +677,12 @@ ENV=GAMEID=umu-mw4</pre>
       <ul>
         <li><code>main()</code> du protonfix : préparation (un <code>sys.exit(1)</code> arrête le lancement), puis un fil pour le patch à chaud. Ce fil vit dans le processus Proton jusqu'à la fin du jeu, donc rien ne reste derrière.</li>
         <li>N'agir que si l'exécutable du jeu est dans <code>sys.argv</code> : umu sert aussi à d'autres commandes (reg, wineboot).</li>
-        <li>Sinon, pour tout runner, Wine compris : <code>PRE=</code> et <code>ATTACH=</code> de l'autorun (ci-dessous).</li>
-      </ul>
-    </article>
-
-    <article class="help-card" id="h-common">
-      <h2>Règles communes</h2>
-      <ul>
-        <li><b>Sauvegardes</b> : tout ce que le jeu écrit va dans <code>saves/&lt;jeu&gt;</code>, jamais dans l'image. <code>SAVEDIR=</code> / <code>SAVEFILES=</code> relient en plus un dossier ou des fichiers à <code>saves/&lt;système&gt;/&lt;jeu&gt;</code>, comme Batocera.</li>
-        <li><b>Commandes autour du jeu</b> : <code>PRE=</code> (une fois avant, dans <code>DIR</code> ; un échec arrête le lancement) et <code>ATTACH=</code> (pendant le jeu, avec <code>GAME_PID</code> ; <code>ATTACH_PROCESS=</code> si <code>CMD</code> est un lanceur). Ce sont des commandes Linux, exécutées hors de Wine : à n'utiliser que pour des images de confiance. Batocera les ignore.</li>
-        <li><b>Contrôles</b> : <code>HIDRAW=1</code> (DualSense gérée par le jeu, présentée en USB) ou <code>bt</code> ; défaut XInput. Touches clavier : fichier <code>&lt;jeu&gt;.wsquashfs.keys</code> à côté de l'image.</li>
-        <li><b>Version</b> : <code>GAME_VERSION=</code>, affichée par <code>--info</code> et ici.</li>
-        <li><b>Surcharge</b> sans reconstruire : <code>&lt;jeu&gt;.wsquashfs.autorun</code> à côté de l'image (non lu par Batocera).</li>
-        <li><b>Construction</b> : <code>wsquashfs-launcher --pack &lt;dossier&gt;</code> (zstd), ou « Dossiers à empaqueter » ici. Vérifier ensuite avec <code>--info</code>.</li>
+        <li>Sinon, pour tout runner, Wine compris : <code>PRE=</code> et <code>ATTACH=</code> de l'autorun (<a href="#h-ar-base">Clés de base</a>).</li>
       </ul>
     </article>
 
     <article class="help-card" id="h-summary">
-      <h2>Récapitulatif</h2>
+      <h3>Récapitulatif</h3>
       <div class="table-wrap">
         <table>
           <thead><tr><th>Type</th><th>Reconnu par</th><th>Runner par défaut</th><th>Lancement</th><th>Batocera</th></tr></thead>
@@ -641,6 +694,284 @@ ENV=GAMEID=umu-mw4</pre>
           </tbody>
         </table>
       </div>
+    </article>
+
+    <!-- ============================================================ autorun.cmd -->
+    <h2 class="help-group">autorun.cmd</h2>
+
+    <article class="help-card" id="h-ar-base">
+      <h3>Clés de base</h3>
+      <p>Fichier à la racine de l'image, au format Batocera : une paire <code>CLÉ=valeur</code> par ligne, <code>REM</code> pour un commentaire, fins de ligne DOS tolérées. Batocera ignore les clés qu'il ne connaît pas : l'image reste compatible.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Clé</th><th>Rôle</th><th>Exemple</th></tr></thead>
+          <tbody>
+            <tr><td><code>CMD</code> <span class="tag">obligatoire</span></td><td>Exécutable et arguments, guillemets si le nom contient des espaces.</td><td><code>"My Game.exe" -fullscreen</code></td></tr>
+            <tr><td><code>DIR</code></td><td>Dossier de l'exécutable, relatif à la racine de l'image. Vide : racine.</td><td><code>drive_c/Game</code></td></tr>
+            <tr><td><code>GAME_VERSION</code></td><td>Version du jeu empaqueté, affichée au lancement, par <code>--info</code>, <code>--pack</code>, <code>--install</code> et ici. Ignorée par Batocera.</td><td><code>v2.1.0 GOG</code></td></tr>
+            <tr><td><code>PRE</code></td><td>Commande lancée une fois <b>avant</b> le jeu, dans <code>DIR</code>, avec l'utilisateur et l'environnement du jeu (<code>WINEPREFIX</code>…). Un échec arrête le lancement. Sert à préparer des fichiers que l'image ne peut pas contenir tels quels.</td><td><code>sh pre.sh</code></td></tr>
+            <tr><td><code>ATTACH</code></td><td>Commande lancée <b>pendant</b> le jeu, une fois son processus trouvé (sans délai maximal) ; <code>GAME_PID</code> contient son PID. Elle accompagne le jeu jusqu'à la fin de tous ses processus Wine, a ensuite 5 s pour finir seule, puis est arrêtée avec tout ce qu'elle a lancé.</td><td><code>sh attach.sh</code></td></tr>
+            <tr><td><code>ATTACH_PROCESS</code></td><td>Processus attendu par <code>ATTACH</code> (15 caractères au plus, comme le noyau). Défaut : l'exécutable de <code>CMD</code> ; à renseigner quand <code>CMD</code> est un lanceur qui démarre le vrai jeu.</td><td><code>DOA5A.exe</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="help-note warn"><code>PRE</code> et <code>ATTACH</code> exécutent des commandes Linux sur la machine, hors de Wine : à n'utiliser que pour des images de confiance. Ni l'une ni l'autre n'est lancée par <code>--exec</code>. Batocera les ignore : un jeu qui en dépend n'y fonctionnera pas tel quel.</div>
+    </article>
+
+    <article class="help-card" id="h-ar-wine">
+      <h3>Wine et Proton</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Clé</th><th>Rôle</th><th>Exemple</th></tr></thead>
+          <tbody>
+            <tr><td><code>WINE</code></td><td>Wine joint à l'image (<code>runners/&lt;nom&gt;/</code>), sinon <code>/opt/wine-&lt;nom&gt;/bin/wine</code> ou un runner installé ; <code>system</code> : le Wine WoW64 du système. Introuvable : erreur.</td><td><code>tkg</code>, <code>9.0</code>, <code>system</code></td></tr>
+            <tr><td><code>PROTON</code></td><td>Proton joint à l'image, sinon un Proton de Heroic ou Steam (nom du dossier ou version). Introuvable : erreur, pas de repli sur un autre Proton.</td><td><code>UMU-Proton-10.0-4</code>, <code>GE-Proton8-25</code></td></tr>
+            <tr><td><code>RUNNER</code></td><td>Chemin <b>absolu</b> d'un binaire wine de la machine. Un runner joint passe par <code>runners/</code> et <code>PROTON</code>/<code>WINE</code>.</td><td><code>/opt/wine-custom/bin/wine</code></td></tr>
+            <tr><td><code>ARCH</code></td><td>Architecture du prefix ; déduite du prefix existant, <code>win64</code> sinon.</td><td><code>win32</code>, <code>win64</code></td></tr>
+            <tr><td><code>LANG</code></td><td>Langue du jeu (<code>LC_ALL</code>).</td><td><code>fr_FR.UTF-8</code></td></tr>
+            <tr><td><code>ENV</code></td><td>Variables d'environnement supplémentaires, séparées par des espaces.</td><td><code>VAR1=a VAR2=b</code></td></tr>
+            <tr><td><code>HIDRAW</code></td><td><code>1</code> : manettes Sony par hidraw, pour un jeu qui gère la DualSense <b>lui-même</b> (sans Steam Input) ; repli XInput si illisible. Une DualSense Bluetooth (celle de Sunshine) est présentée en USB par <code>dualsense-usb-bridge</code> : les <code>libScePad</code> de 2022 (F1 22) refusent la Bluetooth. <code>bt</code> : DualSense Bluetooth en direct, pour les haptiques Bluetooth (Until Dawn). Défaut : XInput, comme Batocera. Sous GE-Proton, le mode XInput passe aussi par hidraw (<code>PROTON_SONY_HIDRAW_XINPUT=1</code>, posé par le lanceur).</td><td><code>1</code>, <code>bt</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Touches clavier : fichier <code>&lt;jeu&gt;.wsquashfs.keys</code> à côté de l'image (mappage manette → clavier, signalé dans la colonne Extras).</p>
+    </article>
+
+    <article class="help-card" id="h-ar-choice">
+      <h3>Choix automatique du runner</h3>
+      <p>Sans <code>WINE</code>, <code>PROTON</code>, <code>RUNNER</code>, runner joint ni <code>--wine</code> :</p>
+      <ul>
+        <li><b>Prefix créé par Proton</b> (<code>config_info</code>) : la même version de Proton, cherchée dans <code>~/.config/heroic/tools/proton</code>, <code>~/.local/share/Steam/compatibilitytools.d</code>, <code>~/.steam/root/compatibilitytools.d</code> et <code>/usr/share/steam/compatibilitytools.d</code>. Absente : proton-cachyos, puis l'UMU-Proton le plus récent, puis GE-Proton, puis n'importe quel Proton installé.
+          <br>Le jeu est lancé <b>via umu</b> (<code>umu-run</code> du paquet umu-launcher, à défaut celui de Heroic) avec le script <code>proton</code>, comme Heroic : Proton gère le prefix, DXVK, VKD3D et NVAPI. Sans umu, le Wine du Proton est lancé directement, avec un avertissement (certains jeux ne s'affichent pas) ; <code>WSQUASHFS_UMU=0</code> force ce mode.
+          <br>Les DLL que Proton copie d'ordinaire dans chaque prefix (d3dx9, msvcp, xaudio… ~190 Mo par jeu) y sont des liens vers Proton (<code>PROTON_DLL_COPY</code> vide) ; <code>ENV=PROTON_DLL_COPY=&lt;motifs&gt;</code> pour un jeu qui doit les remplacer.</li>
+        <li><b>Jeu seul</b> : prefix créé par Proton via umu (proton-cachyos, sinon l'UMU-Proton le plus récent, sinon GE-Proton). proton-cachyos et UMU-Proton d'abord : leur SDL gère la DualSense en manette XInput, vibration comprise ; GE-Proton la force en hidraw, sans vibration en mode XInput. <code>WINE=tkg</code> pour garder wine-tkg.</li>
+        <li><b>Autres prefixes</b> (arcade Batocera) : wine-tkg, puis wine-ge/lutris, puis wine-proton, puis le Wine du système ; les chemins Batocera (<code>/usr/wine/…</code>) sont pris en charge. Certains jeux 32 bits échouent sous wine-tkg (non WoW64) mais passent avec le Wine WoW64 du système : <code>WINE=system</code>.</li>
+      </ul>
+      <p>Le lanceur ramène la pile à 8 Mo si elle est illimitée (cas de Docker sur Unraid) : sans cela proton-cachyos ne démarre pas, et les jeux 32 bits sous wine-tkg manquent de mémoire.</p>
+    </article>
+
+    <article class="help-card" id="h-ar-saves">
+      <h3>Sauvegardes</h3>
+      <p>Tout ce que le jeu écrit va dans <code>saves/&lt;jeu&gt;</code> (la couche au-dessus de l'image), jamais dans l'image. Comme Batocera, deux clés relient en plus un dossier ou des fichiers à <code>saves/&lt;système&gt;/&lt;jeu&gt;</code>, à côté de <code>roms/</code> :</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Clé</th><th>Rôle</th><th>Exemple</th></tr></thead>
+          <tbody>
+            <tr><td><code>SAVEDIR</code></td><td>Dossier de sauvegarde du jeu. Les sauvegardes empaquetées y sont copiées sans jamais écraser l'existant.</td><td><code>drive_c/game/saves</code></td></tr>
+            <tr><td><code>SAVEFILES</code></td><td>Fichiers de sauvegarde, séparés par <code>;</code>, relatifs au prefix.</td><td><code>drive_c/game/save.dat;drive_c/game/cfg.ini</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </article>
+
+    <article class="help-card" id="h-ar-optim">
+      <h3>Rendu et optimisations</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Clé</th><th>Rôle</th><th>Défaut</th></tr></thead>
+          <tbody>
+            <tr><td><code>DXVK</code></td><td>Direct3D 8 à 11 → Vulkan. <code>0</code> : rendu OpenGL de Wine (wined3d), qui tombe sur le rendu logiciel sous Xwayland + NVIDIA. Sous Proton, seul un <code>DXVK=0</code> explicite change quelque chose.</td><td><code>1</code> (contrairement à Batocera)</td></tr>
+            <tr><td><code>VKD3D</code></td><td>Direct3D 12 → Vulkan (vkd3d-proton). Sans effet sur un jeu qui ne charge pas <code>d3d12.dll</code>.</td><td><code>1</code></td></tr>
+            <tr><td><code>D7VK</code></td><td>DirectDraw / Direct3D 7 → Vulkan (d7vk). Sans effet sur un jeu qui ne charge pas <code>ddraw.dll</code>.</td><td><code>1</code> si installé</td></tr>
+            <tr><td><code>VIRTUAL_DESKTOP</code></td><td>Bureau virtuel Wine : évite les plantages du gestionnaire de fenêtres quand le jeu change la résolution.</td><td>aucun</td></tr>
+            <tr><td><code>ESYNC</code></td><td>Synchronisation par événements (<code>WINEESYNC</code>).</td><td><code>0</code></td></tr>
+            <tr><td><code>FSYNC</code></td><td>Synchronisation par futex (<code>WINEFSYNC</code>), noyau compatible requis.</td><td><code>0</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Un DXVK ou un VKD3D-Proton absent de la machine désactive la clé correspondante, avec un avertissement au lancement.</p>
+    </article>
+
+    <article class="help-card" id="h-ar-override">
+      <h3>Surcharge sans reconstruire</h3>
+      <p>Un fichier <code>&lt;jeu&gt;.wsquashfs.autorun</code> posé <b>à côté de l'image</b>, au même format, permet d'essayer un réglage tout de suite. Une clé qui y figure l'emporte sur celle de l'image, <code>CLÉ=</code> vide la ramène au défaut du lanceur, les autres viennent de l'image. Le lancement et <code>--info</code> l'annoncent (« Surcharge : … »).</p>
+      <pre class="autorun"># Le Jeu.wsquashfs.autorun
+GAME_VERSION=1.2.0
+HIDRAW=1</pre>
+      <p>Batocera ne lit pas ce fichier : une fois le réglage validé, l'inscrire dans l'image (une action dans la fiche de l'image) et supprimer la surcharge.</p>
+    </article>
+
+    <article class="help-card" id="h-ar-examples">
+      <h3>Exemples</h3>
+      <div class="help-cols">
+        <div><p class="muted">Jeu simple</p><pre class="autorun">DIR=Game
+CMD=game.exe -fullscreen</pre></div>
+        <div><p class="muted">Chemin avec espaces</p><pre class="autorun">DIR=drive_c/Program Files/My Game
+CMD="My Game.exe" --lang fr</pre></div>
+        <div><p class="muted">Jeu 32 bits ancien, Wine du système</p><pre class="autorun">CMD=oldgame.exe
+ARCH=win32
+WINE=system</pre></div>
+        <div><p class="muted">Proton imposé, DualSense gérée par le jeu</p><pre class="autorun">DIR=drive_c/Game/Bin
+CMD=game.exe
+PROTON=GE-Proton9-20
+HIDRAW=1</pre></div>
+        <div><p class="muted">Lanceur intermédiaire + outil pendant le jeu</p><pre class="autorun">CMD=Launcher.exe
+ATTACH=sh attach.sh
+ATTACH_PROCESS=Game.exe</pre></div>
+        <div><p class="muted">Résolution fixe, fichier batch</p><pre class="autorun">CMD=start.bat
+VIRTUAL_DESKTOP=1920x1080</pre></div>
+      </div>
+    </article>
+
+    <!-- ============================================================ Lanceur -->
+    <h2 class="help-group">Lanceur <code>wsquashfs-launcher</code></h2>
+
+    <article class="help-card" id="h-cli">
+      <h3>Commandes</h3>
+      <p>Aucun privilège requis : l'image est montée en utilisateur, y compris les paquets Batocera dont les fichiers appartiennent à root. Sauvegardes et prefix appartiennent à l'utilisateur qui lance le jeu ; <code>sudo</code> reste accepté mais n'apporte rien.</p>
+      <dl class="help-cmds">
+        <dt><code>wsquashfs-launcher [--wine &lt;version&gt;] &lt;jeu.wsquashfs&gt;</code></dt>
+        <dd>Lance le jeu (commande de l'<code>autorun.cmd</code>).</dd>
+        <dt><code>wsquashfs-launcher [--wine &lt;version&gt;] &lt;dossier du jeu&gt;</code></dt>
+        <dd>Lance un jeu installé (dossier contenant <code>autorun.cmd</code>) sur place, sans montage : le jeu écrit directement dans son dossier.</dd>
+        <dt><code>--exec &lt;jeu.wsquashfs&gt; &lt;programme&gt; [arguments…]</code></dt>
+        <dd>Lance un autre programme dans le prefix du jeu : un exécutable du jeu (chemin relatif au prefix ou au <code>DIR</code>, casse ignorée, ex. <code>JConfig.exe</code>, <code>drive_c/teknoparrot/TeknoParrotUi.exe</code>) ou un outil Wine (<code>winecfg</code>, <code>regedit</code>, <code>cmd</code>, <code>explorer</code>, <code>control joy.cpl</code>…). Combinable avec <code>--wine</code>. <code>PRE</code>/<code>ATTACH</code> ne sont pas lancés.</dd>
+        <dt><code>--mount &lt;jeu.wsquashfs&gt;</code> · <code>--umount [&lt;jeu.wsquashfs&gt;]</code></dt>
+        <dd>Monte le jeu et le laisse monté pour le modifier à la main ; les changements vont dans ses sauvegardes, jamais dans l'image. <code>--umount</code> démonte un jeu, ou tous ; sur un jeu en cours, il arrête la partie.</dd>
+        <dt><code>--pack &lt;Jeu.wine&gt; [sortie.wsquashfs]</code></dt>
+        <dd>Crée un <code>.wsquashfs</code> (zstd) à partir d'un dossier. Image existante : confirmation au terminal (et proposition de réinitialiser ses sauvegardes), refus sans terminal ; l'ancienne n'est remplacée qu'une fois la nouvelle construite. Un runner propre au jeu se joint en le copiant dans <code>runners/&lt;nom&gt;/</code>.</dd>
+        <dt><code>--install &lt;jeu.wsquashfs&gt; [dossier]</code></dt>
+        <dd>L'inverse de <code>--pack</code> : extrait le jeu dans <code>&lt;dossier&gt;/&lt;Jeu&gt;</code> (défaut : à côté de l'image), pour jouer sans FUSE. L'image est conservée, ses sauvegardes ne sont pas reprises, un dossier existant n'est jamais écrasé. EmulationStation n'affiche que les <code>.wsquashfs</code>.</dd>
+        <dt><code>--info &lt;jeu.wsquashfs | dossier&gt;</code></dt>
+        <dd>Version (<code>GAME_VERSION</code>), type de prefix, runner (joint ou non), commande, surcharge et taille, lus sans monter l'image.</dd>
+        <dt><code>--list</code></dt>
+        <dd>Jeux connus : état (en cours, verrouillé, monté), version, taille des sauvegardes et image d'origine.</dd>
+        <dt><code>--clean</code></dt>
+        <dd>Supprime les copies de travail (cache) et les doublons des sauvegardes : fichiers du jeu recopiés sans modification (jeu qui ouvre ses données en écriture : 2,7 Go pour Streets of Rage 4), DLL que Proton recopie à chaque lancement. Tout ce que le jeu a écrit est gardé ; jeux en cours exceptés.</dd>
+        <dt><code>--clear [jeu]</code></dt>
+        <dd>Radical : ne garde que <code>drive_c/users</code> des sauvegardes (de tous les jeux, ou d'un seul). Le prefix est recréé au lancement suivant ; scores et réglages écrits ailleurs (jeux arcade, dossier du jeu, registre) sont perdus. Chaque jeu est archivé (<code>--backup</code>) avant ; sans archive, il n'est pas touché. Confirmation au terminal.</dd>
+        <dt><code>--backup [jeu]</code></dt>
+        <dd>Archive les sauvegardes dans <code>~/.local/share/wsquashfs/backups/&lt;jeu&gt;-AAAAMMJJ-HHMMSS.tar.zst</code> ; jeux en cours exceptés. Restauration, jeu arrêté :
+          <pre>tar -C ~/.local/share/wsquashfs/saves --xattrs --xattrs-include='user.*' -xpf &lt;archive&gt;</pre></dd>
+        <dt><code>--doctor</code></dt>
+        <dd>Vérifie l'installation : FUSE, overlay noyau, Wine/Proton et runners, umu, DXVK, VKD3D, d7vk, manettes (hidraw, dualsense-usb-bridge), dossiers. Chaque point est marqué ✓, ✗ (avec la conséquence) ou – (facultatif). Code 1 si aucun jeu ne peut être lancé.</dd>
+        <dt><code>--help</code></dt>
+        <dd>Affiche l'aide du lanceur.</dd>
+      </dl>
+      <h4>Option <code>--wine &lt;version&gt;</code></h4>
+      <p>Impose un runner : nom (ou partie du nom) d'un runner installé dans <code>/opt</code>, <code>/usr/wine</code>, <code>~/.local/share/wsquashfs/wine</code> ou un dossier Proton de Heroic/Steam, chemin d'un binaire wine, ou <code>system</code>. Passe avant tout, runner joint compris. Un Proton sur un jeu à prefix Proton ou sans prefix est lancé via umu, comme <code>PROTON=</code> ; sur un prefix Wine (Batocera), son Wine est lancé directement.</p>
+      <h4>Outils extérieurs</h4>
+      <p>MangoHud, gamemode… se placent devant la commande ; leurs variables sont transmises au jeu, y compris lancé en root (jeux 32 bits : <code>lib32-mangohud</code>).</p>
+      <pre>mangohud wsquashfs-launcher MonJeu.wsquashfs</pre>
+    </article>
+
+    <article class="help-card" id="h-modes">
+      <h3>Modes de montage</h3>
+      <p>Choisis automatiquement à chaque lancement :</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Mode</th><th>Quand</th><th>Sauvegardes</th></tr></thead>
+          <tbody>
+            <tr><td><b>overlay noyau</b></td><td>Par défaut si l'environnement le permet : overlay du noyau dans un namespace utilisateur (Linux ≥ 5.11, squashfuse ≥ 0.5).</td><td>Isolées dans <code>saves/&lt;jeu&gt;</code></td></tr>
+            <tr><td><b>overlay FUSE</b></td><td>Repli : squashfuse + fuse-overlayfs. Toujours utilisé par <code>--mount</code>, dont le montage doit survivre au lanceur.</td><td>Isolées dans <code>saves/&lt;jeu&gt;</code></td></tr>
+            <tr><td><b>copy</b></td><td>FUSE bloqué (conteneur sans <code>CAP_SYS_ADMIN</code>) : squashfuse ou <code>unsquashfs</code>, copie de travail en cache, relances instantanées tant que l'image ne change pas.</td><td>Dans la copie de travail</td></tr>
+            <tr><td><b>dossier</b></td><td>Jeu installé (<code>--install</code>) lancé sur place, sans FUSE.</td><td>Dans le dossier du jeu</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h4>Overlay noyau</h4>
+      <p>Le lanceur se relance dans un namespace utilisateur (<code>unshare --map-current-user --mount --keep-caps</code>), y monte l'image avec <code>squashfuse_ll -o uid=,gid=</code> (tous les fichiers appartiennent alors à l'utilisateur, même ceux de root des paquets Batocera), puis l'overlay du noyau par-dessus. Wine est lancé sans les capacités du namespace.</p>
+      <ul>
+        <li>Une seule couche FUSE au lieu de deux : lectures aléatoires en parallèle (chargement d'un niveau) environ 5 fois plus rapides, mesuré sur Tempest Rising ; lecture séquentielle pure plus lente (1,5 Go/s contre 3,7 Go/s).</li>
+        <li>Sauvegardes écrites à la vitesse du disque.</li>
+        <li>Montages invisibles hors du namespace, disparus avec lui : rien d'orphelin après un plantage.</li>
+        <li>Tout échec retombe sur fuse-overlayfs (namespaces refusés, squashfuse trop ancien, sauvegardes sans attributs <code>user.*</code> ou sur un overlay…). <code>--doctor</code> dit pourquoi.</li>
+        <li>Les deux overlays partagent les mêmes sauvegardes : les marqueurs propres à fuse-overlayfs (<code>.wh..wh..opq</code>, <code>.wh.&lt;nom&gt;</code>) sont convertis avant chaque montage noyau.</li>
+      </ul>
+      <h4>Overlay FUSE</h4>
+      <p><code>squashfuse</code> monte l'image en lecture seule, <code>fuse-overlayfs</code> la combine avec <code>saves/&lt;jeu&gt;</code> (seules les modifications) ; son répertoire de travail est dans <code>saves/.work/&lt;jeu&gt;</code>, toujours sur le même disque que les sauvegardes, sans quoi Wine ne peut rien y écrire. Démontage automatique à la sortie.</p>
+    </article>
+
+    <article class="help-card" id="h-env">
+      <h3>Variables d'environnement</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Variable</th><th>Rôle</th></tr></thead>
+          <tbody>
+            <tr><td><code>WSQUASHFS_SAVES_DIR</code></td><td>Sauvegardes (défaut : <code>~/.local/share/wsquashfs/saves</code>).</td></tr>
+            <tr><td><code>WSQUASHFS_CACHE</code></td><td>Cache de travail (défaut : <code>~/.cache/wsquashfs</code>).</td></tr>
+            <tr><td><code>WSQUASHFS_BACKUP_DIR</code></td><td>Archives de <code>--backup</code> et <code>--clear</code> (défaut : <code>~/.local/share/wsquashfs/backups</code>).</td></tr>
+            <tr><td><code>WSQUASHFS_BATOCERA_SAVES</code></td><td>Dossier des sauvegardes <code>SAVEDIR</code>/<code>SAVEFILES</code>, <code>saves/&lt;système&gt;</code> (défaut : <code>saves/</code> à côté de <code>roms/</code>, comme Batocera).</td></tr>
+            <tr><td><code>WSQUASHFS_OVERLAY</code></td><td><code>auto</code> (défaut) : overlay noyau, repli sur fuse-overlayfs ; <code>fuse</code> : toujours fuse-overlayfs ; <code>kernel</code> : sans repli.</td></tr>
+            <tr><td><code>WSQUASHFS_DXVK=0</code></td><td>Désactive DXVK pour tous les jeux (la clé <code>DXVK</code> d'un jeu l'emporte).</td></tr>
+            <tr><td><code>WSQUASHFS_D7VK=0</code></td><td>Désactive d7vk pour tous les jeux.</td></tr>
+            <tr><td><code>WSQUASHFS_HIDRAW</code></td><td><code>1</code> : manettes Sony par hidraw si lisibles, DualSense Bluetooth présentée en USB ; <code>bt</code> : DualSense Bluetooth en direct. Défaut XInput. Par jeu : clé <code>HIDRAW</code>.</td></tr>
+            <tr><td><code>WSQUASHFS_VIRTUAL_DESKTOP</code></td><td>Bureau virtuel Wine pour tous les jeux (ex. <code>1920x1080</code>) ; la clé <code>VIRTUAL_DESKTOP</code> d'un jeu l'emporte.</td></tr>
+            <tr><td><code>WSQUASHFS_UMU=0</code></td><td>Lance le Wine d'un Proton directement, sans umu.</td></tr>
+            <tr><td><code>WSQUASHFS_DXVK_DIR</code>, <code>WSQUASHFS_VKD3D_DIR</code>, <code>WSQUASHFS_D7VK_DLL</code></td><td>Emplacements de DXVK, VKD3D-Proton et du <code>ddraw.dll</code> de d7vk, cherchés avant <code>/usr/share/…</code> et <code>~/.local/share/wsquashfs/…</code>.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </article>
+
+    <article class="help-card" id="h-data">
+      <h3>Emplacements des données</h3>
+      <pre class="tree">~/.local/share/wsquashfs/
+├── saves/
+│   ├── &lt;jeu&gt;/          overlay : ce que le jeu a écrit (différences seulement)
+│   └── .work/          répertoire de travail de l'overlay, même disque
+├── backups/            archives --backup / --clear
+└── wine/  dxvk/  vkd3d-proton/  d7vk/    runners et traducteurs installés
+~/.cache/wsquashfs/
+├── mnt/                montage squashfuse temporaire (overlay FUSE)
+├── wine/&lt;jeu&gt;/         vue overlay, ou copie de travail (mode copy)
+│   └── .wsquashfs_cache   empreinte de l'image (taille + date)
+└── ns/                 échange avec le lanceur en namespace, le temps d'une partie</pre>
+      <p>À côté de l'image : <code>&lt;jeu&gt;.wsquashfs.autorun</code> (surcharge) et <code>&lt;jeu&gt;.wsquashfs.keys</code> (touches). À côté de <code>roms/</code> : <code>saves/&lt;système&gt;/&lt;jeu&gt;</code> (<code>SAVEDIR</code>/<code>SAVEFILES</code>).</p>
+    </article>
+
+    <article class="help-card" id="h-install">
+      <h3>Installation</h3>
+      <pre>curl -fsSL https://raw.githubusercontent.com/Gunnm92/wsquashfs-launcher/main/install.sh | bash</pre>
+      <p>L'installeur détecte la distribution — <b>Debian/Ubuntu</b> (apt) ou <b>Arch, CachyOS, Manjaro, EndeavourOS</b> (pacman) — et installe les paquets manquants : squashfuse, squashfs-tools, fuse-overlayfs, attr, zstd, bibliothèques 32 bits (dépôt <code>[multilib]</code> sous Arch, avec la version 32 bits des pilotes Vulkan), MangoHud en option. Puis il propose :</p>
+      <ul>
+        <li><b>wine-tkg / wine-ge</b> (jeux arcade Batocera) dans <code>~/.local/share/wsquashfs/wine</code> ;</li>
+        <li><b>umu-run</b> et un <b>Proton</b> (proton-cachyos sous CachyOS, sinon UMU-Proton, empreinte vérifiée) — nécessaires aux jeux PC récents, inutiles pour l'arcade seule ;</li>
+        <li><b>DXVK, VKD3D-Proton et d7vk</b> dans <code>~/.local/share/wsquashfs/</code>.</li>
+      </ul>
+      <p>Il termine par <code>--doctor</code>. Options : <code>--dry-run</code> (montre sans rien modifier), <code>--yes</code> (sans questions), <code>--uninstall</code>. Le script seul s'installe aussi par <code>make install</code> ou en copiant <code>wsquashfs-launcher</code> dans le <code>PATH</code>.</p>
+      <p>Docker : <code>make build-docker</code> puis <code>./run-docker.sh MonJeu.wsquashfs</code>. L'image contient wine-tkg, le Wine de Debian, DXVK, VKD3D-Proton et d7vk, pas de Proton ; sauvegardes et cache dans des volumes.</p>
+    </article>
+
+    <article class="help-card" id="h-frontends">
+      <h3>Frontends</h3>
+      <p>Commande de lancement : <code>wsquashfs-launcher "{file.path}"</code>.</p>
+      <div class="help-cols">
+        <div><p class="muted">Pegasus (<code>metadata.pegasus.txt</code>)</p><pre>collection: Windows Games (WSquashFS)
+shortname: wsquashfs
+extensions: wsquashfs
+launch: wsquashfs-launcher "{file.path}"</pre></div>
+        <div><p class="muted">EmulationStation (<code>es_systems.cfg</code>)</p><pre>&lt;system&gt;
+  &lt;name&gt;wsquashfs&lt;/name&gt;
+  &lt;fullname&gt;Windows (WSquashFS)&lt;/fullname&gt;
+  &lt;path&gt;~/roms/wsquashfs&lt;/path&gt;
+  &lt;extension&gt;.wsquashfs&lt;/extension&gt;
+  &lt;command&gt;wsquashfs-launcher %ROM%&lt;/command&gt;
+  &lt;platform&gt;pc&lt;/platform&gt;
+&lt;/system&gt;</pre></div>
+      </div>
+    </article>
+
+    <article class="help-card" id="h-trouble">
+      <h3>Dépannage</h3>
+      <dl class="help-cmds">
+        <dt>Le jeu ne se lance pas</dt>
+        <dd>Le relancer depuis un terminal pour lire le récapitulatif et les erreurs Wine ; vérifier la commande avec <code>--info</code>.</dd>
+        <dt><code>fusermount3: mount failed: Operation not permitted</code></dt>
+        <dd>FUSE bloqué dans un conteneur : le lanceur passe en mode copy (<code>unsquashfs</code>, paquet squashfs-tools). Pour l'overlay : <code>--device /dev/fuse --cap-add SYS_ADMIN</code>.</dd>
+        <dt>Overlay noyau indisponible</dt>
+        <dd><code>--doctor</code> et chaque lancement donnent la cause ; le jeu marche quand même sous fuse-overlayfs. Causes fréquentes : squashfuse antérieur à 0.5 (Debian 12) ; namespaces refusés (profil seccomp de Docker — <code>privileged: true</code> ou <code>--security-opt seccomp=unconfined</code> —, AppArmor d'Ubuntu 24.04 via <code>kernel.apparmor_restrict_unprivileged_userns</code>, <code>user.max_user_namespaces=0</code>) ; sauvegardes sur un système de fichiers sans attributs <code>user.*</code> ou sur un overlay (en conteneur : sur un volume).</dd>
+        <dt><code>Make sure that your X server is running…</code></dt>
+        <dd>Wine ne trouve pas l'affichage : vérifier <code>$DISPLAY</code> et autoriser l'utilisateur avec <code>xhost +SI:localuser:$(id -un)</code>.</dd>
+        <dt><code>failed to open umu.exe</code></dt>
+        <dd>Liens du prefix vers un runner absent : voir <a href="#h-runner">Runner joint</a>.</dd>
+        <dt>Un jeu reste monté</dt>
+        <dd><code>--umount</code> (tous les jeux).</dd>
+        <dt>Repartir de zéro pour un jeu</dt>
+        <dd><code>--clear "MonJeu"</code> ne garde que <code>drive_c/users</code>, après archive. En mode copy : supprimer <code>~/.cache/wsquashfs/wine/&lt;jeu&gt;</code>, ou <code>--clean</code>.</dd>
+        <dt>Socket ICMP refusé (Yu-Gi-Oh! 5D's DT6)</dt>
+        <dd>Un jeu qui plante faute de pouvoir « pinger » dans un conteneur non privilégié : relais <code>fakeping</code> (<code>dinput8.dll</code>) fourni avec le lanceur, signalé dans la colonne Extras.</dd>
+      </dl>
     </article>
   </section>
 </main>
@@ -1949,15 +2280,37 @@ $("btn-saves-reset").onclick = () => resetSaves([...state.selected]).catch((erro
 
 // ------------------------------------------------------------------ vues
 
+let lastView = "images";       // vue à retrouver en refermant l'aide
 function showView(name) {
   for (const b of $("views").children) b.classList.toggle("active", b.dataset.view === name);
   $("main").hidden = name !== "images";
   $("folders-main").hidden = name !== "folders";
   $("help-main").hidden = name !== "help";
+  $("btn-help").classList.toggle("active", name === "help");
+  $("btn-help").setAttribute("aria-pressed", name === "help");
+  if (name !== "help") lastView = name;
   storage.set("wsfs-view", name);
   if (name === "folders") loadFolders();
 }
-$("views").onclick = (event) => event.target.dataset.view && showView(event.target.dataset.view);
+$("views").onclick = (event) => {
+  const button = event.target.closest("button[data-view]");
+  if (button) showView(button.dataset.view);
+};
+$("btn-help").onclick = () => {
+  if ($("help-main").hidden) { showView("help"); window.scrollTo(0, 0); } else showView(lastView);
+};
+
+// Sommaire de l'aide : section visible surlignée
+{
+  const links = new Map([...document.querySelectorAll(".help-toc a")].map((a) => [a.getAttribute("href").slice(1), a]));
+  const visible = new Set();
+  const observer = new IntersectionObserver((entries) => {
+    for (const e of entries) e.isIntersecting ? visible.add(e.target.id) : visible.delete(e.target.id);
+    const first = [...links.keys()].find((id) => visible.has(id));
+    if (first) for (const [id, a] of links) a.classList.toggle("current", id === first);
+  }, { rootMargin: "-70px 0px -55% 0px" });
+  for (const id of links.keys()) { const target = $(id); if (target) observer.observe(target); }
+}
 
 // ------------------------------------------------------------------ dossiers à empaqueter
 
