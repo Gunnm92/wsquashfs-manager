@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -304,3 +305,18 @@ def test_remove_tree_retries_transient_errors(tmp_path, monkeypatch):
     monkeypatch.setattr(operations.time, "sleep", lambda s: None)
     operations.remove_tree(folder)
     assert len(calls) == 3 and not folder.exists()
+
+
+@needs_tools
+def test_pack_drops_xattrs(pack_env):
+    """Attributs Windows/macOS laissés par une copie (user.DOSATTRIB…) : jamais
+    repris, squashfuse 0.5 plante en les lisant."""
+    settings, folder, task = pack_env
+    try:
+        os.setxattr(folder / "bin/game.exe", "user.DOSATTRIB", b"0x20")
+    except OSError:
+        pytest.skip("attributs user.* non pris en charge ici")
+    run_pack(settings, task(), Job())
+    out = subprocess.run(["unsquashfs", "-s", str(folder.with_name("Mon Jeu.wsquashfs"))],
+                         capture_output=True, text=True, check=True).stdout
+    assert "Xattrs are not stored" in out or "Number of xattr ids 0" in out

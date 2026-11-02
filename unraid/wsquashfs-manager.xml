@@ -10,9 +10,10 @@
 <Container version="2">
   <Name>wsquashfs-manager</Name>
   <Repository>registry.elfenn.eu/wsquashfs-manager:latest</Repository>
-  <!-- Réseau du docker-socket-proxy : nécessaire au lancement d'essai (le jeu
-       est lancé dans SteamBox par l'API Docker). Sans lui : réseau bridge, et
-       l'essai est simplement indisponible. -->
+  <!-- Réseau du docker-socket-proxy : nécessaire à tout ce qui passe par
+       SteamBox (API Docker) : lancement d'essai, état du lanceur (--doctor),
+       runner joint depuis SteamBox. Sur le réseau bridge, le proxy est
+       injoignable et ces fonctions sont indisponibles. -->
   <Network>socket_proxy</Network>
   <Privileged>false</Privileged>
   <Shell>bash</Shell>

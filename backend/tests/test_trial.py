@@ -67,3 +67,31 @@ def _frame(kind: int, data: bytes) -> bytes:
 def test_demux():
     frame = _frame
     assert trial._demux(frame(1, b"abc") + frame(2, b"de")) == b"abcde"
+
+
+DOCTOR = """Montage des images
+  ✓ /dev/fuse accessible
+  ✗ squashfuse : montage de l'image
+Wine / Proton
+  ✓ runners installés (--wine) :
+      wine-tkg  /opt/wine-tkg
+      GE-Proton-latest  /config/.config/heroic/tools/proton/GE-Proton-latest
+Manettes
+  – hidraw : aucune manette Sony (HIDRAW=1 retombe en XInput)
+
+✓ Prêt à lancer des jeux
+"""
+
+
+def test_parse_doctor():
+    d = trial.parse_doctor(DOCTOR)
+    assert [s["title"] for s in d["sections"]] == ["Montage des images", "Wine / Proton", "Manettes"]
+    assert [i["status"] for i in d["sections"][0]["items"]] == ["ok", "missing"]
+    assert d["sections"][1]["items"][0]["details"] == [
+        "wine-tkg  /opt/wine-tkg",
+        "GE-Proton-latest  /config/.config/heroic/tools/proton/GE-Proton-latest"]
+    assert d["sections"][2]["items"][0]["status"] == "optional"
+    assert d["runners"] == [{"name": "wine-tkg", "path": "/opt/wine-tkg"},
+                            {"name": "GE-Proton-latest",
+                             "path": "/config/.config/heroic/tools/proton/GE-Proton-latest"}]
+    assert d["verdict"] == "✓ Prêt à lancer des jeux"

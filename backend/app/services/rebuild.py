@@ -31,6 +31,7 @@ from pathlib import Path, PurePosixPath
 
 from ..config import Settings, work_area
 from .durable import fsync_dir, restore, swap_keep_old
+from .links import _pseudo_quote, _wildcard_escape
 from .scan import _list_files_uncached
 
 # Marge sur la taille de la nouvelle image (≈ l'ancienne) : la compression
@@ -52,9 +53,31 @@ class Changes:
     write: dict[str, bytes] = field(default_factory=dict)   # contenu fourni
     copy: dict[str, Path] = field(default_factory=dict)     # fichier source à copier
     delete: list[str] = field(default_factory=list)         # fichiers ou dossiers
+    # Arborescence copiée telle quelle (liens symboliques gardés), fusionnée
+    # avec l'existant : dossier de destination → dossier source
+    trees: dict[str, Path] = field(default_factory=dict)
+    links: dict[str, str] = field(default_factory=dict)     # lien → nouvelle cible
 
     def is_empty(self) -> bool:
-        return not (self.write or self.copy or self.delete)
+        return not (self.write or self.copy or self.delete or self.trees or self.links)
+
+
+def tree_entries(source: Path) -> list[tuple[str, int]]:
+    """Entrées d'une arborescence (relatives, liens non suivis) et taille
+    des fichiers ordinaires."""
+    out = []
+    for cur, dirnames, filenames in os.walk(source):
+        rel_dir = os.path.relpath(cur, source)
+        prefix = "" if rel_dir == "." else rel_dir.replace(os.sep, "/") + "/"
+        for name in list(dirnames):
+            path = os.path.join(cur, name)
+            out.append((prefix + name, 0))
+            if os.path.islink(path):
+                dirnames.remove(name)
+        for name in filenames:
+            st = os.lstat(os.path.join(cur, name))
+            out.append((prefix + name, st.st_size if statmod.S_ISREG(st.st_mode) else 0))
+    return out
 
 
 class Job:
@@ -114,13 +137,30 @@ def expected_listing(old: list[str], changes: Changes) -> set[str]:
     out = set(old)
     for rel in map(safe_rel, changes.delete):
         out = {p for p in out if p != rel and not p.startswith(rel + "/")}
-    for rel in map(safe_rel, [*changes.write, *changes.copy]):
+    added = [*changes.write, *changes.copy]
+    for dest, source in changes.trees.items():
+        added += [f"{safe_rel(dest)}/{rel}" for rel, _ in tree_entries(source)]
+        added.append(dest)
+    for rel in map(safe_rel, added):
         parts = rel.split("/")
         out.update("/".join(parts[:i]) for i in range(1, len(parts) + 1))
     return out
 
 
 # ------------------------------------------------------------------ processus
+
+# Attributs étendus jamais repris dans une image : les jeux n'en ont pas besoin,
+# et ceux qu'une copie Windows/Samba/macOS laisse (user.DOSATTRIB,
+# user.DosStream.*) font planter squashfuse 0.5 à la lecture (01/11 : vue
+# overlay morte en pleine reconstruction). L'extraction les ignore déjà.
+NO_XATTRS = ["-no-xattrs"]
+
+# Lecture impossible signalée par mksquashfs, qui continue alors avec un
+# fichier vide ou sans l'entrée : l'image serait incomplète
+_READ_ERROR_RE = re.compile(
+    r"Failed to read|Cannot stat|creating empty file|Transport endpoint is not connected|"
+    r"Input/output error|Software caused connection abort")
+
 
 def priority_prefix(settings: Settings) -> list[str]:
     """Priorité basse (SPEC § 4) : c'est surtout du disque, le jeu passe avant."""
@@ -160,6 +200,7 @@ def run_progress(command: list[str], job: Job, phase: str, start: float, end: fl
 
     threading.Thread(target=watch, daemon=True).start()
     tail: deque[str] = deque(maxlen=15)
+    read_errors: list[str] = []
     assert proc.stdout is not None
     for raw in proc.stdout:
         line = raw.decode("utf-8", errors="replace").strip()
@@ -167,10 +208,15 @@ def run_progress(command: list[str], job: Job, phase: str, start: float, end: fl
             job.progress(phase, start + (end - start) * int(line) / 100)
         elif line:
             tail.append(line)
+            if _READ_ERROR_RE.search(line):
+                read_errors.append(line)
     proc.wait()
     job.check()
     if proc.returncode:
         raise RebuildError(f"{phase} en échec (code {proc.returncode}) : " + " / ".join(tail))
+    if read_errors:
+        raise RebuildError(f"{phase} : {len(read_errors)} lecture(s) impossible(s), image "
+                           f"incomplète refusée : " + " / ".join(read_errors[:3]))
 
 
 # ------------------------------------------------------------------ espace disque
@@ -191,6 +237,7 @@ def space_needed(settings: Settings, image: Path, changes: Changes,
     """Octets nécessaires par point de montage (le .part à côté de l'image,
     l'extraction dans le dossier de travail, à côté de l'image par défaut)."""
     copies = sum(src.stat().st_size for src in changes.copy.values())
+    copies += sum(size for src in changes.trees.values() for _, size in tree_entries(src))
     writes = sum(len(data) for data in changes.write.values())
     needs: dict[Path, int] = {}
     image_dir = image.parent
@@ -240,9 +287,8 @@ def fuse_missing(settings: Settings) -> str | None:
     """Ce qui manque au mode overlay, ou None s'il est possible."""
     if not Path("/dev/fuse").exists():
         return "/dev/fuse absent (conteneur sans le périphérique FUSE)"
-    for tool in (settings.squashfuse, settings.fuse_overlayfs):
-        if shutil.which(tool) is None:
-            return f"{tool} introuvable"
+    if shutil.which(settings.squashfuse) is None:
+        return f"{settings.squashfuse} introuvable"
     return None
 
 
@@ -253,19 +299,52 @@ def fuse_available(settings: Settings) -> bool:
 def choose_mode(settings: Settings) -> str:
     if settings.rebuild_mode == "overlay":
         if not fuse_available(settings):
-            raise RebuildError("mode overlay demandé mais FUSE, squashfuse ou fuse-overlayfs "
-                               "est indisponible")
+            raise RebuildError("mode overlay demandé mais FUSE ou squashfuse est indisponible")
         return "overlay"
     if settings.rebuild_mode == "extract":
         return "extract"
     return "overlay" if fuse_available(settings) else "extract"
 
 
+def _mounted(mountpoint: Path) -> bool:
+    """Point de montage présent dans /proc/mounts. Pas os.path.ismount : sur
+    un montage FUSE dont le démon est mort, lstat échoue (ENOTCONN) et
+    ismount répond faux, le montage restait alors en place (01/11)."""
+    escaped = str(mountpoint).replace("\\", "\\134").replace(" ", "\\040").replace("\t", "\\011")
+    try:
+        with open("/proc/mounts", encoding="utf-8", errors="replace") as mounts:
+            return any(line.split(" ")[1] == escaped for line in mounts if " " in line)
+    except OSError:
+        return os.path.ismount(mountpoint)
+
+
+def _mount_daemon(command: list[str], log: Path) -> None:
+    """Lance un démon FUSE (squashfuse, fuse-overlayfs) avec sa sortie dans
+    `log`. Pas de tube : le démon le garderait après le montage, et écrire
+    dans un tube fermé le tuerait (SIGPIPE) au premier message."""
+    with open(log, "ab") as out:
+        try:
+            result = subprocess.run(command, stdin=subprocess.DEVNULL, stdout=out,
+                                    stderr=subprocess.STDOUT, timeout=60, check=False)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise RebuildError(f"commande impossible : {' '.join(command)} ({exc})") from exc
+    if result.returncode:
+        raise RebuildError(_log_tail(log) or f"commande en échec : {' '.join(command)}")
+
+
+def _log_tail(log: Path, lines: int = 8) -> str:
+    try:
+        text = log.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    return " / ".join(line.strip() for line in text.splitlines()[-lines:] if line.strip())
+
+
 def _unmount(mountpoint: Path) -> None:
     """Démontage avec quelques essais (fichiers encore ouverts juste après
     mksquashfs), puis démontage différé, comme umount_retry() du lanceur."""
     for _ in range(5):
-        if not os.path.ismount(mountpoint):
+        if not _mounted(mountpoint):
             return
         for tool in ("fusermount3", "fusermount"):
             if not shutil.which(tool):
@@ -304,38 +383,158 @@ def apply_changes(root: Path, changes: Changes) -> None:
             target.write_bytes(source)
         else:
             shutil.copy2(source, target)
+    for dest, source in changes.trees.items():
+        base = root / safe_rel(dest)
+        for rel, _ in tree_entries(source):
+            src, target = source / rel, base / rel
+            if src.is_dir() and not src.is_symlink():
+                if target.is_symlink() or (target.exists() and not target.is_dir()):
+                    target.unlink()
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            if target.is_dir() and not target.is_symlink():
+                raise RebuildError(f"{dest}/{rel} est un dossier dans l'image")
+            if target.exists() or target.is_symlink():
+                target.unlink()
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, target, follow_symlinks=False)
+    for rel, link_target in changes.links.items():
+        target = root / safe_rel(rel)
+        if target.is_dir() and not target.is_symlink():
+            raise RebuildError(f"{rel} est un dossier dans l'image")
+        if target.exists() or target.is_symlink():
+            target.unlink()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        os.symlink(link_target, target)
+
+
+def pseudo_options(changes: Changes, existing: set[str], work: Path, uid: int,
+                   gid: int) -> list[str]:
+    """Tous les changements appliqués par mksquashfs lui-même (exclusions et
+    définitions « pseudo »), l'image d'origine étant lue en lecture seule :
+    rien n'est écrit à travers une vue fuse-overlayfs.
+
+    Pourquoi (01/11) : sur une image qui porte des attributs étendus laissés
+    par Windows/macOS, squashfuse meurt dès que fuse-overlayfs l'interroge
+    (lien `pfx`, attribut user.DOSATTRIB) ; et 1,5 Go de runner écrits par
+    fuse-overlayfs avaient déjà fait tomber les montages.
+
+    Un chemin supprimé ou remplacé est exclu (-ef) ; un fichier est repris
+    du disque par lien dur pseudo (`l`), un lien symbolique recréé (`s`), un
+    dossier nouveau créé (`d`)."""
+    if changes.is_empty():
+        return []
+    excludes: list[str] = []
+    pseudo: list[str] = []
+    defined: set[str] = set()
+    gone: set[str] = set()
+
+    def present(rel: str) -> bool:
+        return rel in existing and not any(rel == g or rel.startswith(g + "/") for g in gone)
+
+    def make_dirs(rel: str) -> None:
+        parts = rel.split("/")
+        for i in range(1, len(parts)):
+            parent = "/".join(parts[:i])
+            if not present(parent) and parent not in defined:
+                pseudo.append(f"{_pseudo_quote(parent)} d 755 {uid} {gid}")
+                defined.add(parent)
+
+    def replace(rel: str) -> None:
+        if present(rel) and rel not in gone:
+            excludes.append(_wildcard_escape(rel))
+            gone.add(rel)
+        make_dirs(rel)
+        defined.add(rel)
+
+    def add_file(rel: str, source: Path) -> None:
+        replace(rel)
+        pseudo.append(f"{_pseudo_quote(rel)} l {_pseudo_quote(str(source.resolve()))}")
+
+    for rel in map(safe_rel, changes.delete):
+        if present(rel):
+            excludes.append(_wildcard_escape(rel))
+            gone.add(rel)
+    written = work / "written"
+    for i, (rel, data) in enumerate(changes.write.items()):
+        written.mkdir(exist_ok=True)
+        tmp = written / str(i)
+        tmp.write_bytes(data)
+        tmp.chmod(0o644)
+        add_file(safe_rel(rel), tmp)
+    for rel, source in changes.copy.items():
+        add_file(safe_rel(rel), source)
+    for dest, source in changes.trees.items():
+        dest = safe_rel(dest)
+        if not present(dest) and dest not in defined:
+            make_dirs(dest)
+            pseudo.append(f"{_pseudo_quote(dest)} d 755 {uid} {gid}")
+            defined.add(dest)
+        for rel, _ in tree_entries(source):
+            target, src = f"{dest}/{rel}", source / rel
+            if src.is_symlink():
+                replace(target)
+                pseudo.append(f"{_pseudo_quote(target)} s 777 {uid} {gid} {os.readlink(src)}")
+            elif src.is_dir():
+                if not present(target) and target not in defined:
+                    make_dirs(target)
+                    pseudo.append(f"{_pseudo_quote(target)} d 755 {uid} {gid}")
+                    defined.add(target)
+            else:
+                add_file(target, src)
+    for rel, link_target in changes.links.items():
+        rel = safe_rel(rel)
+        replace(rel)
+        pseudo.append(f"{_pseudo_quote(rel)} s 777 {uid} {gid} {link_target}")
+    opts: list[str] = []
+    if excludes:
+        exclude_file = work / "changes.exclude"
+        exclude_file.write_text("".join(line + "\n" for line in excludes), encoding="utf-8")
+        opts += ["-wildcards", "-ef", str(exclude_file)]
+    if pseudo:
+        pseudo_file = work / "changes.pseudo"
+        pseudo_file.write_text("".join(line + "\n" for line in pseudo), encoding="utf-8")
+        opts += ["-pf", str(pseudo_file)]
+    return opts
 
 
 def _build_overlay(settings: Settings, image: Path, part: Path, work: Path,
-                   changes: Changes, job: Job, owner_opts: list[str]) -> None:
-    lower, upper, ovl_work, merged = (work / n for n in ("lower", "upper", "work", "merged"))
-    for d in (lower, upper, ovl_work, merged):
-        d.mkdir()
-    mounted: list[Path] = []
+                   changes: Changes, job: Job, owner_opts: list[str],
+                   existing: set[str] | None = None) -> None:
+    """Mode « overlay » (sans extraction) : l'image est montée en lecture
+    seule et mksquashfs la relit en appliquant lui-même les changements
+    (pseudo_options). Plus de fuse-overlayfs : rien ne s'écrit dans un
+    montage FUSE, seul squashfuse est lu."""
+    lower = work / "lower"
+    lower.mkdir()
+    log = work / "fuse.log"
+    mounted = False
     try:
         job.progress("montage", 0.0)
-        _run([settings.squashfuse, "-o", "ro", str(image), str(lower)], timeout=60)
-        mounted.append(lower)
-        _run([settings.fuse_overlayfs, "-o",
-              # squash_to_uid/gid : les fichiers de l'image apparaissent à l'utilisateur
-              # du service, sans quoi une image root (Batocera) refuse toute
-              # modification (« Operation not permitted », Action Henk, 05/10)
-              (f"lowerdir={lower},upperdir={upper},workdir={ovl_work},"
-               f"squash_to_uid={os.getuid()},squash_to_gid={os.getgid()}"), str(merged)],
-             timeout=60)
-        mounted.append(merged)
-        apply_changes(merged, changes)
+        _mount_daemon([settings.squashfuse, "-o", "ro", str(image), str(lower)], log)
+        mounted = True
+        for rel in [*changes.write, *changes.copy]:
+            target = lower / safe_rel(rel)
+            if target.is_dir() and not target.is_symlink():
+                raise RebuildError(f"{rel} est un dossier dans l'image")
+        extra = pseudo_options(changes, existing or set(), work, os.getuid(), os.getgid())
         job.check()
-        run_progress([*priority_prefix(settings), settings.mksquashfs, str(merged), str(part),
-                       *settings.mksquashfs_opts, *owner_opts, "-noappend", "-percentage"],
-                      job, "mksquashfs", 0.02, 0.92)
+        try:
+            run_progress([*priority_prefix(settings), settings.mksquashfs, str(lower), str(part),
+                          *settings.mksquashfs_opts, *owner_opts, *NO_XATTRS, "-noappend",
+                          "-percentage", *extra],
+                         job, "mksquashfs", 0.02, 0.92)
+        except RebuildError as exc:
+            tail = _log_tail(log)
+            raise RebuildError(f"{exc}{f' — montage FUSE : {tail}' if tail else ''}") from exc
     finally:
-        for mountpoint in reversed(mounted):
-            _unmount(mountpoint)
+        if mounted:
+            _unmount(lower)
 
 
 def _build_extract(settings: Settings, image: Path, part: Path, work: Path,
-                   changes: Changes, job: Job, owner_opts: list[str]) -> None:
+                   changes: Changes, job: Job, owner_opts: list[str],
+                   existing: set[str] | None = None) -> None:
     root = work / "root"
     # -no-xattrs : un utilisateur non root ne peut pas les restaurer ; les
     # images de jeux n'en ont pas besoin.
@@ -345,7 +544,7 @@ def _build_extract(settings: Settings, image: Path, part: Path, work: Path,
     apply_changes(root, changes)
     job.check()
     run_progress([*priority_prefix(settings), settings.mksquashfs, str(root), str(part),
-                   *settings.mksquashfs_opts, *owner_opts, "-noappend", "-percentage"],
+                   *settings.mksquashfs_opts, *owner_opts, *NO_XATTRS, "-noappend", "-percentage"],
                   job, "mksquashfs", 0.45, 0.92)
 
 
@@ -472,7 +671,7 @@ def rebuild(settings: Settings, image: Path, changes: Changes, job: Job | None =
     try:
         with work_area(settings, image, "rebuild-") as tmp:
             build = _build_overlay if mode == "overlay" else _build_extract
-            build(settings, image, part, tmp, changes, job, owner_opts)
+            build(settings, image, part, tmp, changes, job, owner_opts, set(old_listing))
         job.check()
         job.progress("vérification", 0.93)
         verify(settings, part, expected, changes)

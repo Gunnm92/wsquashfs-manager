@@ -27,7 +27,7 @@ from pathlib import Path
 KNOWN_KEYS = {
     "CMD", "DIR", "GAME_VERSION", "WINE", "PROTON", "RUNNER", "ARCH", "HIDRAW",
     "DXVK", "VKD3D", "D7VK", "ESYNC", "FSYNC", "VIRTUAL_DESKTOP", "LANG",
-    "ENV", "SAVEDIR", "SAVEFILES",
+    "ENV", "SAVEDIR", "SAVEFILES", "PRE", "ATTACH", "ATTACH_PROCESS",
 }
 
 # Aide du formulaire : (description, valeurs proposées). Défauts = ceux du
@@ -59,6 +59,14 @@ KEY_HELP: dict[str, tuple[str, list[str]]] = {
              "Jamais WINEDLLOVERRIDES : il écraserait les réglages DLL du lanceur."), []),
     "SAVEDIR": ("Dossier de sauvegarde du jeu, redirigé vers saves/<système>/<jeu>.", []),
     "SAVEFILES": ("Fichiers de sauvegarde (séparés par ;), redirigés comme SAVEDIR.", []),
+    "PRE": (("Commande Linux lancée une fois avant le jeu, dans DIR ; un échec arrête "
+             "le lancement. Exécutée sur la machine, hors de Wine : images de confiance "
+             "seulement. Ignorée par Batocera."), []),
+    "ATTACH": (("Commande Linux lancée pendant le jeu (GAME_PID = son PID), arrêtée "
+                "avec lui. Exécutée sur la machine, hors de Wine : images de confiance "
+                "seulement. Ignorée par Batocera."), []),
+    "ATTACH_PROCESS": (("Processus attendu par ATTACH (15 caractères au plus). Défaut : "
+                        "l'exécutable de CMD ; à renseigner si CMD est un lanceur."), []),
 }
 
 _KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
@@ -234,6 +242,13 @@ class Autorun:
                 {"level": "warn", "message": "ENV= contient WINEDLLOVERRIDES : il écraserait "
                                               "les réglages DLL du lanceur"}
             )
+        process = unquote(self.get("ATTACH_PROCESS") or "")
+        if process and not self.get("ATTACH"):
+            issues.append({"level": "warn", "message": "ATTACH_PROCESS= sans ATTACH= : sans effet"})
+        if len(process) > 15:
+            issues.append({"level": "warn",
+                           "message": f"ATTACH_PROCESS={process} dépasse 15 caractères : le noyau "
+                                      f"tronque les noms de processus, ATTACH attendrait en vain"})
         for k in self.unknown_keys():
             issues.append({"level": "warn",
                            "message": f"clé inconnue : {k} (ignorée par Batocera)"})

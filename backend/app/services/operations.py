@@ -38,7 +38,9 @@ from .autorun import (
     override_path,
 )
 from .durable import fsync_dir, publish_new, write_atomic
+from .links import classify, folder_links, image_links, relink_options
 from .rebuild import (
+    NO_XATTRS,
     Changes,
     Job,
     RebuildError,
@@ -359,6 +361,8 @@ def run_verify(settings: Settings, task: Task, job: Job) -> str:
     if data is None:
         return "Image lisible, mais sans autorun.cmd"
     issues = Autorun.parse(decode_autorun(data)[0]).validate(set(files))
+    job.progress("liens", 0.9)
+    issues += classify(image_links(image, settings.unsquashfs), files).issues(image=True)
     for issue in issues:
         job.log(f"{'Erreur' if issue['level'] == 'error' else 'Attention'} : {issue['message']}")
     return f"Image intègre ; autorun : {len(issues)} remarque(s)" if issues else \
@@ -503,6 +507,12 @@ def run_pack(settings: Settings, task: Task, job: Job) -> str:
         source = wine
         params["source"] = str(wine)
 
+    # Liens du prefix vers un runner joint mais pointant hors du dossier :
+    # réécrits en relatif dans l'image, le dossier n'est pas modifié
+    links = classify(folder_links(source), listing.files)
+    for issue in links.issues():
+        job.log(issue["message"])
+
     autorun: bytes | None = None
     if params.get("autorun") is not None:
         autorun = params["autorun"].encode(params.get("encoding") or "utf-8")
@@ -525,14 +535,20 @@ def run_pack(settings: Settings, task: Task, job: Job) -> str:
             else:
                 sources = [str(source)]
             # Image à l'utilisateur du service (arcade), comme les reconstructions
+            relink = relink_options(links.fixable, tmp, os.getuid(), os.getgid())
             run_progress([*priority_prefix(settings), settings.mksquashfs, *sources, str(part),
                            *settings.mksquashfs_opts, "-force-uid", str(os.getuid()),
-                           "-force-gid", str(os.getgid()), "-noappend", "-percentage"],
+                           "-force-gid", str(os.getgid()), *NO_XATTRS, "-noappend", "-percentage", *relink],
                           job, "mksquashfs", 0.02, 0.92)
         job.check()
         job.progress("vérification", 0.93)
         verify(settings, part, expected, Changes(write={"autorun.cmd": autorun}
                                                  if autorun is not None else {}))
+        if links.fixable:
+            left = classify(image_links(part, settings.unsquashfs), expected).fixable
+            if left:
+                raise RebuildError(f"vérification : {len(left)} lien(s) non réécrit(s), "
+                                   f"ex. {next(iter(left))}")
         os.chmod(part, 0o644)
         job.progress("écriture sur le disque", 0.97)
         try:

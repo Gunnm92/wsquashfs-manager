@@ -409,6 +409,7 @@ def _autorun_fields(info: ImageInfo, a: Autorun) -> None:
     info.version = unquote(version.strip()) if version else None
     info.wine = a.get("WINE")
     info.proton = a.get("PROTON")
+    info.runner_path = a.get("RUNNER")
     info.runner = RunnerKind.DEFAULT
     if a.get("RUNNER"):
         info.runner = RunnerKind.CUSTOM

@@ -17,6 +17,8 @@ Garde-fous (leçons des essais faits à la main, 01/10) :
 from __future__ import annotations
 
 import re
+import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -193,8 +195,49 @@ class Docker:
             raw.raise_for_status()
             code = self.client.get(f"/exec/{exec_id}/json").json().get("ExitCode") or 0
         except httpx.HTTPError as exc:
-            raise RebuildError(f"conteneur {container} injoignable : {exc}") from exc
+            raise _unreachable(container, exc) from exc
         return code, _demux(raw.content)
+
+    def exec_stream(self, container: str, cmd: list[str], on_stdout: Callable[[bytes], None],
+                    user: str = "arcade") -> tuple[int, bytes]:
+        """Comme `exec`, sans tout garder en mémoire : chaque bloc de la sortie
+        standard est passé à `on_stdout` dès sa réception. Retourne (code,
+        sortie d'erreur)."""
+        stderr = bytearray()
+        try:
+            created = self.client.post(f"/containers/{container}/exec", json={
+                "Cmd": cmd, "User": user, "AttachStdout": True, "AttachStderr": True})
+            created.raise_for_status()
+            exec_id = created.json()["Id"]
+            with self.client.stream("POST", f"/exec/{exec_id}/start",
+                                    json={"Detach": False, "Tty": False}) as response:
+                response.raise_for_status()
+                buffer = bytearray()
+                for chunk in response.iter_raw():
+                    buffer += chunk
+                    while len(buffer) >= 8:
+                        size = int.from_bytes(buffer[4:8], "big")
+                        if len(buffer) < 8 + size:
+                            break
+                        kind, payload = buffer[0], bytes(buffer[8:8 + size])
+                        del buffer[:8 + size]
+                        if kind == 1:
+                            on_stdout(payload)
+                        else:
+                            stderr += payload
+            code = self.client.get(f"/exec/{exec_id}/json").json().get("ExitCode") or 0
+        except httpx.HTTPError as exc:
+            raise _unreachable(container, exc) from exc
+        return code, bytes(stderr)
+
+
+def _unreachable(container: str, exc: httpx.HTTPError) -> RebuildError:
+    hint = ""
+    if isinstance(exc, httpx.ConnectError):
+        # Cas vu le 01/11 : conteneur sur le réseau bridge, proxy sur socket_proxy
+        hint = (" — proxy Docker injoignable : le conteneur du manager doit être sur le "
+                "réseau du docker-socket-proxy (Unraid : Network Type = socket_proxy)")
+    return RebuildError(f"conteneur {container} injoignable : {exc}{hint}")
 
 
 def _demux(stream: bytes) -> bytes:
@@ -205,6 +248,108 @@ def _demux(stream: bytes) -> bytes:
         out += stream[i + 8:i + 8 + size]
         i += 8 + size
     return bytes(out)
+
+
+_DOCTOR_ITEM_RE = re.compile(r"^  ([✓✗–]) (.*)$")
+_DOCTOR_RUNNER_RE = re.compile(r"^      (\S+)\s{2,}(/\S.*)$")
+DOCTOR_STATUS = {"✓": "ok", "✗": "missing", "–": "optional"}
+
+
+def parse_doctor(text: str) -> dict:
+    """Sortie de `wsquashfs-launcher --doctor` → sections, points vérifiés
+    (ok, missing, optional, avec leurs lignes de détail), runners installés
+    et verdict (dernière ligne)."""
+    sections: list[dict] = []
+    runners: list[dict] = []
+    verdict = ""
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        if m := _DOCTOR_RUNNER_RE.match(line):
+            runners.append({"name": m.group(1), "path": m.group(2).strip()})
+        if m := _DOCTOR_ITEM_RE.match(line):
+            if not sections:
+                sections.append({"title": "", "items": []})
+            sections[-1]["items"].append({"status": DOCTOR_STATUS[m.group(1)],
+                                          "text": m.group(2), "details": []})
+        elif line.startswith("  ") and sections and sections[-1]["items"]:
+            sections[-1]["items"][-1]["details"].append(line.strip())
+        elif not line.startswith(" "):
+            if line[:1] in DOCTOR_STATUS:
+                verdict = line
+            else:
+                sections.append({"title": line.strip(), "items": []})
+    return {"sections": sections, "runners": runners, "verdict": verdict}
+
+
+def run_doctor(settings: Settings) -> dict:
+    """`wsquashfs-launcher --doctor` dans SteamBox, sous l'utilisateur des
+    jeux : l'état du lanceur tel qu'il lancera les jeux."""
+    if not settings.steambox_container:
+        raise RebuildError("SteamBox désactivé (WSQUASHFS_MGR_STEAMBOX_CONTAINER vide)")
+    docker = Docker(settings.docker_host, timeout=120)
+    code, out = docker.exec(settings.steambox_container,
+                            ["bash", "-lc", "wsquashfs-launcher --doctor"])
+    text = out.decode("utf-8", "replace")
+    if code == 127 or "command not found" in text:
+        raise RebuildError(f"wsquashfs-launcher introuvable dans {settings.steambox_container}")
+    return {"container": settings.steambox_container, "code": code, "text": text,
+            **parse_doctor(text)}
+
+
+# ------------------------------------------------------------------ fichiers de SteamBox
+
+def _steambox(settings: Settings, timeout: float) -> Docker:
+    if not settings.steambox_container:
+        raise RebuildError("SteamBox désactivé (WSQUASHFS_MGR_STEAMBOX_CONTAINER vide)")
+    return Docker(settings.docker_host, timeout=timeout)
+
+
+def steambox_listing(settings: Settings, path: str) -> dict[str, int]:
+    """Arborescence d'un dossier de SteamBox (runner) : chemin relatif →
+    taille (0 pour un dossier ou un lien)."""
+    code, out = _steambox(settings, 120).exec(
+        settings.steambox_container,
+        ["find", path, "-mindepth", "1", "-printf", "%y\t%s\t%P\n"])
+    if code != 0:
+        raise RebuildError(f"dossier illisible dans SteamBox : {path}")
+    listing = {}
+    for line in out.decode("utf-8", "replace").splitlines():
+        kind, size, rel = line.split("\t", 2)
+        listing[rel] = int(size) if kind == "f" else 0
+    return listing
+
+
+def steambox_fetch(settings: Settings, path: str, dest: Path, job: Job | None = None,
+                   total: int = 0) -> None:
+    """Copie un dossier de SteamBox dans `dest` (créé), liens symboliques
+    gardés : `tar` dans SteamBox, lu en flux par l'API Docker (exec) et
+    extrait au fil de l'eau, sans archive intermédiaire."""
+    dest.mkdir(parents=True, exist_ok=True)
+    parent, name = path.rstrip("/").rsplit("/", 1)
+    tar = subprocess.Popen(["tar", "-x", "-C", str(dest), "--strip-components=1",
+                            "--no-same-owner"],
+                           stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+    received = 0
+
+    def feed(chunk: bytes) -> None:
+        nonlocal received
+        tar.stdin.write(chunk)
+        received += len(chunk)
+        if job and total:
+            job.progress("copie du runner", min(0.99, received / total) * 0.3)
+
+    try:
+        code, err = _steambox(settings, 3600).exec_stream(
+            settings.steambox_container, ["tar", "-C", parent, "-cf", "-", name], feed)
+    finally:
+        tar.stdin.close()
+        tar_err = tar.stderr.read().decode("utf-8", "replace")
+        tar.wait()
+    if code != 0:
+        raise RebuildError(f"copie depuis SteamBox en échec : {err.decode('utf-8', 'replace')[:300]}")
+    if tar.returncode != 0:
+        raise RebuildError(f"extraction du runner en échec : {tar_err[:300]}")
 
 
 def trial_dir(settings: Settings) -> Path:

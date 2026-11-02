@@ -113,7 +113,10 @@ def work_area(settings: Settings, near: Path, prefix: str):
     base = settings.tmp_dir or near.parent / WORK_DIR_NAME
     base.mkdir(parents=True, exist_ok=True)
     try:
-        with tempfile.TemporaryDirectory(prefix=prefix, dir=base) as tmp:
+        # ignore_cleanup_errors : un montage FUSE mort dans le dossier (ENOTCONN)
+        # ne doit pas masquer l'erreur qui a interrompu la tâche
+        with tempfile.TemporaryDirectory(prefix=prefix, dir=base,
+                                         ignore_cleanup_errors=True) as tmp:
             yield Path(tmp)
     finally:
         if settings.tmp_dir is None:

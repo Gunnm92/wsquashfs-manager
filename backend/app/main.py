@@ -57,8 +57,9 @@ from .services.rebuild import (
     restore_backup,
     validate_backup,
 )
+from .services.runners import plan_runner, run_runner, suggest
 from .services.tasks import QueueLocked, TaskConflict, TaskQueue
-from .services.trial import run_trial, steambox_path, trial_dir
+from .services.trial import run_doctor, run_trial, steambox_path, trial_dir
 from .services.update import default_anchor, plan_update, run_update
 
 logger = logging.getLogger("wsquashfs-manager")
@@ -79,6 +80,7 @@ queue = TaskQueue(
         "pack": lambda task, job: run_pack(_settings, task, job),
         "update": lambda task, job: run_update(_settings, task, job),
         "trial": lambda task, job: run_trial(_settings, task, job),
+        "runner": lambda task, job: run_runner(_settings, task, job),
     },
     concurrency=_settings.task_concurrency,
     night_now=lambda: in_night(_settings),
@@ -158,6 +160,30 @@ def get_config():
         "rebuild_mode": _settings.rebuild_mode,
         "tool_user": _settings.tool_user,
     }
+
+
+_doctor_cache: dict = {}
+_DOCTOR_TTL = 300           # s : --doctor prend quelques secondes
+
+
+def _doctor(refresh: bool = False) -> dict:
+    now = time.monotonic()
+    cached = _doctor_cache.get("result")
+    if cached and not refresh and now - cached[0] < _DOCTOR_TTL:
+        return {**cached[1], "age": round(now - cached[0])}
+    result = run_doctor(_settings)
+    _doctor_cache["result"] = (now, result)
+    return {**result, "age": 0}
+
+
+@app.get("/api/launcher/doctor")
+def launcher_doctor(refresh: bool = False):
+    """État du lanceur dans SteamBox (`wsquashfs-launcher --doctor`) :
+    sections vérifiées et runners installés. Mis en cache quelques minutes."""
+    try:
+        return _doctor(refresh)
+    except RebuildError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @app.get("/api/config/systems")
@@ -1102,6 +1128,53 @@ def run_task_now(task_id: str):
 class TrialRequest(BaseModel):
     duration: int = Field(default=60, ge=10, le=600)
     when: Literal["now", "night"] = "now"
+
+
+@app.get("/api/image/links")
+def image_links_report(id: str):
+    """Liens du prefix vers un runner hors de l'image ou absent, et
+    réparations proposées avec les runners installés dans SteamBox."""
+    info = _find_image(id)
+    steambox_error = None
+    try:
+        runners = _doctor().get("runners", [])
+    except RebuildError as exc:
+        runners = []            # SteamBox injoignable : constat sans proposition
+        steambox_error = str(exc)
+    try:
+        return {**suggest(_settings, info.path, runners), "steambox_error": steambox_error}
+    except RebuildError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+class RunnerRequest(BaseModel):
+    source: str = Field(min_length=2, pattern=r"^/")    # dossier du runner dans SteamBox
+    sub: str = ""
+    dest: str
+    set_key: bool = False
+    when: Literal["now", "night"] = "now"
+
+
+@app.post("/api/image/runner")
+def image_runner(id: str, body: RunnerRequest):
+    """Joint un runner de SteamBox à l'image (ou complète un runner joint),
+    liens du prefix réécrits ; seulement depuis un runner installé (--doctor)."""
+    info = _find_image(id)
+    try:
+        installed = {r["path"].rstrip("/") for r in _doctor().get("runners", [])}
+    except RebuildError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    if body.source.rstrip("/") not in installed:
+        raise HTTPException(status_code=422, detail="runner inconnu de SteamBox (--doctor)")
+    try:
+        plan = plan_runner(_settings, info.path, body.source, body.sub, body.dest, body.set_key)
+    except RebuildError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    title = (f"runner : {plan.dest_prefix}" + (f", {plan.key}={plan.dest}" if plan.autorun else ""))
+    task = _submit(info, "runner", {"source": plan.source, "sub": plan.sub, "dest": plan.dest,
+                                    "set_key": body.set_key}, title,
+                   night=body.when == "night")
+    return {"task": task.id, "plan": plan.to_dict()}
 
 
 @app.post("/api/image/trial")

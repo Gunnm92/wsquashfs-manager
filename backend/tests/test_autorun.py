@@ -49,6 +49,12 @@ def test_unknown_keys():
     assert "MONKEY" not in KNOWN_KEYS
 
 
+def test_pre_attach_keys_known():
+    """Clés du lanceur autour du jeu : connues, donc pas signalées."""
+    a = Autorun.parse("CMD=Launcher.exe\nPRE=sh pre.sh\nATTACH=sh attach.sh\nATTACH_PROCESS=Game.exe\n")
+    assert a.unknown_keys() == []
+
+
 # ------------------------------------------------------------------- écriture
 
 def test_set_modifies_in_place_preserving_comments_and_order():
@@ -126,6 +132,14 @@ def test_validate_winedlloversides_env():
     a = Autorun.parse('ENV="WINEDLLOVERRIDES=dinput8=n"\n')
     issues = a.validate()
     assert any("WINEDLLOVERRIDES" in i["message"] for i in issues)
+
+
+def test_validate_attach_process():
+    issues = Autorun.parse("CMD=g.exe\nATTACH_PROCESS=Game.exe\n").validate()
+    assert any("sans ATTACH" in i["message"] for i in issues)
+    issues = Autorun.parse("CMD=g.exe\nATTACH=sh a.sh\nATTACH_PROCESS=VeryLongGameName.exe\n").validate()
+    assert any("15 caractères" in i["message"] for i in issues)
+    assert not Autorun.parse("CMD=g.exe\nATTACH=sh a.sh\nATTACH_PROCESS=DOA5A.exe\n").validate()
 
 
 def test_validate_unknown_key_warns_not_blocks():

@@ -50,6 +50,7 @@ class ImageInfo(BaseModel):
     runner: RunnerKind = RunnerKind.DEFAULT
     wine: str | None = None
     proton: str | None = None
+    runner_path: str | None = None # RUNNER= (chemin d'un binaire wine de la machine)
     joined_runners: list[str] = Field(default_factory=list)   # dossiers runners/<nom> de l'image
     runner_joined: bool = False    # runner utilisé = runner joint à l'image (comme le lanceur)
     hidraw: bool | None = None

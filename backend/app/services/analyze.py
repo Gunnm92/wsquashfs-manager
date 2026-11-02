@@ -33,6 +33,7 @@ import yaml
 
 from .autorun import Autorun, decode_autorun
 from .durable import write_atomic
+from .links import LinkReport, classify, folder_links
 from .registry import section_values
 from .rules import Analysis, load_rules, run_rules
 
@@ -687,6 +688,7 @@ class FolderAnalysis:
     candidates: list[Candidate]
     excluded: list[dict]
     existing: bytes | None
+    links: LinkReport | None = None     # liens du prefix vers un runner hors du dossier
 
     def candidate(self, path: str | None) -> Candidate | None:
         if path:
@@ -790,7 +792,9 @@ def analyze_folder(root: Path, game: str) -> FolderAnalysis:
     scan = scan_folder(root)
     existing_rel = next((f for f in scan.files if f.lower() == "autorun.cmd"), None)
     existing = scan.source.read_bytes(existing_rel) if existing_rel else None
-    return _analyze(scan, game, existing)
+    fa = _analyze(scan, game, existing)
+    fa.links = classify(folder_links(root), scan.files)
+    return fa
 
 
 def analyze_image(image: Path, game: str, unsquashfs: str = "unsquashfs",
@@ -855,4 +859,6 @@ def report(fa: FolderAnalysis, exe: str | None = None) -> dict:
         "existing": existing,
         "recommended": recommended,
         "bats": [bat_details(fa.scan, c.path) for c in fa.candidates if c.kind == "bat"][:3],
+        "links": fa.links.to_dict() if fa.links else None,
+        "link_issues": fa.links.issues() if fa.links else [],
     }

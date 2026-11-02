@@ -41,11 +41,11 @@
 
 ## Jeux à tester
 
-- [ ] **`HIDRAW=1` proposé** pour 9 jeux qui gèrent la DualSense eux-mêmes
+- [x] **`HIDRAW=1` proposé** (testé, fonctionne — 01/11) pour 9 jeux qui gèrent la DualSense eux-mêmes
   (règle vérifiée sur les 394 images le 02/10) : Beyond Two Souls, F1 22,
   Hot Wheels Unleashed 1 et 2, The Devil in Me, The King of Fighters XV,
   Pinball FX, Banishers, Kena — Steam Input désactivé.
-- [ ] **God of War Ragnarök** : empaqueter (190 Go) puis tester lancement et
+- [x] **God of War Ragnarök** (fonctionne — 01/11) : empaqueter (190 Go) puis tester lancement et
   DualSense (`HIDRAW=1`, `libScePad`).
 - [ ] **Aces of the Luftwaffe** : manette non reconnue ; d'après ProtonDB, le
   jeu choisit l'appareil au menu principal (appuyer sur un bouton de la
@@ -60,7 +60,7 @@
 - [ ] Pousser les commits (manager, lanceur `04bd003` et `f2892b8` — surcharge
   `.autorun` —, SteamBox `92cc329`)
   et reconstruire l'image SteamBox.
-- [ ] `make push` puis installation du template Unraid
+- [x] `make push` (Makefile en place — 01/11) ; reste l'installation du template Unraid
   (`unraid/wsquashfs-manager.xml`).
 - [ ] Base de l'image : Debian trixie retenue, Alpine possible (image plus
   petite) — à confirmer.
