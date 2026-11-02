@@ -120,7 +120,8 @@ def _same(a: str | bytes, b: str) -> bool:
 async def simple_auth(request: Request, call_next):
     if not _settings.password:
         return await call_next(request)
-    if request.url.path in ("/", "/login", "/healthz"):
+    # Fichiers de l'interface (styles, script, aide, polices) : rien de privé
+    if request.url.path in ("/", "/login", "/healthz") or request.url.path.startswith("/assets/"):
         return await call_next(request)
     # Starlette décode les en-têtes en latin-1 : on retrouve les octets reçus.
     # Une HTTPException levée dans un middleware donnerait une erreur 500.
@@ -1214,6 +1215,22 @@ def index():
     # Toujours revalidée : une page gardée en cache resterait sur l'ancienne
     # interface après une mise à jour
     return FileResponse(frontend, headers={"Cache-Control": "no-cache"})
+
+
+ASSET_TYPES = {".css": "text/css", ".js": "text/javascript", ".html": "text/html",
+               ".woff2": "font/woff2", ".png": "image/png", ".svg": "image/svg+xml"}
+
+
+@app.get("/assets/{name:path}")
+def asset(name: str):
+    """Fichiers de frontend/assets/ : styles, script, aide, polices."""
+    root = (FRONTEND_DIR / "assets").resolve()
+    path = (root / name).resolve()
+    if not path.is_relative_to(root) or not path.is_file() or path.suffix not in ASSET_TYPES:
+        raise HTTPException(status_code=404, detail="fichier introuvable")
+    # Revalidés à chaque chargement, comme la page : jamais d'ancien script
+    # avec une nouvelle page après une mise à jour
+    return FileResponse(path, media_type=ASSET_TYPES[path.suffix], headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/healthz")

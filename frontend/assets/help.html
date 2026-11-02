@@ -1,0 +1,454 @@
+<!-- Aide de wsquashfs-manager : fragment chargé dans <main id="help-main"> à la
+     première ouverture. Une page (.hpage) visible à la fois ; la recherche les
+     parcourt toutes. Les blocs filtrables portent data-f. -->
+<nav class="help-nav" aria-label="Pages de l'aide">
+  <button data-page="start" class="on"><svg class="ico"><use href="#i-sparkles"/></svg><span><b>Bien démarrer</b><small>Le principe en 2 minutes</small></span></button>
+  <button data-page="guides"><svg class="ico"><use href="#i-list"/></svg><span><b>Guides</b><small>Les tâches courantes, pas à pas</small></span></button>
+  <button data-page="types"><svg class="ico"><use href="#i-package"/></svg><span><b>Types d'images</b><small>Wine, Proton, jeu seul</small></span></button>
+  <button data-page="keys"><svg class="ico"><use href="#i-terminal"/></svg><span><b>Réglages de l'autorun</b><small>Toutes les clés</small></span></button>
+  <button data-page="cli"><svg class="ico"><use href="#i-play"/></svg><span><b>Le lanceur</b><small>Ligne de commande</small></span></button>
+  <button data-page="trouble"><svg class="ico"><use href="#i-alert"/></svg><span><b>Dépannage</b><small>Erreurs fréquentes</small></span></button>
+</nav>
+
+<article class="help-body" id="help-body">
+  <label class="search"><svg class="ico"><use href="#i-search"/></svg><input type="search" id="help-q" placeholder="Chercher dans l'aide : une clé, une commande, une erreur…"></label>
+  <p class="help-nores" id="help-nores" hidden>Rien ne correspond à cette recherche.</p>
+
+  <!-- ============================================================ Bien démarrer -->
+  <section class="hpage" data-page="start" id="h-start">
+    <h1>Bien démarrer</h1>
+    <p class="lead">Ce gestionnaire transforme tes dossiers de jeux Windows en images <code>.wsquashfs</code>, puis t'aide à les régler et à les entretenir. Le lancement lui-même est fait par <code>wsquashfs-launcher</code>.</p>
+
+    <ol class="steps" data-f>
+      <li><b>Empaqueter</b><span>Un dossier de jeu devient une image : un seul fichier compressé, en lecture seule. → <a href="#g-add">Ajouter un jeu</a></span></li>
+      <li><b>Essayer</b><span>Le lancement d'essai démarre le jeu dans SteamBox et rapporte ce qu'il a vu. → <a href="#g-broken">Un jeu ne se lance pas</a></span></li>
+      <li><b>Ajuster</b><span>Les réglages du jeu sont dans son <code>autorun.cmd</code>, modifiable depuis la fiche. → <a href="#g-setting">Changer un réglage</a></span></li>
+    </ol>
+
+    <h2>Les mots à connaître</h2>
+    <dl class="glossary">
+      <div data-f><dt>Image</dt><dd>Le jeu compressé en un fichier <code>.wsquashfs</code>. Elle n'est jamais modifiée par le jeu.</dd></div>
+      <div data-f><dt>autorun.cmd</dt><dd>La petite fiche, dans l'image, qui dit quoi lancer et avec quels réglages.</dd></div>
+      <div data-f><dt>Sauvegardes</dt><dd>Tout ce que le jeu écrit (parties, options), gardé à part dans <code>saves/&lt;jeu&gt;</code>.</dd></div>
+      <div data-f><dt>Surcharge</dt><dd>Un réglage essayé à côté de l'image, sans la reconstruire. Batocera ne le voit pas.</dd></div>
+      <div data-f><dt>.old</dt><dd>L'ancienne version d'une image, gardée après une modification jusqu'à ce que tu la valides.</dd></div>
+      <div data-f><dt>Runner</dt><dd>Le Wine ou le Proton qui fait tourner le jeu Windows sous Linux.</dd></div>
+    </dl>
+
+    <div class="tip" data-f><svg class="ico"><use href="#i-shield"/></svg><span>Rien n'est jamais détruit sans confirmation : une image modifiée est reconstruite à côté, et l'ancienne reste en <code>.old</code> tant que tu ne l'as pas validée.</span></div>
+  </section>
+
+  <!-- ============================================================ Guides -->
+  <section class="hpage" data-page="guides" id="h-guides" hidden>
+    <h1>Guides</h1>
+    <p class="lead">Les tâches courantes, étape par étape. Clique sur un guide pour l'ouvrir.</p>
+
+    <details class="guide" id="g-add" data-f>
+      <summary><svg class="ico"><use href="#i-package"/></svg><span>Ajouter un jeu</span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
+      <ol>
+        <li>Copier le dossier du jeu dans <code>roms/&lt;système&gt;/</code>, nommé <code>Mon Jeu.pc</code> (ou <code>.wine</code> s'il contient déjà un prefix Wine).</li>
+        <li>Ouvrir l'onglet <b>Dossiers à empaqueter</b>, cocher le dossier puis <b>Analyser et empaqueter</b>.</li>
+        <li>Relire l'autorun proposé : l'exécutable choisi et la raison de chaque réglage sont indiqués. Corriger si besoin.</li>
+        <li><b>Empaqueter</b> : la tâche part dans la file (ou cette nuit). L'image est vérifiée à la fin ; le dossier est renommé en <code>.wine</code>, et supprimé seulement si tu l'as demandé.</li>
+      </ol>
+    </details>
+
+    <details class="guide" id="g-broken" data-f>
+      <summary><svg class="ico"><use href="#i-alert"/></svg><span>Un jeu ne se lance pas</span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
+      <ol>
+        <li>Fiche du jeu → <b>Lancement d'essai</b> : le jeu démarre dans SteamBox, puis le rapport donne les fenêtres ouvertes, les erreurs reconnues et une capture.</li>
+        <li>Message <code>failed to open umu.exe</code> ? Fiche → Infos → <b>Liens du runner</b> → Analyser : la réparation est proposée.</li>
+        <li>Chercher l'erreur dans <a href="#h-trouble">Dépannage</a>.</li>
+        <li>Essayer un autre réglage (guide suivant) : par exemple <code>WINE=system</code> pour un vieux jeu 32 bits, ou <code>DXVK=0</code> pour un problème d'affichage.</li>
+      </ol>
+    </details>
+
+    <details class="guide" id="g-setting" data-f>
+      <summary><svg class="ico"><use href="#i-pen"/></svg><span>Changer un réglage d'un jeu</span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
+      <ol>
+        <li>Fiche du jeu → <b>Modifier l'autorun</b>. La fiche passe en <b>mode édition</b> (cadre orange) : rien n'est écrit tant que tu n'enregistres pas.</li>
+        <li>Modifier une valeur, ou <b>Ajouter un réglage</b>. Chaque réglage est expliqué dans <a href="#h-keys">Réglages de l'autorun</a>.</li>
+        <li><b>Essayer sans reconstruire</b> : le réglage s'applique au prochain lancement, en quelques secondes. Batocera, lui, ne le voit pas.</li>
+        <li>Quand le jeu marche : <b>Reconstruire l'image</b> pour inscrire le réglage dedans. L'ancienne image est gardée en <code>.old</code>.</li>
+      </ol>
+    </details>
+
+    <details class="guide" id="g-update" data-f>
+      <summary><svg class="ico"><use href="#i-upload"/></svg><span>Installer une nouvelle version ou un patch</span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
+      <ol>
+        <li>Déposer la nouvelle version (ou le patch) dans un dossier du serveur.</li>
+        <li>Fiche du jeu → <b>Nouvelle version</b>, indiquer ce dossier.</li>
+        <li><b>Aperçu</b> : la liste des fichiers ajoutés, remplacés et supprimés, et la place disque nécessaire.</li>
+        <li><b>Mettre à jour</b>. L'ancienne image est gardée en <code>.old</code>.</li>
+      </ol>
+    </details>
+
+    <details class="guide" id="g-old" data-f>
+      <summary><svg class="ico"><use href="#i-history"/></svg><span>Valider ou annuler une modification (.old)</span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
+      <ol>
+        <li>Après une reconstruction ou une mise à jour, la fiche affiche « Une ancienne version est conservée ».</li>
+        <li>Lancer le jeu pour vérifier qu'il marche toujours.</li>
+        <li><b>Valider</b> supprime l'ancienne version ; <b>Revenir à l'ancienne</b> annule la modification.</li>
+        <li>Pour plusieurs jeux à la fois : les sélectionner, puis <b>Valider les .old</b>.</li>
+      </ol>
+    </details>
+
+    <details class="guide" id="g-night" data-f>
+      <summary><svg class="ico"><use href="#i-moon"/></svg><span>Faire le travail pendant la nuit</span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
+      <ol>
+        <li>À côté de chaque bouton qui lance un travail, une petite icône indique quand : <b>éclair</b> = tout de suite, <b>lune</b> = cette nuit. Un clic bascule.</li>
+        <li>La plage de nuit se règle dans <b>Réglages</b>.</li>
+        <li>Une tâche prévue la nuit peut être lancée tout de suite depuis <b>Tâches</b>, en haut à droite.</li>
+      </ol>
+    </details>
+  </section>
+
+  <!-- ============================================================ Types d'images -->
+  <section class="hpage" data-page="types" id="h-types" hidden>
+    <h1>Types d'images</h1>
+    <p class="lead">Le type d'une image dépend de ce qui se trouve à sa racine. Il décide du runner utilisé par défaut.</p>
+
+    <div class="htable" id="h-summary" data-f>
+      <table>
+        <thead><tr><th>Type</th><th>Reconnu par</th><th>Runner par défaut</th><th>Batocera</th></tr></thead>
+        <tbody>
+          <tr><td><a href="#h-batocera">Prefix Wine</a></td><td><code>system.reg</code></td><td>wine-tkg</td><td>oui</td></tr>
+          <tr><td><a href="#h-proton">Prefix Proton</a></td><td><code>config_info</code></td><td>le Proton du prefix, via umu</td><td>non</td></tr>
+          <tr><td><a href="#h-solo">Jeu seul</a></td><td>ni l'un ni l'autre</td><td>proton-cachyos, UMU-Proton…</td><td>non</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="hsec" id="h-batocera" data-f>
+      <h2>Prefix Wine (Batocera)</h2>
+      <p>Le format de Batocera : jeux arcade et jeux PC préparés pour lui, avec leur prefix Wine complet. L'image reste lisible par Batocera telle quelle.</p>
+      <div class="pair">
+        <pre>MonJeu.wine/
+├── autorun.cmd
+├── system.reg  user.reg
+└── drive_c/MonJeu/game.exe</pre>
+        <pre class="ar">DIR=drive_c/MonJeu
+CMD=game.exe</pre>
+      </div>
+      <details class="more"><summary>En savoir plus</summary>
+        <ul>
+          <li>Runner : wine-tkg par défaut. <code>WINE=system</code> pour un jeu 32 bits qui échoue sous wine-tkg (non WoW64) mais passe avec le Wine WoW64 du système.</li>
+          <li>La racine de l'image est le prefix : <code>DIR</code> est relatif à cette racine.</li>
+          <li>Des fichiers <code>*.reg</code> à la racine sont importés au lancement.</li>
+          <li>Batocera ignore les clés qu'il ne connaît pas (<code>GAME_VERSION</code>, <code>WINE</code>…).</li>
+        </ul>
+      </details>
+    </div>
+
+    <div class="hsec" id="h-proton" data-f>
+      <h2>Prefix Proton</h2>
+      <p>Un prefix créé par Heroic, Steam ou umu : jeux PC récents. Le jeu est lancé par le même Proton, via umu.</p>
+      <div class="pair">
+        <pre>MonJeu.wine/
+├── autorun.cmd
+├── config_info  pfx -&gt; .
+└── drive_c/MonJeu/Bin/game.exe</pre>
+        <pre class="ar">DIR=drive_c/MonJeu/Bin
+CMD=game.exe</pre>
+      </div>
+      <details class="more"><summary>En savoir plus</summary>
+        <ul>
+          <li>Runner : le Proton qui a créé le prefix (1<sup>re</sup> ligne de <code>config_info</code>), sinon le repli décrit dans <a href="#h-ar-choice">Choix automatique du runner</a>.</li>
+          <li><code>PROTON=&lt;nom&gt;</code> impose un Proton ; s'il est introuvable, c'est une erreur, sans repli silencieux.</li>
+          <li>Les DLL de Proton sont des liens vers le runner (<code>PROTON_DLL_COPY</code> vide), pas des copies.</li>
+          <li>Batocera n'a pas umu : ces images n'y sont pas prévues.</li>
+        </ul>
+      </details>
+    </div>
+
+    <div class="hsec" id="h-solo" data-f>
+      <h2>Jeu seul</h2>
+      <p>Seulement les fichiers du jeu. Le prefix est créé au premier lancement, dans les sauvegardes : l'image reste légère.</p>
+      <div class="pair">
+        <pre>MonJeu/
+├── autorun.cmd
+└── game/run me.exe</pre>
+        <pre class="ar">CMD="game/run me.exe" --arg</pre>
+      </div>
+      <details class="more"><summary>En savoir plus</summary>
+        <ul>
+          <li>Le prefix est créé par Proton via umu (proton-cachyos, sinon l'UMU-Proton le plus récent, sinon GE-Proton).</li>
+          <li><code>CMD</code> est relatif à la racine ; guillemets si le chemin contient des espaces.</li>
+          <li><code>WINE=tkg</code> pour garder un prefix Wine. Un prefix Wine déjà présent dans les sauvegardes reste sous Wine : réinitialiser les sauvegardes du jeu pour passer sous Proton.</li>
+        </ul>
+      </details>
+    </div>
+
+    <div class="hsec" id="h-runner" data-f>
+      <h2>Runner joint à l'image</h2>
+      <p>Pour un jeu qui ne marche qu'avec <b>un runner précis</b> (Proton modifié pour lui, Wine particulier d'un jeu arcade) : le runner est copié dans l'image, qui devient autonome. Possible avec les trois types.</p>
+      <div class="pair">
+        <pre>MonJeu.wine/
+├── autorun.cmd
+├── runners/Proton-MonJeu-11.0/
+└── drive_c/ …</pre>
+        <pre class="ar">PROTON=Proton-MonJeu-11.0</pre>
+      </div>
+      <div class="tip"><svg class="ico"><use href="#i-info"/></svg><span>À réserver aux runners propres à un jeu. Un Proton standard (UMU-Proton, GE-Proton, proton-cachyos) n'a pas à être joint : compter ~250 Mo de plus par image.</span></div>
+      <details class="more"><summary>Comment le runner est choisi</summary>
+        <ul>
+          <li><code>PROTON=&lt;nom&gt;</code> ou <code>WINE=&lt;nom&gt;</code> cherchent d'abord <code>runners/&lt;nom&gt;/</code> (aussi <code>runners/wine-&lt;nom&gt;/</code>, casse ignorée), puis les runners de la machine. Sans clé, un runner <b>seul</b> dans <code>runners/</code> est utilisé.</li>
+          <li>Priorité : <code>--wine</code> &gt; runner joint &gt; runners de la machine.</li>
+          <li>Runner nommé introuvable : le lancement s'arrête avec un message, le jeu ne part pas sous un autre runner.</li>
+          <li>Utilisé en lecture seule depuis l'image : Proton n'écrit rien dans les sauvegardes.</li>
+          <li><code>RUNNER=</code> ne sert qu'aux chemins absolus de la machine.</li>
+          <li>Batocera ignore <code>runners/</code>.</li>
+        </ul>
+      </details>
+      <details class="more"><summary>Liens du prefix (erreur <code>failed to open umu.exe</code>)</summary>
+        <p>Dans un prefix Proton, les DLL de Wine sont des liens vers le runner. Ils doivent pointer <b>en relatif dans <code>runners/&lt;nom&gt;/</code></b> (ex. <code>../../../runners/&lt;nom&gt;/files/lib/wine/…</code>). Un lien vers un autre emplacement est cassé ailleurs, et Proton ne le répare pas.</p>
+        <p>« Dossiers à empaqueter » réécrit ces liens tout seul. Sur une image existante : fiche → Infos → <b>Liens du runner</b> → Analyser, puis la réparation proposée.</p>
+        <p>À la main : <code>find MonJeu.wine -type l -lname '*compatibilitytools.d*'</code> doit être vide.</p>
+      </details>
+      <details class="more"><summary>Correctif du jeu dans le runner (protonfix)</summary>
+        <p>Un Proton joint peut porter un <b>protonfix</b>, script Python que Proton exécute avant chaque lancement. <code>GAMEID</code> désigne le script :</p>
+        <pre>runners/&lt;Proton&gt;/protonfixes/gamefixes-umu/umu-monjeu.py</pre>
+        <pre class="ar">PROTON=&lt;Proton&gt;
+ENV=GAMEID=umu-monjeu</pre>
+        <ul>
+          <li><code>main()</code> fait la préparation (un <code>sys.exit(1)</code> arrête le lancement), puis peut lancer un fil pour le patch à chaud, qui vit jusqu'à la fin du jeu.</li>
+          <li>N'agir que si l'exécutable du jeu est dans <code>sys.argv</code> : umu sert aussi à d'autres commandes.</li>
+          <li>Pour tout runner, Wine compris : <code>PRE=</code> et <code>ATTACH=</code> de l'autorun.</li>
+        </ul>
+      </details>
+    </div>
+  </section>
+
+  <!-- ============================================================ Réglages de l'autorun -->
+  <section class="hpage" data-page="keys" id="h-keys" hidden>
+    <h1 id="h-autorun">Réglages de l'autorun</h1>
+    <p class="lead">L'<code>autorun.cmd</code> est un fichier texte à la racine de l'image : une ligne <code>RÉGLAGE=valeur</code> par réglage. Seul <code>CMD</code> est obligatoire. Clique sur un réglage pour le détail.</p>
+
+    <h2 class="kgroup" id="h-ar-base">L'essentiel</h2>
+    <div class="klist">
+      <details class="key" id="hk-CMD" data-f><summary><code>CMD</code><span>Le programme à lancer <em>obligatoire</em></span><code class="ex">"My Game.exe" -fullscreen</code></summary>
+        <div>Exécutable et arguments ; guillemets si le nom contient des espaces.</div></details>
+      <details class="key" id="hk-DIR" data-f><summary><code>DIR</code><span>Le dossier du programme</span><code class="ex">drive_c/Game</code></summary>
+        <div>Relatif à la racine de l'image. Vide : la racine.</div></details>
+      <details class="key" id="hk-GAME_VERSION" data-f><summary><code>GAME_VERSION</code><span>La version du jeu, pour s'y retrouver</span><code class="ex">v2.1.0 GOG</code></summary>
+        <div>Affichée au lancement, par <code>--info</code>, <code>--pack</code>, <code>--install</code> et ici. Ignorée par Batocera.</div></details>
+    </div>
+
+    <h2 class="kgroup" id="h-ar-wine">Wine ou Proton</h2>
+    <p class="muted">Sans ces réglages, le runner est <a href="#h-ar-choice">choisi automatiquement</a> : c'est le mieux dans la plupart des cas.</p>
+    <div class="klist">
+      <details class="key" id="hk-WINE" data-f><summary><code>WINE</code><span>Imposer une version de Wine</span><code class="ex">tkg · system</code></summary>
+        <div>Wine joint à l'image (<code>runners/&lt;nom&gt;/</code>), sinon <code>/opt/wine-&lt;nom&gt;/bin/wine</code> ou un runner installé. <code>system</code> : le Wine WoW64 du système, utile aux vieux jeux 32 bits. Introuvable : erreur.</div></details>
+      <details class="key" id="hk-PROTON" data-f><summary><code>PROTON</code><span>Imposer une version de Proton</span><code class="ex">GE-Proton9-20</code></summary>
+        <div>Proton joint à l'image, sinon un Proton de Heroic ou Steam (nom du dossier ou version). Introuvable : erreur, pas de repli sur un autre Proton.</div></details>
+      <details class="key" id="hk-RUNNER" data-f><summary><code>RUNNER</code><span>Le chemin complet d'un Wine de la machine</span><code class="ex">/opt/wine-custom/bin/wine</code></summary>
+        <div>Chemin <b>absolu</b> uniquement. Un runner joint à l'image passe par <code>PROTON</code> ou <code>WINE</code>.</div></details>
+      <details class="key" id="hk-ARCH" data-f><summary><code>ARCH</code><span>Prefix 32 ou 64 bits</span><code class="ex">win32</code></summary>
+        <div>Déduit du prefix existant, <code>win64</code> sinon.</div></details>
+    </div>
+
+    <h2 class="kgroup" id="h-ar-pad">Manettes, langue, environnement</h2>
+    <div class="klist">
+      <details class="key" id="hk-HIDRAW" data-f><summary><code>HIDRAW</code><span>Manette Sony gérée par le jeu lui-même</span><code class="ex">1 · bt</code></summary>
+        <div>
+          <p>Par défaut, la manette est vue comme une manette Xbox (XInput), comme sous Batocera. À changer seulement pour un jeu qui gère la DualSense lui-même (sans Steam Input) :</p>
+          <ul>
+            <li><code>1</code> : manette Sony par hidraw ; une DualSense Bluetooth est présentée en USB (<code>dualsense-usb-bridge</code>), car certains jeux refusent la Bluetooth. Repli XInput si illisible.</li>
+            <li><code>bt</code> : DualSense Bluetooth en direct, pour un jeu dont les vibrations haptiques passent par la Bluetooth.</li>
+          </ul>
+          <p class="muted">Sous GE-Proton, le mode XInput passe aussi par hidraw (<code>PROTON_SONY_HIDRAW_XINPUT=1</code>, posé par le lanceur).</p>
+        </div></details>
+      <details class="key" id="hk-LANG" data-f><summary><code>LANG</code><span>La langue du jeu</span><code class="ex">fr_FR.UTF-8</code></summary>
+        <div>Posée dans <code>LC_ALL</code>.</div></details>
+      <details class="key" id="hk-ENV" data-f><summary><code>ENV</code><span>Variables d'environnement en plus</span><code class="ex">VAR1=a VAR2=b</code></summary>
+        <div>Séparées par des espaces.</div></details>
+    </div>
+    <p class="muted" data-f>Touches clavier : un fichier <code>&lt;jeu&gt;.wsquashfs.keys</code> à côté de l'image associe des boutons de manette à des touches.</p>
+
+    <h2 class="kgroup" id="h-ar-optim">Affichage et performances</h2>
+    <div class="klist">
+      <details class="key" id="hk-DXVK" data-f><summary><code>DXVK</code><span>Direct3D 8 à 11 par Vulkan</span><code class="ex">défaut 1</code></summary>
+        <div><code>0</code> : rendu OpenGL de Wine (wined3d), qui tombe sur le rendu logiciel sous Xwayland + NVIDIA. Sous Proton, seul un <code>DXVK=0</code> explicite change quelque chose. Batocera, lui, est à <code>0</code> par défaut.</div></details>
+      <details class="key" id="hk-VKD3D" data-f><summary><code>VKD3D</code><span>Direct3D 12 par Vulkan</span><code class="ex">défaut 1</code></summary>
+        <div>vkd3d-proton. Sans effet sur un jeu qui ne charge pas <code>d3d12.dll</code>.</div></details>
+      <details class="key" id="hk-D7VK" data-f><summary><code>D7VK</code><span>DirectDraw et Direct3D 7 par Vulkan</span><code class="ex">défaut 1</code></summary>
+        <div>d7vk, s'il est installé. Sans effet sur un jeu qui ne charge pas <code>ddraw.dll</code>.</div></details>
+      <details class="key" id="hk-VIRTUAL_DESKTOP" data-f><summary><code>VIRTUAL_DESKTOP</code><span>Afficher le jeu dans une fenêtre de taille fixe</span><code class="ex">1920x1080</code></summary>
+        <div>Bureau virtuel Wine : évite les plantages du gestionnaire de fenêtres quand le jeu change la résolution.</div></details>
+      <details class="key" id="hk-ESYNC" data-f><summary><code>ESYNC</code><span>Synchronisation par événements</span><code class="ex">défaut 0</code></summary>
+        <div><code>WINEESYNC</code>.</div></details>
+      <details class="key" id="hk-FSYNC" data-f><summary><code>FSYNC</code><span>Synchronisation par futex</span><code class="ex">défaut 0</code></summary>
+        <div><code>WINEFSYNC</code>, noyau compatible requis.</div></details>
+    </div>
+    <p class="muted" data-f>Un DXVK ou un VKD3D-Proton absent de la machine désactive le réglage, avec un avertissement au lancement.</p>
+
+    <h2 class="kgroup" id="h-ar-saves">Sauvegardes à part</h2>
+    <p class="muted">Tout ce que le jeu écrit va déjà dans ses sauvegardes. Ces deux réglages relient en plus des sauvegardes à <code>saves/&lt;système&gt;/&lt;jeu&gt;</code>, comme Batocera.</p>
+    <div class="klist">
+      <details class="key" id="hk-SAVEDIR" data-f><summary><code>SAVEDIR</code><span>Le dossier de sauvegarde du jeu</span><code class="ex">drive_c/game/saves</code></summary>
+        <div>Les sauvegardes empaquetées y sont copiées sans jamais écraser l'existant.</div></details>
+      <details class="key" id="hk-SAVEFILES" data-f><summary><code>SAVEFILES</code><span>Des fichiers de sauvegarde</span><code class="ex">drive_c/game/save.dat</code></summary>
+        <div>Plusieurs fichiers séparés par <code>;</code>, relatifs au prefix.</div></details>
+    </div>
+
+    <h2 class="kgroup" id="h-ar-adv">Avancé : commandes autour du jeu</h2>
+    <div class="tip warn" data-f><svg class="ico"><use href="#i-alert"/></svg><span>Ces commandes s'exécutent sur la machine, hors de Wine : seulement pour des images de confiance. Batocera et <code>--exec</code> les ignorent.</span></div>
+    <div class="klist">
+      <details class="key" id="hk-PRE" data-f><summary><code>PRE</code><span>Une commande avant le jeu</span><code class="ex">sh pre.sh</code></summary>
+        <div>Lancée une fois, dans <code>DIR</code>, avec l'utilisateur et l'environnement du jeu (<code>WINEPREFIX</code>…). Un échec arrête le lancement. Sert à préparer des fichiers que l'image ne peut pas contenir tels quels.</div></details>
+      <details class="key" id="hk-ATTACH" data-f><summary><code>ATTACH</code><span>Une commande pendant le jeu</span><code class="ex">sh attach.sh</code></summary>
+        <div>Lancée une fois le processus du jeu trouvé ; <code>GAME_PID</code> contient son PID. Elle accompagne le jeu jusqu'à la fin de ses processus Wine, a ensuite 5 s pour finir, puis est arrêtée avec tout ce qu'elle a lancé.</div></details>
+      <details class="key" id="hk-ATTACH_PROCESS" data-f><summary><code>ATTACH_PROCESS</code><span>Le processus qu'attend <code>ATTACH</code></span><code class="ex">Game.exe</code></summary>
+        <div>15 caractères au plus. Défaut : l'exécutable de <code>CMD</code> ; à renseigner quand <code>CMD</code> est un lanceur qui démarre le vrai jeu.</div></details>
+    </div>
+
+    <h2 class="kgroup">Pour aller plus loin</h2>
+    <details class="more" id="h-ar-override" data-f><summary>Essayer un réglage sans reconstruire (surcharge)</summary>
+      <p>Un fichier <code>&lt;jeu&gt;.wsquashfs.autorun</code> à côté de l'image, au même format. Ses réglages l'emportent sur ceux de l'image ; <code>RÉGLAGE=</code> vide revient au défaut du lanceur. C'est ce qu'écrit « Essayer sans reconstruire ».</p>
+      <pre class="ar"># Le Jeu.wsquashfs.autorun
+HIDRAW=1</pre>
+      <p>Batocera ne le lit pas : une fois le réglage validé, reconstruire l'image (ou « Inscrire les surcharges » sur une sélection).</p>
+    </details>
+    <details class="more" id="h-ar-choice" data-f><summary>Choix automatique du runner</summary>
+      <p>Sans <code>WINE</code>, <code>PROTON</code>, <code>RUNNER</code>, runner joint ni <code>--wine</code> :</p>
+      <ul>
+        <li><b>Prefix Proton</b> : la même version de Proton (Heroic, Steam, <code>/usr/share/steam/compatibilitytools.d</code>), sinon proton-cachyos, puis l'UMU-Proton le plus récent, puis GE-Proton, puis n'importe quel Proton. Lancé via umu, comme Heroic ; sans umu, le Wine du Proton est lancé directement (<code>WSQUASHFS_UMU=0</code> force ce mode).</li>
+        <li><b>Jeu seul</b> : proton-cachyos, sinon UMU-Proton, sinon GE-Proton. Les deux premiers gèrent la DualSense en manette XInput avec vibrations ; GE-Proton la force en hidraw.</li>
+        <li><b>Autres prefixes</b> (arcade Batocera) : wine-tkg, puis wine-ge/lutris, puis wine-proton, puis le Wine du système.</li>
+      </ul>
+      <p class="muted">Les DLL que Proton copie d'ordinaire dans chaque prefix (~190 Mo par jeu) y sont des liens ; <code>ENV=PROTON_DLL_COPY=&lt;motifs&gt;</code> pour un jeu qui doit les remplacer. Le lanceur ramène la pile à 8 Mo si elle est illimitée (Docker sur Unraid), sans quoi proton-cachyos ne démarre pas.</p>
+    </details>
+    <details class="more" id="h-ar-examples" data-f><summary>Exemples d'autorun</summary>
+      <div class="examples">
+        <div><span>Jeu simple</span><pre class="ar">DIR=Game
+CMD=game.exe -fullscreen</pre></div>
+        <div><span>Chemin avec espaces</span><pre class="ar">DIR=drive_c/Program Files/My Game
+CMD="My Game.exe" --lang fr</pre></div>
+        <div><span>Vieux jeu 32 bits</span><pre class="ar">CMD=oldgame.exe
+ARCH=win32
+WINE=system</pre></div>
+        <div><span>Proton imposé, DualSense gérée par le jeu</span><pre class="ar">CMD=game.exe
+PROTON=GE-Proton9-20
+HIDRAW=1</pre></div>
+        <div><span>Lanceur, puis outil pendant le jeu</span><pre class="ar">CMD=Launcher.exe
+ATTACH=sh attach.sh
+ATTACH_PROCESS=Game.exe</pre></div>
+        <div><span>Résolution fixe</span><pre class="ar">CMD=start.bat
+VIRTUAL_DESKTOP=1920x1080</pre></div>
+      </div>
+    </details>
+  </section>
+
+  <!-- ============================================================ Le lanceur -->
+  <section class="hpage" data-page="cli" id="h-cli" hidden>
+    <h1>Le lanceur</h1>
+    <p class="lead"><code>wsquashfs-launcher</code> monte l'image et lance le jeu, sans aucun privilège. Le gestionnaire s'en sert ; tu peux aussi l'utiliser en ligne de commande.</p>
+
+    <h2>Commandes</h2>
+    <div class="clist">
+      <div data-f><code>wsquashfs-launcher &lt;jeu.wsquashfs&gt;</code><span>Lancer le jeu.</span></div>
+      <div data-f><code>--info &lt;jeu.wsquashfs&gt;</code><span>Version, type, runner, commande et taille, sans monter l'image.</span></div>
+      <div data-f><code>--pack &lt;Jeu.wine&gt;</code><span>Créer une image à partir d'un dossier.</span></div>
+      <div data-f><code>--exec &lt;jeu&gt; &lt;programme&gt;</code><span>Lancer un autre programme dans le prefix du jeu (<code>winecfg</code>, <code>regedit</code>, l'outil de config du jeu…).</span></div>
+      <div data-f><code>--list</code><span>Les jeux connus et leur état.</span></div>
+      <div data-f><code>--doctor</code><span>Vérifier l'installation (aussi visible dans Réglages).</span></div>
+    </div>
+    <details class="more" data-f><summary>Toutes les commandes</summary>
+      <dl class="cdetail">
+        <dt><code>wsquashfs-launcher [--wine &lt;version&gt;] &lt;jeu.wsquashfs | dossier&gt;</code></dt>
+        <dd>Lance le jeu. Un dossier contenant <code>autorun.cmd</code> est lancé sur place, sans montage.</dd>
+        <dt><code>--exec &lt;jeu.wsquashfs&gt; &lt;programme&gt; [arguments…]</code></dt>
+        <dd>Exécutable du jeu (chemin relatif au prefix ou au <code>DIR</code>, casse ignorée) ou outil Wine (<code>winecfg</code>, <code>regedit</code>, <code>cmd</code>, <code>explorer</code>, <code>control joy.cpl</code>…). <code>PRE</code>/<code>ATTACH</code> ne sont pas lancés.</dd>
+        <dt><code>--mount &lt;jeu&gt;</code> · <code>--umount [&lt;jeu&gt;]</code></dt>
+        <dd>Monter le jeu pour le modifier à la main (les changements vont dans ses sauvegardes) ; démonter un jeu ou tous.</dd>
+        <dt><code>--pack &lt;Jeu.wine&gt; [sortie.wsquashfs]</code></dt>
+        <dd>Crée une image (zstd). Une image existante n'est remplacée qu'une fois la nouvelle construite, après confirmation au terminal.</dd>
+        <dt><code>--install &lt;jeu.wsquashfs&gt; [dossier]</code></dt>
+        <dd>L'inverse de <code>--pack</code> : extrait le jeu pour jouer sans FUSE. L'image est conservée, un dossier existant n'est jamais écrasé.</dd>
+        <dt><code>--clean</code></dt>
+        <dd>Supprime le cache et les doublons des sauvegardes (fichiers recopiés sans modification). Ce que le jeu a écrit est gardé.</dd>
+        <dt><code>--clear [jeu]</code></dt>
+        <dd>Radical : ne garde que <code>drive_c/users</code> des sauvegardes, après archive (<code>--backup</code>). Scores et réglages écrits ailleurs sont perdus.</dd>
+        <dt><code>--backup [jeu]</code></dt>
+        <dd>Archive les sauvegardes dans <code>~/.local/share/wsquashfs/backups/</code>. Restauration, jeu arrêté : <code>tar -C ~/.local/share/wsquashfs/saves --xattrs --xattrs-include='user.*' -xpf &lt;archive&gt;</code></dd>
+        <dt><code>--wine &lt;version&gt;</code></dt>
+        <dd>Impose un runner (nom ou partie du nom, chemin d'un binaire wine, ou <code>system</code>), avant tout autre choix.</dd>
+        <dt>MangoHud, gamemode…</dt>
+        <dd>Se placent devant la commande : <code>mangohud wsquashfs-launcher MonJeu.wsquashfs</code>.</dd>
+      </dl>
+    </details>
+
+    <h2>Fonctionnement</h2>
+    <details class="more" id="h-modes" data-f><summary>Modes de montage</summary>
+      <p>Choisis automatiquement à chaque lancement :</p>
+      <ul>
+        <li><b>overlay noyau</b> (par défaut) : overlay du noyau dans un namespace utilisateur ; lectures aléatoires environ 5 fois plus rapides, rien d'orphelin après un plantage. Requiert Linux ≥ 5.11 et squashfuse ≥ 0.5.</li>
+        <li><b>overlay FUSE</b> (repli, et <code>--mount</code>) : squashfuse + fuse-overlayfs.</li>
+        <li><b>copy</b> : FUSE bloqué (conteneur sans <code>CAP_SYS_ADMIN</code>) ; copie de travail en cache.</li>
+        <li><b>dossier</b> : jeu installé par <code>--install</code>, lancé sur place.</li>
+      </ul>
+      <p class="muted">Tout échec de l'overlay noyau retombe sur fuse-overlayfs ; <code>--doctor</code> dit pourquoi. Les deux partagent les mêmes sauvegardes.</p>
+    </details>
+    <details class="more" id="h-data" data-f><summary>Où sont les données</summary>
+      <pre>~/.local/share/wsquashfs/
+├── saves/&lt;jeu&gt;/     ce que le jeu a écrit
+├── backups/         archives --backup / --clear
+└── wine/ dxvk/ …    runners et traducteurs installés
+~/.cache/wsquashfs/  montages et copies de travail</pre>
+      <p>À côté de l'image : <code>&lt;jeu&gt;.wsquashfs.autorun</code> (surcharge) et <code>&lt;jeu&gt;.wsquashfs.keys</code> (touches). À côté de <code>roms/</code> : <code>saves/&lt;système&gt;/&lt;jeu&gt;</code>.</p>
+    </details>
+    <details class="more" id="h-env" data-f><summary>Variables d'environnement</summary>
+      <dl class="cdetail">
+        <dt><code>WSQUASHFS_SAVES_DIR</code>, <code>WSQUASHFS_CACHE</code>, <code>WSQUASHFS_BACKUP_DIR</code></dt><dd>Emplacements des sauvegardes, du cache et des archives.</dd>
+        <dt><code>WSQUASHFS_BATOCERA_SAVES</code></dt><dd>Dossier de <code>SAVEDIR</code>/<code>SAVEFILES</code> (défaut : <code>saves/</code> à côté de <code>roms/</code>).</dd>
+        <dt><code>WSQUASHFS_OVERLAY</code></dt><dd><code>auto</code> (défaut), <code>fuse</code> ou <code>kernel</code> (sans repli).</dd>
+        <dt><code>WSQUASHFS_DXVK=0</code>, <code>WSQUASHFS_D7VK=0</code></dt><dd>Désactive DXVK ou d7vk pour tous les jeux (le réglage d'un jeu l'emporte).</dd>
+        <dt><code>WSQUASHFS_HIDRAW</code>, <code>WSQUASHFS_VIRTUAL_DESKTOP</code></dt><dd>Valeur par défaut de <code>HIDRAW</code> et <code>VIRTUAL_DESKTOP</code> pour tous les jeux.</dd>
+        <dt><code>WSQUASHFS_UMU=0</code></dt><dd>Lance le Wine d'un Proton directement, sans umu.</dd>
+        <dt><code>WSQUASHFS_DXVK_DIR</code>, <code>WSQUASHFS_VKD3D_DIR</code>, <code>WSQUASHFS_D7VK_DLL</code></dt><dd>Emplacements de DXVK, VKD3D-Proton et d7vk.</dd>
+      </dl>
+    </details>
+    <details class="more" id="h-install" data-f><summary>Installer le lanceur sur un PC</summary>
+      <pre>curl -fsSL https://raw.githubusercontent.com/Gunnm92/wsquashfs-launcher/main/install.sh | bash</pre>
+      <p>Pour Debian/Ubuntu et Arch (CachyOS, Manjaro, EndeavourOS) : installe les paquets manquants, propose wine-tkg, umu-run et un Proton, DXVK, VKD3D-Proton et d7vk, puis termine par <code>--doctor</code>. Options : <code>--dry-run</code>, <code>--yes</code>, <code>--uninstall</code>.</p>
+    </details>
+    <details class="more" id="h-frontends" data-f><summary>Pegasus et EmulationStation</summary>
+      <p>Commande de lancement : <code>wsquashfs-launcher "{file.path}"</code>.</p>
+      <div class="examples">
+        <div><span>Pegasus (<code>metadata.pegasus.txt</code>)</span><pre>collection: Windows Games (WSquashFS)
+extensions: wsquashfs
+launch: wsquashfs-launcher "{file.path}"</pre></div>
+        <div><span>EmulationStation (<code>es_systems.cfg</code>)</span><pre>&lt;extension&gt;.wsquashfs&lt;/extension&gt;
+&lt;command&gt;wsquashfs-launcher %ROM%&lt;/command&gt;</pre></div>
+      </div>
+    </details>
+  </section>
+
+  <!-- ============================================================ Dépannage -->
+  <section class="hpage" data-page="trouble" id="h-trouble" hidden>
+    <h1>Dépannage</h1>
+    <p class="lead">Les problèmes fréquents et leur solution. Pour un jeu qui ne démarre pas, commence par le <a href="#g-broken">guide</a>.</p>
+    <div class="klist">
+      <details class="guide" data-f><summary><svg class="ico"><use href="#i-alert"/></svg><span>Le jeu ne se lance pas</span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
+        <div>Fiche → <b>Lancement d'essai</b> : rapport avec fenêtres, erreurs et capture. En ligne de commande : relancer depuis un terminal pour lire les erreurs Wine, et vérifier la commande avec <code>--info</code>.</div></details>
+      <details class="guide" data-f><summary><svg class="ico"><use href="#i-alert"/></svg><span><code>failed to open umu.exe</code></span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
+        <div>Les liens du prefix pointent vers un runner absent. Fiche → Infos → <b>Liens du runner</b> → Analyser, puis la réparation proposée. Voir <a href="#h-runner">Runner joint</a>.</div></details>
+      <details class="guide" data-f><summary><svg class="ico"><use href="#i-alert"/></svg><span><code>fusermount3: mount failed: Operation not permitted</code></span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
+        <div>FUSE est bloqué dans le conteneur : le lanceur passe en mode copy (plus lent au premier lancement). Pour l'overlay : <code>--device /dev/fuse --cap-add SYS_ADMIN</code>.</div></details>
+      <details class="guide" data-f><summary><svg class="ico"><use href="#i-alert"/></svg><span>Overlay noyau indisponible</span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
+        <div>Le jeu marche quand même, sous fuse-overlayfs. <code>--doctor</code> donne la cause : squashfuse antérieur à 0.5 (Debian 12), namespaces refusés (seccomp de Docker : <code>--security-opt seccomp=unconfined</code> ; AppArmor d'Ubuntu 24.04 ; <code>user.max_user_namespaces=0</code>), ou sauvegardes sur un système de fichiers sans attributs <code>user.*</code>.</div></details>
+      <details class="guide" data-f><summary><svg class="ico"><use href="#i-alert"/></svg><span><code>Make sure that your X server is running…</code></span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
+        <div>Wine ne trouve pas l'affichage : vérifier <code>$DISPLAY</code> et autoriser l'utilisateur avec <code>xhost +SI:localuser:$(id -un)</code>.</div></details>
+      <details class="guide" data-f><summary><svg class="ico"><use href="#i-alert"/></svg><span>Écran noir ou affichage très lent</span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
+        <div>Essayer <code>DXVK=0</code> (vieux jeux Direct3D) ou <code>VIRTUAL_DESKTOP=1920x1080</code> (jeu qui change la résolution), d'abord avec « Essayer sans reconstruire ».</div></details>
+      <details class="guide" data-f><summary><svg class="ico"><use href="#i-alert"/></svg><span>Vieux jeu 32 bits qui plante au démarrage</span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
+        <div>wine-tkg n'est pas WoW64 : essayer <code>WINE=system</code> (le Wine WoW64 du système), éventuellement avec <code>ARCH=win32</code>.</div></details>
+      <details class="guide" data-f><summary><svg class="ico"><use href="#i-alert"/></svg><span>Jeu arcade réseau : socket ICMP refusé (<code>SOCK_RAW</code>)</span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
+        <div>Le jeu vérifie la connexion par un « ping » que le conteneur refuse. Le relais <code>fakeping</code> (<code>dinput8.dll</code>) rend un ping sans réponse au lieu d'une erreur : sélectionner le jeu → <b>Fichiers / registre</b> → préréglage « relais fakeping ».</div></details>
+      <details class="guide" data-f><summary><svg class="ico"><use href="#i-alert"/></svg><span>Un jeu reste monté</span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
+        <div><code>wsquashfs-launcher --umount</code> démonte tous les jeux.</div></details>
+      <details class="guide" data-f><summary><svg class="ico"><use href="#i-alert"/></svg><span>Repartir de zéro pour un jeu</span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
+        <div>Fiche → <b>Réinitialiser les sauvegardes</b> : elles sont mises de côté (renommées), pas supprimées. En ligne de commande : <code>--clear "MonJeu"</code>, après archive.</div></details>
+    </div>
+  </section>
+</article>
