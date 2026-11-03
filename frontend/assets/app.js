@@ -1276,6 +1276,24 @@ const HOST_HINTS = {
   local: "Le lanceur est installé sur la machine qui fait tourner ce gestionnaire, avec un écran : l'essai s'y affiche. Le service doit tourner sous l'utilisateur de la session graphique.",
   docker: "Le lanceur tourne dans un conteneur (ex. SteamBox), joint par l'API Docker. Le gestionnaire doit pouvoir joindre cette API (ex. réseau du docker-socket-proxy, avec l'autorisation EXEC).",
 };
+// Connexion établie : les paramètres de connexion se replient (résumé), sauf
+// si l'on demande à les modifier ; mode changé = champs visibles.
+function paintConnection(mode = $("cfg-host").dataset.mode) {
+  const saved = state.config?.game_host;
+  const connected = state.hostStatus?.state === "ok" && mode === saved;
+  const folded = connected && !state.hostEditing && (mode === "agent" || mode === "docker");
+  $("cfg-docker").hidden = mode !== "docker" || folded;
+  $("cfg-agent").hidden = mode !== "agent" || folded;
+  $("host-summary").hidden = !folded;
+  if (folded) {
+    const c = state.config;
+    $("host-summary-text").textContent = mode === "agent"
+      ? `Agent : ${c.agent_url}${c.agent_fingerprint ? " · empreinte vérifiée" : ""}`
+      : `Conteneur : ${c.steambox_container} · ${c.docker_host}`;
+  }
+}
+$("host-edit").onclick = () => { state.hostEditing = true; paintConnection(); };
+
 function paintHostForm(mode) {
   for (const b of $("cfg-host").children) {
     b.classList.toggle("on", b.dataset.host === mode);
@@ -1283,8 +1301,7 @@ function paintHostForm(mode) {
   }
   $("cfg-host").dataset.mode = mode;
   $("cfg-host-hint").textContent = HOST_HINTS[mode];
-  $("cfg-docker").hidden = mode !== "docker";
-  $("cfg-agent").hidden = mode !== "agent";
+  paintConnection(mode);
   $("cfg-host-adv").hidden = mode === "off" || mode === "agent";
   $("host-diag-row").hidden = mode === "off";
 }
@@ -1382,11 +1399,15 @@ async function loadHostStatus(refresh = false) {
   text.textContent = "vérification…";
   try {
     const s = await api(`/api/game_host/status${refresh ? "?refresh=true" : ""}`);
+    state.hostStatus = s;
+    paintConnection();
     box.classList.add(s.state);
     text.textContent = s.state === "ok" ? `Connectée · ${s.name}`
       : s.state === "off" ? "Désactivée" : `Non connectée · ${s.detail}`;
     text.title = s.detail || "";
   } catch (error) {
+    state.hostStatus = { state: "ko" };
+    paintConnection();
     box.classList.add("ko");
     text.textContent = `Non connectée · ${error.message}`;
   }
@@ -1437,6 +1458,7 @@ $("btn-config").onclick = async () => {
     ? `Associé. Empreinte enregistrée : ${cfg.agent_fingerprint}` : "Pas encore associé.";
   paintHostForm(cfg.game_host || "off");
   $("doc-title").textContent = `wsquashfs-launcher --doctor — ${cfg.game_host_name}`;
+  state.hostEditing = false;
   loadHostStatus();
   $("cfg-night-start").value = cfg.night_start || "01:00";
   $("cfg-night-end").value = cfg.night_end || "07:00";

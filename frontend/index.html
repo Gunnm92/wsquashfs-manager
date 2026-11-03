@@ -331,6 +331,8 @@
     <button data-host="agent" role="radio">Agent réseau</button>
   </div>
   <p class="dlg-intro host-hint" id="cfg-host-hint"></p>
+  <div class="host-summary" id="host-summary" hidden><span id="host-summary-text"></span>
+    <button class="btn bare sm" id="host-edit" type="button"><svg class="ico sm"><use href="#i-pen"/></svg>Modifier la connexion</button></div>
   <div class="host-fields" id="cfg-docker" hidden>
     <label class="field">Nom du conteneur<input id="cfg-container" placeholder="SteamBox"></label>
     <label class="field">Adresse de l'API Docker<input id="cfg-docker-host" placeholder="tcp://docker-socket-proxy:2375"></label>

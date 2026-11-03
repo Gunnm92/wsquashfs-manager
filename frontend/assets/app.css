@@ -932,3 +932,6 @@ aside.panel.editing { border-color: var(--edit); box-shadow: var(--shadow-md); }
 .agent-assoc .msg { overflow-wrap: anywhere; }
 .agent-assoc .msg strong { display: block; }
 .host-fields .agent-assoc { grid-column: 1 / -1; }
+.host-summary { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; padding: 10px 14px;
+  border-radius: 16px; background: var(--s2); font-size: 13px; color: var(--muted); }
+.host-summary > span:first-child { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--text-2, var(--muted)); }
