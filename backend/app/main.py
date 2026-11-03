@@ -233,7 +233,7 @@ def agent_probe(body: AgentProbe):
     url = body.url.strip().rstrip("/")
     match = re.match(r"^https://([^\s/:]+):(\d+)$", url)
     if not match:
-        raise HTTPException(status_code=422, detail="adresse : https://hôte:port (ex. https://192.168.1.20:8766)")
+        raise HTTPException(status_code=422, detail="adresse : https://hôte:port (ex. https://192.168.1.20:8790)")
     host, port = match.group(1), int(match.group(2))
     try:
         pem = ssl.get_server_certificate((host, port), timeout=10)

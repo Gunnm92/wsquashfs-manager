@@ -197,7 +197,7 @@ def save_game_host(settings: Settings, values: dict) -> None:
     if clean["game_host"] == "agent":
         url = clean.get("agent_url", settings.agent_url)
         if not re.match(r"^https://[^\s/]+:\d+$", url or ""):
-            raise ValueError("adresse de l'agent : https://hôte:port (ex. https://192.168.1.20:8766)")
+            raise ValueError("adresse de l'agent : https://hôte:port (ex. https://192.168.1.20:8790)")
         if not clean.get("agent_token") and not settings.agent_token:
             raise ValueError("jeton de l'agent requis (affiché par « wsquashfs-agent pair »)")
     if clean["game_host"] == "docker":
