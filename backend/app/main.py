@@ -202,18 +202,25 @@ class GameHostConfig(BaseModel):
 def set_game_host(body: GameHostConfig):
     """Machine de jeu : désactivée, cette machine, un conteneur Docker ou un agent réseau."""
     values = {k: v for k, v in body.model_dump().items() if k != "agent_pem" and (v != "" or k == "session_process")}
+    keep_cert = False
     if body.game_host == "agent":
-        if not body.agent_pem.strip().startswith("-----BEGIN CERTIFICATE-----"):
-            raise HTTPException(status_code=422, detail="associer l'agent avant d'enregistrer (Associer)")
-        try:
-            fingerprint_pem(body.agent_pem)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail="certificat de l'agent illisible") from exc
+        if body.agent_pem.strip():
+            try:
+                fingerprint_pem(body.agent_pem)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail="certificat de l'agent illisible") from exc
+        else:
+            # Pas de nouvelle association : garder le certificat déjà confirmé, si
+            # l'adresse n'a pas changé et que le jeton n'a pas été modifié
+            same_agent = (not body.agent_url or body.agent_url.rstrip("/") == _settings.agent_url.rstrip("/"))
+            keep_cert = same_agent and not body.agent_token and agent_cert_path(_settings).exists()
+            if not keep_cert:
+                raise HTTPException(status_code=422, detail="associer l'agent avant d'enregistrer (Associer)")
     try:
         save_game_host(_settings, values)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    if body.game_host == "agent":
+    if body.game_host == "agent" and not keep_cert:
         cert = agent_cert_path(_settings)
         cert.parent.mkdir(parents=True, exist_ok=True)
         write_atomic(cert, body.agent_pem.strip() + "\n")
