@@ -1412,7 +1412,7 @@ $("btn-config").onclick = async () => {
   $("cfg-session").value = cfg.session_process ?? "";
   $("cfg-agent-url").value = cfg.agent_url || "";
   $("cfg-agent-token").value = "";
-  $("cfg-agent-token").placeholder = cfg.agent_token_set ? "jeton enregistré : laisser vide pour le garder" : "affiché par « wsquashfs-agent pair »";
+  $("cfg-agent-token").placeholder = cfg.agent_token_set ? "jeton enregistré : laisser vide pour le garder" : "affiché par « wsquashfs-launcher --pair »";
   agentReset();
   $("cfg-agent-result").className = "msg";
   $("cfg-agent-result").textContent = cfg.agent_fingerprint

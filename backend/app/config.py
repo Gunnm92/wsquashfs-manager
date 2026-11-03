@@ -199,7 +199,7 @@ def save_game_host(settings: Settings, values: dict) -> None:
         if not re.match(r"^https://[^\s/]+:\d+$", url or ""):
             raise ValueError("adresse de l'agent : https://hôte:port (ex. https://192.168.1.20:8790)")
         if not clean.get("agent_token") and not settings.agent_token:
-            raise ValueError("jeton de l'agent requis (affiché par « wsquashfs-agent pair »)")
+            raise ValueError("jeton de l'agent requis (affiché par « wsquashfs-launcher --pair »)")
     if clean["game_host"] == "docker":
         for key, label in (("steambox_container", "nom du conteneur"), ("docker_host", "adresse de l'API Docker"),
                            ("steambox_roms", "dossier roms dans le conteneur")):

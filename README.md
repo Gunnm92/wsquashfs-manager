@@ -84,7 +84,7 @@ sans.
 | Désactivée | défaut d'une installation neuve |
 | Cette machine | lanceur installé sur la machine du gestionnaire, avec un écran ; le service tourne sous l'utilisateur de la session graphique |
 | Conteneur Docker | lanceur dans un conteneur (ex. SteamBox), joint par l'API Docker (docker-socket-proxy avec EXEC) ; nom du conteneur, adresse de l'API, dossier roms vu du conteneur, utilisateur des jeux |
-| Agent réseau | `wsquashfs-agent` installé sur la machine de jeu (`install.sh --agent` du lanceur) ; adresse `https://hôte:8766` et jeton à coller, puis **Associer** : le certificat est récupéré et son empreinte doit être confirmée (identique à celle de `wsquashfs-agent pair`). Sans Docker, et rien ne reste actif entre deux appels. |
+| Agent réseau | `wsquashfs-agent` installé sur la machine de jeu (`install.sh --agent` du lanceur) ; adresse `https://hôte:8766` et jeton à coller, puis **Associer** : le certificat est récupéré et son empreinte doit être confirmée (identique à celle de `wsquashfs-launcher --pair`). Sans Docker, et rien ne reste actif entre deux appels. |
 
 Sans choix dans l'interface, le mode Docker est retenu si
 `WSQUASHFS_MGR_STEAMBOX_CONTAINER` est posé (cas du template Unraid), sinon

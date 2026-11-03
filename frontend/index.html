@@ -338,12 +338,12 @@
   </div>
   <div class="host-fields" id="cfg-agent" hidden>
     <label class="field">Adresse de l'agent<input id="cfg-agent-url" placeholder="https://192.168.1.20:8790"></label>
-    <label class="field">Jeton<input id="cfg-agent-token" type="password" autocomplete="off" placeholder="affiché par « wsquashfs-agent pair »"></label>
+    <label class="field">Jeton<input id="cfg-agent-token" type="password" autocomplete="off" placeholder="affiché par « wsquashfs-launcher --pair »"></label>
     <div class="agent-assoc">
       <div class="row"><button class="btn secondary sm" id="cfg-agent-probe" type="button">Associer</button>
         <span class="muted" style="font-size:12.5px">Récupère le certificat de l'agent et vérifie le jeton.</span></div>
       <div id="cfg-agent-result" class="msg">Pas encore associé.</div>
-      <label class="toggle" id="cfg-agent-confirm-row" hidden><input type="checkbox" id="cfg-agent-confirm"><span>L'empreinte est identique à celle affichée par <code>wsquashfs-agent pair</code></span></label>
+      <label class="toggle" id="cfg-agent-confirm-row" hidden><input type="checkbox" id="cfg-agent-confirm"><span>L'empreinte est identique à celle affichée par <code>wsquashfs-launcher --pair</code></span></label>
     </div>
   </div>
   <details class="host-adv" id="cfg-host-adv" hidden><summary>Session graphique</summary>

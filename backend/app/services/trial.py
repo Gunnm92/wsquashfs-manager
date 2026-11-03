@@ -304,7 +304,7 @@ def agent_cert_path(settings: Settings) -> Path:
 
 
 def fingerprint_pem(pem: str) -> str:
-    """Empreinte SHA-256 du certificat, au format affiché par `wsquashfs-agent pair`."""
+    """Empreinte SHA-256 du certificat, au format affiché par `wsquashfs-launcher --pair`."""
     digest = hashlib.sha256(ssl.PEM_cert_to_DER_cert(pem)).hexdigest().upper()
     return ":".join(digest[i:i + 2] for i in range(0, len(digest), 2))
 
@@ -340,7 +340,7 @@ class AgentHost:
         except httpx.HTTPError as exc:
             raise RebuildError(f"agent injoignable ({self.url}) : {exc}") from exc
         if response.status_code == 401:
-            raise RebuildError("jeton de l'agent refusé : copier le jeton affiché par « wsquashfs-agent pair »")
+            raise RebuildError("jeton de l'agent refusé : copier le jeton affiché par « wsquashfs-launcher --pair »")
         if response.status_code >= 400:
             try:
                 detail = response.json().get("detail", response.text)
