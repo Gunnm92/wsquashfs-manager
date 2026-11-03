@@ -62,7 +62,7 @@ from .services.rebuild import (
 from .services.runners import plan_runner, run_runner, suggest
 from .services.tasks import QueueLocked, TaskConflict, TaskQueue
 from .services.trial import (
-    AgentHost, agent_cert_path, fingerprint_pem, game_host, host_name, run_doctor, run_trial, trial_dir,
+    AgentHost, agent_cert_path, fingerprint_pem, game_host, host_name, host_status, run_doctor, run_trial, trial_dir,
 )
 from .services.update import default_anchor, plan_update, run_update
 
@@ -262,6 +262,22 @@ def _doctor(refresh: bool = False) -> dict:
     result = run_doctor(_settings)
     _doctor_cache["result"] = (now, result)
     return {**result, "age": 0}
+
+
+_status_cache: dict = {}
+_STATUS_TTL = 20            # s : le voyant ne refait pas le test à chaque ouverture
+
+
+@app.get("/api/game_host/status")
+def game_host_status(refresh: bool = False):
+    """Voyant de la machine de jeu (connectée, injoignable, désactivée)."""
+    now = time.monotonic()
+    cached = _status_cache.get("value")
+    if cached and not refresh and now - cached[0] < _STATUS_TTL and cached[2] == _settings.game_host:
+        return cached[1]
+    result = host_status(_settings)
+    _status_cache["value"] = (now, result, _settings.game_host)
+    return result
 
 
 @app.get("/api/launcher/doctor")

@@ -913,3 +913,22 @@ aside.panel.editing { border-color: var(--edit); box-shadow: var(--shadow-md); }
 .host-hint { margin-top: 8px; }
 .host-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
 @media (max-width: 640px) { .host-fields { grid-template-columns: 1fr; } }
+/* Voyant de la machine de jeu */
+.host-status { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--muted);
+  max-width: 62%; min-width: 0; }
+.host-status > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.host-status .led { width: 9px; height: 9px; flex: none; border-radius: 50%; background: var(--faint); }
+.host-status.ok { color: #6fd9a0; }
+.host-status.ok .led { background: #45c486; box-shadow: 0 0 0 3px rgba(69, 196, 134, .18); }
+.host-status.ko { color: #f58d8d; }
+.host-status.ko .led { background: #f07070; box-shadow: 0 0 0 3px rgba(240, 112, 112, .18); }
+.host-diag { margin-top: 14px; }
+.host-diag .btn { gap: 7px; }
+#dlg-doctor .doctor { margin-top: 6px; }
+/* Réglages : champs contenus dans la fenêtre */
+.host-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.host-fields .field { min-width: 0; }
+.host-fields .field input { width: 100%; min-width: 0; }
+.agent-assoc .msg { overflow-wrap: anywhere; }
+.agent-assoc .msg strong { display: block; }
+.host-fields .agent-assoc { grid-column: 1 / -1; }

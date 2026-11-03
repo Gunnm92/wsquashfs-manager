@@ -402,6 +402,26 @@ def game_host(settings: Settings, timeout: float = 120) -> DockerHost | LocalHos
     raise RebuildError("machine de jeu désactivée : à activer dans Réglages → Machine de jeu")
 
 
+def host_status(settings: Settings) -> dict:
+    """Voyant de la machine de jeu : ok (connectée), ko (injoignable ou sans
+    lanceur) ou off (désactivée). Test léger, sans --doctor."""
+    if settings.game_host in (None, "off"):
+        return {"state": "off", "name": GAME_HOST_LABELS["off"], "detail": ""}
+    name = host_name(settings)
+    try:
+        host = game_host(settings, 15)
+        if isinstance(host, AgentHost):
+            info = host.info()
+            return {"state": "ok", "name": name,
+                    "detail": f"{info.get('host', '')} · utilisateur {info.get('user', '')} · agent {info.get('version', '')}"}
+        code, out = host.exec(["bash", "-lc", "command -v wsquashfs-launcher"])
+        if code != 0:
+            return {"state": "ko", "name": name, "detail": "wsquashfs-launcher introuvable sur la machine de jeu"}
+        return {"state": "ok", "name": name, "detail": out.decode("utf-8", "replace").strip()}
+    except RebuildError as exc:
+        return {"state": "ko", "name": name, "detail": str(exc)}
+
+
 def host_name(settings: Settings) -> str:
     if settings.game_host == "docker":
         return settings.steambox_container

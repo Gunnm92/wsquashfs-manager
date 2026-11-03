@@ -321,8 +321,9 @@
   <p class="dlg-intro" style="margin-top:8px">Une tâche « cette nuit » ne démarre que dans cette plage.</p>
   <div class="section-label">Serveur</div>
   <dl id="cfg-info" class="cfg-info"></dl>
-  <div class="section-label">Machine de jeu</div>
-  <p class="dlg-intro">Là où tourne <code>wsquashfs-launcher</code> : sert au lancement d'essai, à l'état du lanceur et aux runners installés (réparation des liens). Tout le reste fonctionne sans.</p>
+  <div class="section-label row"><span>Machine de jeu</span><span class="spacer"></span>
+    <span class="host-status" id="host-status"><span class="led"></span><span id="host-status-text">vérification…</span></span>
+    <button class="iconbtn bare sm" id="host-check" title="Tester la connexion"><svg class="ico sm"><use href="#i-refresh"/></svg></button></div>
   <div class="pills on-s2 host-modes" id="cfg-host" role="radiogroup">
     <button data-host="off" role="radio">Désactivée</button>
     <button data-host="local" role="radio">Cette machine</button>
@@ -349,12 +350,19 @@
   <details class="host-adv" id="cfg-host-adv" hidden><summary>Session graphique</summary>
     <label class="field" style="margin-top:8px">Processus de la session (son affichage est repris pour l'essai)<input id="cfg-session" placeholder="emulationstation — vide : environnement du gestionnaire"></label>
   </details>
-  <div class="section-label row" id="doc-head"><span id="doc-title">État du lanceur</span><span class="spacer"></span><span id="doc-age"></span>
-    <button class="iconbtn bare sm" id="doc-refresh" title="Relancer wsquashfs-launcher --doctor"><svg class="ico sm"><use href="#i-refresh"/></svg></button></div>
-  <div id="doc-body" class="doctor"><span class="muted">—</span></div>
+  <div class="host-diag" id="host-diag-row"><button class="btn secondary sm" id="host-diag" type="button"><svg class="ico sm"><use href="#i-info"/></svg>Diagnostic du lanceur…</button></div>
   <p id="cfg-err" class="notice err" hidden></p>
   <div class="dlg-foot"><span class="spacer"></span>
     <button class="btn secondary" data-close>Fermer</button><button class="btn primary" id="cfg-save">Enregistrer</button></div>
+</dialog>
+
+<dialog id="dlg-doctor" class="small">
+  <div class="dlg-head"><h2>Diagnostic du lanceur</h2><span class="spacer"></span><span id="doc-age" class="muted"></span>
+    <button class="iconbtn bare sm" id="doc-refresh" title="Relancer le diagnostic"><svg class="ico sm"><use href="#i-refresh"/></svg></button>
+    <button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
+  <p class="dlg-intro" id="doc-title">wsquashfs-launcher --doctor sur la machine de jeu</p>
+  <div id="doc-body" class="doctor"><span class="muted">—</span></div>
+  <div class="dlg-foot"><span class="spacer"></span><button class="btn secondary" data-close>Fermer</button></div>
 </dialog>
 
 <dialog id="dlg-mass">

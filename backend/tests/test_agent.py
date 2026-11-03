@@ -163,3 +163,12 @@ def test_game_host_agent_selected_by_settings(agent, tmp_path):
     host = trial.game_host(settings)
     assert isinstance(host, trial.AgentHost)
     assert trial.host_name(settings) == f"l'agent ({agent['url']})"
+
+
+def test_host_status_connected_and_refused(agent, tmp_path):
+    ok = trial.host_status(settings_for(tmp_path, agent["pem"], agent["url"]))
+    assert ok["state"] == "ok" and "fake" in ok["detail"]
+    ko = trial.host_status(settings_for(tmp_path, agent["pem"], agent["url"], token="faux"))
+    assert ko["state"] == "ko" and "jeton" in ko["detail"]
+    off = trial.host_status(Settings(state_dir=tmp_path / "s", game_host="off"))
+    assert off["state"] == "off"

@@ -1286,8 +1286,7 @@ function paintHostForm(mode) {
   $("cfg-docker").hidden = mode !== "docker";
   $("cfg-agent").hidden = mode !== "agent";
   $("cfg-host-adv").hidden = mode === "off" || mode === "agent";
-  $("doc-head").hidden = mode === "off";
-  $("doc-body").hidden = mode === "off";
+  $("host-diag-row").hidden = mode === "off";
 }
 $("cfg-host").onclick = (event) => {
   const b = event.target.closest("button[data-host]");
@@ -1373,6 +1372,25 @@ function runnerSuggestions() {
   }
 }
 $("doc-refresh").onclick = () => loadDoctor(true);
+$("host-diag").onclick = () => { $("dlg-doctor").showModal(); loadDoctor(true); };
+$("host-check").onclick = () => loadHostStatus(true);
+
+// Voyant : vert quand la machine de jeu répond, rouge sinon
+async function loadHostStatus(refresh = false) {
+  const box = $("host-status"), text = $("host-status-text");
+  box.className = "host-status";
+  text.textContent = "vérification…";
+  try {
+    const s = await api(`/api/game_host/status${refresh ? "?refresh=true" : ""}`);
+    box.classList.add(s.state);
+    text.textContent = s.state === "ok" ? `Connectée · ${s.name}`
+      : s.state === "off" ? "Désactivée" : `Non connectée · ${s.detail}`;
+    text.title = s.detail || "";
+  } catch (error) {
+    box.classList.add("ko");
+    text.textContent = `Non connectée · ${error.message}`;
+  }
+}
 
 $("btn-config").onclick = async () => {
   let cfg, systems = [], systemsError = null;
@@ -1418,11 +1436,8 @@ $("btn-config").onclick = async () => {
   $("cfg-agent-result").textContent = cfg.agent_fingerprint
     ? `Associé. Empreinte enregistrée : ${cfg.agent_fingerprint}` : "Pas encore associé.";
   paintHostForm(cfg.game_host || "off");
-  $("doc-title").textContent = `État du lanceur — ${cfg.game_host_name}`;
-  if (cfg.game_host && cfg.game_host !== "off") {
-    if (state.doctor) renderDoctor();
-    loadDoctor();
-  }
+  $("doc-title").textContent = `wsquashfs-launcher --doctor — ${cfg.game_host_name}`;
+  loadHostStatus();
   $("cfg-night-start").value = cfg.night_start || "01:00";
   $("cfg-night-end").value = cfg.night_end || "07:00";
   $("cfg-err").textContent = systemsError || "";
@@ -1452,6 +1467,7 @@ $("cfg-save").onclick = async () => {
       state.config.steambox_roms, state.config.game_user, state.config.session_process]) !== before) state.doctor = null;
     fillWhen();
     applyHost();
+    loadHostStatus(true);
   } catch (error) {
     $("cfg-err").textContent = error.message;
     $("cfg-err").hidden = false;
