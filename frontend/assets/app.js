@@ -1285,6 +1285,7 @@ function paintConnection(mode = $("cfg-host").dataset.mode) {
   $("cfg-docker").hidden = mode !== "docker" || folded;
   $("cfg-agent").hidden = mode !== "agent" || folded;
   $("host-summary").hidden = !folded;
+  $("host-maint").hidden = !(state.hostStatus?.state === "ok" && mode === saved);
   if (folded) {
     const c = state.config;
     $("host-summary-text").textContent = mode === "agent"
@@ -1293,6 +1294,34 @@ function paintConnection(mode = $("cfg-host").dataset.mode) {
   }
 }
 $("host-edit").onclick = () => { state.hostEditing = true; paintConnection(); };
+
+// Maintenance du lanceur : chaque action demande confirmation, le résultat s'affiche sous les boutons
+const MAINT = {
+  list: ["Lister les jeux", ""],
+  umount: ["Démonter les jeux", "Un jeu en cours sera arrêté."],
+  clean: ["Nettoyer le cache", "Supprime les copies de travail et les doublons. Ce que les jeux ont écrit est gardé."],
+  backup: ["Sauvegarder les sauvegardes", "Archive les sauvegardes des jeux dans le dossier des backups. Rien n'est supprimé."],
+};
+for (const button of document.querySelectorAll("[data-maint]")) {
+  button.onclick = async () => {
+    const action = button.dataset.maint, [label, warning] = MAINT[action];
+    if (action !== "list" && !confirm(`${label} ?\n\n${warning}`)) return;
+    const out = $("maint-out");
+    out.hidden = false;
+    out.textContent = `${label}…`;
+    const buttons = document.querySelectorAll("[data-maint]");
+    buttons.forEach((b) => { b.disabled = true; });
+    try {
+      const r = await api("/api/game_host/maintenance", { method: "POST", body: { action }, timeout: 900000 });
+      out.textContent = (r.output || "").trim() || `${label} : terminé (code ${r.code})`;
+      if (r.code !== 0) out.textContent += `\n\nCode de retour : ${r.code}`;
+    } catch (error) {
+      out.textContent = `${label} : ${error.message}`;
+    } finally {
+      buttons.forEach((b) => { b.disabled = false; });
+    }
+  };
+}
 // Réglages en onglets : Dossiers, Machine de jeu, Nuit
 function showCfgPane(name) {
   for (const b of $("cfg-tabs").children) b.classList.toggle("on", b.dataset.cpane === name);

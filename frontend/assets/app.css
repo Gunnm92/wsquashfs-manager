@@ -943,3 +943,8 @@ aside.panel.editing { border-color: var(--edit); box-shadow: var(--shadow-md); }
 .cfg-info-box { margin-top: 14px; border-top: 1px solid var(--divider); padding-top: 10px; }
 .cfg-info-box > summary { cursor: pointer; font-size: 12.5px; color: var(--muted); }
 .cfg-info-box > .cfg-info { margin-top: 8px; }
+/* Maintenance du lanceur */
+.maint { margin-top: 12px; }
+.maint-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.maint-out { margin-top: 10px; max-height: 220px; overflow: auto; padding: 10px 12px; border-radius: 14px;
+  background: var(--bg); font: 11.5px/1.55 var(--mono); color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }

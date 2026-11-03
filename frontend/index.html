@@ -355,6 +355,16 @@
     <label class="field" style="margin-top:8px">Processus de la session (son affichage est repris pour l'essai)<input id="cfg-session" placeholder="emulationstation — vide : environnement du gestionnaire"></label>
   </details>
   <div class="host-diag" id="host-diag-row"><button class="btn secondary sm" id="host-diag" type="button"><svg class="ico sm"><use href="#i-info"/></svg>Diagnostic du lanceur…</button></div>
+  <div class="maint" id="host-maint" hidden>
+    <div class="section-label">Maintenance du lanceur</div>
+    <div class="maint-btns">
+      <button class="btn secondary sm" data-maint="list">Lister les jeux</button>
+      <button class="btn secondary sm" data-maint="umount">Démonter les jeux</button>
+      <button class="btn secondary sm" data-maint="clean">Nettoyer le cache</button>
+      <button class="btn secondary sm" data-maint="backup">Sauvegarder les sauvegardes</button>
+    </div>
+    <pre class="maint-out" id="maint-out" hidden></pre>
+  </div>
   </section>
   <section class="cfg-pane" data-pane-name="night" hidden>
   <div class="section-label">Plage des tâches programmées</div>

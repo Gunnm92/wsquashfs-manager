@@ -165,6 +165,14 @@ def test_game_host_agent_selected_by_settings(agent, tmp_path):
     assert trial.host_name(settings) == f"l'agent ({agent['url']})"
 
 
+def test_maintenance_refuses_unlisted_actions(agent, tmp_path):
+    settings = settings_for(tmp_path, agent["pem"], agent["url"])
+    with pytest.raises(RebuildError, match="non autorisée"):
+        trial.maintenance(settings, "clear")          # --clear n'est pas exposé
+    with pytest.raises(RebuildError, match="non autorisée"):
+        trial.maintenance(settings, "pack")
+
+
 def test_host_status_connected_and_refused(agent, tmp_path):
     ok = trial.host_status(settings_for(tmp_path, agent["pem"], agent["url"]))
     assert ok["state"] == "ok" and "fake" in ok["detail"]

@@ -62,7 +62,8 @@ from .services.rebuild import (
 from .services.runners import plan_runner, run_runner, suggest
 from .services.tasks import QueueLocked, TaskConflict, TaskQueue
 from .services.trial import (
-    AgentHost, agent_cert_path, fingerprint_pem, game_host, host_name, host_status, run_doctor, run_trial, trial_dir,
+    AgentHost, agent_cert_path, fingerprint_pem, game_host, host_name, host_status, maintenance, run_doctor,
+    run_trial, trial_dir,
 )
 from .services.update import default_anchor, plan_update, run_update
 
@@ -269,6 +270,19 @@ def _doctor(refresh: bool = False) -> dict:
     result = run_doctor(_settings)
     _doctor_cache["result"] = (now, result)
     return {**result, "age": 0}
+
+
+class MaintenanceRequest(BaseModel):
+    action: Literal["list", "umount", "clean", "backup"]
+
+
+@app.post("/api/game_host/maintenance")
+def game_host_maintenance(body: MaintenanceRequest):
+    """Maintenance du lanceur sur la machine de jeu : lister, démonter, nettoyer, sauvegarder."""
+    try:
+        return maintenance(_settings, body.action)
+    except RebuildError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 _status_cache: dict = {}
