@@ -327,6 +327,7 @@
     <button data-host="off" role="radio">Désactivée</button>
     <button data-host="local" role="radio">Cette machine</button>
     <button data-host="docker" role="radio">Conteneur Docker</button>
+    <button data-host="agent" role="radio">Agent réseau</button>
   </div>
   <p class="dlg-intro host-hint" id="cfg-host-hint"></p>
   <div class="host-fields" id="cfg-docker" hidden>
@@ -334,6 +335,16 @@
     <label class="field">Adresse de l'API Docker<input id="cfg-docker-host" placeholder="tcp://docker-socket-proxy:2375"></label>
     <label class="field">Dossier roms vu du conteneur<input id="cfg-roms-in" placeholder="/home/arcade/games/Batocera/roms"></label>
     <label class="field">Utilisateur des jeux dans le conteneur<input id="cfg-game-user" placeholder="arcade"></label>
+  </div>
+  <div class="host-fields" id="cfg-agent" hidden>
+    <label class="field">Adresse de l'agent<input id="cfg-agent-url" placeholder="https://192.168.1.20:8766"></label>
+    <label class="field">Jeton<input id="cfg-agent-token" type="password" autocomplete="off" placeholder="affiché par « wsquashfs-agent pair »"></label>
+    <div class="agent-assoc">
+      <div class="row"><button class="btn secondary sm" id="cfg-agent-probe" type="button">Associer</button>
+        <span class="muted" style="font-size:12.5px">Récupère le certificat de l'agent et vérifie le jeton.</span></div>
+      <div id="cfg-agent-result" class="msg">Pas encore associé.</div>
+      <label class="toggle" id="cfg-agent-confirm-row" hidden><input type="checkbox" id="cfg-agent-confirm"><span>L'empreinte est identique à celle affichée par <code>wsquashfs-agent pair</code></span></label>
+    </div>
   </div>
   <details class="host-adv" id="cfg-host-adv" hidden><summary>Session graphique</summary>
     <label class="field" style="margin-top:8px">Processus de la session (son affichage est repris pour l'essai)<input id="cfg-session" placeholder="emulationstation — vide : environnement du gestionnaire"></label>

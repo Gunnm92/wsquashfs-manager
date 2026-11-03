@@ -21,7 +21,10 @@ Garde-fous (leçons des essais faits à la main, 01/10) :
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import re
+import ssl
 import subprocess
 import tempfile
 from collections.abc import Callable
@@ -293,20 +296,118 @@ class LocalHost:
         return str(image)
 
 
-GAME_HOST_LABELS = {"off": "désactivée", "local": "cette machine", "docker": "conteneur Docker"}
+# ------------------------------------------------------------------ agent réseau
+
+def agent_cert_path(settings: Settings) -> Path:
+    """Certificat de l'agent, épinglé à l'association (Réglages)."""
+    return settings.state_dir / "agent-cert.pem"
 
 
-def game_host(settings: Settings, timeout: float = 120) -> DockerHost | LocalHost:
+def fingerprint_pem(pem: str) -> str:
+    """Empreinte SHA-256 du certificat, au format affiché par `wsquashfs-agent pair`."""
+    digest = hashlib.sha256(ssl.PEM_cert_to_DER_cert(pem)).hexdigest().upper()
+    return ":".join(digest[i:i + 2] for i in range(0, len(digest), 2))
+
+
+def _pinned_context(pem: str) -> ssl.SSLContext:
+    """Confiance = ce certificat et lui seul ; le nom d'hôte n'est pas contrôlé
+    (l'empreinte confirmée à l'association en tient lieu)."""
+    context = ssl.create_default_context(cadata=pem)
+    context.check_hostname = False
+    return context
+
+
+class AgentHost:
+    """Machine de jeu = wsquashfs-agent sur le réseau (HTTPS, jeton, certificat épinglé)."""
+
+    def __init__(self, settings: Settings, timeout: float, pem: str | None = None,
+                 url: str | None = None, token: str | None = None):
+        self.settings = settings
+        self.url = (url or settings.agent_url).rstrip("/")
+        if pem is None:
+            cert = agent_cert_path(settings)
+            if not cert.exists():
+                raise RebuildError("agent non associé : Réglages → Machine de jeu → Agent réseau")
+            pem = cert.read_text()
+        self.name = f"l'agent ({self.url})"
+        self.client = httpx.Client(base_url=self.url, verify=_pinned_context(pem),
+                                   headers={"Authorization": f"Bearer {token or settings.agent_token}"},
+                                   timeout=httpx.Timeout(timeout, connect=10))
+
+    def _call(self, method: str, path: str, **kwargs) -> httpx.Response:
+        try:
+            response = self.client.request(method, path, **kwargs)
+        except httpx.HTTPError as exc:
+            raise RebuildError(f"agent injoignable ({self.url}) : {exc}") from exc
+        if response.status_code == 401:
+            raise RebuildError("jeton de l'agent refusé : copier le jeton affiché par « wsquashfs-agent pair »")
+        if response.status_code >= 400:
+            try:
+                detail = response.json().get("detail", response.text)
+            except ValueError:
+                detail = response.text
+            raise RebuildError(f"agent : {detail}")
+        return response
+
+    def info(self) -> dict:
+        return self._call("GET", "/v1/info").json()
+
+    def doctor(self) -> dict:
+        return self._call("GET", "/v1/doctor", timeout=120).json()
+
+    def trial(self, rel: str, duration: int) -> tuple[int, bytes, bytes]:
+        data = self._call("POST", "/v1/trial", json={"rel": rel, "duration": duration},
+                          timeout=duration + 180).json()
+        shot = base64.b64decode(data["screenshot"]) if data.get("screenshot") else b""
+        return int(data["code"]), data["output"].encode("utf-8"), shot
+
+    def listing(self, path: str) -> dict[str, int]:
+        return self._call("GET", "/v1/runner/list", params={"path": path}).json()["entries"]
+
+    def fetch(self, path: str, feed: Callable[[bytes], None]) -> tuple[int, bytes]:
+        try:
+            with self.client.stream("GET", "/v1/runner/tar", params={"path": path}, timeout=3600) as response:
+                if response.status_code >= 400:
+                    raise RebuildError(f"agent : copie refusée ({response.status_code})")
+                for chunk in response.iter_bytes():
+                    feed(chunk)
+        except httpx.HTTPError as exc:
+            raise RebuildError(f"agent injoignable pendant la copie : {exc}") from exc
+        return 0, b""
+
+    def rel_of(self, image: Path) -> str:
+        """Chemin de l'image relatif à son dossier roms/ (l'agent le retrouve chez lui)."""
+        parts = image.parts
+        if "roms" not in parts:
+            raise RebuildError("image hors d'un dossier roms/ : impossible à retrouver sur l'agent")
+        index = len(parts) - 1 - parts[::-1].index("roms")
+        return "/".join(parts[index + 1:])
+
+    def path_of(self, image: Path) -> str:
+        return self.rel_of(image)
+
+
+GAME_HOST_LABELS = {"off": "désactivée", "local": "cette machine", "docker": "conteneur Docker",
+                    "agent": "agent réseau"}
+
+
+def game_host(settings: Settings, timeout: float = 120) -> DockerHost | LocalHost | AgentHost:
     """Machine de jeu configurée ; RebuildError si elle est désactivée."""
     if settings.game_host == "local":
         return LocalHost(settings, timeout)
     if settings.game_host == "docker" and settings.steambox_container:
         return DockerHost(settings, timeout)
+    if settings.game_host == "agent" and settings.agent_url:
+        return AgentHost(settings, timeout)
     raise RebuildError("machine de jeu désactivée : à activer dans Réglages → Machine de jeu")
 
 
 def host_name(settings: Settings) -> str:
-    return settings.steambox_container if settings.game_host == "docker" else GAME_HOST_LABELS[settings.game_host or "off"]
+    if settings.game_host == "docker":
+        return settings.steambox_container
+    if settings.game_host == "agent":
+        return f"l'agent ({settings.agent_url})"
+    return GAME_HOST_LABELS[settings.game_host or "off"]
 
 
 def _unreachable(container: str, exc: httpx.HTTPError) -> RebuildError:
@@ -364,8 +465,12 @@ def run_doctor(settings: Settings) -> dict:
     """`wsquashfs-launcher --doctor` sur la machine de jeu, sous l'utilisateur
     des jeux : l'état du lanceur tel qu'il lancera les jeux."""
     host = game_host(settings, 120)
-    code, out = host.exec(["bash", "-lc", "wsquashfs-launcher --doctor"])
-    text = out.decode("utf-8", "replace")
+    if isinstance(host, AgentHost):
+        data = host.doctor()
+        code, text = int(data["code"]), data["text"]
+    else:
+        code, out = host.exec(["bash", "-lc", "wsquashfs-launcher --doctor"])
+        text = out.decode("utf-8", "replace")
     if code == 127 or "command not found" in text:
         raise RebuildError(f"wsquashfs-launcher introuvable sur {host.name}")
     return {"container": host.name, "code": code, "text": text, **parse_doctor(text)}
@@ -377,6 +482,8 @@ def steambox_listing(settings: Settings, path: str) -> dict[str, int]:
     """Arborescence d'un dossier de la machine de jeu (runner) : chemin
     relatif → taille (0 pour un dossier ou un lien)."""
     host = game_host(settings, 120)
+    if isinstance(host, AgentHost):
+        return host.listing(path)
     code, out = host.exec(["find", path, "-mindepth", "1", "-printf", "%y\t%s\t%P\n"])
     if code != 0:
         raise RebuildError(f"dossier illisible sur {host.name} : {path}")
@@ -408,7 +515,10 @@ def steambox_fetch(settings: Settings, path: str, dest: Path, job: Job | None = 
 
     try:
         host = game_host(settings, 3600)
-        code, err = host.exec_stream(["tar", "-C", parent, "-cf", "-", name], feed)
+        if isinstance(host, AgentHost):
+            code, err = host.fetch(path.rstrip("/"), feed)
+        else:
+            code, err = host.exec_stream(["tar", "-C", parent, "-cf", "-", name], feed)
     finally:
         tar.stdin.close()
         tar_err = tar.stderr.read().decode("utf-8", "replace")
@@ -431,8 +541,12 @@ def run_trial(settings: Settings, task: Task, job: Job) -> str:
     target = host.path_of(image)
     job.log(f"Lancement sur {host.name} : {target} ({duration} s)")
     job.progress("lancement", 0.05)
-    code, out = host.exec(["bash", "-c", _SCRIPT, "wsfs-trial", target, str(duration),
-                           settings.session_process or ""])
+    if isinstance(host, AgentHost):
+        code, out, shot = host.trial(target, duration)
+    else:
+        code, out = host.exec(["bash", "-c", _SCRIPT, "wsfs-trial", target, str(duration),
+                               settings.session_process or ""])
+        shot = None
     text = out.decode("utf-8", "replace")
     if "@@BUSY" in text:
         raise RebuildError(f"un jeu tourne déjà sur {host.name} : essai reporté")
@@ -441,7 +555,8 @@ def run_trial(settings: Settings, task: Task, job: Job) -> str:
     job.check()
     report = parse_report(text)
     job.progress("capture", 0.95)
-    _, shot = host.exec(["cat", "/tmp/wsfs-trial.png"])
+    if shot is None:
+        _, shot = host.exec(["cat", "/tmp/wsfs-trial.png"])
     if shot.startswith(b"\x89PNG"):
         trial_dir(settings).mkdir(parents=True, exist_ok=True)
         (trial_dir(settings) / f"{task.id}.png").write_bytes(shot)

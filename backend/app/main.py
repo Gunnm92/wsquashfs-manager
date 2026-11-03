@@ -5,7 +5,9 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
+import re
 import shutil
+import ssl
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -31,7 +33,7 @@ from .services.autorun import (
     merge_override,
     override_path,
 )
-from .services.durable import restore
+from .services.durable import restore, write_atomic
 from .services.operations import (
     autorun_sha,
     commit_params,
@@ -59,7 +61,9 @@ from .services.rebuild import (
 )
 from .services.runners import plan_runner, run_runner, suggest
 from .services.tasks import QueueLocked, TaskConflict, TaskQueue
-from .services.trial import game_host, host_name, run_doctor, run_trial, trial_dir
+from .services.trial import (
+    AgentHost, agent_cert_path, fingerprint_pem, game_host, host_name, run_doctor, run_trial, trial_dir,
+)
 from .services.update import default_anchor, plan_update, run_update
 
 logger = logging.getLogger("wsquashfs-manager")
@@ -168,28 +172,82 @@ def get_config():
         "steambox_roms": _settings.steambox_roms,
         "game_user": _settings.game_user,
         "session_process": _settings.session_process,
+        "agent_url": _settings.agent_url,
+        "agent_token_set": bool(_settings.agent_token),       # le jeton n'est jamais renvoyé
+        "agent_fingerprint": _agent_fingerprint(),
     }
 
 
+def _agent_fingerprint() -> str:
+    cert = agent_cert_path(_settings)
+    try:
+        return fingerprint_pem(cert.read_text()) if cert.exists() else ""
+    except (OSError, ValueError):
+        return ""
+
+
 class GameHostConfig(BaseModel):
-    game_host: Literal["off", "local", "docker"]
+    game_host: Literal["off", "local", "docker", "agent"]
     steambox_container: str = ""
     docker_host: str = ""
     steambox_roms: str = ""
     game_user: str = ""
     session_process: str = ""
+    agent_url: str = ""
+    agent_token: str = ""           # vide : garder le jeton actuel
+    agent_pem: str = ""             # certificat confirmé à l'association
 
 
 @app.put("/api/config/game_host")
 def set_game_host(body: GameHostConfig):
-    """Machine de jeu : désactivée, cette machine, ou un conteneur Docker."""
-    values = {k: v for k, v in body.model_dump().items() if v != "" or k == "session_process"}
+    """Machine de jeu : désactivée, cette machine, un conteneur Docker ou un agent réseau."""
+    values = {k: v for k, v in body.model_dump().items() if k != "agent_pem" and (v != "" or k == "session_process")}
+    if body.game_host == "agent":
+        if not body.agent_pem.strip().startswith("-----BEGIN CERTIFICATE-----"):
+            raise HTTPException(status_code=422, detail="associer l'agent avant d'enregistrer (Associer)")
+        try:
+            fingerprint_pem(body.agent_pem)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="certificat de l'agent illisible") from exc
     try:
         save_game_host(_settings, values)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if body.game_host == "agent":
+        cert = agent_cert_path(_settings)
+        cert.parent.mkdir(parents=True, exist_ok=True)
+        write_atomic(cert, body.agent_pem.strip() + "\n")
     _doctor_cache.clear()           # l'état du lanceur est celui de l'ancienne machine
     return get_config()
+
+
+class AgentProbe(BaseModel):
+    url: str
+    token: str = ""
+
+
+@app.post("/api/config/agent/probe")
+def agent_probe(body: AgentProbe):
+    """Associer un agent : récupère son certificat et interroge /v1/info avec
+    ce certificat seul. Rien n'est enregistré : l'empreinte doit être confirmée."""
+    url = body.url.strip().rstrip("/")
+    match = re.match(r"^https://([^\s/:]+):(\d+)$", url)
+    if not match:
+        raise HTTPException(status_code=422, detail="adresse : https://hôte:port (ex. https://192.168.1.20:8766)")
+    host, port = match.group(1), int(match.group(2))
+    try:
+        pem = ssl.get_server_certificate((host, port), timeout=10)
+    except OSError as exc:
+        raise HTTPException(status_code=502, detail=f"agent injoignable : {exc}") from exc
+    fingerprint = fingerprint_pem(pem)
+    info = None
+    if body.token.strip():
+        try:
+            info = AgentHost(_settings, 15, pem=pem, url=url, token=body.token.strip()).info()
+        except RebuildError as exc:
+            # 422 et non 401 : le client prendrait un 401 pour une demande de connexion
+            raise HTTPException(status_code=422 if "jeton" in str(exc) else 502, detail=str(exc)) from exc
+    return {"url": url, "fingerprint": fingerprint, "pem": pem, "info": info}
 
 
 _doctor_cache: dict = {}

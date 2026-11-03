@@ -1271,6 +1271,7 @@ function applyHost() {
     : "Liens du prefix vers un runner hors de l'image ou absent";
 }
 const HOST_HINTS = {
+  agent: "wsquashfs-agent tourne sur la machine de jeu et répond par le réseau (HTTPS, jeton, certificat épinglé). Il ne tourne qu'au moment où on lui parle : rien ne reste actif. Installation : install.sh --agent sur la machine de jeu.",
   off: "Lancement d'essai et état du lanceur masqués. Les images, l'autorun, les tâches et l'empaquetage fonctionnent normalement.",
   local: "Le lanceur est installé sur la machine qui fait tourner ce gestionnaire, avec un écran : l'essai s'y affiche. Le service doit tourner sous l'utilisateur de la session graphique.",
   docker: "Le lanceur tourne dans un conteneur (ex. SteamBox), joint par l'API Docker. Le gestionnaire doit pouvoir joindre cette API (ex. réseau du docker-socket-proxy, avec l'autorisation EXEC).",
@@ -1283,7 +1284,8 @@ function paintHostForm(mode) {
   $("cfg-host").dataset.mode = mode;
   $("cfg-host-hint").textContent = HOST_HINTS[mode];
   $("cfg-docker").hidden = mode !== "docker";
-  $("cfg-host-adv").hidden = mode === "off";
+  $("cfg-agent").hidden = mode !== "agent";
+  $("cfg-host-adv").hidden = mode === "off" || mode === "agent";
   $("doc-head").hidden = mode === "off";
   $("doc-body").hidden = mode === "off";
 }
@@ -1293,7 +1295,37 @@ $("cfg-host").onclick = (event) => {
 };
 const hostBody = () => ({ game_host: $("cfg-host").dataset.mode || "off", steambox_container: $("cfg-container").value.trim(),
   docker_host: $("cfg-docker-host").value.trim(), steambox_roms: $("cfg-roms-in").value.trim(),
-  game_user: $("cfg-game-user").value.trim(), session_process: $("cfg-session").value.trim() });
+  game_user: $("cfg-game-user").value.trim(), session_process: $("cfg-session").value.trim(),
+  agent_url: $("cfg-agent-url").value.trim(), agent_token: $("cfg-agent-token").value.trim(),
+  agent_pem: state.agentPem || "" });
+
+// Association d'un agent : certificat récupéré, empreinte à confirmer avant d'enregistrer
+function agentReset() {
+  state.agentPem = null;
+  $("cfg-agent-confirm").checked = false;
+  $("cfg-agent-confirm-row").hidden = true;
+}
+for (const id of ["cfg-agent-url", "cfg-agent-token"]) $(id).addEventListener("input", agentReset);
+$("cfg-agent-probe").onclick = async () => {
+  const result = $("cfg-agent-result");
+  agentReset();
+  result.className = "msg";
+  result.replaceChildren(el("span", { className: "row" }, el("span", { className: "spinner" }), "connexion à l'agent…"));
+  try {
+    const r = await api("/api/config/agent/probe", { method: "POST",
+      body: { url: $("cfg-agent-url").value.trim(), token: $("cfg-agent-token").value.trim() } });
+    state.agentPem = r.pem;
+    const who = r.info ? `${r.info.host} · utilisateur ${r.info.user} · agent ${r.info.version}`
+      : "jeton non saisi : il ne peut pas être vérifié (il reste celui déjà enregistré, le cas échéant)";
+    result.replaceChildren(el("div", {}, el("strong", { textContent: "Empreinte du certificat" })),
+      el("div", { className: "mono", style: "font-size:12px;overflow-wrap:anywhere", textContent: r.fingerprint }),
+      el("div", { className: "muted", style: "margin-top:6px", textContent: who }));
+    $("cfg-agent-confirm-row").hidden = false;
+  } catch (error) {
+    result.className = "notice err";
+    result.textContent = error.message;
+  }
+};
 
 // ------------------------------------------------------------------ état du lanceur (--doctor)
 
@@ -1378,6 +1410,13 @@ $("btn-config").onclick = async () => {
   $("cfg-roms-in").value = cfg.steambox_roms || "";
   $("cfg-game-user").value = cfg.game_user || "";
   $("cfg-session").value = cfg.session_process ?? "";
+  $("cfg-agent-url").value = cfg.agent_url || "";
+  $("cfg-agent-token").value = "";
+  $("cfg-agent-token").placeholder = cfg.agent_token_set ? "jeton enregistré : laisser vide pour le garder" : "affiché par « wsquashfs-agent pair »";
+  agentReset();
+  $("cfg-agent-result").className = "msg";
+  $("cfg-agent-result").textContent = cfg.agent_fingerprint
+    ? `Associé. Empreinte enregistrée : ${cfg.agent_fingerprint}` : "Pas encore associé.";
   paintHostForm(cfg.game_host || "off");
   $("doc-title").textContent = `État du lanceur — ${cfg.game_host_name}`;
   if (cfg.game_host && cfg.game_host !== "off") {
@@ -1396,6 +1435,14 @@ $("cfg-save").onclick = async () => {
     const dirs = [...$("cfg-systems").querySelectorAll("input:checked")].map((i) => i.dataset.path)
       .concat($("cfg-dirs").value.split("\n").map((d) => d.trim()).filter(Boolean));
     if (!dirs.length) throw new Error("Cocher au moins un système.");
+    if ($("cfg-host").dataset.mode === "agent") {
+      const url = $("cfg-agent-url").value.trim();
+      const reuse = url === state.config?.agent_url && state.config?.agent_fingerprint && !state.agentPem
+        && !$("cfg-agent-token").value.trim();
+      if (!reuse && !(state.agentPem && $("cfg-agent-confirm").checked)) {
+        throw new Error("Associer l'agent et confirmer son empreinte avant d'enregistrer.");
+      }
+    }
     state.config = await api("/api/config/night", { method: "PUT",
       body: { start: $("cfg-night-start").value, end: $("cfg-night-end").value } });
     const before = JSON.stringify([state.config.game_host, state.config.steambox_container, state.config.docker_host,
