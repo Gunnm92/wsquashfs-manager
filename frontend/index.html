@@ -307,20 +307,22 @@
 </dialog>
 
 <dialog id="dlg-config" class="small">
-  <div class="dlg-head"><h2>Réglages</h2><button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
+  <div class="dlg-head"><h2>Réglages</h2><span class="spacer"></span>
+    <button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
+  <div class="pills on-s2 cfg-tabs" id="cfg-tabs" role="tablist">
+    <button data-cpane="dirs" class="on" role="tab">Dossiers</button>
+    <button data-cpane="host" role="tab">Machine de jeu</button>
+    <button data-cpane="night" role="tab">Nuit</button>
+  </div>
+  <section class="cfg-pane" data-pane-name="dirs">
   <div class="section-label">Systèmes à gérer</div>
   <p class="dlg-intro">Systèmes trouvés dans le dossier des roms (images <code>.wsquashfs</code> / dossiers <code>.pc</code>, <code>.wine</code>).</p>
   <div id="cfg-systems" class="sys-toggles"></div>
   <details><summary>Autres chemins (un par ligne)</summary>
     <textarea id="cfg-dirs" rows="3" placeholder="/chemin/vers/roms/systeme" style="margin-top:8px"></textarea>
   </details>
-  <div class="section-label">Tâches de nuit</div>
-  <div class="night-row"><svg class="ico"><use href="#i-moon"/></svg>
-    <input type="time" id="cfg-night-start" required aria-label="Début de la plage de nuit"><span class="muted">→</span>
-    <input type="time" id="cfg-night-end" required aria-label="Fin de la plage de nuit"></div>
-  <p class="dlg-intro" style="margin-top:8px">Une tâche « cette nuit » ne démarre que dans cette plage.</p>
-  <div class="section-label">Serveur</div>
-  <dl id="cfg-info" class="cfg-info"></dl>
+  </section>
+  <section class="cfg-pane" data-pane-name="host" hidden>
   <div class="section-label row"><span>Machine de jeu</span><span class="spacer"></span>
     <span class="host-status" id="host-status"><span class="led"></span><span id="host-status-text">vérification…</span></span>
     <button class="iconbtn bare sm" id="host-check" title="Tester la connexion"><svg class="ico sm"><use href="#i-refresh"/></svg></button></div>
@@ -353,6 +355,18 @@
     <label class="field" style="margin-top:8px">Processus de la session (son affichage est repris pour l'essai)<input id="cfg-session" placeholder="emulationstation — vide : environnement du gestionnaire"></label>
   </details>
   <div class="host-diag" id="host-diag-row"><button class="btn secondary sm" id="host-diag" type="button"><svg class="ico sm"><use href="#i-info"/></svg>Diagnostic du lanceur…</button></div>
+  </section>
+  <section class="cfg-pane" data-pane-name="night" hidden>
+  <div class="section-label">Tâches de nuit</div>
+  <div class="night-row"><svg class="ico"><use href="#i-moon"/></svg>
+    <input type="time" id="cfg-night-start" required aria-label="Début de la plage de nuit"><span class="muted">→</span>
+    <input type="time" id="cfg-night-end" required aria-label="Fin de la plage de nuit"></div>
+  <p class="dlg-intro" style="margin-top:8px">Une tâche « cette nuit » ne démarre que dans cette plage.</p>
+  </section>
+  <details class="cfg-info-box"><summary>Informations du serveur</summary>
+  <div class="section-label">Serveur</div>
+  <dl id="cfg-info" class="cfg-info"></dl>
+  </details>
   <p id="cfg-err" class="notice err" hidden></p>
   <div class="dlg-foot"><span class="spacer"></span>
     <button class="btn secondary" data-close>Fermer</button><button class="btn primary" id="cfg-save">Enregistrer</button></div>

@@ -1271,10 +1271,10 @@ function applyHost() {
     : "Liens du prefix vers un runner hors de l'image ou absent";
 }
 const HOST_HINTS = {
-  agent: "wsquashfs-agent tourne sur la machine de jeu et répond par le réseau (HTTPS, jeton, certificat épinglé). Il ne tourne qu'au moment où on lui parle : rien ne reste actif. Installation : install.sh --agent sur la machine de jeu.",
-  off: "Lancement d'essai et état du lanceur masqués. Les images, l'autorun, les tâches et l'empaquetage fonctionnent normalement.",
-  local: "Le lanceur est installé sur la machine qui fait tourner ce gestionnaire, avec un écran : l'essai s'y affiche. Le service doit tourner sous l'utilisateur de la session graphique.",
-  docker: "Le lanceur tourne dans un conteneur (ex. SteamBox), joint par l'API Docker. Le gestionnaire doit pouvoir joindre cette API (ex. réseau du docker-socket-proxy, avec l'autorisation EXEC).",
+  off: "Pas de lancement d'essai ni de diagnostic. Le reste fonctionne.",
+  local: "Le lanceur est installé sur cette machine, avec un écran.",
+  docker: "Le lanceur tourne dans un conteneur, joint par l'API Docker.",
+  agent: "Le lanceur tourne sur la machine de jeu : wsquashfs-launcher --agent.",
 };
 // Connexion établie : les paramètres de connexion se replient (résumé), sauf
 // si l'on demande à les modifier ; mode changé = champs visibles.
@@ -1293,6 +1293,15 @@ function paintConnection(mode = $("cfg-host").dataset.mode) {
   }
 }
 $("host-edit").onclick = () => { state.hostEditing = true; paintConnection(); };
+// Réglages en onglets : Dossiers, Machine de jeu, Nuit
+function showCfgPane(name) {
+  for (const b of $("cfg-tabs").children) b.classList.toggle("on", b.dataset.cpane === name);
+  for (const pane of document.querySelectorAll(".cfg-pane")) pane.hidden = pane.dataset.paneName !== name;
+}
+$("cfg-tabs").onclick = (event) => {
+  const b = event.target.closest("button[data-cpane]");
+  if (b) showCfgPane(b.dataset.cpane);
+};
 
 function paintHostForm(mode) {
   for (const b of $("cfg-host").children) {
@@ -1465,6 +1474,7 @@ $("btn-config").onclick = async () => {
   $("cfg-err").textContent = systemsError || "";
   $("cfg-err").hidden = !systemsError;
   if (!systems.length) $("cfg-dirs").closest("details").open = true;
+  showCfgPane("dirs");
   $("dlg-config").showModal();
 };
 $("cfg-save").onclick = async () => {
