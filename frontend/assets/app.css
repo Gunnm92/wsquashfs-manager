@@ -904,3 +904,12 @@ aside.panel.editing { border-color: var(--edit); box-shadow: var(--shadow-md); }
 .dd-menu .dot-ic .ico { width: 13px; height: 13px; }
 .dd-menu button .n { font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; }
 .dd-menu button .nocheck { width: 14px; flex: none; }
+.lib-loading { margin: 0; padding: 14px 16px; align-items: center; gap: 14px; }
+.lib-loading .body { gap: 2px; }
+.lib-loading .body span { color: var(--muted); font-size: 12.5px; }
+.btn .spinner { width: 14px; height: 14px; border-width: 2px; }
+.host-modes { margin: 10px 0 0; }
+.host-modes > button { padding: 7px 14px; font-size: 13px; }
+.host-hint { margin-top: 8px; }
+.host-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+@media (max-width: 640px) { .host-fields { grid-template-columns: 1fr; } }

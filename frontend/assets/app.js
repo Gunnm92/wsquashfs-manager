@@ -160,7 +160,7 @@ const emptyState = (iconName, title, hint) => el("div", { className: "empty-stat
 
 let loginWaiters = null;
 
-async function api(path, { method = "GET", body } = {}) {
+async function api(path, { method = "GET", body, timeout = 120000 } = {}) {
   const headers = { "x-wsfs-token": storage.get("wsfs-token") || "" };
   if (body !== undefined) headers["content-type"] = "application/json";
   // Délai maximal : une requête perdue en route (proxy, disque saturé par
@@ -168,13 +168,13 @@ async function api(path, { method = "GET", body } = {}) {
   let response;
   try {
     response = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(120000) });
+      signal: AbortSignal.timeout(timeout) });
   } catch (error) {
-    throw new Error(error.name === "TimeoutError" ? "le serveur n'a pas répondu en 2 minutes (réessayer)" : `connexion impossible : ${error.message}`);
+    throw new Error(error.name === "TimeoutError" ? `le serveur n'a pas répondu en ${Math.round(timeout / 60000)} min (réessayer)` : `connexion impossible : ${error.message}`);
   }
   if (response.status === 401 && path !== "/login") {
     await askLogin();
-    return api(path, { method, body });
+    return api(path, { method, body, timeout });
   }
   const data = await response.json().catch(() => ({}));
   if (response.status === 404 && data.detail === "Not Found") {
@@ -272,20 +272,51 @@ const stateBadge = (i) => {
 };
 const versionLabel = (i) => el("span", { className: `ver${i.version ? "" : " none"}`, textContent: i.version || "sans version" });
 
-async function loadLibrary(refresh = false) {
-  $("status").textContent = refresh ? "scan en cours…" : "chargement…";
+// Lecture longue de la bibliothèque (nouvelles images, scan complet) :
+// bandeau au-dessus de la liste, avec le temps écoulé
+const SCAN_TIMEOUT = 60 * 60 * 1000;     // une nouvelle image est ouverte une fois : plusieurs minutes possibles
+let busyTimer = null, busyDepth = 0;
+function libBusy(text, hint) {
+  busyDepth++;
+  const start = Date.now();
+  const box = $("lib-loading");
+  const paint = () => {
+    const s = Math.round((Date.now() - start) / 1000);
+    box.replaceChildren(el("span", { className: "spinner" }), el("div", { className: "body" },
+      el("strong", { textContent: `${text} — ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` }),
+      hint ? el("span", { textContent: hint }) : null));
+  };
+  clearInterval(busyTimer);
+  paint();
+  box.hidden = false;
+  busyTimer = setInterval(paint, 1000);
   $("btn-refresh").classList.add("spin");
+  return () => {
+    if (--busyDepth > 0) return;
+    clearInterval(busyTimer);
+    box.hidden = true;
+    $("btn-refresh").classList.remove("spin");
+  };
+}
+
+async function loadLibrary(refresh = false) {
+  // Bandeau seulement si la lecture dure : un chargement depuis le cache ne clignote pas
+  let done = null;
+  const slow = setTimeout(() => { done = libBusy(refresh ? "Lecture de toutes les images" : "Chargement de la bibliothèque",
+    "Les images ajoutées ou modifiées sont ouvertes une fois ; les autres viennent du cache."); }, 600);
   try {
-    state.items = await api(`/api/library${refresh ? "?refresh=true" : ""}`);
+    state.items = await api(`/api/library${refresh ? "?refresh=true" : ""}`, { timeout: SCAN_TIMEOUT });
+    $("status").textContent = "";
   } catch (error) {
     $("status").textContent = `erreur : ${error.message}`;
+    toast(`Bibliothèque : ${error.message}`, "alert", true);
     return;
   } finally {
-    $("btn-refresh").classList.remove("spin");
+    clearTimeout(slow);
+    done?.();
   }
   state.byId = new Map(state.items.map((i) => [i.id, i]));
   for (const id of [...state.selected]) if (!state.byId.has(id)) state.selected.delete(id);
-  $("status").textContent = "";
   $("count-images").textContent = state.items.length;
   renderLibrary();
   loadRecovery();
@@ -703,7 +734,7 @@ function setKey(key, value) {
   syncForm();
 }
 
-// Valeurs proposées par clé (datalists), y compris les runners de SteamBox
+// Valeurs proposées par clé (datalists), y compris les runners de la machine de jeu
 function buildForm() {
   $("a-lists").replaceChildren(...state.keys.map(({ key, values }) =>
     el("datalist", { id: `v-${key}` }, ...values.map((v) => new Option(v, v)))));
@@ -1227,11 +1258,48 @@ document.addEventListener("click", (event) => {
 });
 $("tasks-clear").onclick = async () => { await api("/api/tasks/finished", { method: "DELETE" }); refreshTasks(); };
 
+// ------------------------------------------------------------------ machine de jeu
+// Désactivée, cette machine ou un conteneur Docker (Réglages) : sans elle, pas
+// de lancement d'essai ni d'état du lanceur ; le reste fonctionne.
+
+const hostOn = () => Boolean(state.config && state.config.game_host && state.config.game_host !== "off");
+const hostName = () => state.config?.game_host_name || "la machine de jeu";
+function applyHost() {
+  const on = hostOn();
+  document.querySelector(".agroup .trial").hidden = !on;
+  $("d-links").title = on ? `Liens du prefix vers un runner hors de l'image ou absent, et réparation avec les runners de ${hostName()}`
+    : "Liens du prefix vers un runner hors de l'image ou absent";
+}
+const HOST_HINTS = {
+  off: "Lancement d'essai et état du lanceur masqués. Les images, l'autorun, les tâches et l'empaquetage fonctionnent normalement.",
+  local: "Le lanceur est installé sur la machine qui fait tourner ce gestionnaire, avec un écran : l'essai s'y affiche. Le service doit tourner sous l'utilisateur de la session graphique.",
+  docker: "Le lanceur tourne dans un conteneur (ex. SteamBox), joint par l'API Docker. Le gestionnaire doit pouvoir joindre cette API (ex. réseau du docker-socket-proxy, avec l'autorisation EXEC).",
+};
+function paintHostForm(mode) {
+  for (const b of $("cfg-host").children) {
+    b.classList.toggle("on", b.dataset.host === mode);
+    b.setAttribute("aria-checked", b.dataset.host === mode);
+  }
+  $("cfg-host").dataset.mode = mode;
+  $("cfg-host-hint").textContent = HOST_HINTS[mode];
+  $("cfg-docker").hidden = mode !== "docker";
+  $("cfg-host-adv").hidden = mode === "off";
+  $("doc-head").hidden = mode === "off";
+  $("doc-body").hidden = mode === "off";
+}
+$("cfg-host").onclick = (event) => {
+  const b = event.target.closest("button[data-host]");
+  if (b) paintHostForm(b.dataset.host);
+};
+const hostBody = () => ({ game_host: $("cfg-host").dataset.mode || "off", steambox_container: $("cfg-container").value.trim(),
+  docker_host: $("cfg-docker-host").value.trim(), steambox_roms: $("cfg-roms-in").value.trim(),
+  game_user: $("cfg-game-user").value.trim(), session_process: $("cfg-session").value.trim() });
+
 // ------------------------------------------------------------------ état du lanceur (--doctor)
 
 async function loadDoctor(refresh = false) {
   const body = $("doc-body");
-  if (refresh || !state.doctor) body.replaceChildren(el("div", { className: "row muted" }, el("span", { className: "spinner" }), "vérification dans SteamBox…"));
+  if (refresh || !state.doctor) body.replaceChildren(el("div", { className: "row muted" }, el("span", { className: "spinner" }), `vérification sur ${hostName()}…`));
   $("doc-refresh").disabled = true;
   try {
     state.doctor = await api(`/api/launcher/doctor${refresh ? "?refresh=1" : ""}`);
@@ -1259,7 +1327,7 @@ function renderDoctor() {
     d.verdict ? (ok ? el("div", { className: "verdict", textContent: d.verdict }) : notice("err", d.verdict)) : null);
 }
 
-// Runners installés dans SteamBox : proposés pour PROTON= et WINE=
+// Runners installés sur la machine de jeu : proposés pour PROTON= et WINE=
 function runnerSuggestions() {
   const names = [...new Set((state.doctor?.runners || []).map((r) => r.name))];
   for (const key of ["PROTON", "WINE"]) {
@@ -1268,7 +1336,7 @@ function runnerSuggestions() {
     const have = new Set([...list.options].map((o) => o.value));
     for (const name of names) {
       const proton = /proton/i.test(name);
-      if (!have.has(name) && (key === "PROTON") === proton) list.append(new Option(`${name} (SteamBox)`, name));
+      if (!have.has(name) && (key === "PROTON") === proton) list.append(new Option(`${name} (${hostName()})`, name));
     }
   }
 }
@@ -1305,8 +1373,17 @@ $("btn-config").onclick = async () => {
     ["Sauvegardes", cfg.saves_dir], ["Dossier de travail", cfg.tmp_dir], ["Reconstruction", cfg.rebuild_mode],
     ["Rétention .old", cfg.old_retention_days == null ? "manuelle" : `${cfg.old_retention_days} jours`],
   ].flatMap(([k, v]) => [el("dt", { textContent: k }), el("dd", { textContent: v ?? "—" })]));
-  if (state.doctor) renderDoctor();
-  loadDoctor();
+  $("cfg-container").value = cfg.steambox_container || "";
+  $("cfg-docker-host").value = cfg.docker_host || "";
+  $("cfg-roms-in").value = cfg.steambox_roms || "";
+  $("cfg-game-user").value = cfg.game_user || "";
+  $("cfg-session").value = cfg.session_process ?? "";
+  paintHostForm(cfg.game_host || "off");
+  $("doc-title").textContent = `État du lanceur — ${cfg.game_host_name}`;
+  if (cfg.game_host && cfg.game_host !== "off") {
+    if (state.doctor) renderDoctor();
+    loadDoctor();
+  }
   $("cfg-night-start").value = cfg.night_start || "01:00";
   $("cfg-night-end").value = cfg.night_end || "07:00";
   $("cfg-err").textContent = systemsError || "";
@@ -1319,16 +1396,56 @@ $("cfg-save").onclick = async () => {
     const dirs = [...$("cfg-systems").querySelectorAll("input:checked")].map((i) => i.dataset.path)
       .concat($("cfg-dirs").value.split("\n").map((d) => d.trim()).filter(Boolean));
     if (!dirs.length) throw new Error("Cocher au moins un système.");
-    await api("/api/config/roms_dirs", { method: "PUT", body: { roms_dirs: dirs } });
     state.config = await api("/api/config/night", { method: "PUT",
       body: { start: $("cfg-night-start").value, end: $("cfg-night-end").value } });
+    const before = JSON.stringify([state.config.game_host, state.config.steambox_container, state.config.docker_host,
+      state.config.steambox_roms, state.config.game_user, state.config.session_process]);
+    state.config = await api("/api/config/game_host", { method: "PUT", body: hostBody() });
+    if (JSON.stringify([state.config.game_host, state.config.steambox_container, state.config.docker_host,
+      state.config.steambox_roms, state.config.game_user, state.config.session_process]) !== before) state.doctor = null;
     fillWhen();
-    $("dlg-config").close();
-    toast("Réglages enregistrés");
-    loadLibrary();
+    applyHost();
   } catch (error) {
     $("cfg-err").textContent = error.message;
     $("cfg-err").hidden = false;
+    return;
+  }
+  // Le serveur lit les images des dossiers choisis avant de répondre : long
+  // pour des dossiers nouveaux. Une erreur de saisie revient tout de suite ;
+  // passé un instant, la fenêtre se ferme et le bandeau de la liste prend le relais.
+  const dirs = [...$("cfg-systems").querySelectorAll("input:checked")].map((i) => i.dataset.path)
+    .concat($("cfg-dirs").value.split("\n").map((d) => d.trim()).filter(Boolean));
+  const save = $("cfg-save");
+  save.disabled = true;
+  save.replaceChildren(el("span", { className: "spinner" }), "Lecture des dossiers…");
+  $("cfg-err").hidden = true;
+  let done = null;
+  const handOver = setTimeout(() => {
+    $("dlg-config").close();
+    showView("images");
+    done = libBusy("Lecture des dossiers choisis",
+      "Chaque nouvelle image est ouverte une fois pour lire son autorun et sa version : compter quelques secondes par image. Les prochaines ouvertures viendront du cache.");
+  }, 1500);
+  try {
+    await api("/api/config/roms_dirs", { method: "PUT", body: { roms_dirs: dirs }, timeout: SCAN_TIMEOUT });
+    clearTimeout(handOver);
+    if ($("dlg-config").open) $("dlg-config").close();
+    done?.();
+    done = null;
+    await loadLibrary();
+    toast(`Réglages enregistrés : ${state.items.length} image(s)`);
+  } catch (error) {
+    clearTimeout(handOver);
+    if ($("dlg-config").open) {
+      $("cfg-err").textContent = error.message;
+      $("cfg-err").hidden = false;
+    } else {
+      toast(`Réglages : ${error.message}`, "alert", true);
+    }
+  } finally {
+    done?.();
+    save.disabled = false;
+    save.textContent = "Enregistrer";
   }
 };
 for (const button of document.querySelectorAll("[data-close]")) button.onclick = () => button.closest("dialog").close();
@@ -1565,7 +1682,7 @@ async function resetSaves(ids) {
 
 $("d-trial").onclick = async () => {
   const duration = Number($("d-trial-duration").value);
-  if (!confirm(`Lancer « ${state.current.name} » dans SteamBox pendant ${duration} s ? Le jeu s'affiche sur l'écran de la session : ne rien lancer pendant ce temps. Il est ensuite arrêté.`)) return;
+  if (!confirm(`Lancer « ${state.current.name} » sur ${hostName()} pendant ${duration} s ? Le jeu s'affiche sur l'écran de la session : ne rien lancer pendant ce temps. Il est ensuite arrêté.`)) return;
   try {
     await api(`/api/image/trial?id=${encodeURIComponent(state.current.id)}`, { method: "POST", body: { duration, when: "now" } });
     queued("Lancement d'essai ajouté à la file");
@@ -1601,11 +1718,11 @@ $("btn-saves-reset").onclick = () => resetSaves([...state.selected]).catch((erro
   document.addEventListener("keydown", (event) => { if (event.key === "Escape") hide(); });
 }
 
-// Liens du runner : constat et réparation proposée (runner de SteamBox joint ou complété)
+// Liens du runner : constat et réparation proposée (runner de la machine de jeu joint ou complété)
 $("d-links").onclick = async () => {
   const id = state.current.id, box = $("d-links-result");
   box.className = "msg";
-  box.replaceChildren(el("span", { className: "row" }, el("span", { className: "spinner" }), "analyse de l'image et des runners de SteamBox…"));
+  box.replaceChildren(el("span", { className: "row" }, el("span", { className: "spinner" }), `analyse de l'image${hostOn() ? ` et des runners de ${hostName()}` : ""}…`));
   $("d-links").disabled = true;
   try {
     const r = await api(`/api/image/links?id=${encodeURIComponent(id)}`);
@@ -1626,8 +1743,9 @@ $("d-links").onclick = async () => {
           el("div", { className: "split", style: "margin-top:8px" }, apply, whenButton()));
       }),
       ...(r.suggestions.length ? [] : [r.steambox_error
-        ? notice("err", `Réparation impossible, SteamBox injoignable : ${r.steambox_error}`)
-        : el("p", { className: "muted", textContent: "Aucun runner de SteamBox ne contient les fichiers visés : joindre le runner à la main (voir l'aide)." })]));
+        ? (hostOn() ? notice("err", `Réparation impossible, ${hostName()} injoignable : ${r.steambox_error}`)
+          : notice("", "Réparation automatique indisponible : elle reprend un runner installé sur la machine de jeu (Réglages → Machine de jeu). Sinon, joindre le runner à la main (voir l'aide).", "info"))
+        : el("p", { className: "muted", textContent: `Aucun runner de ${hostName()} ne contient les fichiers visés : joindre le runner à la main (voir l'aide).` })]));
   } catch (error) {
     box.replaceChildren(notice("err", error.message));
   } finally {
@@ -2012,6 +2130,7 @@ document.addEventListener("click", (event) => {
   state.keys = await api("/api/autorun/keys");
   try { state.config = await api("/api/config"); } catch { state.config = null; }
   fillWhen();
+  applyHost();
   $("known-keys").replaceChildren(...state.keys.map((k) => new Option(k.key, k.key)));
   buildForm();
   await loadLibrary();

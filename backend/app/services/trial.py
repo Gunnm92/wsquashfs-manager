@@ -1,13 +1,18 @@
-"""Lancement d'essai chronométré dans SteamBox (SPEC § 2.5, étape 7).
+"""Machine de jeu et lancement d'essai chronométré (SPEC § 2.5, étape 7).
 
-Le jeu est lancé par wsquashfs-launcher DANS le conteneur SteamBox (API
-Docker via docker-socket-proxy, exec sous l'utilisateur arcade, environnement
-de la session d'EmulationStation), observé pendant une durée donnée, puis
-arrêté. Rapport : le jeu a-t-il tenu, ses fenêtres (minimisée ?), les
+La machine de jeu est là où tourne wsquashfs-launcher (réglage game_host) :
+- « local » : la machine du gestionnaire, commandes lancées directement ;
+- « docker » : un conteneur (ex. SteamBox), par l'API Docker
+  (docker-socket-proxy), sous l'utilisateur des jeux ;
+- « off » : lancement d'essai, --doctor et runners installés indisponibles.
+
+Le jeu y est lancé par wsquashfs-launcher (environnement de la session
+graphique : celui du processus session_process), observé pendant une durée
+donnée, puis arrêté. Rapport : le jeu a-t-il tenu, ses fenêtres (minimisée ?), les
 erreurs connues du journal, une capture d'écran.
 
 Garde-fous (leçons des essais faits à la main, 01/10) :
-- refus si un jeu .wsquashfs tourne déjà dans SteamBox (lancements
+- refus si un jeu .wsquashfs tourne déjà sur la machine de jeu (lancements
   croisés : les montages de l'un et de l'autre se gêneraient) ;
 - processus du jeu trouvés par leur WINEPREFIX et leur ligne de commande,
   jamais par leur nom (un jeu peut renommer son processus) ;
@@ -18,6 +23,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -42,13 +48,16 @@ KNOWN_ERRORS = [
 ]
 
 _SCRIPT = r'''
-IMG="$1"; DUR="${2:-60}"; STEM=$(basename "$IMG" .wsquashfs)
+IMG="$1"; DUR="${2:-60}"; SESSION="${3:-}"; STEM=$(basename "$IMG" .wsquashfs)
 # Un jeu .wsquashfs en cours : ses montages et ceux de l'essai se gêneraient
 busy=$(ps -eo comm= | grep -cxE 'wsquashfs-launc|umu-run')
 if [ "$busy" != 0 ]; then echo "@@BUSY"; exit 3; fi
 [ -f "$IMG" ] || { echo "@@NOIMAGE"; exit 4; }
-ES=$(ps -eo pid=,comm= | awk '$2=="emulationstatio"{print $1; exit}')
-if [ -n "$ES" ]; then
+# Environnement de la session graphique (DISPLAY, WAYLAND_DISPLAY…) ; comm est
+# tronqué à 15 caractères par le noyau
+ES=""
+[ -n "$SESSION" ] && ES=$(ps -eo pid=,comm= | awk -v s="${SESSION:0:15}" '$2==s{print $1; exit}')
+if [ -n "$ES" ] && [ -r "/proc/$ES/environ" ]; then
   while IFS= read -r -d '' v; do export "$v"; done < "/proc/$ES/environ"
 fi
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
@@ -169,11 +178,11 @@ def parse_report(output: str) -> TrialReport:
 
 
 def steambox_path(settings: Settings, image: Path) -> str:
-    """Chemin de l'image dans SteamBox : la partie après « roms/ » (format
-    Batocera) est rattachée au dossier roms de SteamBox."""
+    """Chemin de l'image dans le conteneur : la partie après « roms/ » (format
+    Batocera) est rattachée au dossier roms du conteneur."""
     parts = image.parts
     if "roms" not in parts:
-        raise RebuildError("image hors d'un dossier roms/ : chemin dans SteamBox inconnu")
+        raise RebuildError("image hors d'un dossier roms/ : chemin dans le conteneur inconnu")
     index = len(parts) - 1 - parts[::-1].index("roms")
     return "/".join([settings.steambox_roms.rstrip("/"), *parts[index + 1:]])
 
@@ -231,6 +240,75 @@ class Docker:
         return code, bytes(stderr)
 
 
+class DockerHost:
+    """Machine de jeu dans un conteneur, par l'API Docker."""
+
+    def __init__(self, settings: Settings, timeout: float):
+        self.settings = settings
+        self.name = settings.steambox_container
+        self.docker = Docker(settings.docker_host, timeout=timeout)
+
+    def exec(self, cmd: list[str]) -> tuple[int, bytes]:
+        return self.docker.exec(self.name, cmd, user=self.settings.game_user)
+
+    def exec_stream(self, cmd: list[str], on_stdout: Callable[[bytes], None]) -> tuple[int, bytes]:
+        return self.docker.exec_stream(self.name, cmd, on_stdout, user=self.settings.game_user)
+
+    def path_of(self, image: Path) -> str:
+        return steambox_path(self.settings, image)
+
+
+class LocalHost:
+    """Machine de jeu = celle du gestionnaire : commandes lancées directement,
+    sous l'utilisateur du service."""
+
+    name = "cette machine"
+
+    def __init__(self, settings: Settings, timeout: float):
+        self.timeout = timeout
+
+    def exec(self, cmd: list[str]) -> tuple[int, bytes]:
+        try:
+            done = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                  stdin=subprocess.DEVNULL, timeout=self.timeout, check=False)
+        except FileNotFoundError as exc:
+            return 127, f"{exc.filename}: command not found".encode()
+        except subprocess.TimeoutExpired as exc:
+            raise RebuildError(f"commande trop longue ({int(self.timeout)} s) : {cmd[0]}") from exc
+        return done.returncode, done.stdout
+
+    def exec_stream(self, cmd: list[str], on_stdout: Callable[[bytes], None]) -> tuple[int, bytes]:
+        with tempfile.TemporaryFile() as err:
+            try:
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=err, stdin=subprocess.DEVNULL)
+            except FileNotFoundError:
+                return 127, f"{cmd[0]}: command not found".encode()
+            for chunk in iter(lambda: proc.stdout.read(1 << 16), b""):
+                on_stdout(chunk)
+            code = proc.wait()
+            err.seek(0)
+            return code, err.read()
+
+    def path_of(self, image: Path) -> str:
+        return str(image)
+
+
+GAME_HOST_LABELS = {"off": "désactivée", "local": "cette machine", "docker": "conteneur Docker"}
+
+
+def game_host(settings: Settings, timeout: float = 120) -> DockerHost | LocalHost:
+    """Machine de jeu configurée ; RebuildError si elle est désactivée."""
+    if settings.game_host == "local":
+        return LocalHost(settings, timeout)
+    if settings.game_host == "docker" and settings.steambox_container:
+        return DockerHost(settings, timeout)
+    raise RebuildError("machine de jeu désactivée : à activer dans Réglages → Machine de jeu")
+
+
+def host_name(settings: Settings) -> str:
+    return settings.steambox_container if settings.game_host == "docker" else GAME_HOST_LABELS[settings.game_host or "off"]
+
+
 def _unreachable(container: str, exc: httpx.HTTPError) -> RebuildError:
     hint = ""
     if isinstance(exc, httpx.ConnectError):
@@ -283,36 +361,25 @@ def parse_doctor(text: str) -> dict:
 
 
 def run_doctor(settings: Settings) -> dict:
-    """`wsquashfs-launcher --doctor` dans SteamBox, sous l'utilisateur des
-    jeux : l'état du lanceur tel qu'il lancera les jeux."""
-    if not settings.steambox_container:
-        raise RebuildError("SteamBox désactivé (WSQUASHFS_MGR_STEAMBOX_CONTAINER vide)")
-    docker = Docker(settings.docker_host, timeout=120)
-    code, out = docker.exec(settings.steambox_container,
-                            ["bash", "-lc", "wsquashfs-launcher --doctor"])
+    """`wsquashfs-launcher --doctor` sur la machine de jeu, sous l'utilisateur
+    des jeux : l'état du lanceur tel qu'il lancera les jeux."""
+    host = game_host(settings, 120)
+    code, out = host.exec(["bash", "-lc", "wsquashfs-launcher --doctor"])
     text = out.decode("utf-8", "replace")
     if code == 127 or "command not found" in text:
-        raise RebuildError(f"wsquashfs-launcher introuvable dans {settings.steambox_container}")
-    return {"container": settings.steambox_container, "code": code, "text": text,
-            **parse_doctor(text)}
+        raise RebuildError(f"wsquashfs-launcher introuvable sur {host.name}")
+    return {"container": host.name, "code": code, "text": text, **parse_doctor(text)}
 
 
-# ------------------------------------------------------------------ fichiers de SteamBox
-
-def _steambox(settings: Settings, timeout: float) -> Docker:
-    if not settings.steambox_container:
-        raise RebuildError("SteamBox désactivé (WSQUASHFS_MGR_STEAMBOX_CONTAINER vide)")
-    return Docker(settings.docker_host, timeout=timeout)
-
+# ------------------------------------------------------------------ fichiers de la machine de jeu
 
 def steambox_listing(settings: Settings, path: str) -> dict[str, int]:
-    """Arborescence d'un dossier de SteamBox (runner) : chemin relatif →
-    taille (0 pour un dossier ou un lien)."""
-    code, out = _steambox(settings, 120).exec(
-        settings.steambox_container,
-        ["find", path, "-mindepth", "1", "-printf", "%y\t%s\t%P\n"])
+    """Arborescence d'un dossier de la machine de jeu (runner) : chemin
+    relatif → taille (0 pour un dossier ou un lien)."""
+    host = game_host(settings, 120)
+    code, out = host.exec(["find", path, "-mindepth", "1", "-printf", "%y\t%s\t%P\n"])
     if code != 0:
-        raise RebuildError(f"dossier illisible dans SteamBox : {path}")
+        raise RebuildError(f"dossier illisible sur {host.name} : {path}")
     listing = {}
     for line in out.decode("utf-8", "replace").splitlines():
         kind, size, rel = line.split("\t", 2)
@@ -322,9 +389,9 @@ def steambox_listing(settings: Settings, path: str) -> dict[str, int]:
 
 def steambox_fetch(settings: Settings, path: str, dest: Path, job: Job | None = None,
                    total: int = 0) -> None:
-    """Copie un dossier de SteamBox dans `dest` (créé), liens symboliques
-    gardés : `tar` dans SteamBox, lu en flux par l'API Docker (exec) et
-    extrait au fil de l'eau, sans archive intermédiaire."""
+    """Copie un dossier de la machine de jeu dans `dest` (créé), liens
+    symboliques gardés : `tar` sur la machine de jeu, lu en flux (API Docker ou
+    processus local) et extrait au fil de l'eau, sans archive intermédiaire."""
     dest.mkdir(parents=True, exist_ok=True)
     parent, name = path.rstrip("/").rsplit("/", 1)
     tar = subprocess.Popen(["tar", "-x", "-C", str(dest), "--strip-components=1",
@@ -340,14 +407,14 @@ def steambox_fetch(settings: Settings, path: str, dest: Path, job: Job | None = 
             job.progress("copie du runner", min(0.99, received / total) * 0.3)
 
     try:
-        code, err = _steambox(settings, 3600).exec_stream(
-            settings.steambox_container, ["tar", "-C", parent, "-cf", "-", name], feed)
+        host = game_host(settings, 3600)
+        code, err = host.exec_stream(["tar", "-C", parent, "-cf", "-", name], feed)
     finally:
         tar.stdin.close()
         tar_err = tar.stderr.read().decode("utf-8", "replace")
         tar.wait()
     if code != 0:
-        raise RebuildError(f"copie depuis SteamBox en échec : {err.decode('utf-8', 'replace')[:300]}")
+        raise RebuildError(f"copie depuis {host_name(settings)} en échec : {err.decode('utf-8', 'replace')[:300]}")
     if tar.returncode != 0:
         raise RebuildError(f"extraction du runner en échec : {tar_err[:300]}")
 
@@ -358,25 +425,23 @@ def trial_dir(settings: Settings) -> Path:
 
 def run_trial(settings: Settings, task: Task, job: Job) -> str:
     """Gestionnaire de la tâche « trial »."""
-    if not settings.steambox_container:
-        raise RebuildError("lancement d'essai désactivé (WSQUASHFS_MGR_STEAMBOX_CONTAINER vide)")
     image = Path(task.image_path or "")
     duration = int(task.params.get("duration", settings.trial_duration))
-    target = steambox_path(settings, image)
-    job.log(f"Lancement dans {settings.steambox_container} : {target} ({duration} s)")
+    host = game_host(settings, duration + 180)
+    target = host.path_of(image)
+    job.log(f"Lancement sur {host.name} : {target} ({duration} s)")
     job.progress("lancement", 0.05)
-    docker = Docker(settings.docker_host, timeout=duration + 180)
-    code, out = docker.exec(settings.steambox_container,
-                            ["bash", "-c", _SCRIPT, "wsfs-trial", target, str(duration)])
+    code, out = host.exec(["bash", "-c", _SCRIPT, "wsfs-trial", target, str(duration),
+                           settings.session_process or ""])
     text = out.decode("utf-8", "replace")
     if "@@BUSY" in text:
-        raise RebuildError("un jeu tourne déjà dans SteamBox : essai reporté")
+        raise RebuildError(f"un jeu tourne déjà sur {host.name} : essai reporté")
     if "@@NOIMAGE" in text:
-        raise RebuildError(f"image introuvable dans SteamBox : {target}")
+        raise RebuildError(f"image introuvable sur {host.name} : {target}")
     job.check()
     report = parse_report(text)
     job.progress("capture", 0.95)
-    _, shot = docker.exec(settings.steambox_container, ["cat", "/tmp/wsfs-trial.png"])
+    _, shot = host.exec(["cat", "/tmp/wsfs-trial.png"])
     if shot.startswith(b"\x89PNG"):
         trial_dir(settings).mkdir(parents=True, exist_ok=True)
         (trial_dir(settings) / f"{task.id}.png").write_bytes(shot)

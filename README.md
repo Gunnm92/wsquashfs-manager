@@ -72,10 +72,23 @@ puis Docker → Add Container → Template : `wsquashfs-manager`. Champs :
 | FUSE (avancé) | `/dev/fuse` | reconstruction sans extraction (mode overlay) |
 | PUID / PGID (avancé) | 99 / 100 | propriétaire des images créées (nobody:users = `arcade` de SteamBox) |
 
-Réseau `socket_proxy` (celui du docker-socket-proxy) : le **lancement
-d'essai** exécute le jeu dans SteamBox par l'API Docker (fiche → Infos →
-« Lancement d'essai » : le jeu tient-il, fenêtre minimisée, erreurs connues,
-capture), refusé si un jeu .wsquashfs tourne déjà dans SteamBox.
+**Machine de jeu** (Réglages → Machine de jeu) : là où tourne
+`wsquashfs-launcher`, pour le **lancement d'essai** (le jeu tient-il,
+fenêtre minimisée, erreurs connues, capture ; refusé si un jeu .wsquashfs
+tourne déjà), l'état du lanceur (`--doctor`) et les runners installés
+(réparation des liens du runner). Facultative : tout le reste fonctionne
+sans.
+
+| Mode | Usage |
+|---|---|
+| Désactivée | défaut d'une installation neuve |
+| Cette machine | lanceur installé sur la machine du gestionnaire, avec un écran ; le service tourne sous l'utilisateur de la session graphique |
+| Conteneur Docker | lanceur dans un conteneur (ex. SteamBox), joint par l'API Docker (docker-socket-proxy avec EXEC) ; nom du conteneur, adresse de l'API, dossier roms vu du conteneur, utilisateur des jeux |
+
+Sans choix dans l'interface, le mode Docker est retenu si
+`WSQUASHFS_MGR_STEAMBOX_CONTAINER` est posé (cas du template Unraid), sinon
+la machine de jeu est désactivée. Pour le mode Docker sur Unraid : réseau
+`socket_proxy` (celui du docker-socket-proxy).
 
 Paramètres supplémentaires du template : `--pid=host` (voir les jeux lancés
 dans SteamBox et ne pas reconstruire leur image pendant une partie),

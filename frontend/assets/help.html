@@ -21,7 +21,7 @@
 
     <ol class="steps" data-f>
       <li><b>Empaqueter</b><span>Un dossier de jeu devient une image : un seul fichier compressé, en lecture seule. → <a href="#g-add">Ajouter un jeu</a></span></li>
-      <li><b>Essayer</b><span>Le lancement d'essai démarre le jeu dans SteamBox et rapporte ce qu'il a vu. → <a href="#g-broken">Un jeu ne se lance pas</a></span></li>
+      <li><b>Essayer</b><span>Le lancement d'essai démarre le jeu sur la machine de jeu et rapporte ce qu'il a vu (à activer dans Réglages). → <a href="#g-broken">Un jeu ne se lance pas</a></span></li>
       <li><b>Ajuster</b><span>Les réglages du jeu sont dans son <code>autorun.cmd</code>, modifiable depuis la fiche. → <a href="#g-setting">Changer un réglage</a></span></li>
     </ol>
 
@@ -56,7 +56,7 @@
     <details class="guide" id="g-broken" data-f>
       <summary><svg class="ico"><use href="#i-alert"/></svg><span>Un jeu ne se lance pas</span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
       <ol>
-        <li>Fiche du jeu → <b>Lancement d'essai</b> : le jeu démarre dans SteamBox, puis le rapport donne les fenêtres ouvertes, les erreurs reconnues et une capture.</li>
+        <li>Fiche du jeu → <b>Lancement d'essai</b> : le jeu démarre sur la machine de jeu (Réglages → Machine de jeu), puis le rapport donne les fenêtres ouvertes, les erreurs reconnues et une capture.</li>
         <li>Message <code>failed to open umu.exe</code> ? Fiche → Infos → <b>Liens du runner</b> → Analyser : la réparation est proposée.</li>
         <li>Chercher l'erreur dans <a href="#h-trouble">Dépannage</a>.</li>
         <li>Essayer un autre réglage (guide suivant) : par exemple <code>WINE=system</code> pour un vieux jeu 32 bits, ou <code>DXVK=0</code> pour un problème d'affichage.</li>

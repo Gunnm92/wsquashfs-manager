@@ -102,6 +102,7 @@
 <main id="main" class="images">
   <section class="lib">
     <div id="recovery"></div>
+    <div class="notice info lib-loading" id="lib-loading" role="status" hidden></div>
     <div class="stats" id="stats"></div>
     <div class="toolbar">
       <label class="search"><svg class="ico"><use href="#i-search"/></svg><input type="search" id="f-search" placeholder="Jeu, commande, version…"></label>
@@ -157,7 +158,7 @@
         <dl class="facts" id="d-info"></dl>
         <div class="box">
           <div class="box-head"><svg class="ico"><use href="#i-link"/></svg><strong>Liens du runner</strong>
-            <button class="btn secondary sm" id="d-links" title="Liens du prefix vers un runner hors de l'image ou absent, et réparation avec les runners de SteamBox">Analyser</button></div>
+            <button class="btn secondary sm" id="d-links" title="Liens du prefix vers un runner hors de l'image ou absent, et réparation avec les runners installés sur la machine de jeu">Analyser</button></div>
           <div id="d-links-result" class="msg">Vérifie que l'image ne dépend pas d'un runner installé sur la machine.</div>
         </div>
       </div>
@@ -182,7 +183,7 @@
         <div class="agroup">
           <span class="glabel">Contrôler</span>
           <button class="btn bare sm" id="d-verify" title="Vérifier l'intégrité de l'image"><svg class="ico sm"><use href="#i-shield"/></svg>Vérifier</button>
-          <span class="trial"><button class="btn bare sm" id="d-trial" title="Lance le jeu dans SteamBox, l'observe puis l'arrête : tient-il, fenêtre, erreurs, capture"><svg class="ico sm"><use href="#i-flask"/></svg>Lancement d'essai</button>
+          <span class="trial"><button class="btn bare sm" id="d-trial" title="Lance le jeu sur la machine de jeu, l'observe puis l'arrête : tient-il, fenêtre, erreurs, capture"><svg class="ico sm"><use href="#i-flask"/></svg>Lancement d'essai</button>
             <select id="d-trial-duration" title="Durée de l'essai"><option value="30">30 s</option><option value="60" selected>60 s</option><option value="120">2 min</option></select></span>
           <button class="btn bare sm" id="d-saves-reset" title="Met de côté les sauvegardes du jeu (renommées, pas supprimées)"><svg class="ico sm"><use href="#i-save"/></svg>Réinitialiser les sauvegardes</button>
         </div>
@@ -320,7 +321,24 @@
   <p class="dlg-intro" style="margin-top:8px">Une tâche « cette nuit » ne démarre que dans cette plage.</p>
   <div class="section-label">Serveur</div>
   <dl id="cfg-info" class="cfg-info"></dl>
-  <div class="section-label row"><span>Lanceur dans SteamBox</span><span class="spacer"></span><span id="doc-age"></span>
+  <div class="section-label">Machine de jeu</div>
+  <p class="dlg-intro">Là où tourne <code>wsquashfs-launcher</code> : sert au lancement d'essai, à l'état du lanceur et aux runners installés (réparation des liens). Tout le reste fonctionne sans.</p>
+  <div class="pills on-s2 host-modes" id="cfg-host" role="radiogroup">
+    <button data-host="off" role="radio">Désactivée</button>
+    <button data-host="local" role="radio">Cette machine</button>
+    <button data-host="docker" role="radio">Conteneur Docker</button>
+  </div>
+  <p class="dlg-intro host-hint" id="cfg-host-hint"></p>
+  <div class="host-fields" id="cfg-docker" hidden>
+    <label class="field">Nom du conteneur<input id="cfg-container" placeholder="SteamBox"></label>
+    <label class="field">Adresse de l'API Docker<input id="cfg-docker-host" placeholder="tcp://docker-socket-proxy:2375"></label>
+    <label class="field">Dossier roms vu du conteneur<input id="cfg-roms-in" placeholder="/home/arcade/games/Batocera/roms"></label>
+    <label class="field">Utilisateur des jeux dans le conteneur<input id="cfg-game-user" placeholder="arcade"></label>
+  </div>
+  <details class="host-adv" id="cfg-host-adv" hidden><summary>Session graphique</summary>
+    <label class="field" style="margin-top:8px">Processus de la session (son affichage est repris pour l'essai)<input id="cfg-session" placeholder="emulationstation — vide : environnement du gestionnaire"></label>
+  </details>
+  <div class="section-label row" id="doc-head"><span id="doc-title">État du lanceur</span><span class="spacer"></span><span id="doc-age"></span>
     <button class="iconbtn bare sm" id="doc-refresh" title="Relancer wsquashfs-launcher --doctor"><svg class="ico sm"><use href="#i-refresh"/></svg></button></div>
   <div id="doc-body" class="doctor"><span class="muted">—</span></div>
   <p id="cfg-err" class="notice err" hidden></p>

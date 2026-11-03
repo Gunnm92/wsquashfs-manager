@@ -16,7 +16,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from .config import WORK_DIR_NAME, Settings, get_settings, in_night, save_night, save_roms_dirs
+from .config import WORK_DIR_NAME, Settings, get_settings, in_night, save_game_host, save_night, save_roms_dirs
 from .models import ImageInfo, ImageState, Task
 from .services import analyze as analyze_mod
 from .services import scan
@@ -59,7 +59,7 @@ from .services.rebuild import (
 )
 from .services.runners import plan_runner, run_runner, suggest
 from .services.tasks import QueueLocked, TaskConflict, TaskQueue
-from .services.trial import run_doctor, run_trial, steambox_path, trial_dir
+from .services.trial import game_host, host_name, run_doctor, run_trial, trial_dir
 from .services.update import default_anchor, plan_update, run_update
 
 logger = logging.getLogger("wsquashfs-manager")
@@ -160,7 +160,36 @@ def get_config():
         "old_retention_days": _settings.old_retention_days,
         "rebuild_mode": _settings.rebuild_mode,
         "tool_user": _settings.tool_user,
+        # Machine de jeu (lancement d'essai, --doctor, runners installés)
+        "game_host": _settings.game_host,
+        "game_host_name": host_name(_settings),
+        "steambox_container": _settings.steambox_container,
+        "docker_host": _settings.docker_host,
+        "steambox_roms": _settings.steambox_roms,
+        "game_user": _settings.game_user,
+        "session_process": _settings.session_process,
     }
+
+
+class GameHostConfig(BaseModel):
+    game_host: Literal["off", "local", "docker"]
+    steambox_container: str = ""
+    docker_host: str = ""
+    steambox_roms: str = ""
+    game_user: str = ""
+    session_process: str = ""
+
+
+@app.put("/api/config/game_host")
+def set_game_host(body: GameHostConfig):
+    """Machine de jeu : désactivée, cette machine, ou un conteneur Docker."""
+    values = {k: v for k, v in body.model_dump().items() if v != "" or k == "session_process"}
+    try:
+        save_game_host(_settings, values)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    _doctor_cache.clear()           # l'état du lanceur est celui de l'ancienne machine
+    return get_config()
 
 
 _doctor_cache: dict = {}
@@ -179,7 +208,7 @@ def _doctor(refresh: bool = False) -> dict:
 
 @app.get("/api/launcher/doctor")
 def launcher_doctor(refresh: bool = False):
-    """État du lanceur dans SteamBox (`wsquashfs-launcher --doctor`) :
+    """État du lanceur sur la machine de jeu (`wsquashfs-launcher --doctor`) :
     sections vérifiées et runners installés. Mis en cache quelques minutes."""
     try:
         return _doctor(refresh)
@@ -1134,13 +1163,13 @@ class TrialRequest(BaseModel):
 @app.get("/api/image/links")
 def image_links_report(id: str):
     """Liens du prefix vers un runner hors de l'image ou absent, et
-    réparations proposées avec les runners installés dans SteamBox."""
+    réparations proposées avec les runners installés sur la machine de jeu."""
     info = _find_image(id)
     steambox_error = None
     try:
         runners = _doctor().get("runners", [])
     except RebuildError as exc:
-        runners = []            # SteamBox injoignable : constat sans proposition
+        runners = []            # machine de jeu désactivée ou injoignable : constat sans proposition
         steambox_error = str(exc)
     try:
         return {**suggest(_settings, info.path, runners), "steambox_error": steambox_error}
@@ -1149,7 +1178,7 @@ def image_links_report(id: str):
 
 
 class RunnerRequest(BaseModel):
-    source: str = Field(min_length=2, pattern=r"^/")    # dossier du runner dans SteamBox
+    source: str = Field(min_length=2, pattern=r"^/")    # dossier du runner sur la machine de jeu
     sub: str = ""
     dest: str
     set_key: bool = False
@@ -1158,7 +1187,7 @@ class RunnerRequest(BaseModel):
 
 @app.post("/api/image/runner")
 def image_runner(id: str, body: RunnerRequest):
-    """Joint un runner de SteamBox à l'image (ou complète un runner joint),
+    """Joint un runner de la machine de jeu à l'image (ou complète un runner joint),
     liens du prefix réécrits ; seulement depuis un runner installé (--doctor)."""
     info = _find_image(id)
     try:
@@ -1166,7 +1195,7 @@ def image_runner(id: str, body: RunnerRequest):
     except RebuildError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     if body.source.rstrip("/") not in installed:
-        raise HTTPException(status_code=422, detail="runner inconnu de SteamBox (--doctor)")
+        raise HTTPException(status_code=422, detail=f"runner inconnu de {host_name(_settings)} (--doctor)")
     try:
         plan = plan_runner(_settings, info.path, body.source, body.sub, body.dest, body.set_key)
     except RebuildError as exc:
@@ -1180,11 +1209,11 @@ def image_runner(id: str, body: RunnerRequest):
 
 @app.post("/api/image/trial")
 def image_trial(id: str, body: TrialRequest):
-    """Lancement d'essai chronométré dans SteamBox (le jeu s'affiche sur
-    l'écran de la session pendant la durée choisie, puis est arrêté)."""
+    """Lancement d'essai chronométré sur la machine de jeu (le jeu s'affiche
+    sur l'écran de la session pendant la durée choisie, puis est arrêté)."""
     info = _find_image(id)
     try:
-        target = steambox_path(_settings, info.path)
+        target = game_host(_settings).path_of(info.path)
     except RebuildError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     task = _submit(info, "trial", {"duration": body.duration, "target": target},

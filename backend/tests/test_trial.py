@@ -95,3 +95,61 @@ def test_parse_doctor():
                             {"name": "GE-Proton-latest",
                              "path": "/config/.config/heroic/tools/proton/GE-Proton-latest"}]
     assert d["verdict"] == "✓ Prêt à lancer des jeux"
+
+
+# ------------------------------------------------------------------ machine de jeu
+
+def _settings(tmp_path, monkeypatch, **env):
+    from app import config
+    monkeypatch.delenv("WSQUASHFS_MGR_STEAMBOX_CONTAINER", raising=False)
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setenv("WSQUASHFS_MGR_RUNTIME_CONFIG_FILE", str(tmp_path / "config.json"))
+    return config.get_settings()
+
+
+def test_game_host_off_by_default_docker_if_container_configured(tmp_path, monkeypatch):
+    assert _settings(tmp_path, monkeypatch).game_host == "off"
+    s = _settings(tmp_path, monkeypatch, WSQUASHFS_MGR_STEAMBOX_CONTAINER="SteamBox")
+    assert s.game_host == "docker"
+    with pytest.raises(RebuildError, match="désactivée"):
+        trial.game_host(_settings(tmp_path, monkeypatch))
+
+
+def test_save_game_host_persists_and_validates(tmp_path, monkeypatch):
+    from app import config
+    s = _settings(tmp_path, monkeypatch)
+    config.save_game_host(s, {"game_host": "local", "session_process": ""})
+    again = _settings(tmp_path, monkeypatch)
+    assert again.game_host == "local" and again.session_process == ""
+    with pytest.raises(ValueError):
+        config.save_game_host(s, {"game_host": "docker", "docker_host": "docker-socket-proxy"})
+    with pytest.raises(ValueError):
+        config.save_game_host(s, {"game_host": "ssh"})
+
+
+def test_local_host_exec_stream_and_paths(tmp_path, monkeypatch):
+    s = _settings(tmp_path, monkeypatch)
+    s.game_host = "local"
+    host = trial.game_host(s)
+    assert host.exec(["sh", "-c", "echo out; echo err >&2; exit 3"]) == (3, b"out\nerr\n")
+    assert host.exec(["commande-qui-n-existe-pas"])[0] == 127
+    chunks = []
+    code, err = host.exec_stream(["sh", "-c", "printf abc; echo oups >&2"], chunks.append)
+    assert (code, b"".join(chunks), err) == (0, b"abc", b"oups\n")
+    image = Path("/n/importe/ou/Jeu.wsquashfs")
+    assert host.path_of(image) == str(image)      # pas de correspondance de chemins en local
+
+
+def test_local_listing_and_fetch(tmp_path, monkeypatch):
+    s = _settings(tmp_path, monkeypatch)
+    s.game_host = "local"
+    runner = tmp_path / "runner"
+    (runner / "files/bin").mkdir(parents=True)
+    (runner / "files/bin/wine").write_bytes(b"x" * 10)
+    (runner / "proton").symlink_to("files/bin/wine")
+    assert trial.steambox_listing(s, str(runner)) == {"files": 0, "files/bin": 0, "files/bin/wine": 10, "proton": 0}
+    dest = tmp_path / "copie"
+    trial.steambox_fetch(s, str(runner), dest)
+    assert (dest / "files/bin/wine").read_bytes() == b"x" * 10
+    assert (dest / "proton").is_symlink()
