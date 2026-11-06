@@ -2026,7 +2026,8 @@ function filterHelp(raw) {
 
 // ------------------------------------------------------------------ dossiers à empaqueter
 
-const folders = { items: [], selected: new Set(), state: "", system: "" };
+const folders = { items: [], selected: new Set(), state: "", system: "",
+  layout: storage.get("wsfs-folder-layout") === "grid" ? "grid" : "list", sort: { key: "folder", dir: 1 } };
 
 async function loadFolders() {
   try {
@@ -2049,6 +2050,60 @@ function visibleFolders() {
     .sort((a, b) => a.folder.localeCompare(b.folder, "fr", { numeric: true, sensitivity: "base" }));
 }
 
+// État d'un dossier : libellé et classe de pastille (.state), rang pour le tri
+function folderStatus(f) {
+  if (f.task) return f.task === "running" ? ["empaquetage en cours", "in_use", 0] : ["en file", "in_use", 1];
+  return f.image_exists ? ["déjà empaqueté", "ok", 3] : ["à empaqueter", "modified", 2];
+}
+
+function folderProfile(f) {
+  return el("div", { className: "profile" },
+    f.task ? dotIc("clock", "t-accent", f.task === "running" ? "Empaquetage en cours" : "Empaquetage en file") : null,
+    dotIc("terminal", f.has_autorun ? "t-sage" : "t-accent", f.has_autorun ? "autorun.cmd présent" : "Sans autorun : il sera proposé"),
+    dotIc("layers", f.image_exists ? "t-sage" : "t-off", f.image_exists ? "Image .wsquashfs déjà présente" : "Pas encore d'image"));
+}
+
+function toggleFolder(f) {
+  folders.selected.has(f.id) ? folders.selected.delete(f.id) : folders.selected.add(f.id);
+  renderFolders();
+}
+
+function renderFolderList(visible) {
+  const { key, dir } = folders.sort;
+  const text = (f) => key === "system" ? `${f.system || ""} ${f.folder}` : f.folder;
+  const rows = [...visible].sort((a, b) => (key === "state" ? folderStatus(a)[2] - folderStatus(b)[2] : 0) * dir
+    || text(a).localeCompare(text(b), "fr", { numeric: true, sensitivity: "base" }) * (key === "state" ? 1 : dir));
+  const all = el("input", { type: "checkbox", checked: rows.length > 0 && rows.every((f) => folders.selected.has(f.id)),
+    title: "Tout sélectionner (filtre actuel)" });
+  all.onchange = () => { rows.forEach((f) => all.checked ? folders.selected.add(f.id) : folders.selected.delete(f.id)); renderFolders(); };
+  const sortBtn = (k, label, cls = "") => {
+    const b = el("button", { className: cls, textContent: label + (key === k ? (dir > 0 ? " ↑" : " ↓") : "") });
+    b.onclick = () => { folders.sort = { key: k, dir: key === k ? -dir : 1 }; renderFolders(); };
+    return b;
+  };
+  $("g-thead").replaceChildren(all, sortBtn("folder", "Dossier"), sortBtn("system", "Système"),
+    el("span", { className: "c-profile", textContent: "Contenu", title: "autorun.cmd, image .wsquashfs" }), sortBtn("state", "État", "c-state"));
+  $("g-list-rows").replaceChildren(...rows.map((f) => {
+    const selected = folders.selected.has(f.id), [label, cls] = folderStatus(f);
+    const box = el("input", { type: "checkbox", checked: selected, title: "Sélectionner" });
+    box.onclick = (event) => event.stopPropagation();
+    box.onchange = () => toggleFolder(f);
+    const row = el("div", { className: `grow frow item${selected ? " selected" : ""}` },
+      box,
+      el("div", { className: "gname" }, el("span", { className: "thumb icon" }, icon("folder")),
+        el("div", { className: "t" }, el("span", { className: "n", textContent: f.folder, title: f.folder }),
+          el("span", { className: "sub" }, el("span", { textContent: `.${f.kind}` })))),
+      el("span", { className: "c-system", textContent: cap(f.system) || "—" }),
+      folderProfile(f),
+      el("span", { className: `state ${cls}`, textContent: label, title: label }));
+    row.onclick = () => toggleFolder(f);
+    return row;
+  }));
+  if (!rows.length) $("g-list-rows").append(folders.items.length
+    ? emptyState("search", "Aucun dossier pour ces filtres", null)
+    : emptyState("folder", "Aucun dossier à empaqueter", "Les dossiers *.pc et *.wine des systèmes choisis dans « Réglages » apparaissent ici."));
+}
+
 function renderFolders() {
   const systems = [...new Set(folders.items.map((f) => f.system).filter(Boolean))].sort();
   if (folders.system && !systems.includes(folders.system)) folders.system = "";
@@ -2059,24 +2114,29 @@ function renderFolders() {
     return b;
   }));
   for (const b of $("g-state").children) b.classList.toggle("on", b.dataset.state === folders.state);
-  const visible = visibleFolders();
+  const visible = visibleFolders(), list = folders.layout === "list";
+  for (const b of $("g-layout").children) b.classList.toggle("on", b.dataset.layout === folders.layout);
+  $("g-list").hidden = !list;
+  $("g-rows").hidden = list;
+  $("g-all-label").hidden = list;              // en liste : case de l'en-tête
+  if (list) {
+    $("g-rows").replaceChildren();
+    renderFolderList(visible);
+    renderFolderSelection();
+    return;
+  }
+  $("g-list-rows").replaceChildren();
   $("g-all").checked = visible.length > 0 && visible.every((f) => folders.selected.has(f.id));
   $("g-rows").replaceChildren(...visible.map((f) => {
     const selected = folders.selected.has(f.id);
-    const status = f.task ? (f.task === "running" ? "empaquetage en cours" : "en file") : f.image_exists ? "déjà empaqueté" : "à empaqueter";
+    const status = folderStatus(f)[0];
     const card = el("div", { className: `fcard${selected ? " selected" : ""}${f.image_exists ? " done" : ""}`, tabIndex: 0, role: "checkbox" },
       el("span", { className: "disc" }, icon(selected || f.image_exists ? "check" : "folder")),
       el("div", { className: "t" }, el("div", { className: "n", textContent: f.folder, title: f.folder }),
         el("div", { className: "sub", textContent: `${cap(f.system) || "—"} · .${f.kind} · ${status}` })),
-      el("div", { className: "profile" },
-        f.task ? dotIc("clock", "t-accent", f.task === "running" ? "Empaquetage en cours" : "Empaquetage en file") : null,
-        dotIc("terminal", f.has_autorun ? "t-sage" : "t-accent", f.has_autorun ? "autorun.cmd présent" : "Sans autorun : il sera proposé"),
-        dotIc("layers", f.image_exists ? "t-sage" : "t-off", f.image_exists ? "Image .wsquashfs déjà présente" : "Pas encore d'image")));
+      folderProfile(f));
     card.setAttribute("aria-checked", selected);
-    const toggle = () => {
-      selected ? folders.selected.delete(f.id) : folders.selected.add(f.id);
-      renderFolders();
-    };
+    const toggle = () => toggleFolder(f);
     card.onclick = toggle;
     card.onkeydown = (event) => { if (event.key === " " || event.key === "Enter") { event.preventDefault(); toggle(); } };
     return card;
@@ -2093,6 +2153,13 @@ function renderFolderSelection() {
 }
 
 $("g-search").addEventListener("input", renderFolders);
+$("g-layout").onclick = (event) => {
+  const b = event.target.closest("button[data-layout]");
+  if (!b) return;
+  folders.layout = b.dataset.layout;
+  storage.set("wsfs-folder-layout", folders.layout);
+  renderFolders();
+};
 $("g-state").onclick = (event) => {
   const b = event.target.closest("button[data-state]");
   if (b) { folders.state = b.dataset.state; renderFolders(); }

@@ -266,9 +266,17 @@
     </div>
     <div class="pills" id="g-system"></div>
     <span class="spacer"></span>
-    <label class="row muted" style="font-size:12.5px;cursor:pointer" title="Tout sélectionner (filtre actuel)"><input type="checkbox" id="g-all">Tout sélectionner</label>
+    <label class="row muted" id="g-all-label" style="font-size:12.5px;cursor:pointer" title="Tout sélectionner (filtre actuel)"><input type="checkbox" id="g-all">Tout sélectionner</label>
+    <div class="pills" id="g-layout">
+      <button data-layout="list"><svg class="ico sm"><use href="#i-list"/></svg>Liste</button>
+      <button data-layout="grid"><svg class="ico sm"><use href="#i-grid"/></svg>Cartes</button>
+    </div>
   </div>
-  <div class="fgrid" id="g-rows"></div>
+  <div class="glist" id="g-list">
+    <div class="grow frow head" id="g-thead"></div>
+    <div id="g-list-rows"></div>
+  </div>
+  <div class="fgrid" id="g-rows" hidden></div>
 
   <div class="selbar" id="g-selection" hidden>
     <span class="lbl" id="g-count"></span>

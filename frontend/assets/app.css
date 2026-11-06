@@ -948,3 +948,17 @@ aside.panel.editing { border-color: var(--edit); box-shadow: var(--shadow-md); }
 .maint-btns { display: flex; flex-wrap: wrap; gap: 6px; }
 .maint-out { margin-top: 10px; max-height: 220px; overflow: auto; padding: 10px 12px; border-radius: 14px;
   background: var(--bg); font: 11.5px/1.55 var(--mono); color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Dossiers à empaqueter : vue liste */
+.grow.frow { grid-template-columns: 34px minmax(180px, 1fr) 120px 84px 160px; }
+.grow.frow .c-system { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.grow.frow .profile { flex-wrap: nowrap; }
+@media (max-width: 1100px) {
+  .grow.frow { grid-template-columns: 34px minmax(150px, 1fr) 100px 84px 20px; }
+  .grow.frow.item .state { font-size: 0; gap: 0; justify-self: center; }
+  .grow.frow.head .c-state { visibility: hidden; }
+}
+@media (max-width: 640px) {
+  .grow.frow { grid-template-columns: 30px minmax(0, 1fr) 16px; }
+  .grow.frow .c-system, .grow.frow .profile, .grow.frow.head .c-profile, .grow.frow.head > button:nth-of-type(2) { display: none; }
+}
