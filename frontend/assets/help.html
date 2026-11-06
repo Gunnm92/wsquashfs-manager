@@ -47,6 +47,7 @@
       <summary><svg class="ico"><use href="#i-package"/></svg><span>Ajouter un jeu</span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
       <ol>
         <li>Copier le dossier du jeu dans <code>roms/&lt;système&gt;/</code>, nommé <code>Mon Jeu.pc</code> (ou <code>.wine</code> s'il contient déjà un prefix Wine).</li>
+        <li>Facultatif : l'essayer avant de l'empaqueter avec <code>wsquashfs-launcher "Mon Jeu.pc"</code>. Un dossier <code>.pc</code> est monté comme le sera son image : il n'est jamais modifié, prefix et sauvegardes vont dans les sauvegardes de <code>Mon Jeu</code>, reprises ensuite par l'image.</li>
         <li>Ouvrir l'onglet <b>Dossiers à empaqueter</b>, cocher le dossier puis <b>Analyser et empaqueter</b>.</li>
         <li>Relire l'autorun proposé : l'exécutable choisi et la raison de chaque réglage sont indiqués. Corriger si besoin.</li>
         <li><b>Empaqueter</b> : la tâche part dans la file (ou cette nuit). L'image est vérifiée à la fin ; le dossier est renommé en <code>.wine</code>, et supprimé seulement si tu l'as demandé.</li>
@@ -365,7 +366,7 @@ VIRTUAL_DESKTOP=1920x1080</pre></div>
     <details class="more" data-f><summary>Toutes les commandes</summary>
       <dl class="cdetail">
         <dt><code>wsquashfs-launcher [--wine &lt;version&gt;] &lt;jeu.wsquashfs | dossier&gt;</code></dt>
-        <dd>Lance le jeu. Un dossier contenant <code>autorun.cmd</code> est lancé sur place, sans montage.</dd>
+        <dd>Lance le jeu. Un dossier <code>.pc</code> contenant <code>autorun.cmd</code> est essayé en overlay, comme son image, sans être modifié ; un autre dossier (<code>.wine</code>, jeu installé) est lancé sur place, sans montage.</dd>
         <dt><code>--exec &lt;jeu.wsquashfs&gt; &lt;programme&gt; [arguments…]</code></dt>
         <dd>Exécutable du jeu (chemin relatif au prefix ou au <code>DIR</code>, casse ignorée) ou outil Wine (<code>winecfg</code>, <code>regedit</code>, <code>cmd</code>, <code>explorer</code>, <code>control joy.cpl</code>…). <code>PRE</code>/<code>ATTACH</code> ne sont pas lancés.</dd>
         <dt><code>--mount &lt;jeu&gt;</code> · <code>--umount [&lt;jeu&gt;]</code></dt>
@@ -394,7 +395,7 @@ VIRTUAL_DESKTOP=1920x1080</pre></div>
         <li><b>overlay noyau</b> (par défaut) : overlay du noyau dans un namespace utilisateur ; lectures aléatoires environ 5 fois plus rapides, rien d'orphelin après un plantage. Requiert Linux ≥ 5.11 et squashfuse ≥ 0.5.</li>
         <li><b>overlay FUSE</b> (repli, et <code>--mount</code>) : squashfuse + fuse-overlayfs.</li>
         <li><b>copy</b> : FUSE bloqué (conteneur sans <code>CAP_SYS_ADMIN</code>) ; copie de travail en cache.</li>
-        <li><b>dossier</b> : jeu installé par <code>--install</code>, lancé sur place.</li>
+        <li><b>dossier</b> : prefix <code>.wine</code> ou jeu installé par <code>--install</code>, lancé sur place. Un dossier <code>.pc</code> passe, lui, par l'overlay FUSE.</li>
       </ul>
       <p class="muted">Tout échec de l'overlay noyau retombe sur fuse-overlayfs ; <code>--doctor</code> dit pourquoi. Les deux partagent les mêmes sauvegardes.</p>
     </details>
