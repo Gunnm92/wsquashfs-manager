@@ -67,7 +67,7 @@ from .services.rebuild import (
     restore_backup,
     validate_backup,
 )
-from .services.runners import plan_runner, run_runner, suggest
+from .services.runners import plan_runner, run_relink, run_runner, suggest
 from .services.tasks import QueueLocked, TaskConflict, TaskQueue
 from .services.trial import (
     AgentHost,
@@ -103,6 +103,7 @@ queue = TaskQueue(
         "update": lambda task, job: run_update(_settings, task, job),
         "trial": lambda task, job: run_trial(_settings, task, job),
         "runner": lambda task, job: run_runner(_settings, task, job),
+        "relink": lambda task, job: run_relink(_settings, task, job),
     },
     concurrency=_settings.task_concurrency,
     night_now=lambda: in_night(_settings),
@@ -1327,6 +1328,19 @@ def image_runner(id: str, body: RunnerRequest):
                                     "set_key": body.set_key}, title,
                    night=body.when == "night")
     return {"task": task.id, "plan": plan.to_dict()}
+
+
+class RelinkRequest(BaseModel):
+    when: Literal["now", "night"] = "now"
+
+
+@app.post("/api/image/relink")
+def image_relink(id: str, body: RelinkRequest):
+    """Réécrit en relatif les liens du prefix vers le runner déjà joint à l'image
+    (reconstruction, original gardé en .old)."""
+    info = _find_image(id)
+    task = _submit(info, "relink", {}, "liens réécrits en relatif", night=body.when == "night")
+    return {"task": task.id}
 
 
 @app.post("/api/image/trial")

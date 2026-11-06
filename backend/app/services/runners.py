@@ -130,7 +130,18 @@ def suggest(settings: Settings, image: Path, runners: list[dict]) -> dict:
     state = image_state(settings, image)
     files, links = state
     report = classify(links, files)
-    out = {"report": report.to_dict(), "issues": report.issues(image=True), "suggestions": []}
+    suggestions: list[dict] = []
+    out = {"report": report.to_dict(), "issues": report.issues(image=True), "suggestions": suggestions}
+    if report.fixable and not report.external and not report.missing:
+        # Runner déjà joint à l'image : seuls les liens restent à réécrire en relatif
+        suggestions.append({
+            "action": "relink", "title": "Réécrire les liens en relatif",
+            "detail": (f"{len(report.fixable)} lien(s) pointent vers un dossier absent de "
+                       f"l'image ; le runner est déjà joint dans runners/"),
+            "rewritten": len(report.fixable), "repaired": len(report.fixable), "remaining": 0,
+            "size": 0, "warnings": [], "source": "", "sub": "", "dest": "", "set_key": False,
+            "runner": ""})
+        return out
     if not report.external and not report.missing:
         return out
     listings: dict[str, dict[str, int]] = {}
@@ -157,7 +168,7 @@ def suggest(settings: Settings, image: Path, runners: list[dict]) -> dict:
         found = listing(runner["path"])
         plan = plan_runner(settings, image, runner["path"], "", runner["name"], True,
                            listing=found, state=state)
-        out["suggestions"].append({
+        suggestions.append({
             "action": "join", "runner": runner["name"],
             "title": f"Joindre {runner['name']} à l'image",
             "detail": (f"copié de SteamBox ({runner['path']}) dans runners/{runner['name']}/, "
@@ -189,7 +200,7 @@ def suggest(settings: Settings, image: Path, runners: list[dict]) -> dict:
         runner = candidates[0]
         plan = plan_runner(settings, image, runner["path"], sub, joined, False,
                            listing=listing(posixpath.join(runner["path"], sub)), state=state)
-        out["suggestions"].append({
+        suggestions.append({
             "action": "complete", "runner": runner["name"],
             "title": f"Compléter {joined} avec {sub} de {runner['name']}",
             "detail": (f"{len(suffixes)} fichier(s) absents du runner joint ; {sub} copié de "
@@ -199,6 +210,27 @@ def suggest(settings: Settings, image: Path, runners: list[dict]) -> dict:
 
 
 # ------------------------------------------------------------------ tâche
+
+def run_relink(settings: Settings, task: Task, job: Job) -> str:
+    """Gestionnaire de la tâche « relink » : réécrit en relatif les liens du
+    prefix qui pointent vers un dossier absent de l'image mais présent dans
+    runners/ (ex. un runner joint, dont les liens gardent un chemin absolu)."""
+    image, _ = _task_image(task)
+    files, links = image_state(settings, image)
+    report = classify(links, files)
+    if not report.fixable:
+        return "aucun lien à réécrire"
+    job.log(f"{len(report.fixable)} lien(s) à réécrire en relatif")
+    result = rebuild(settings, image, Changes(links=dict(report.fixable)), job,
+                     in_use=scan.image_in_use)
+    files, links = image_state(settings, image)
+    left = classify(links, files)
+    message = (f"{len(report.fixable)} lien(s) réécrit(s) ; {result.size_before / 1e9:.1f} → "
+               f"{result.size_after / 1e9:.1f} Go en {result.duration:.0f} s, original conservé "
+               f"en {result.backup.name}")
+    if left.count:
+        message += f" ; {left.count} lien(s) encore à revoir"
+    return message
 
 def run_runner(settings: Settings, task: Task, job: Job) -> str:
     """Gestionnaire de la tâche « runner »."""

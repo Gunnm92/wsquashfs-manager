@@ -2000,8 +2000,9 @@ $("d-links").onclick = async () => {
     box.replaceChildren(
       el("ul", { className: "issues" }, ...r.issues.map((i) => el("li", { className: i.level }, i.message, " ", helpLink("h-runner")))),
       ...r.suggestions.map((sug) => {
-        const apply = el("button", {}, icon("clip", "sm"), sug.action === "join" ? "Joindre le runner" : "Compléter le runner");
-        apply.onclick = () => applyRunner(id, sug, apply);
+        const label = { join: "Joindre le runner", complete: "Compléter le runner", relink: "Réécrire les liens" }[sug.action];
+        const apply = el("button", {}, icon("clip", "sm"), label);
+        apply.onclick = () => (sug.action === "relink" ? applyRelink : applyRunner)(id, sug, apply);
         return el("div", { className: "suggestion" },
           el("strong", { textContent: sug.title }),
           el("p", { textContent: `${sug.detail}. ${sug.rewritten ? `${sug.rewritten} lien(s) réécrit(s) en relatif, ` : ""}${sug.repaired} réparé(s), ${sug.remaining} restant(s) ; ${size(sug.size)} ajoutés à l'image (avant compression).` }),
@@ -2018,6 +2019,19 @@ $("d-links").onclick = async () => {
     $("d-links").disabled = false;
   }
 };
+
+async function applyRelink(id, sug, button) {
+  if (!confirm(`Reconstruire « ${state.current.name} » : réécrire ${sug.rewritten} lien(s) en relatif. L'original est gardé en .old.`)) return;
+  button.disabled = true;
+  try {
+    await api(`/api/image/relink?id=${encodeURIComponent(id)}`, { method: "POST", body: { when: whenOf() } });
+    button.replaceChildren(icon("check", "sm"), "Envoyé dans la file");
+    queued();
+  } catch (error) {
+    button.disabled = false;
+    alert(error.message);
+  }
+}
 
 async function applyRunner(id, sug, button) {
   const what = sug.action === "join"
