@@ -14,6 +14,7 @@ import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
@@ -37,7 +38,8 @@ def make_cert(tmp: Path) -> tuple[Path, Path]:
 
 class FakeAgent(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.0"
-    seen: list[tuple[str, str]] = []
+    seen: ClassVar[list[tuple[str, str]]] = []
+    bodies: ClassVar[list[tuple[str, dict]]] = []
 
     def log_message(self, *a):
         pass
@@ -76,6 +78,7 @@ class FakeAgent(BaseHTTPRequestHandler):
             return
         length = int(self.headers.get("Content-Length", "0"))
         body = json.loads(self.rfile.read(length) or b"{}")
+        FakeAgent.bodies.append((self.path, body))
         if body.get("rel") == "win/Absent.wsquashfs":
             return self._send(404, b'{"detail":"image introuvable : win/Absent.wsquashfs"}')
         report = "@@ELAPSED 60\n@@LAUNCHER 1\n@@GAMESEEN 1\n@@WINDOW 0x1|Jeu|_NET_WM_STATE_FULLSCREEN\n@@LOG\n"
@@ -171,6 +174,20 @@ def test_maintenance_refuses_unlisted_actions(agent, tmp_path):
         trial.maintenance(settings, "clear")          # --clear n'est pas exposé
     with pytest.raises(RebuildError, match="non autorisée"):
         trial.maintenance(settings, "pack")
+    with pytest.raises(RebuildError, match="non autorisée"):
+        trial.maintenance(settings, "backup")         # retiré du lanceur (--saves le remplace)
+    with pytest.raises(RebuildError, match="ne prend pas de jeu"):
+        trial.maintenance(settings, "clean", tmp_path / "Jeu.wsquashfs")
+
+
+def test_maintenance_saves_all_or_one_game(agent, tmp_path):
+    settings = settings_for(tmp_path, agent["pem"], agent["url"])
+    image = tmp_path / "roms" / "win" / "Jeu.wsquashfs"
+    FakeAgent.bodies.clear()
+    trial.maintenance(settings, "saves")
+    trial.maintenance(settings, "saves", image)
+    assert FakeAgent.bodies == [("/v1/maintenance", {"action": "saves"}),
+                                ("/v1/maintenance", {"action": "saves", "rel": "win/Jeu.wsquashfs"})]
 
 
 def test_host_status_connected_and_refused(agent, tmp_path):

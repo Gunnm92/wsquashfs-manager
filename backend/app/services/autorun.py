@@ -26,7 +26,8 @@ from pathlib import Path
 # Clés connues du lanceur / Batocera (SPEC § 2.2).
 KNOWN_KEYS = {
     "CMD", "DIR", "GAME_VERSION", "WINE", "PROTON", "RUNNER", "ARCH", "HIDRAW",
-    "DXVK", "VKD3D", "D7VK", "ESYNC", "FSYNC", "VIRTUAL_DESKTOP", "LANG",
+    "DXVK", "VKD3D", "D7VK", "NVAPI", "VKREFLEX", "FSR", "FSR4", "ESYNC", "FSYNC",
+    "VIRTUAL_DESKTOP", "LANG",
     "ENV", "SAVEDIR", "SAVEFILES", "PRE", "ATTACH", "ATTACH_PROCESS",
 }
 
@@ -50,12 +51,20 @@ KEY_HELP: dict[str, tuple[str, list[str]]] = {
     "DXVK": ("D3D9-11 via Vulkan. Actif par défaut ; 0 pour wined3d.", ["1", "0"]),
     "VKD3D": ("D3D12 via Vulkan. Actif par défaut.", ["1", "0"]),
     "D7VK": ("DirectDraw/D3D7 via Vulkan. Actif par défaut.", ["1", "0"]),
+    "NVAPI": (("NVAPI / DLSS (dxvk-nvapi). auto (défaut) : actif si la machine qui lance "
+               "le jeu a une carte NVIDIA et dxvk-nvapi ; ignoré sur AMD."), ["auto", "1", "0"]),
+    "VKREFLEX": (("Couche Reflex de dxvk-nvapi (NVIDIA). auto (défaut) : chargée si elle est "
+                  "installée ; 1 force aussi NVAPI."), ["auto", "1", "0"]),
+    "FSR": ("FSR de Wine en plein écran (WINE_FULLSCREEN_FSR). Défaut 0.", ["1", "0"]),
+    "FSR4": (("FSR4 : pose amdxcffx64.dll dans le prefix, carte AMD seulement ; le jeu "
+              "décide de s'en servir. Défaut 0."), ["1", "0"]),
     "ESYNC": ("Synchronisation esync (défaut 0).", ["1", "0"]),
     "FSYNC": ("Synchronisation fsync (défaut 0).", ["1", "0"]),
     "VIRTUAL_DESKTOP": ("Bureau virtuel Wine, ex. 1920x1080.", ["1920x1080", "1280x720"]),
     "LANG": ("Langue passée au jeu, ex. fr_FR.UTF-8.", ["fr_FR.UTF-8", "en_US.UTF-8",
                                                          "ja_JP.UTF-8"]),
-    "ENV": (("Variables d'environnement supplémentaires (VAR=val VAR2=val). "
+    "ENV": (("Variables d'environnement supplémentaires (VAR=val VAR2=val). Fusionnées "
+             "variable par variable avec celles des autres couches ; -VAR en retire une. "
              "Jamais WINEDLLOVERRIDES : il écraserait les réglages DLL du lanceur."), []),
     "SAVEDIR": ("Dossier de sauvegarde du jeu, redirigé vers saves/<système>/<jeu>.", []),
     "SAVEFILES": ("Fichiers de sauvegarde (séparés par ;), redirigés comme SAVEDIR.", []),
@@ -287,10 +296,37 @@ def apply_ops(current: Autorun | None, ops: list[dict], name: str,
 # ------------------------------------------------------------------ surcharge
 # <jeu>.wsquashfs.autorun à côté de l'image, lu par le lanceur : une clé qui y
 # figure l'emporte sur celle de l'image, CLÉ= vide la ramène au défaut du
-# lanceur (même règle que override_var() de wsquashfs-launcher).
+# lanceur (même règle que read_layer() de wsquashfs-launcher). ENV= se
+# fusionne variable par variable (merge_env_layer du lanceur, 06/11) :
+# NOM=valeur ajoute ou remplace, -NOM retire, ENV= vide retire tout.
 
 def override_path(image: Path) -> Path:
     return image.with_name(image.name + ".autorun")
+
+
+def env_tokens(raw: str) -> dict[str, str]:
+    """ENV= → {nom: jeton NOM=valeur}, dans l'ordre (dernier jeton d'un nom
+    retenu, à la place du premier). Les jetons -NOM ne sont pas gardés."""
+    out: dict[str, str] = {}
+    for tok in raw.split():
+        if tok.startswith("-") and "=" not in tok:
+            out.pop(tok[1:], None)
+        elif (name := tok.split("=", 1)[0]):
+            out[name] = tok
+    return out
+
+
+def merge_env(base: str | None, layer: str) -> str:
+    """ENV= de `base` corrigé par l'ENV= d'une couche plus forte."""
+    if not layer.strip():
+        return ""
+    merged = env_tokens(base or "")
+    for tok in layer.split():
+        if tok.startswith("-") and "=" not in tok:
+            merged.pop(tok[1:], None)
+        elif (name := tok.split("=", 1)[0]):
+            merged[name] = tok
+    return " ".join(merged.values())
 
 
 def merge_override(base: Autorun | None, override: Autorun) -> Autorun:
@@ -300,6 +336,8 @@ def merge_override(base: Autorun | None, override: Autorun) -> Autorun:
                   trailing_eol=base.trailing_eol if base else True)
     for key in dict.fromkeys(k for k, _, _ in override.items()):
         value = override.get(key) or ""
+        if key == "ENV":
+            value = merge_env(out.get("ENV"), value)
         if value.strip():
             out.set(key, value)
         else:
@@ -307,17 +345,32 @@ def merge_override(base: Autorun | None, override: Autorun) -> Autorun:
     return out
 
 
+def env_override(base: str | None, wanted: str | None) -> str | None:
+    """ENV= de surcharge minimal pour passer de `base` à `wanted`, None si
+    rien ne change. Variables ajoutées ou modifiées, -NOM pour les retirées ;
+    ENV= vide si plus aucune variable."""
+    old, new = env_tokens(base or ""), env_tokens(wanted or "")
+    if old == new:
+        return None
+    if not new:
+        return ""
+    toks = [tok for name, tok in new.items() if old.get(name) != tok]
+    toks += [f"-{name}" for name in old if name not in new]
+    return " ".join(toks)
+
+
 def override_from(base: Autorun | None, wanted: Autorun) -> Autorun:
     """Surcharge minimale pour obtenir `wanted` à partir de l'autorun de
     l'image : clés ajoutées ou modifiées, et CLÉ= pour les clés retirées."""
     base_keys = {k: base.get(k) for k, _, _ in base.items()} if base else {}
     lines = []
-    for key in dict.fromkeys(k for k, _, _ in wanted.items()):
-        if wanted.get(key) != base_keys.get(key):
-            lines.append(f"{key}={wanted.get(key)}")
-    for key in base_keys:
-        if wanted.get(key) is None:
-            lines.append(f"{key}=")
+    for key in dict.fromkeys([*(k for k, _, _ in wanted.items()), *base_keys]):
+        if key == "ENV":
+            env = env_override(base_keys.get("ENV"), wanted.get("ENV"))
+            if env is not None:
+                lines.append(f"ENV={env}")
+        elif key not in base_keys or wanted.get(key) != base_keys[key]:
+            lines.append(f"{key}={wanted.get(key) or ''}")
     return Autorun(lines=lines, eol="\r\n", trailing_eol=True)
 
 

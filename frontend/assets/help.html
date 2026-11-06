@@ -261,7 +261,7 @@ ENV=GAMEID=umu-monjeu</pre>
       <details class="key" id="hk-LANG" data-f><summary><code>LANG</code><span>La langue du jeu</span><code class="ex">fr_FR.UTF-8</code></summary>
         <div>Posée dans <code>LC_ALL</code>.</div></details>
       <details class="key" id="hk-ENV" data-f><summary><code>ENV</code><span>Variables d'environnement en plus</span><code class="ex">VAR1=a VAR2=b</code></summary>
-        <div>Séparées par des espaces.</div></details>
+        <div>Séparées par des espaces. Une surcharge ou un <code>_defaults.autorun</code> ajoute ses variables à celles de l'image au lieu de les remplacer ; <code>-VAR</code> en retire une, <code>ENV=</code> vide les retire toutes.</div></details>
     </div>
     <p class="muted" data-f>Touches clavier : un fichier <code>&lt;jeu&gt;.wsquashfs.keys</code> à côté de l'image associe des boutons de manette à des touches.</p>
 
@@ -275,6 +275,14 @@ ENV=GAMEID=umu-monjeu</pre>
         <div>d7vk, s'il est installé. Sans effet sur un jeu qui ne charge pas <code>ddraw.dll</code>.</div></details>
       <details class="key" id="hk-VIRTUAL_DESKTOP" data-f><summary><code>VIRTUAL_DESKTOP</code><span>Afficher le jeu dans une fenêtre de taille fixe</span><code class="ex">1920x1080</code></summary>
         <div>Bureau virtuel Wine : évite les plantages du gestionnaire de fenêtres quand le jeu change la résolution.</div></details>
+      <details class="key" id="hk-NVAPI" data-f><summary><code>NVAPI</code><span>NVAPI et DLSS (NVIDIA)</span><code class="ex">défaut auto</code></summary>
+        <div>dxvk-nvapi. <code>auto</code> : décidé sur la machine qui lance le jeu, actif si elle a une carte NVIDIA et dxvk-nvapi ; une machine AMD seule n'en reçoit rien. <code>0</code> : coupé.</div></details>
+      <details class="key" id="hk-VKREFLEX" data-f><summary><code>VKREFLEX</code><span>Couche Reflex (NVIDIA)</span><code class="ex">défaut auto</code></summary>
+        <div>Couche Vulkan de dxvk-nvapi, chargée en <code>auto</code> si elle est installée et que NVAPI est actif. <code>1</code> force aussi NVAPI.</div></details>
+      <details class="key" id="hk-FSR" data-f><summary><code>FSR</code><span>FSR de Wine en plein écran</span><code class="ex">défaut 0</code></summary>
+        <div><code>WINE_FULLSCREEN_FSR</code>, comme Batocera : mise à l'échelle quand le jeu tourne en dessous de la résolution de l'écran.</div></details>
+      <details class="key" id="hk-FSR4" data-f><summary><code>FSR4</code><span>FSR 4 (AMD)</span><code class="ex">défaut 0</code></summary>
+        <div>Pose <code>amdxcffx64.dll</code> dans le prefix, sur une carte AMD seulement (DLL du système ou de <code>~/.local/share/wsquashfs/fsr4</code>) ; le jeu décide de s'en servir. Une copie dans le dossier du jeu reste prioritaire.</div></details>
       <details class="key" id="hk-ESYNC" data-f><summary><code>ESYNC</code><span>Synchronisation par événements</span><code class="ex">défaut 0</code></summary>
         <div><code>WINEESYNC</code>.</div></details>
       <details class="key" id="hk-FSYNC" data-f><summary><code>FSYNC</code><span>Synchronisation par futex</span><code class="ex">défaut 0</code></summary>
@@ -308,6 +316,7 @@ ENV=GAMEID=umu-monjeu</pre>
       <pre class="ar"># Le Jeu.wsquashfs.autorun
 HIDRAW=1</pre>
       <p>Batocera ne le lit pas : une fois le réglage validé, reconstruire l'image (ou « Inscrire les surcharges » sur une sélection).</p>
+      <p>Le lanceur lit aussi, du plus faible au plus fort : <code>~/.config/wsquashfs/defaults.autorun</code> (la machine), les variables <code>WSQUASHFS_*</code>, <code>_defaults.autorun</code> dans le dossier du jeu (tous les jeux du dossier), l'<code>autorun.cmd</code> de l'image, la surcharge, puis <code>--set RÉGLAGE=valeur</code>. <code>wsquashfs-launcher --show</code> donne la valeur finale de chaque réglage et sa provenance.</p>
     </details>
     <details class="more" id="h-ar-choice" data-f><summary>Choix automatique du runner</summary>
       <p>Sans <code>WINE</code>, <code>PROTON</code>, <code>RUNNER</code>, runner joint ni <code>--wine</code> :</p>
@@ -366,11 +375,11 @@ VIRTUAL_DESKTOP=1920x1080</pre></div>
         <dt><code>--install &lt;jeu.wsquashfs&gt; [dossier]</code></dt>
         <dd>L'inverse de <code>--pack</code> : extrait le jeu pour jouer sans FUSE. L'image est conservée, un dossier existant n'est jamais écrasé.</dd>
         <dt><code>--clean</code></dt>
-        <dd>Supprime le cache et les doublons des sauvegardes (fichiers recopiés sans modification). Ce que le jeu a écrit est gardé.</dd>
+        <dd>Supprime le cache, les doublons des sauvegardes (fichiers recopiés sans modification) et les anciennes archives de <code>~/.local/share/wsquashfs/backups/</code>. Ce que le jeu a écrit est gardé.</dd>
         <dt><code>--clear [jeu]</code></dt>
-        <dd>Radical : ne garde que <code>drive_c/users</code> des sauvegardes, après archive (<code>--backup</code>). Scores et réglages écrits ailleurs sont perdus.</dd>
-        <dt><code>--backup [jeu]</code></dt>
-        <dd>Archive les sauvegardes dans <code>~/.local/share/wsquashfs/backups/</code>. Restauration, jeu arrêté : <code>tar -C ~/.local/share/wsquashfs/saves --xattrs --xattrs-include='user.*' -xpf &lt;archive&gt;</code></dd>
+        <dd>Radical : ne garde que <code>drive_c/users</code> des sauvegardes, sans archive. Scores et réglages écrits ailleurs sont perdus.</dd>
+        <dt><code>--saves [jeu]</code></dt>
+        <dd>Copie les sauvegardes de partie (Documents, Saved Games, AppData) de tous les jeux, ou d'un seul, dans <code>saves/&lt;système&gt;/&lt;jeu&gt;</code> à côté de <code>roms/</code>. Sens unique, rien n'est supprimé. Restauration, jeu arrêté : <code>cp -a saves/&lt;système&gt;/&lt;jeu&gt;/drive_c ~/.local/share/wsquashfs/saves/&lt;jeu&gt;/</code></dd>
         <dt><code>--wine &lt;version&gt;</code></dt>
         <dd>Impose un runner (nom ou partie du nom, chemin d'un binaire wine, ou <code>system</code>), avant tout autre choix.</dd>
         <dt>MangoHud, gamemode…</dt>
@@ -392,7 +401,6 @@ VIRTUAL_DESKTOP=1920x1080</pre></div>
     <details class="more" id="h-data" data-f><summary>Où sont les données</summary>
       <pre>~/.local/share/wsquashfs/
 ├── saves/&lt;jeu&gt;/     ce que le jeu a écrit
-├── backups/         archives --backup / --clear
 └── wine/ dxvk/ …    runners et traducteurs installés
 ~/.cache/wsquashfs/  montages et copies de travail</pre>
       <p>À côté de l'image : <code>&lt;jeu&gt;.wsquashfs.autorun</code> (surcharge) et <code>&lt;jeu&gt;.wsquashfs.keys</code> (touches). À côté de <code>roms/</code> : <code>saves/&lt;système&gt;/&lt;jeu&gt;</code>.</p>
@@ -404,6 +412,7 @@ VIRTUAL_DESKTOP=1920x1080</pre></div>
         <dt><code>WSQUASHFS_OVERLAY</code></dt><dd><code>auto</code> (défaut), <code>fuse</code> ou <code>kernel</code> (sans repli).</dd>
         <dt><code>WSQUASHFS_DXVK=0</code>, <code>WSQUASHFS_D7VK=0</code></dt><dd>Désactive DXVK ou d7vk pour tous les jeux (le réglage d'un jeu l'emporte).</dd>
         <dt><code>WSQUASHFS_HIDRAW</code>, <code>WSQUASHFS_VIRTUAL_DESKTOP</code></dt><dd>Valeur par défaut de <code>HIDRAW</code> et <code>VIRTUAL_DESKTOP</code> pour tous les jeux.</dd>
+        <dt><code>WSQUASHFS_NVAPI</code>, <code>WSQUASHFS_VKREFLEX</code>, <code>WSQUASHFS_FSR</code>, <code>WSQUASHFS_FSR4</code></dt><dd>Valeur par défaut de <code>NVAPI</code>, <code>VKREFLEX</code>, <code>FSR</code> et <code>FSR4</code> pour tous les jeux.</dd>
         <dt><code>WSQUASHFS_UMU=0</code></dt><dd>Lance le Wine d'un Proton directement, sans umu.</dd>
         <dt><code>WSQUASHFS_DXVK_DIR</code>, <code>WSQUASHFS_VKD3D_DIR</code>, <code>WSQUASHFS_D7VK_DLL</code></dt><dd>Emplacements de DXVK, VKD3D-Proton et d7vk.</dd>
       </dl>

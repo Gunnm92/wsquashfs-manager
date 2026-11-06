@@ -241,3 +241,30 @@ def test_override_from_is_minimal_and_round_trips():
     assert merge_override(base, over).get("HIDRAW") is None
     assert merge_override(base, over).get("GAME_VERSION") == "3"
     assert override_from(base, base).lines == []
+
+
+def test_merge_override_env_merged_like_launcher():
+    # merge_env_layer du lanceur (06/11) : ENV= fusionné variable par variable
+    from app.services.autorun import merge_override
+    base = Autorun.parse("CMD=a.exe\r\nENV=A=1 B=2 C=3\r\n")
+    over = Autorun.parse("ENV=B=9 -C D=4\n")
+    assert merge_override(base, over).get("ENV") == "A=1 B=9 D=4"
+    assert merge_override(base, Autorun.parse("ENV=\n")).get("ENV") is None
+    assert merge_override(base, Autorun.parse("ENV=-A -B -C\n")).get("ENV") is None
+    assert merge_override(Autorun.parse("CMD=a.exe\n"), Autorun.parse("ENV=X=1 -Y\n")).get("ENV") == "X=1"
+
+
+def test_override_from_env_is_minimal_and_round_trips():
+    from app.services.autorun import merge_override, override_from
+    base = Autorun.parse("CMD=a.exe\r\nENV=A=1 B=2 C=3\r\n")
+    for env, expected in [("A=1 B=9 C=3 D=4", "ENV=B=9 D=4"), ("A=1 C=3", "ENV=-B"),
+                          (None, "ENV="), ("A=1 B=2 C=3", None)]:
+        wanted = Autorun.parse("CMD=a.exe\r\n" + (f"ENV={env}\r\n" if env else ""))
+        over = override_from(base, wanted)
+        assert (over.lines or [None])[0] == expected
+        assert merge_override(base, over).get("ENV") == env
+
+
+def test_gpu_keys_known():
+    a = Autorun.parse("CMD=a.exe\nNVAPI=auto\nVKREFLEX=0\nFSR=1\nFSR4=1\n")
+    assert a.unknown_keys() == []

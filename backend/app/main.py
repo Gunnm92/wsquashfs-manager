@@ -18,7 +18,15 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from .config import WORK_DIR_NAME, Settings, get_settings, in_night, save_game_host, save_night, save_roms_dirs
+from .config import (
+    WORK_DIR_NAME,
+    Settings,
+    get_settings,
+    in_night,
+    save_game_host,
+    save_night,
+    save_roms_dirs,
+)
 from .models import ImageInfo, ImageState, Task
 from .services import analyze as analyze_mod
 from .services import scan
@@ -62,8 +70,16 @@ from .services.rebuild import (
 from .services.runners import plan_runner, run_runner, suggest
 from .services.tasks import QueueLocked, TaskConflict, TaskQueue
 from .services.trial import (
-    AgentHost, agent_cert_path, fingerprint_pem, game_host, host_name, host_status, maintenance, run_doctor,
-    run_trial, trial_dir,
+    AgentHost,
+    agent_cert_path,
+    fingerprint_pem,
+    game_host,
+    host_name,
+    host_status,
+    maintenance,
+    run_doctor,
+    run_trial,
+    trial_dir,
 )
 from .services.update import default_anchor, plan_update, run_update
 
@@ -273,14 +289,19 @@ def _doctor(refresh: bool = False) -> dict:
 
 
 class MaintenanceRequest(BaseModel):
-    action: Literal["list", "umount", "clean", "backup"]
+    action: Literal["list", "umount", "clean", "saves"]
+    id: str | None = None           # saves : une image (fiche du jeu) ; sans : tous les jeux
 
 
 @app.post("/api/game_host/maintenance")
 def game_host_maintenance(body: MaintenanceRequest):
-    """Maintenance du lanceur sur la machine de jeu : lister, démonter, nettoyer, sauvegarder."""
+    """Maintenance du lanceur sur la machine de jeu : lister, démonter, nettoyer,
+    copier les sauvegardes dans la ludothèque (tous les jeux, ou un seul)."""
+    if body.id and body.action != "saves":
+        raise HTTPException(status_code=422, detail=f"--{body.action} ne prend pas de jeu")
+    image = _find_image(body.id).path if body.id else None
     try:
-        return maintenance(_settings, body.action)
+        return maintenance(_settings, body.action, image)
     except RebuildError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 

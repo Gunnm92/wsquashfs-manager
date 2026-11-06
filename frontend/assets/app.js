@@ -697,7 +697,7 @@ const KEY_RE = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/;
 const KEY_ICONS = { CMD: "terminal", DIR: "folder", GAME_VERSION: "tag", PRE: "play", ATTACH: "link", ATTACH_PROCESS: "cpu",
   WINE: "wine", PROTON: "atom", RUNNER: "drive", ARCH: "cpu", LANG: "book", ENV: "code", HIDRAW: "usb",
   SAVEDIR: "folder", SAVEFILES: "file", DXVK: "monitor", VKD3D: "monitor", D7VK: "monitor", VIRTUAL_DESKTOP: "grid",
-  ESYNC: "zap", FSYNC: "zap" };
+  NVAPI: "cpu", VKREFLEX: "zap", FSR: "monitor", FSR4: "monitor", ESYNC: "zap", FSYNC: "zap" };
 
 function editorLines() {
   const raw = $("a-editor").value.replace(/\r\n/g, "\n");
@@ -1267,6 +1267,7 @@ const hostName = () => state.config?.game_host_name || "la machine de jeu";
 function applyHost() {
   const on = hostOn();
   document.querySelector(".agroup .trial").hidden = !on;
+  $("d-saves-copy").hidden = !on;
   $("d-links").title = on ? `Liens du prefix vers un runner hors de l'image ou absent, et réparation avec les runners de ${hostName()}`
     : "Liens du prefix vers un runner hors de l'image ou absent";
 }
@@ -1299,8 +1300,8 @@ $("host-edit").onclick = () => { state.hostEditing = true; paintConnection(); };
 const MAINT = {
   list: ["Lister les jeux", ""],
   umount: ["Démonter les jeux", "Un jeu en cours sera arrêté."],
-  clean: ["Nettoyer le cache", "Supprime les copies de travail et les doublons. Ce que les jeux ont écrit est gardé."],
-  backup: ["Sauvegarder les sauvegardes", "Archive les sauvegardes des jeux dans le dossier des backups. Rien n'est supprimé."],
+  clean: ["Nettoyer", "Supprime les copies de travail, les doublons des sauvegardes et les anciennes archives (backups). Ce que les jeux ont écrit est gardé."],
+  saves: ["Copier les sauvegardes de tous les jeux", "Copie les sauvegardes de partie dans la ludothèque (saves/<système>/<jeu>). Rien n'est supprimé."],
 };
 for (const button of document.querySelectorAll("[data-maint]")) {
   button.onclick = async () => {
@@ -1814,6 +1815,17 @@ $("d-trial").onclick = async () => {
 };
 $("d-verify").onclick = () => verify([state.current.id]).catch((error) => alert(error.message));
 $("d-saves-reset").onclick = () => resetSaves([state.current.id]).catch((error) => alert(error.message));
+$("d-saves-copy").onclick = async () => {
+  const button = $("d-saves-copy");
+  button.disabled = true;
+  try {
+    const r = await api("/api/game_host/maintenance", { method: "POST", timeout: 900000,
+      body: { action: "saves", id: state.current.id } });
+    const out = (r.output || "").split("\n").filter((l) => l.startsWith("  ") && !l.startsWith("  dans ")).map((l) => l.trim()).join("\n");
+    if (r.code !== 0) alert(`Copie des sauvegardes : ${(r.output || "").trim() || `code ${r.code}`}`);
+    else toast(out || "Sauvegardes copiées", "save");
+  } catch (error) { alert(error.message); } finally { button.disabled = false; }
+};
 $("btn-verify").onclick = () => verify([...state.selected]).catch((error) => alert(error.message));
 $("btn-saves-reset").onclick = () => resetSaves([...state.selected]).catch((error) => alert(error.message));
 

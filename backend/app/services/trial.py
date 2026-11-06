@@ -402,18 +402,24 @@ def game_host(settings: Settings, timeout: float = 120) -> DockerHost | LocalHos
     raise RebuildError("machine de jeu désactivée : à activer dans Réglages → Machine de jeu")
 
 
-# Maintenance du lanceur (Réglages → Machine de jeu) : liste fermée, comme celle de l'agent
-MAINTENANCE_ACTIONS = ("list", "umount", "clean", "backup")
+# Maintenance du lanceur (Réglages → Machine de jeu) : liste fermée, comme celle de l'agent.
+# saves accepte en plus une image (fiche du jeu) : sans image, tous les jeux.
+MAINTENANCE_ACTIONS = ("list", "umount", "clean", "saves")
 
 
-def maintenance(settings: Settings, action: str) -> dict:
+def maintenance(settings: Settings, action: str, image: Path | None = None) -> dict:
     """Lance une action de maintenance du lanceur sur la machine de jeu."""
     if action not in MAINTENANCE_ACTIONS:
         raise RebuildError("action de maintenance non autorisée")
+    if image is not None and action != "saves":
+        raise RebuildError(f"--{action} ne prend pas de jeu")
     host = game_host(settings, 900)
+    target = host.path_of(image) if image is not None else None
     if isinstance(host, AgentHost):
-        return host._call("POST", "/v1/maintenance", json={"action": action}, timeout=900).json()
-    code, out = host.exec(["bash", "-lc", f"wsquashfs-launcher --{action}"])
+        body = {"action": action, **({"rel": target} if target else {})}
+        return host._call("POST", "/v1/maintenance", json=body, timeout=900).json()
+    args = [f"--{action}", *([target] if target else [])]
+    code, out = host.exec(["bash", "-lc", 'wsquashfs-launcher "$@"', "wsfs-maint", *args])
     return {"action": action, "code": code, "output": out.decode("utf-8", "replace")}
 
 

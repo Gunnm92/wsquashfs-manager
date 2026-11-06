@@ -185,6 +185,7 @@
           <button class="btn bare sm" id="d-verify" title="Vérifier l'intégrité de l'image"><svg class="ico sm"><use href="#i-shield"/></svg>Vérifier</button>
           <span class="trial"><button class="btn bare sm" id="d-trial" title="Lance le jeu sur la machine de jeu, l'observe puis l'arrête : tient-il, fenêtre, erreurs, capture"><svg class="ico sm"><use href="#i-flask"/></svg>Lancement d'essai</button>
             <select id="d-trial-duration" title="Durée de l'essai"><option value="30">30 s</option><option value="60" selected>60 s</option><option value="120">2 min</option></select></span>
+          <button class="btn bare sm" id="d-saves-copy" title="Copie les sauvegardes de partie de ce jeu dans la ludothèque (saves/&lt;système&gt;/&lt;jeu&gt;), sur la machine de jeu"><svg class="ico sm"><use href="#i-save"/></svg>Copier les sauvegardes</button>
           <button class="btn bare sm" id="d-saves-reset" title="Met de côté les sauvegardes du jeu (renommées, pas supprimées)"><svg class="ico sm"><use href="#i-save"/></svg>Réinitialiser les sauvegardes</button>
         </div>
       </div>
@@ -360,8 +361,8 @@
     <div class="maint-btns">
       <button class="btn secondary sm" data-maint="list">Lister les jeux</button>
       <button class="btn secondary sm" data-maint="umount">Démonter les jeux</button>
-      <button class="btn secondary sm" data-maint="clean">Nettoyer le cache</button>
-      <button class="btn secondary sm" data-maint="backup">Sauvegarder les sauvegardes</button>
+      <button class="btn secondary sm" data-maint="clean">Nettoyer</button>
+      <button class="btn secondary sm" data-maint="saves">Copier les sauvegardes de tous les jeux</button>
     </div>
     <pre class="maint-out" id="maint-out" hidden></pre>
   </div>
