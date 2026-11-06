@@ -185,10 +185,6 @@ def get_config():
         # Machine de jeu (lancement d'essai, --doctor, runners installés)
         "game_host": _settings.game_host,
         "game_host_name": host_name(_settings),
-        "steambox_container": _settings.steambox_container,
-        "docker_host": _settings.docker_host,
-        "steambox_roms": _settings.steambox_roms,
-        "game_user": _settings.game_user,
         "session_process": _settings.session_process,
         "agent_url": _settings.agent_url,
         "agent_token_set": bool(_settings.agent_token),       # le jeton n'est jamais renvoyé
@@ -205,11 +201,7 @@ def _agent_fingerprint() -> str:
 
 
 class GameHostConfig(BaseModel):
-    game_host: Literal["off", "local", "docker", "agent"]
-    steambox_container: str = ""
-    docker_host: str = ""
-    steambox_roms: str = ""
-    game_user: str = ""
+    game_host: Literal["off", "local", "agent"]
     session_process: str = ""
     agent_url: str = ""
     agent_token: str = ""           # vide : garder le jeton actuel
@@ -218,7 +210,7 @@ class GameHostConfig(BaseModel):
 
 @app.put("/api/config/game_host")
 def set_game_host(body: GameHostConfig):
-    """Machine de jeu : désactivée, cette machine, un conteneur Docker ou un agent réseau."""
+    """Machine de jeu : désactivée, cette machine ou un agent (réseau ou conteneur)."""
     values = {k: v for k, v in body.model_dump().items() if k != "agent_pem" and (v != "" or k == "session_process")}
     keep_cert = False
     if body.game_host == "agent":

@@ -83,13 +83,12 @@ sans.
 |---|---|
 | Désactivée | défaut d'une installation neuve |
 | Cette machine | lanceur installé sur la machine du gestionnaire, avec un écran ; le service tourne sous l'utilisateur de la session graphique |
-| Conteneur Docker | lanceur dans un conteneur (ex. SteamBox), joint par l'API Docker (docker-socket-proxy avec EXEC) ; nom du conteneur, adresse de l'API, dossier roms vu du conteneur, utilisateur des jeux |
-| Agent réseau | `wsquashfs-agent` installé sur la machine de jeu (`install.sh --agent` du lanceur) ; adresse `https://hôte:8766` et jeton à coller, puis **Associer** : le certificat est récupéré et son empreinte doit être confirmée (identique à celle de `wsquashfs-launcher --pair`). Sans Docker, et rien ne reste actif entre deux appels. |
+| Agent réseau | `wsquashfs-launcher --agent` sur la machine de jeu, ou dans son conteneur (ex. SteamBox) : le code `wsq://…` affiché par `wsquashfs-launcher --pair` se colle dans **Associer** (le certificat est vérifié contre le code). Voir `docs/agent.md` du lanceur. |
 
-Sans choix dans l'interface, le mode Docker est retenu si
-`WSQUASHFS_MGR_STEAMBOX_CONTAINER` est posé (cas du template Unraid), sinon
-la machine de jeu est désactivée. Pour le mode Docker sur Unraid : réseau
-`socket_proxy` (celui du docker-socket-proxy).
+Le mode Conteneur Docker (API Docker, `docker-socket-proxy`) a été retiré : un
+conteneur se joint par l'agent. Une configuration qui le mentionne repasse en
+« Désactivée ». Le template Unraid ne doit plus poser
+`WSQUASHFS_MGR_STEAMBOX_CONTAINER`, qui n'a plus d'effet.
 
 Paramètres supplémentaires du template : `--pid=host` (voir les jeux lancés
 dans SteamBox et ne pas reconstruire leur image pendant une partie),

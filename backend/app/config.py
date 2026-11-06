@@ -70,17 +70,12 @@ class Settings(BaseSettings):
     # d'essai, l'état du lanceur (--doctor) et les runners installés.
     #   off    : fonctions désactivées (défaut d'une installation neuve) ;
     #   local  : sur cette machine (lanceur installé ici, session graphique) ;
-    #   docker : dans un conteneur, par l'API Docker (ex. SteamBox) ;
-    #   agent  : wsquashfs-agent sur le réseau (HTTPS, jeton, certificat épinglé).
-    # Non renseigné : « docker » si WSQUASHFS_MGR_STEAMBOX_CONTAINER est posé
-    # (installations existantes), sinon « off ». Modifiable dans Réglages.
-    game_host: Literal["off", "local", "docker", "agent"] | None = None
-    steambox_container: str = "SteamBox"          # conteneur (mode docker)
+    #   agent  : wsquashfs-launcher --agent, sur cette machine ou sur le réseau
+    #            (association par code wsq://… ; un conteneur tourne ainsi aussi).
+    # Non renseigné : « off ». Modifiable dans Réglages.
+    game_host: Literal["off", "local", "agent"] | None = None
     agent_url: str = ""                           # https://hôte:port (mode agent)
     agent_token: str = ""                         # jeton de l'agent (config.json, jamais exposé)
-    docker_host: str = "tcp://docker-socket-proxy:2375"
-    steambox_roms: str = "/home/arcade/games/Batocera/roms"   # roms/ vu du conteneur
-    game_user: str = "arcade"                     # utilisateur des jeux dans le conteneur
     # Processus de la session graphique dont l'environnement (DISPLAY…) est
     # repris pour l'essai ; vide = environnement du gestionnaire
     session_process: str = "emulationstation"
@@ -185,29 +180,20 @@ def in_night(settings: Settings, now: datetime | None = None) -> bool:
     return current >= start or current < end
 
 
-GAME_HOST_KEYS = ("game_host", "steambox_container", "docker_host", "steambox_roms",
-                  "game_user", "session_process", "agent_url", "agent_token")
+GAME_HOST_KEYS = ("game_host", "session_process", "agent_url", "agent_token")
 
 
 def save_game_host(settings: Settings, values: dict) -> None:
     """Machine de jeu choisie dans « Réglages » (config.json)."""
     clean = {k: str(values[k]).strip() for k in GAME_HOST_KEYS if k in values}
-    if clean.get("game_host") not in ("off", "local", "docker", "agent"):
-        raise ValueError("mode de la machine de jeu : off, local, docker ou agent")
+    if clean.get("game_host") not in ("off", "local", "agent"):
+        raise ValueError("mode de la machine de jeu : off, local ou agent")
     if clean["game_host"] == "agent":
         url = clean.get("agent_url", settings.agent_url)
         if not re.match(r"^https://[^\s/]+:\d+$", url or ""):
             raise ValueError("adresse de l'agent : https://hôte:port (ex. https://192.168.1.20:8790)")
         if not clean.get("agent_token") and not settings.agent_token:
             raise ValueError("jeton de l'agent requis (affiché par « wsquashfs-launcher --pair »)")
-    if clean["game_host"] == "docker":
-        for key, label in (("steambox_container", "nom du conteneur"), ("docker_host", "adresse de l'API Docker"),
-                           ("steambox_roms", "dossier roms dans le conteneur")):
-            if not clean.get(key, getattr(settings, key)):
-                raise ValueError(f"{label} requis en mode Docker")
-        host = clean.get("docker_host", settings.docker_host)
-        if not re.match(r"^(tcp|http|https)://[^\s/]+", host):
-            raise ValueError("adresse de l'API Docker : tcp://hôte:port (ex. tcp://docker-socket-proxy:2375)")
     _save_runtime(settings, **clean)
     for key, value in clean.items():
         setattr(settings, key, value)
@@ -229,7 +215,7 @@ def get_settings() -> Settings:
     for key in GAME_HOST_KEYS:
         if isinstance(runtime.get(key), str):
             setattr(settings, key, runtime[key])
-    if settings.game_host not in ("off", "local", "docker", "agent"):
-        explicit = "WSQUASHFS_MGR_STEAMBOX_CONTAINER" in os.environ and settings.steambox_container
-        settings.game_host = "docker" if explicit else "off"
+    if settings.game_host not in ("off", "local", "agent"):
+        # Ancien mode « docker » (retiré) : la machine de jeu est désactivée
+        settings.game_host = "off"
     return settings

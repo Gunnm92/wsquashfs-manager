@@ -2,8 +2,8 @@
 
 La machine de jeu est là où tourne wsquashfs-launcher (réglage game_host) :
 - « local » : la machine du gestionnaire, commandes lancées directement ;
-- « docker » : un conteneur (ex. SteamBox), par l'API Docker
-  (docker-socket-proxy), sous l'utilisateur des jeux ;
+- « agent » : wsquashfs-launcher --agent sur cette machine ou sur le réseau
+  (code d'association), y compris dans un conteneur ;
 - « off » : lancement d'essai, --doctor et runners installés indisponibles.
 
 Le jeu y est lancé par wsquashfs-launcher (environnement de la session
@@ -106,87 +106,6 @@ def report_from_json(data: dict) -> TrialReport:
                 report.errors.append({"meaning": meaning, "line": line.strip()[:240]})
                 break
     return report
-
-
-def steambox_path(settings: Settings, image: Path) -> str:
-    """Chemin de l'image dans le conteneur : la partie après « roms/ » (format
-    Batocera) est rattachée au dossier roms du conteneur."""
-    parts = image.parts
-    if "roms" not in parts:
-        raise RebuildError("image hors d'un dossier roms/ : chemin dans le conteneur inconnu")
-    index = len(parts) - 1 - parts[::-1].index("roms")
-    return "/".join([settings.steambox_roms.rstrip("/"), *parts[index + 1:]])
-
-
-class Docker:
-    """Client minimal de l'API Docker (exec), via docker-socket-proxy."""
-
-    def __init__(self, base_url: str, timeout: float):
-        self.client = httpx.Client(base_url=base_url.replace("tcp://", "http://"),
-                                   timeout=httpx.Timeout(timeout, connect=10))
-
-    def exec(self, container: str, cmd: list[str], user: str = "arcade") -> tuple[int, bytes]:
-        try:
-            created = self.client.post(f"/containers/{container}/exec", json={
-                "Cmd": cmd, "User": user, "AttachStdout": True, "AttachStderr": True})
-            created.raise_for_status()
-            exec_id = created.json()["Id"]
-            raw = self.client.post(f"/exec/{exec_id}/start", json={"Detach": False, "Tty": False})
-            raw.raise_for_status()
-            code = self.client.get(f"/exec/{exec_id}/json").json().get("ExitCode") or 0
-        except httpx.HTTPError as exc:
-            raise _unreachable(container, exc) from exc
-        return code, _demux(raw.content)
-
-    def exec_stream(self, container: str, cmd: list[str], on_stdout: Callable[[bytes], None],
-                    user: str = "arcade") -> tuple[int, bytes]:
-        """Comme `exec`, sans tout garder en mémoire : chaque bloc de la sortie
-        standard est passé à `on_stdout` dès sa réception. Retourne (code,
-        sortie d'erreur)."""
-        stderr = bytearray()
-        try:
-            created = self.client.post(f"/containers/{container}/exec", json={
-                "Cmd": cmd, "User": user, "AttachStdout": True, "AttachStderr": True})
-            created.raise_for_status()
-            exec_id = created.json()["Id"]
-            with self.client.stream("POST", f"/exec/{exec_id}/start",
-                                    json={"Detach": False, "Tty": False}) as response:
-                response.raise_for_status()
-                buffer = bytearray()
-                for chunk in response.iter_raw():
-                    buffer += chunk
-                    while len(buffer) >= 8:
-                        size = int.from_bytes(buffer[4:8], "big")
-                        if len(buffer) < 8 + size:
-                            break
-                        kind, payload = buffer[0], bytes(buffer[8:8 + size])
-                        del buffer[:8 + size]
-                        if kind == 1:
-                            on_stdout(payload)
-                        else:
-                            stderr += payload
-            code = self.client.get(f"/exec/{exec_id}/json").json().get("ExitCode") or 0
-        except httpx.HTTPError as exc:
-            raise _unreachable(container, exc) from exc
-        return code, bytes(stderr)
-
-
-class DockerHost:
-    """Machine de jeu dans un conteneur, par l'API Docker."""
-
-    def __init__(self, settings: Settings, timeout: float):
-        self.settings = settings
-        self.name = settings.steambox_container
-        self.docker = Docker(settings.docker_host, timeout=timeout)
-
-    def exec(self, cmd: list[str]) -> tuple[int, bytes]:
-        return self.docker.exec(self.name, cmd, user=self.settings.game_user)
-
-    def exec_stream(self, cmd: list[str], on_stdout: Callable[[bytes], None]) -> tuple[int, bytes]:
-        return self.docker.exec_stream(self.name, cmd, on_stdout, user=self.settings.game_user)
-
-    def path_of(self, image: Path) -> str:
-        return steambox_path(self.settings, image)
 
 
 class LocalHost:
@@ -328,16 +247,13 @@ class AgentHost:
         return self.rel_of(image)
 
 
-GAME_HOST_LABELS = {"off": "désactivée", "local": "cette machine", "docker": "conteneur Docker",
-                    "agent": "agent réseau"}
+GAME_HOST_LABELS = {"off": "désactivée", "local": "cette machine", "agent": "agent réseau"}
 
 
-def game_host(settings: Settings, timeout: float = 120) -> DockerHost | LocalHost | AgentHost:
+def game_host(settings: Settings, timeout: float = 120) -> LocalHost | AgentHost:
     """Machine de jeu configurée ; RebuildError si elle est désactivée."""
     if settings.game_host == "local":
         return LocalHost(settings, timeout)
-    if settings.game_host == "docker" and settings.steambox_container:
-        return DockerHost(settings, timeout)
     if settings.game_host == "agent" and settings.agent_url:
         return AgentHost(settings, timeout)
     raise RebuildError("machine de jeu désactivée : à activer dans Réglages → Machine de jeu")
@@ -385,30 +301,9 @@ def host_status(settings: Settings) -> dict:
 
 
 def host_name(settings: Settings) -> str:
-    if settings.game_host == "docker":
-        return settings.steambox_container
     if settings.game_host == "agent":
         return f"l'agent ({settings.agent_url})"
     return GAME_HOST_LABELS[settings.game_host or "off"]
-
-
-def _unreachable(container: str, exc: httpx.HTTPError) -> RebuildError:
-    hint = ""
-    if isinstance(exc, httpx.ConnectError):
-        # Cas vu le 01/11 : conteneur sur le réseau bridge, proxy sur socket_proxy
-        hint = (" — proxy Docker injoignable : le conteneur du manager doit être sur le "
-                "réseau du docker-socket-proxy (Unraid : Network Type = socket_proxy)")
-    return RebuildError(f"conteneur {container} injoignable : {exc}{hint}")
-
-
-def _demux(stream: bytes) -> bytes:
-    """Flux Docker multiplexé : en-têtes de 8 octets (type, taille)."""
-    out, i = bytearray(), 0
-    while i + 8 <= len(stream):
-        size = int.from_bytes(stream[i + 4:i + 8], "big")
-        out += stream[i + 8:i + 8 + size]
-        i += 8 + size
-    return bytes(out)
 
 
 def run_doctor(settings: Settings) -> dict:

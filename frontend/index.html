@@ -338,18 +338,11 @@
   <div class="pills on-s2 host-modes" id="cfg-host" role="radiogroup">
     <button data-host="off" role="radio">Désactivée</button>
     <button data-host="local" role="radio">Cette machine</button>
-    <button data-host="docker" role="radio">Conteneur Docker</button>
     <button data-host="agent" role="radio">Agent réseau</button>
   </div>
   <p class="dlg-intro host-hint" id="cfg-host-hint"></p>
   <div class="host-summary" id="host-summary" hidden><span id="host-summary-text"></span>
     <button class="btn bare sm" id="host-edit" type="button"><svg class="ico sm"><use href="#i-pen"/></svg>Modifier la connexion</button></div>
-  <div class="host-fields" id="cfg-docker" hidden>
-    <label class="field">Nom du conteneur<input id="cfg-container" placeholder="SteamBox"></label>
-    <label class="field">Adresse de l'API Docker<input id="cfg-docker-host" placeholder="tcp://docker-socket-proxy:2375"></label>
-    <label class="field">Dossier roms vu du conteneur<input id="cfg-roms-in" placeholder="/home/arcade/games/Batocera/roms"></label>
-    <label class="field">Utilisateur des jeux dans le conteneur<input id="cfg-game-user" placeholder="arcade"></label>
-  </div>
   <div class="host-fields" id="cfg-agent" hidden>
     <label class="field">Code d'association<input id="cfg-agent-code" autocomplete="off" placeholder="wsq://… (affiché par « wsquashfs-launcher --pair »)"></label>
     <details class="agent-manual">

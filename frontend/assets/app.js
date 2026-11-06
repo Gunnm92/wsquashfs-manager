@@ -1259,7 +1259,7 @@ document.addEventListener("click", (event) => {
 $("tasks-clear").onclick = async () => { await api("/api/tasks/finished", { method: "DELETE" }); refreshTasks(); };
 
 // ------------------------------------------------------------------ machine de jeu
-// Désactivée, cette machine ou un conteneur Docker (Réglages) : sans elle, pas
+// Désactivée, cette machine ou un agent (Réglages) : sans elle, pas
 // de lancement d'essai ni d'état du lanceur ; le reste fonctionne.
 
 const hostOn = () => Boolean(state.config && state.config.game_host && state.config.game_host !== "off");
@@ -1274,7 +1274,6 @@ function applyHost() {
 const HOST_HINTS = {
   off: "Pas de lancement d'essai ni de diagnostic. Le reste fonctionne.",
   local: "Le lanceur est installé sur cette machine, avec un écran.",
-  docker: "Le lanceur tourne dans un conteneur, joint par l'API Docker.",
   agent: "Le lanceur tourne sur la machine de jeu : wsquashfs-launcher --agent.",
 };
 // Connexion établie : les paramètres de connexion se replient (résumé), sauf
@@ -1282,16 +1281,13 @@ const HOST_HINTS = {
 function paintConnection(mode = $("cfg-host").dataset.mode) {
   const saved = state.config?.game_host;
   const connected = state.hostStatus?.state === "ok" && mode === saved;
-  const folded = connected && !state.hostEditing && (mode === "agent" || mode === "docker");
-  $("cfg-docker").hidden = mode !== "docker" || folded;
+  const folded = connected && !state.hostEditing && mode === "agent";
   $("cfg-agent").hidden = mode !== "agent" || folded;
   $("host-summary").hidden = !folded;
   $("host-maint").hidden = !(state.hostStatus?.state === "ok" && mode === saved);
   if (folded) {
     const c = state.config;
-    $("host-summary-text").textContent = mode === "agent"
-      ? `Agent : ${c.agent_url}${c.agent_fingerprint ? " · empreinte vérifiée" : ""}`
-      : `Conteneur : ${c.steambox_container} · ${c.docker_host}`;
+    $("host-summary-text").textContent = `Agent : ${c.agent_url}${c.agent_fingerprint ? " · empreinte vérifiée" : ""}`;
   }
 }
 $("host-edit").onclick = () => { state.hostEditing = true; paintConnection(); };
@@ -1348,9 +1344,8 @@ $("cfg-host").onclick = (event) => {
   const b = event.target.closest("button[data-host]");
   if (b) paintHostForm(b.dataset.host);
 };
-const hostBody = () => ({ game_host: $("cfg-host").dataset.mode || "off", steambox_container: $("cfg-container").value.trim(),
-  docker_host: $("cfg-docker-host").value.trim(), steambox_roms: $("cfg-roms-in").value.trim(),
-  game_user: $("cfg-game-user").value.trim(), session_process: $("cfg-session").value.trim(),
+const hostBody = () => ({ game_host: $("cfg-host").dataset.mode || "off",
+  session_process: $("cfg-session").value.trim(),
   agent_url: $("cfg-agent-url").value.trim(), agent_token: $("cfg-agent-token").value.trim(),
   agent_pem: state.agentPem || "" });
 
@@ -1506,10 +1501,6 @@ $("btn-config").onclick = async () => {
     ["Sauvegardes", cfg.saves_dir], ["Dossier de travail", cfg.tmp_dir], ["Reconstruction", cfg.rebuild_mode],
     ["Rétention .old", cfg.old_retention_days == null ? "manuelle" : `${cfg.old_retention_days} jours`],
   ].flatMap(([k, v]) => [el("dt", { textContent: k }), el("dd", { textContent: v ?? "—" })]));
-  $("cfg-container").value = cfg.steambox_container || "";
-  $("cfg-docker-host").value = cfg.docker_host || "";
-  $("cfg-roms-in").value = cfg.steambox_roms || "";
-  $("cfg-game-user").value = cfg.game_user || "";
   $("cfg-session").value = cfg.session_process ?? "";
   $("cfg-agent-url").value = cfg.agent_url || "";
   $("cfg-agent-token").value = "";
@@ -1545,11 +1536,9 @@ $("cfg-save").onclick = async () => {
     }
     state.config = await api("/api/config/night", { method: "PUT",
       body: { start: $("cfg-night-start").value, end: $("cfg-night-end").value } });
-    const before = JSON.stringify([state.config.game_host, state.config.steambox_container, state.config.docker_host,
-      state.config.steambox_roms, state.config.game_user, state.config.session_process]);
+    const before = JSON.stringify([state.config.game_host, state.config.session_process]);
     state.config = await api("/api/config/game_host", { method: "PUT", body: hostBody() });
-    if (JSON.stringify([state.config.game_host, state.config.steambox_container, state.config.docker_host,
-      state.config.steambox_roms, state.config.game_user, state.config.session_process]) !== before) state.doctor = null;
+    if (JSON.stringify([state.config.game_host, state.config.session_process]) !== before) state.doctor = null;
     fillWhen();
     applyHost();
     loadHostStatus(true);

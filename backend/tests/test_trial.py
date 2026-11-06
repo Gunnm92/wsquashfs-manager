@@ -41,25 +41,6 @@ def test_verdicts():
     assert fine.verdict == (True, "le jeu a tenu 60 s")
 
 
-def test_steambox_path():
-    s = Settings()
-    assert trial.steambox_path(s, Path("/roms/win/Jeu X.wsquashfs")) == \
-        "/home/arcade/games/Batocera/roms/win/Jeu X.wsquashfs"
-    assert trial.steambox_path(s, Path("/config/userdata/roms/win/A.wsquashfs")).endswith(
-        "/Batocera/roms/win/A.wsquashfs")
-    with pytest.raises(RebuildError):
-        trial.steambox_path(s, Path("/ailleurs/A.wsquashfs"))
-
-
-def _frame(kind: int, data: bytes) -> bytes:
-    return bytes([kind, 0, 0, 0]) + len(data).to_bytes(4, "big") + data
-
-
-def test_demux():
-    frame = _frame
-    assert trial._demux(frame(1, b"abc") + frame(2, b"de")) == b"abcde"
-
-
 # ------------------------------------------------------------------ machine de jeu
 
 def _settings(tmp_path, monkeypatch, **env):
@@ -71,10 +52,10 @@ def _settings(tmp_path, monkeypatch, **env):
     return config.get_settings()
 
 
-def test_game_host_off_by_default_docker_if_container_configured(tmp_path, monkeypatch):
+def test_game_host_off_by_default_and_legacy_docker_becomes_off(tmp_path, monkeypatch):
     assert _settings(tmp_path, monkeypatch).game_host == "off"
-    s = _settings(tmp_path, monkeypatch, WSQUASHFS_MGR_STEAMBOX_CONTAINER="SteamBox")
-    assert s.game_host == "docker"
+    (tmp_path / "config.json").write_text('{"game_host": "docker", "steambox_container": "SteamBox"}')
+    assert _settings(tmp_path, monkeypatch).game_host == "off"
     with pytest.raises(RebuildError, match="désactivée"):
         trial.game_host(_settings(tmp_path, monkeypatch))
 
@@ -86,7 +67,7 @@ def test_save_game_host_persists_and_validates(tmp_path, monkeypatch):
     again = _settings(tmp_path, monkeypatch)
     assert again.game_host == "local" and again.session_process == ""
     with pytest.raises(ValueError):
-        config.save_game_host(s, {"game_host": "docker", "docker_host": "docker-socket-proxy"})
+        config.save_game_host(s, {"game_host": "docker"})
     with pytest.raises(ValueError):
         config.save_game_host(s, {"game_host": "ssh"})
 
