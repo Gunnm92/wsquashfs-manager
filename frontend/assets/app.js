@@ -1272,9 +1272,9 @@ function applyHost() {
     : "Liens du prefix vers un runner hors de l'image ou absent";
 }
 const HOST_HINTS = {
-  off: "Pas de lancement d'essai ni de diagnostic. Le reste fonctionne.",
-  local: "Le lanceur est installé sur cette machine, avec un écran.",
-  agent: "Le lanceur tourne sur la machine de jeu : wsquashfs-launcher --agent.",
+  off: "Pas de lancement d'essai, de diagnostic ni de maintenance du lanceur.",
+  local: "Le lanceur est installé sur la machine du gestionnaire, avec un écran.",
+  agent: "Le lanceur tourne sur une autre machine : wsquashfs-launcher --agent, puis --pair pour le code.",
 };
 // Connexion établie : les paramètres de connexion se replient (résumé), sauf
 // si l'on demande à les modifier ; mode changé = champs visibles.
@@ -1284,15 +1284,35 @@ function paintConnection(mode = $("cfg-host").dataset.mode) {
   const folded = connected && !state.hostEditing && mode === "agent";
   $("cfg-agent").hidden = mode !== "agent" || folded;
   $("host-summary").hidden = !folded;
-  $("host-maint").hidden = !(state.hostStatus?.state === "ok" && mode === saved);
   if (folded) {
     const c = state.config;
     $("host-summary-text").textContent = `Agent : ${c.agent_url}${c.agent_fingerprint ? " · empreinte vérifiée" : ""}`;
   }
+  paintTools();
 }
 $("host-edit").onclick = () => { state.hostEditing = true; paintConnection(); };
 
-// Maintenance du lanceur : chaque action demande confirmation, le résultat s'affiche sous les boutons
+// Outils : toujours présents, utilisables quand la machine de jeu ENREGISTRÉE
+// répond (un mode choisi mais pas encore enregistré ne compte pas).
+function paintTools() {
+  const s = state.hostStatus?.state;
+  const saved = state.config?.game_host || "off";
+  const ready = s === "ok" && saved !== "off";
+  const text = saved === "off" ? "Machine de jeu désactivée : le diagnostic et la maintenance du lanceur en ont besoin."
+    : !s ? "Vérification de la connexion à la machine de jeu…"
+    : ready ? "" : `Machine de jeu injoignable${state.hostStatus?.detail ? ` : ${state.hostStatus.detail}` : ""}.`;
+  $("tools-off").hidden = ready;
+  $("tools-off-text").textContent = text;
+  $("tools-goto-host").hidden = !s && saved !== "off";
+  $("tools-intro").hidden = !ready;
+  $("tools-intro").textContent = `Actions immédiates sur ${hostName()} : elles ne passent pas par « Enregistrer ».`;
+  $("tools-list").classList.toggle("off", !ready);
+  for (const b of $("tools-list").querySelectorAll("button")) if (!state.maintBusy) b.disabled = !ready;
+  document.querySelector('#cfg-tabs [data-cpane="tools"]').classList.toggle("dim", !ready);
+}
+$("tools-goto-host").onclick = () => showCfgPane("host");
+
+// Maintenance du lanceur : chaque action demande confirmation, le résultat s'affiche sous la liste
 const MAINT = {
   list: ["Lister les jeux", ""],
   umount: ["Démonter les jeux", "Un jeu en cours sera arrêté."],
@@ -1302,11 +1322,12 @@ const MAINT = {
 for (const button of document.querySelectorAll("[data-maint]")) {
   button.onclick = async () => {
     const action = button.dataset.maint, [label, warning] = MAINT[action];
-    if (action !== "list" && !confirm(`${label} ?\n\n${warning}`)) return;
+    if (action !== "list" && !confirm(`${label} sur ${hostName()} ?\n\n${warning}`)) return;
     const out = $("maint-out");
     out.hidden = false;
     out.textContent = `${label}…`;
-    const buttons = document.querySelectorAll("[data-maint]");
+    const buttons = $("tools-list").querySelectorAll("button");
+    state.maintBusy = true;
     buttons.forEach((b) => { b.disabled = true; });
     try {
       const r = await api("/api/game_host/maintenance", { method: "POST", body: { action }, timeout: 900000 });
@@ -1315,13 +1336,17 @@ for (const button of document.querySelectorAll("[data-maint]")) {
     } catch (error) {
       out.textContent = `${label} : ${error.message}`;
     } finally {
-      buttons.forEach((b) => { b.disabled = false; });
+      state.maintBusy = false;
+      paintTools();
     }
   };
 }
-// Réglages en onglets : Dossiers, Machine de jeu, Nuit
+// Réglages en onglets : Bibliothèque, Machine de jeu, Outils, Général
 function showCfgPane(name) {
-  for (const b of $("cfg-tabs").children) b.classList.toggle("on", b.dataset.cpane === name);
+  for (const b of $("cfg-tabs").children) {
+    b.classList.toggle("on", b.dataset.cpane === name);
+    b.setAttribute("aria-selected", b.dataset.cpane === name);
+  }
   for (const pane of document.querySelectorAll(".cfg-pane")) pane.hidden = pane.dataset.paneName !== name;
 }
 $("cfg-tabs").onclick = (event) => {
@@ -1337,8 +1362,7 @@ function paintHostForm(mode) {
   $("cfg-host").dataset.mode = mode;
   $("cfg-host-hint").textContent = HOST_HINTS[mode];
   paintConnection(mode);
-  $("cfg-host-adv").hidden = mode === "off" || mode === "agent";
-  $("host-diag-row").hidden = mode === "off";
+  $("cfg-host-adv").hidden = mode !== "local";
 }
 $("cfg-host").onclick = (event) => {
   const b = event.target.closest("button[data-host]");
@@ -1454,6 +1478,8 @@ async function loadHostStatus(refresh = false) {
   const box = $("host-status"), text = $("host-status-text");
   box.className = "host-status";
   text.textContent = "vérification…";
+  state.hostStatus = null;
+  paintTools();
   try {
     const s = await api(`/api/game_host/status${refresh ? "?refresh=true" : ""}`);
     state.hostStatus = s;
@@ -1463,12 +1489,107 @@ async function loadHostStatus(refresh = false) {
       : s.state === "off" ? "Désactivée" : `Non connectée · ${s.detail}`;
     text.title = s.detail || "";
   } catch (error) {
-    state.hostStatus = { state: "ko" };
+    state.hostStatus = { state: "ko", detail: error.message };
     paintConnection();
     box.classList.add("ko");
     text.textContent = `Non connectée · ${error.message}`;
   }
 }
+
+// Bibliothèque : pour chaque dossier de base, « tout le dossier » (nouveaux
+// systèmes compris) ou une sélection de systèmes. Enregistré tel quel dans
+// roms_dirs : le dossier de base seul, ou les dossiers des systèmes choisis.
+const trimSlash = (d) => d.replace(/\/+$/, "") || "/";
+const countText = (images, folders) => [images && `${images} image${images > 1 ? "s" : ""}`,
+  folders && `${folders} dossier${folders > 1 ? "s" : ""}`].filter(Boolean).join(" · ") || "vide";
+
+function renderRoots(systems, chosen) {
+  const roots = [...new Set(systems.map((x) => x.root))];
+  const blocks = roots.map((root) => {
+    const list = systems.filter((x) => x.root === root);
+    const block = el("div", { className: "root-block" });
+    block.dataset.root = root;
+    const modes = el("div", { className: "pills on-s2 root-modes", role: "radiogroup" },
+      el("button", { type: "button", role: "radio", textContent: "Tout le dossier" }),
+      el("button", { type: "button", role: "radio", textContent: "Choisir les systèmes" }));
+    modes.children[0].dataset.mode = "all";
+    modes.children[1].dataset.mode = "pick";
+    const chips = el("div", { className: "sys-toggles" }, ...list.map((x) => {
+      const input = el("input", { type: "checkbox", checked: chosen.has(trimSlash(x.path)) });
+      input.dataset.path = x.path;
+      input.dataset.images = x.images;
+      input.dataset.folders = x.folders;
+      input.onchange = paintRootsTotal;
+      return el("label", { title: x.path }, input, el("span", { textContent: x.name }),
+        el("span", { className: "n", textContent: [x.images || "", x.folders ? `${x.folders} dossier(s)` : ""].filter(Boolean).join(" · ") }));
+    }));
+    const hint = el("p", { className: "dlg-intro root-hint" });
+    const setMode = (mode) => {
+      block.dataset.mode = mode;
+      for (const b of modes.children) {
+        b.classList.toggle("on", b.dataset.mode === mode);
+        b.setAttribute("aria-checked", b.dataset.mode === mode);
+      }
+      const boxes = [...chips.querySelectorAll("input")];
+      // Passer en sélection sans rien de coché : tout cocher, on décoche ce qu'on ne veut pas
+      if (mode === "pick" && !boxes.some((i) => i.checked)) boxes.forEach((i) => { i.checked = true; });
+      chips.classList.toggle("all", mode === "all");
+      boxes.forEach((i) => { i.disabled = mode === "all"; });
+      hint.textContent = mode === "all"
+        ? "Tous les systèmes ci-dessous sont lus, et ceux ajoutés plus tard aussi."
+        : "Seuls les systèmes cochés sont lus.";
+      paintRootsTotal();
+    };
+    modes.onclick = (event) => {
+      const b = event.target.closest("button[data-mode]");
+      if (b) setMode(b.dataset.mode);
+    };
+    block.append(
+      el("div", { className: "root-head" },
+        el("div", { className: "root-name" }, el("b", { textContent: root.split("/").filter(Boolean).pop() || root }),
+          el("span", { className: "mono muted", textContent: root })),
+        modes),
+      hint, chips);
+    block.setMode = setMode;
+    return block;
+  });
+  $("cfg-roots").replaceChildren(...blocks);
+  for (const block of blocks) block.setMode(chosen.has(trimSlash(block.dataset.root)) ? "all" : "pick");
+  if (!blocks.length) {
+    $("cfg-roots").replaceChildren(el("p", { className: "muted", textContent: "Aucun système trouvé dans les dossiers de base : saisir les dossiers ci-dessous." }));
+  }
+  return new Set([...roots, ...systems.map((x) => x.path)].map(trimSlash));
+}
+
+function extraDirs() {
+  return $("cfg-dirs").value.split("\n").map((d) => d.trim()).filter(Boolean);
+}
+function chosenDirs() {
+  const dirs = [];
+  for (const block of $("cfg-roots").querySelectorAll(".root-block")) {
+    if (block.dataset.mode === "all") dirs.push(block.dataset.root);
+    else dirs.push(...[...block.querySelectorAll("input:checked")].map((i) => i.dataset.path));
+  }
+  return [...new Set([...dirs, ...extraDirs()])];
+}
+function paintRootsTotal() {
+  let images = 0, folders = 0;
+  for (const block of $("cfg-roots").querySelectorAll(".root-block")) {
+    for (const i of block.querySelectorAll("input")) {
+      if (block.dataset.mode === "all" || i.checked) {
+        images += Number(i.dataset.images) || 0;
+        folders += Number(i.dataset.folders) || 0;
+      }
+    }
+  }
+  const extra = extraDirs().length;
+  const total = $("cfg-total");
+  const none = !images && !folders && !extra;
+  total.classList.toggle("warn", none);
+  total.textContent = none ? "Rien de sélectionné : cocher au moins un système."
+    : `Sélection : ${countText(images, folders)}${extra ? ` + ${extra} autre(s) dossier(s)` : ""}`;
+}
+$("cfg-dirs").addEventListener("input", paintRootsTotal);
 
 $("btn-config").onclick = async () => {
   let cfg, systems = [], systemsError = null;
@@ -1482,26 +1603,21 @@ $("btn-config").onclick = async () => {
     systems = await api("/api/config/systems");
   } catch (error) {
     // Serveur plus ancien que la page : la fenêtre s'ouvre quand même, chemins à saisir
-    systemsError = `Liste des systèmes indisponible (${error.message}) — chemins à saisir ci-dessous.`;
+    systemsError = `Liste des systèmes indisponible (${error.message}) — dossiers à saisir dans « Autres dossiers ».`;
   }
-  const chosen = new Set(cfg.roms_dirs.map((d) => d.replace(/\/+$/, "")));
-  const roots = [...new Set(systems.map((x) => x.root))];
-  const box = (path, label, detail, root = false) => {
-    const input = el("input", { type: "checkbox", checked: chosen.has(path), value: path });
-    input.dataset.path = path;
-    return el("label", { className: root ? "root" : "", title: path }, input, el("span", { textContent: label }),
-      detail ? el("span", { className: "n", textContent: detail }) : null);
-  };
-  $("cfg-systems").replaceChildren(
-    ...roots.map((root) => box(root, `${root.split("/").filter(Boolean).pop() || root} (tout)`, "tous les systèmes", true)),
-    ...systems.map((x) => box(x.path, x.name, [x.images && `${x.images}`, x.folders && `${x.folders} dossier(s)`].filter(Boolean).join(" · "))));
-  const known = new Set([...roots, ...systems.map((x) => x.path)]);
+  const chosen = new Set(cfg.roms_dirs.map(trimSlash));
+  const known = renderRoots(systems, chosen);
   $("cfg-dirs").value = [...chosen].filter((d) => !known.has(d)).join("\n");
+  $("cfg-extra").open = !systems.length || Boolean($("cfg-dirs").value);
+  paintRootsTotal();
   $("cfg-info").replaceChildren(...[
+    ["Dossiers de base", (cfg.roms_roots || []).join(", ") || "—"],
     ["Sauvegardes", cfg.saves_dir], ["Dossier de travail", cfg.tmp_dir], ["Reconstruction", cfg.rebuild_mode],
+    ["Tâches simultanées", cfg.concurrency],
     ["Rétention .old", cfg.old_retention_days == null ? "manuelle" : `${cfg.old_retention_days} jours`],
   ].flatMap(([k, v]) => [el("dt", { textContent: k }), el("dd", { textContent: v ?? "—" })]));
   $("cfg-session").value = cfg.session_process ?? "";
+  $("cfg-agent-code").value = "";
   $("cfg-agent-url").value = cfg.agent_url || "";
   $("cfg-agent-token").value = "";
   $("cfg-agent-token").placeholder = cfg.agent_token_set ? "jeton enregistré : laisser vide pour le garder" : "affiché par « wsquashfs-launcher --pair »";
@@ -1509,29 +1625,32 @@ $("btn-config").onclick = async () => {
   $("cfg-agent-result").className = "msg";
   $("cfg-agent-result").textContent = cfg.agent_fingerprint
     ? `Associé. Empreinte enregistrée : ${cfg.agent_fingerprint}` : "Pas encore associé.";
+  state.hostEditing = false;
   paintHostForm(cfg.game_host || "off");
   $("doc-title").textContent = `wsquashfs-launcher --doctor — ${cfg.game_host_name}`;
-  state.hostEditing = false;
+  $("maint-out").hidden = true;
   loadHostStatus();
   $("cfg-night-start").value = cfg.night_start || "01:00";
   $("cfg-night-end").value = cfg.night_end || "07:00";
   $("cfg-err").textContent = systemsError || "";
   $("cfg-err").hidden = !systemsError;
-  if (!systems.length) $("cfg-dirs").closest("details").open = true;
   showCfgPane("dirs");
   $("dlg-config").showModal();
 };
 $("cfg-save").onclick = async () => {
+  const dirs = chosenDirs();
   try {
-    const dirs = [...$("cfg-systems").querySelectorAll("input:checked")].map((i) => i.dataset.path)
-      .concat($("cfg-dirs").value.split("\n").map((d) => d.trim()).filter(Boolean));
-    if (!dirs.length) throw new Error("Cocher au moins un système.");
+    if (!dirs.length) {
+      showCfgPane("dirs");
+      throw new Error("Bibliothèque : cocher au moins un système.");
+    }
     if ($("cfg-host").dataset.mode === "agent") {
       const url = $("cfg-agent-url").value.trim();
       const reuse = url === state.config?.agent_url && state.config?.agent_fingerprint && !state.agentPem
         && !$("cfg-agent-token").value.trim();
       if (!reuse && !(state.agentPem && $("cfg-agent-confirm").checked)) {
-        throw new Error("Associer l'agent et confirmer son empreinte avant d'enregistrer.");
+        showCfgPane("host");
+        throw new Error("Machine de jeu : associer l'agent et confirmer son empreinte avant d'enregistrer.");
       }
     }
     state.config = await api("/api/config/night", { method: "PUT",
@@ -1550,8 +1669,6 @@ $("cfg-save").onclick = async () => {
   // Le serveur lit les images des dossiers choisis avant de répondre : long
   // pour des dossiers nouveaux. Une erreur de saisie revient tout de suite ;
   // passé un instant, la fenêtre se ferme et le bandeau de la liste prend le relais.
-  const dirs = [...$("cfg-systems").querySelectorAll("input:checked")].map((i) => i.dataset.path)
-    .concat($("cfg-dirs").value.split("\n").map((d) => d.trim()).filter(Boolean));
   const save = $("cfg-save");
   save.disabled = true;
   save.replaceChildren(el("span", { className: "spinner" }), "Lecture des dossiers…");
@@ -1574,6 +1691,7 @@ $("cfg-save").onclick = async () => {
   } catch (error) {
     clearTimeout(handOver);
     if ($("dlg-config").open) {
+      showCfgPane("dirs");
       $("cfg-err").textContent = error.message;
       $("cfg-err").hidden = false;
     } else {

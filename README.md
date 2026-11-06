@@ -40,10 +40,11 @@ Une seule instance à la fois : une seconde refuse de démarrer (elle prendrait
 les mêmes tâches). Tests : `backend/.venv/bin/python -m pytest` (dans
 `backend/`, les reconstructions réelles exigent squashfs-tools).
 
-Les systèmes se cochent dans l'interface (bouton « Réglages »), parmi ceux
-du dossier de base `WSQUASHFS_MGR_ROMS_DIRS` (`/roms` dans le conteneur) ; ce
-choix l'emporte sur la variable. On peut aussi donner `roms/` entier ou un
-autre chemin : le système est déduit comme le fait le lanceur. Un serveur resté sur une ancienne version répond
+Les systèmes se choisissent dans l'interface (Réglages → Bibliothèque),
+parmi ceux du dossier de base `WSQUASHFS_MGR_ROMS_DIRS` (`/roms` dans le
+conteneur) : « Tout le dossier » (les systèmes ajoutés plus tard compris) ou
+une sélection de systèmes ; ce choix l'emporte sur la variable. D'autres
+chemins peuvent s'ajouter : le système est déduit comme le fait le lanceur. Un serveur resté sur une ancienne version répond
 « API introuvable ».
 
 ## Docker (déploiement)
@@ -77,7 +78,8 @@ puis Docker → Add Container → Template : `wsquashfs-manager`. Champs :
 fenêtre minimisée, erreurs connues, capture ; refusé si un jeu .wsquashfs
 tourne déjà), l'état du lanceur (`--doctor`) et les runners installés
 (réparation des liens du runner). Facultative : tout le reste fonctionne
-sans.
+sans. Le diagnostic et la maintenance du lanceur sont dans Réglages → Outils,
+utilisables une fois la machine de jeu enregistrée et joignable.
 
 | Mode | Usage |
 |---|---|

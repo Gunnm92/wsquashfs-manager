@@ -319,70 +319,97 @@
   <div class="dlg-head"><h2>Réglages</h2><span class="spacer"></span>
     <button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
   <div class="pills on-s2 cfg-tabs" id="cfg-tabs" role="tablist">
-    <button data-cpane="dirs" class="on" role="tab">Dossiers</button>
+    <button data-cpane="dirs" class="on" role="tab">Bibliothèque</button>
     <button data-cpane="host" role="tab">Machine de jeu</button>
-    <button data-cpane="night" role="tab">Programmation</button>
+    <button data-cpane="tools" role="tab">Outils</button>
+    <button data-cpane="general" role="tab">Général</button>
   </div>
+
+  <!-- Bibliothèque : quels dossiers de roms lire -->
   <section class="cfg-pane" data-pane-name="dirs">
-  <div class="section-label">Systèmes à gérer</div>
-  <p class="dlg-intro">Systèmes trouvés dans le dossier des roms (images <code>.wsquashfs</code> / dossiers <code>.pc</code>, <code>.wine</code>).</p>
-  <div id="cfg-systems" class="sys-toggles"></div>
-  <details><summary>Autres chemins (un par ligne)</summary>
-    <textarea id="cfg-dirs" rows="3" placeholder="/chemin/vers/roms/systeme" style="margin-top:8px"></textarea>
-  </details>
-  </section>
-  <section class="cfg-pane" data-pane-name="host" hidden>
-  <div class="section-label row"><span>Machine de jeu</span><span class="spacer"></span>
-    <span class="host-status" id="host-status"><span class="led"></span><span id="host-status-text">vérification…</span></span>
-    <button class="iconbtn bare sm" id="host-check" title="Tester la connexion"><svg class="ico sm"><use href="#i-refresh"/></svg></button></div>
-  <div class="pills on-s2 host-modes" id="cfg-host" role="radiogroup">
-    <button data-host="off" role="radio">Désactivée</button>
-    <button data-host="local" role="radio">Cette machine</button>
-    <button data-host="agent" role="radio">Agent réseau</button>
-  </div>
-  <p class="dlg-intro host-hint" id="cfg-host-hint"></p>
-  <div class="host-summary" id="host-summary" hidden><span id="host-summary-text"></span>
-    <button class="btn bare sm" id="host-edit" type="button"><svg class="ico sm"><use href="#i-pen"/></svg>Modifier la connexion</button></div>
-  <div class="host-fields" id="cfg-agent" hidden>
-    <label class="field">Code d'association<input id="cfg-agent-code" autocomplete="off" placeholder="wsq://… (affiché par « wsquashfs-launcher --pair »)"></label>
-    <details class="agent-manual">
-      <summary class="muted" style="font-size:12.5px">Saisie manuelle</summary>
-      <label class="field">Adresse de l'agent<input id="cfg-agent-url" placeholder="https://192.168.1.20:8790"></label>
-      <label class="field">Jeton<input id="cfg-agent-token" type="password" autocomplete="off" placeholder="jeton de l'agent"></label>
+    <p class="dlg-intro">Dossiers lus par le gestionnaire : images <code>.wsquashfs</code> et dossiers <code>.pc</code> / <code>.wine</code> à empaqueter.</p>
+    <div id="cfg-roots"></div>
+    <details class="cfg-extra" id="cfg-extra"><summary>Autres dossiers, hors du dossier des roms</summary>
+      <textarea id="cfg-dirs" rows="3" placeholder="/chemin/vers/un/dossier — un par ligne"></textarea>
     </details>
-    <div class="agent-assoc">
-      <div class="row"><button class="btn secondary sm" id="cfg-agent-probe" type="button">Associer</button>
-        <span class="muted" style="font-size:12.5px">Vérifie le certificat de l'agent contre le code, puis enregistre.</span></div>
-      <div id="cfg-agent-result" class="msg">Pas encore associé.</div>
-      <label class="toggle" id="cfg-agent-confirm-row" hidden><input type="checkbox" id="cfg-agent-confirm"><span>L'empreinte est identique à celle affichée par <code>wsquashfs-launcher --pair</code></span></label>
+    <p class="cfg-total" id="cfg-total"></p>
+  </section>
+
+  <!-- Machine de jeu : connexion seulement -->
+  <section class="cfg-pane" data-pane-name="host" hidden>
+    <p class="dlg-intro">Machine où le lanceur est installé : sert au lancement d'essai, au diagnostic et aux runners proposés. Sans elle, le reste fonctionne.</p>
+    <div class="host-card">
+      <span class="host-status" id="host-status"><span class="led"></span><span id="host-status-text">vérification…</span></span>
+      <span class="spacer"></span>
+      <button class="iconbtn bare sm" id="host-check" title="Tester la connexion enregistrée"><svg class="ico sm"><use href="#i-refresh"/></svg></button>
     </div>
-  </div>
-  <details class="host-adv" id="cfg-host-adv" hidden><summary>Session graphique</summary>
-    <label class="field" style="margin-top:8px">Processus de la session (son affichage est repris pour l'essai)<input id="cfg-session" placeholder="emulationstation — vide : environnement du gestionnaire"></label>
-  </details>
-  <div class="host-diag" id="host-diag-row"><button class="btn secondary sm" id="host-diag" type="button"><svg class="ico sm"><use href="#i-info"/></svg>Diagnostic du lanceur…</button></div>
-  <div class="maint" id="host-maint" hidden>
-    <div class="section-label">Maintenance du lanceur</div>
-    <div class="maint-btns">
-      <button class="btn secondary sm" data-maint="list">Lister les jeux</button>
-      <button class="btn secondary sm" data-maint="umount">Démonter les jeux</button>
-      <button class="btn secondary sm" data-maint="clean">Nettoyer</button>
-      <button class="btn secondary sm" data-maint="saves">Copier les sauvegardes de tous les jeux</button>
+    <div class="section-label">Mode</div>
+    <div class="pills on-s2 host-modes" id="cfg-host" role="radiogroup">
+      <button data-host="off" role="radio">Désactivée</button>
+      <button data-host="local" role="radio">Cette machine</button>
+      <button data-host="agent" role="radio">Agent réseau</button>
+    </div>
+    <p class="dlg-intro host-hint" id="cfg-host-hint"></p>
+    <div class="host-summary" id="host-summary" hidden><span id="host-summary-text"></span>
+      <button class="btn bare sm" id="host-edit" type="button"><svg class="ico sm"><use href="#i-pen"/></svg>Modifier la connexion</button></div>
+    <div class="host-fields" id="cfg-agent" hidden>
+      <div class="section-label">Association</div>
+      <label class="field">Code d'association<input id="cfg-agent-code" autocomplete="off" placeholder="wsq://… affiché par « wsquashfs-launcher --pair »"></label>
+      <details class="agent-manual">
+        <summary>Saisir l'adresse et le jeton à la main</summary>
+        <div class="agent-manual-fields">
+          <label class="field">Adresse de l'agent<input id="cfg-agent-url" placeholder="https://192.168.1.20:8790"></label>
+          <label class="field">Jeton<input id="cfg-agent-token" type="password" autocomplete="off" placeholder="jeton de l'agent"></label>
+        </div>
+      </details>
+      <div class="agent-assoc">
+        <div class="row"><button class="btn secondary sm" id="cfg-agent-probe" type="button">Associer</button>
+          <span class="muted" style="font-size:12.5px">Vérifie le certificat de l'agent contre le code.</span></div>
+        <div id="cfg-agent-result" class="msg">Pas encore associé.</div>
+        <label class="toggle" id="cfg-agent-confirm-row" hidden><input type="checkbox" id="cfg-agent-confirm"><span>L'empreinte est identique à celle affichée par <code>wsquashfs-launcher --pair</code></span></label>
+      </div>
+    </div>
+    <div class="host-fields" id="cfg-host-adv" hidden>
+      <div class="section-label">Session graphique</div>
+      <label class="field">Processus de la session (son affichage est repris pour l'essai)<input id="cfg-session" placeholder="emulationstation — vide : environnement du gestionnaire"></label>
+    </div>
+  </section>
+
+  <!-- Outils : actions immédiates sur la machine de jeu enregistrée -->
+  <section class="cfg-pane" data-pane-name="tools" hidden>
+    <div class="notice tools-off" id="tools-off" hidden>
+      <svg class="ico"><use href="#i-info"/></svg>
+      <div class="body"><span id="tools-off-text">Machine de jeu non connectée.</span>
+        <button class="btn bare sm" id="tools-goto-host" type="button">Configurer la machine de jeu</button></div>
+    </div>
+    <p class="dlg-intro" id="tools-intro">Actions immédiates sur la machine de jeu : elles ne passent pas par « Enregistrer ».</p>
+    <div class="tool-list" id="tools-list">
+      <div class="tool"><div><b>Diagnostic du lanceur</b><span>Vérifie l'installation, les dépendances et les runners présents.</span></div>
+        <button class="btn secondary sm" id="host-diag" type="button"><svg class="ico sm"><use href="#i-info"/></svg>Ouvrir</button></div>
+      <div class="tool"><div><b>Lister les jeux</b><span>Jeux montés ou en cours.</span></div>
+        <button class="btn secondary sm" data-maint="list">Lister</button></div>
+      <div class="tool"><div><b>Démonter les jeux</b><span>Un jeu en cours est arrêté.</span></div>
+        <button class="btn secondary sm" data-maint="umount">Démonter</button></div>
+      <div class="tool"><div><b>Nettoyer</b><span>Copies de travail, doublons de sauvegardes, anciennes archives. Ce que les jeux ont écrit est gardé.</span></div>
+        <button class="btn secondary sm" data-maint="clean">Nettoyer</button></div>
+      <div class="tool"><div><b>Copier les sauvegardes</b><span>De tous les jeux vers saves/&lt;système&gt;/&lt;jeu&gt; dans la ludothèque. Rien n'est supprimé.</span></div>
+        <button class="btn secondary sm" data-maint="saves">Copier</button></div>
     </div>
     <pre class="maint-out" id="maint-out" hidden></pre>
-  </div>
   </section>
-  <section class="cfg-pane" data-pane-name="night" hidden>
-  <div class="section-label">Plage des tâches programmées</div>
-  <div class="night-row"><svg class="ico"><use href="#i-moon"/></svg>
-    <input type="time" id="cfg-night-start" required aria-label="Début de la plage de nuit"><span class="muted">→</span>
-    <input type="time" id="cfg-night-end" required aria-label="Fin de la plage de nuit"></div>
-  <p class="dlg-intro" style="margin-top:8px">Une tâche « cette nuit » ne démarre que dans cette plage.</p>
+
+  <!-- Général : plage de nuit (modifiable) et configuration du serveur (lecture seule) -->
+  <section class="cfg-pane" data-pane-name="general" hidden>
+    <div class="section-label">Plage des tâches programmées</div>
+    <div class="night-row"><svg class="ico"><use href="#i-moon"/></svg>
+      <input type="time" id="cfg-night-start" required aria-label="Début de la plage de nuit"><span class="muted">→</span>
+      <input type="time" id="cfg-night-end" required aria-label="Fin de la plage de nuit"></div>
+    <p class="dlg-intro" style="margin-top:8px">Une tâche « cette nuit » ne démarre que dans cette plage.</p>
+    <div class="section-label">Serveur <span class="ro-tag">lecture seule</span></div>
+    <dl id="cfg-info" class="cfg-info"></dl>
+    <p class="dlg-intro" style="margin-top:8px">Fixé au démarrage par les variables <code>WSQUASHFS_MGR_*</code> (voir le README).</p>
   </section>
-  <details class="cfg-info-box"><summary>Informations du serveur</summary>
-  <div class="section-label">Serveur</div>
-  <dl id="cfg-info" class="cfg-info"></dl>
-  </details>
+
   <p id="cfg-err" class="notice err" hidden></p>
   <div class="dlg-foot"><span class="spacer"></span>
     <button class="btn secondary" data-close>Fermer</button><button class="btn primary" id="cfg-save">Enregistrer</button></div>
