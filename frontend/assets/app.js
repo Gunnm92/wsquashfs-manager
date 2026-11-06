@@ -1361,15 +1361,38 @@ function agentReset() {
   $("cfg-agent-confirm-row").hidden = true;
 }
 for (const id of ["cfg-agent-url", "cfg-agent-token"]) $(id).addEventListener("input", agentReset);
+// Code d'association « wsq://JETON@HÔTE:PORT#EMPREINTE » : remplit adresse et jeton.
+function readPairCode(code) {
+  const m = /^wsq:\/\/([^@\s]+)@([^:\s/]+):(\d+)#([0-9A-Fa-f]{64})$/.exec(code.trim());
+  return m ? { token: m[1], url: `https://${m[2]}:${m[3]}` } : null;
+}
 $("cfg-agent-probe").onclick = async () => {
   const result = $("cfg-agent-result");
   agentReset();
   result.className = "msg";
   result.replaceChildren(el("span", { className: "row" }, el("span", { className: "spinner" }), "connexion à l'agent…"));
+  const code = $("cfg-agent-code").value.trim();
+  const pair = code ? readPairCode(code) : null;
+  if (code && !pair) {
+    result.className = "notice err";
+    result.textContent = "Code d'association illisible : copier le wsq://… affiché par « wsquashfs-launcher --pair ».";
+    return;
+  }
+  if (pair) {
+    $("cfg-agent-url").value = pair.url;
+    $("cfg-agent-token").value = pair.token;
+  }
   try {
     const r = await api("/api/config/agent/probe", { method: "POST",
-      body: { url: $("cfg-agent-url").value.trim(), token: $("cfg-agent-token").value.trim() } });
+      body: code ? { code } : { url: $("cfg-agent-url").value.trim(), token: $("cfg-agent-token").value.trim() } });
     state.agentPem = r.pem;
+    if (r.paired) {
+      // Certificat vérifié contre le code : pas de contrôle manuel d'empreinte
+      $("cfg-agent-confirm").checked = true;
+      result.className = "msg";
+      result.textContent = `Associé. Empreinte vérifiée : ${r.fingerprint}`;
+      return;
+    }
     const who = r.info ? `${r.info.host} · utilisateur ${r.info.user} · agent ${r.info.version}`
       : "jeton non saisi : il ne peut pas être vérifié (il reste celui déjà enregistré, le cas échéant)";
     result.replaceChildren(el("div", {}, el("strong", { textContent: "Empreinte du certificat" })),

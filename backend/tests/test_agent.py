@@ -64,8 +64,9 @@ class FakeAgent(BaseHTTPRequestHandler):
         if self.path.startswith("/v1/info"):
             return self._send(200, json.dumps({"version": "1", "host": "fake", "user": "arcade"}).encode())
         if self.path.startswith("/v1/doctor"):
-            text = "Runners :\n      GE-Proton  /opt/ge\n"
-            return self._send(200, json.dumps({"code": 0, "text": text, "runners": []}).encode())
+            doctor = {"code": 0, "sections": [], "verdict": "✓ Prêt à lancer des jeux",
+                      "runners": [{"name": "GE-Proton", "path": "/opt/ge"}]}
+            return self._send(200, json.dumps(doctor).encode())
         if self.path.startswith("/v1/runner/list"):
             return self._send(200, json.dumps({"entries": RUNNER_TREE}).encode())
         if self.path.startswith("/v1/runner/tar"):
@@ -81,8 +82,10 @@ class FakeAgent(BaseHTTPRequestHandler):
         FakeAgent.bodies.append((self.path, body))
         if body.get("rel") == "win/Absent.wsquashfs":
             return self._send(404, b'{"detail":"image introuvable : win/Absent.wsquashfs"}')
-        report = "@@ELAPSED 60\n@@LAUNCHER 1\n@@GAMESEEN 1\n@@WINDOW 0x1|Jeu|_NET_WM_STATE_FULLSCREEN\n@@LOG\n"
-        out = {"code": 0, "output": report, "screenshot": base64.b64encode(PNG).decode()}
+        report = {"code": 0, "elapsed": 60, "launcher_alive": True, "game_seen": True, "games": [],
+                  "windows": [{"id": "0x1", "name": "Jeu", "state": "_NET_WM_STATE_FULLSCREEN"}],
+                  "left": {"procs": 0, "mounts": 0}, "screenshot": True, "log": ""}
+        out = {"report": report, "screenshot": base64.b64encode(PNG).decode()}
         self._send(200, json.dumps(out).encode())
 
 
@@ -141,7 +144,7 @@ def test_not_associated_without_certificate(tmp_path):
 
 def test_doctor_and_runner_operations(agent, tmp_path):
     host = trial.AgentHost(settings_for(tmp_path, agent["pem"], agent["url"]), 10)
-    assert "GE-Proton" in host.doctor()["text"]
+    assert host.doctor()["runners"][0]["name"] == "GE-Proton"
     assert host.listing("/opt/ge") == RUNNER_TREE
     chunks = []
     assert host.fetch("/opt/ge", chunks.append) == (0, b"")
@@ -155,8 +158,8 @@ def test_trial_through_agent_returns_report_and_screenshot(agent, tmp_path):
     image.write_bytes(b"hsqs")
     host = trial.AgentHost(settings, 10)
     assert host.path_of(image) == "win/Jeu.wsquashfs"
-    code, out, shot = host.trial("win/Jeu.wsquashfs", 60)
-    assert code == 0 and shot == PNG and b"@@GAMESEEN 1" in out
+    data, shot = host.trial("win/Jeu.wsquashfs", 60)
+    assert shot == PNG and data["game_seen"] is True and data["windows"][0]["name"] == "Jeu"
     with pytest.raises(RebuildError, match="image introuvable"):
         host.trial("win/Absent.wsquashfs", 60)
 
@@ -197,3 +200,16 @@ def test_host_status_connected_and_refused(agent, tmp_path):
     assert ko["state"] == "ko" and "jeton" in ko["detail"]
     off = trial.host_status(Settings(state_dir=tmp_path / "s", game_host="off"))
     assert off["state"] == "off"
+
+
+def test_pair_code_is_parsed():
+    fp = "AB" * 32
+    pair = trial.parse_pair_code(f"wsq://jeton-ABC_12@192.168.1.20:8790#{fp}")
+    assert pair == {"url": "https://192.168.1.20:8790", "token": "jeton-ABC_12", "fingerprint": fp}
+
+
+@pytest.mark.parametrize("code", ["", "https://192.168.1.20:8790", "wsq://jeton@hote:8790",
+                                  "wsq://@hote:8790#" + "AB" * 32, "wsq://j@hote:8790#AA"])
+def test_bad_pair_code_is_refused(code):
+    with pytest.raises(ValueError):
+        trial.parse_pair_code(code)

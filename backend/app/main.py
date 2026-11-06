@@ -71,6 +71,7 @@ from .services.runners import plan_runner, run_runner, suggest
 from .services.tasks import QueueLocked, TaskConflict, TaskQueue
 from .services.trial import (
     AgentHost,
+    parse_pair_code,
     agent_cert_path,
     fingerprint_pem,
     game_host,
@@ -246,14 +247,23 @@ def set_game_host(body: GameHostConfig):
 
 
 class AgentProbe(BaseModel):
-    url: str
+    url: str = ""
     token: str = ""
+    code: str = ""                  # code d'association (wsq://…) : remplace adresse, jeton et contrôle manuel
 
 
 @app.post("/api/config/agent/probe")
 def agent_probe(body: AgentProbe):
     """Associer un agent : récupère son certificat et interroge /v1/info avec
     ce certificat seul. Rien n'est enregistré : l'empreinte doit être confirmée."""
+    expected = None
+    if body.code.strip():
+        try:
+            pair = parse_pair_code(body.code)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        expected = pair["fingerprint"]
+        body = body.model_copy(update={"url": pair["url"], "token": pair["token"]})
     url = body.url.strip().rstrip("/")
     match = re.match(r"^https://([^\s/:]+):(\d+)$", url)
     if not match:
@@ -264,6 +274,10 @@ def agent_probe(body: AgentProbe):
     except OSError as exc:
         raise HTTPException(status_code=502, detail=f"agent injoignable : {exc}") from exc
     fingerprint = fingerprint_pem(pem)
+    if expected is not None and fingerprint.replace(":", "") != expected:
+        # Autre machine, ou certificat régénéré depuis le code : refus, sans rien enregistrer
+        raise HTTPException(status_code=422, detail="le certificat de l'agent ne correspond pas au code d'association : "
+                            "relancer « wsquashfs-launcher --pair » et copier le nouveau code")
     info = None
     if body.token.strip():
         try:
@@ -271,7 +285,7 @@ def agent_probe(body: AgentProbe):
         except RebuildError as exc:
             # 422 et non 401 : le client prendrait un 401 pour une demande de connexion
             raise HTTPException(status_code=422 if "jeton" in str(exc) else 502, detail=str(exc)) from exc
-    return {"url": url, "fingerprint": fingerprint, "pem": pem, "info": info}
+    return {"url": url, "fingerprint": fingerprint, "pem": pem, "info": info, "paired": expected is not None}
 
 
 _doctor_cache: dict = {}

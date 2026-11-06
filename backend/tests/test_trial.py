@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -11,21 +10,19 @@ from app.config import Settings
 from app.services import trial
 from app.services.rebuild import RebuildError
 
-OUTPUT = """@@ELAPSED 60
-@@LAUNCHER 1
-@@GAMESEEN 1
-@@GAME X:\\.cache\\wsquashfs\\wine\\Astebreed\\Astebreed.exe
-@@WINDOW 0x2000001|Astebreed [Version 3.02]|_NET_WM_STATE_FULLSCREEN, _NET_WM_STATE_HIDDEN
-@@LEFT 0 0
-@@LOG
-Jeu           : Astebreed
-013c:err:seh:NtRaiseException Unhandled exception code c0000005
-Assert!!(0 - shader phong.cfx Invalid call)
-"""
+REPORT = {
+    "code": 0, "elapsed": 60, "launcher_alive": True, "game_seen": True,
+    "games": ["X:\\.cache\\wsquashfs\\wine\\Astebreed\\Astebreed.exe"],
+    "windows": [{"id": "0x2000001", "name": "Astebreed [Version 3.02]",
+                 "state": "_NET_WM_STATE_FULLSCREEN, _NET_WM_STATE_HIDDEN"}],
+    "left": {"procs": 0, "mounts": 0}, "screenshot": True,
+    "log": ("Jeu           : Astebreed\n013c:err:seh:NtRaiseException Unhandled exception code c0000005\n"
+            "Assert!!(0 - shader phong.cfx Invalid call)\n"),
+}
 
 
-def test_parse_report_and_minimized_verdict():
-    r = trial.parse_report(OUTPUT)
+def test_report_and_minimized_verdict():
+    r = trial.report_from_json(REPORT)
     assert r.elapsed == 60 and r.launcher_alive and r.game_seen
     assert r.windows[0]["name"] == "Astebreed [Version 3.02]"
     assert {e["meaning"] for e in r.errors} >= {"assertion du jeu", "exception non gérée"}
@@ -34,12 +31,13 @@ def test_parse_report_and_minimized_verdict():
 
 
 def test_verdicts():
-    stopped = trial.parse_report("@@ELAPSED 7\n@@LAUNCHER 0\n@@GAMESEEN 1\n@@LOG\n")
+    stopped = trial.report_from_json({"elapsed": 7, "launcher_alive": False, "game_seen": True, "log": ""})
     assert stopped.verdict == (False, "le jeu s'est arrêté au bout de 7 s")
-    nothing = trial.parse_report("@@ELAPSED 60\n@@LAUNCHER 1\n@@GAMESEEN 0\n@@LOG\n")
+    nothing = trial.report_from_json({"elapsed": 60, "launcher_alive": True, "game_seen": False, "log": ""})
     assert nothing.verdict[1] == "aucun processus de jeu vu"
-    fine = trial.parse_report("@@ELAPSED 60\n@@LAUNCHER 1\n@@GAMESEEN 1\n"
-                              "@@WINDOW 0x1|Jeu|_NET_WM_STATE_FULLSCREEN\n@@LOG\n")
+    fine = trial.report_from_json({"elapsed": 60, "launcher_alive": True, "game_seen": True,
+                                   "windows": [{"id": "0x1", "name": "Jeu", "state": "_NET_WM_STATE_FULLSCREEN"}],
+                                   "log": ""})
     assert fine.verdict == (True, "le jeu a tenu 60 s")
 
 
@@ -53,13 +51,6 @@ def test_steambox_path():
         trial.steambox_path(s, Path("/ailleurs/A.wsquashfs"))
 
 
-def test_script_is_valid_bash(tmp_path):
-    script = tmp_path / "s.sh"
-    script.write_text(trial._SCRIPT)
-    check = subprocess.run(["bash", "-n", str(script)], capture_output=True, check=False)
-    assert check.returncode == 0
-
-
 def _frame(kind: int, data: bytes) -> bytes:
     return bytes([kind, 0, 0, 0]) + len(data).to_bytes(4, "big") + data
 
@@ -67,34 +58,6 @@ def _frame(kind: int, data: bytes) -> bytes:
 def test_demux():
     frame = _frame
     assert trial._demux(frame(1, b"abc") + frame(2, b"de")) == b"abcde"
-
-
-DOCTOR = """Montage des images
-  ✓ /dev/fuse accessible
-  ✗ squashfuse : montage de l'image
-Wine / Proton
-  ✓ runners installés (--wine) :
-      wine-tkg  /opt/wine-tkg
-      GE-Proton-latest  /config/.config/heroic/tools/proton/GE-Proton-latest
-Manettes
-  – hidraw : aucune manette Sony (HIDRAW=1 retombe en XInput)
-
-✓ Prêt à lancer des jeux
-"""
-
-
-def test_parse_doctor():
-    d = trial.parse_doctor(DOCTOR)
-    assert [s["title"] for s in d["sections"]] == ["Montage des images", "Wine / Proton", "Manettes"]
-    assert [i["status"] for i in d["sections"][0]["items"]] == ["ok", "missing"]
-    assert d["sections"][1]["items"][0]["details"] == [
-        "wine-tkg  /opt/wine-tkg",
-        "GE-Proton-latest  /config/.config/heroic/tools/proton/GE-Proton-latest"]
-    assert d["sections"][2]["items"][0]["status"] == "optional"
-    assert d["runners"] == [{"name": "wine-tkg", "path": "/opt/wine-tkg"},
-                            {"name": "GE-Proton-latest",
-                             "path": "/config/.config/heroic/tools/proton/GE-Proton-latest"}]
-    assert d["verdict"] == "✓ Prêt à lancer des jeux"
 
 
 # ------------------------------------------------------------------ machine de jeu

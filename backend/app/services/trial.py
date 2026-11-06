@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import re
 import ssl
 import subprocess
@@ -50,73 +51,6 @@ KNOWN_ERRORS = [
     (r"Erreur :", "erreur du lanceur"),
 ]
 
-_SCRIPT = r'''
-IMG="$1"; DUR="${2:-60}"; SESSION="${3:-}"; STEM=$(basename "$IMG" .wsquashfs)
-# Un jeu .wsquashfs en cours : ses montages et ceux de l'essai se gêneraient
-busy=$(ps -eo comm= | grep -cxE 'wsquashfs-launc|umu-run')
-if [ "$busy" != 0 ]; then echo "@@BUSY"; exit 3; fi
-[ -f "$IMG" ] || { echo "@@NOIMAGE"; exit 4; }
-# Environnement de la session graphique (DISPLAY, WAYLAND_DISPLAY…) ; comm est
-# tronqué à 15 caractères par le noyau
-ES=""
-[ -n "$SESSION" ] && ES=$(ps -eo pid=,comm= | awk -v s="${SESSION:0:15}" '$2==s{print $1; exit}')
-if [ -n "$ES" ] && [ -r "/proc/$ES/environ" ]; then
-  while IFS= read -r -d '' v; do export "$v"; done < "/proc/$ES/environ"
-fi
-export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-OUT=/tmp/wsfs-trial.out; SHOT=/tmp/wsfs-trial.png
-rm -f "$OUT" "$SHOT"
-ulimit -s 8192 2>/dev/null
-setsid wsquashfs-launcher "$IMG" > "$OUT" 2>&1 < /dev/null &
-L=$!
-RE=$(printf '%s' "$STEM" | sed 's/[][\.*^$(){}?+|/]/\\&/g')
-SYS='services|winedevice|plugplay|svchost|explorer|rpcss|tabtip|xalia|umu|conhost|start|wineboot|winemenubuilder'
-prefix_pids() {
-  for p in /proc/[0-9]*; do
-    tr '\0' '\n' < "$p/environ" 2>/dev/null \
-      | grep -qE "^WINEPREFIX=.*/wsquashfs/wine/${RE}(/.*)?$" && echo "${p#/proc/}"
-  done
-}
-game_pids() {
-  for p in $(prefix_pids); do
-    c=$(tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null)
-    n=$(printf '%s' "$c" | grep -oiE '[^\\/ ]+\.exe' | head -1)
-    [ -n "$n" ] || continue
-    printf '%s' "$n" | grep -qixE "($SYS)\.exe" || echo "$p"
-  done
-}
-T0=$(date +%s); seen=0
-while [ $(( $(date +%s) - T0 )) -lt "$DUR" ]; do
-  sleep 3
-  kill -0 "$L" 2>/dev/null || break
-  [ -n "$(game_pids)" ] && seen=1
-done
-echo "@@ELAPSED $(( $(date +%s) - T0 ))"
-echo "@@LAUNCHER $(kill -0 "$L" 2>/dev/null && echo 1 || echo 0)"
-echo "@@GAMESEEN $seen"
-ALL=" $(prefix_pids | tr '\n' ' ') "
-for p in $(game_pids | head -3); do
-  echo "@@GAME $(tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null | cut -c1-200)"
-done
-if command -v xprop >/dev/null 2>&1 && [ -n "${DISPLAY:-}" ]; then
-  for w in $(xprop -root _NET_CLIENT_LIST 2>/dev/null | grep -o '0x[0-9a-f]*'); do
-    pid=$(xprop -id "$w" _NET_WM_PID 2>/dev/null | grep -o '[0-9]*$')
-    case "$ALL" in *" $pid "*) ;; *) continue ;; esac
-    name=$(xprop -id "$w" WM_NAME 2>/dev/null | sed -n 's/^WM_NAME([^)]*) = "\(.*\)"$/\1/p')
-    st=$(xprop -id "$w" _NET_WM_STATE 2>/dev/null | sed 's/.*= //')
-    echo "@@WINDOW $w|$name|$st"
-  done
-fi
-command -v grim >/dev/null 2>&1 && [ -n "${WAYLAND_DISPLAY:-}" ] && grim "$SHOT" 2>/dev/null
-for p in $(prefix_pids); do kill -TERM "$p" 2>/dev/null; done
-sleep 5
-for p in $(prefix_pids); do kill -KILL "$p" 2>/dev/null; done
-for i in $(seq 1 30); do kill -0 "$L" 2>/dev/null || break; sleep 1; done
-kill -0 "$L" 2>/dev/null && kill -TERM "$L" 2>/dev/null
-echo "@@LEFT $(prefix_pids | wc -l) $(mount | grep -c "/wsquashfs/.*/${STEM}")"
-echo "@@LOG"
-tail -c 60000 "$OUT"
-'''
 
 
 @dataclass
@@ -150,26 +84,20 @@ class TrialReport:
                 "left": self.left, "log_tail": self.log[-6000:]}
 
 
-def parse_report(output: str) -> TrialReport:
-    report = TrialReport()
-    head, _, log = output.partition("@@LOG\n")
-    report.log = log
-    for line in head.splitlines():
-        tag, _, rest = line.partition(" ")
-        if tag == "@@ELAPSED":
-            report.elapsed = int(rest or 0)
-        elif tag == "@@LAUNCHER":
-            report.launcher_alive = rest.strip() == "1"
-        elif tag == "@@GAMESEEN":
-            report.game_seen = rest.strip() == "1"
-        elif tag == "@@GAME":
-            report.game.append(rest.strip())
-        elif tag == "@@WINDOW":
-            wid, _, more = rest.partition("|")
-            name, _, state = more.partition("|")
-            report.windows.append({"id": wid, "name": name, "state": state})
-        elif tag == "@@LEFT":
-            report.left = rest.strip()
+def report_from_json(data: dict) -> TrialReport:
+    """Rapport du lanceur (`wsquashfs-launcher --trial`, JSON) → TrialReport."""
+    log = data.get("log", "")
+    left = data.get("left") or {}
+    report = TrialReport(
+        elapsed=int(data.get("elapsed", 0)),
+        launcher_alive=bool(data.get("launcher_alive")),
+        game_seen=bool(data.get("game_seen")),
+        game=list(data.get("games") or []),
+        windows=[{"id": w.get("id", ""), "name": w.get("name", ""), "state": w.get("state", "")}
+                 for w in data.get("windows") or []],
+        left=f"{left.get('procs', 0)} {left.get('mounts', 0)}",
+        log=log,
+    )
     seen = set()
     for pattern, meaning in KNOWN_ERRORS:
         for line in log.splitlines():
@@ -303,6 +231,19 @@ def agent_cert_path(settings: Settings) -> Path:
     return settings.state_dir / "agent-cert.pem"
 
 
+PAIR_CODE_RE = re.compile(r"^wsq://([A-Za-z0-9_-]+)@([^\s/:@#]+):(\d+)#([0-9A-Fa-f]{64})$")
+
+
+def parse_pair_code(code: str) -> dict:
+    """Code d'association de `wsquashfs-launcher --pair` :
+    wsq://JETON@HÔTE:PORT#EMPREINTE (SHA-256 du certificat, hexadécimal)."""
+    m = PAIR_CODE_RE.match(code.strip())
+    if not m:
+        raise ValueError("code d'association illisible (wsq://… copié depuis « wsquashfs-launcher --pair »)")
+    token, host, port, fp = m.groups()
+    return {"url": f"https://{host}:{int(port)}", "token": token, "fingerprint": fp.upper()}
+
+
 def fingerprint_pem(pem: str) -> str:
     """Empreinte SHA-256 du certificat, au format affiché par `wsquashfs-launcher --pair`."""
     digest = hashlib.sha256(ssl.PEM_cert_to_DER_cert(pem)).hexdigest().upper()
@@ -355,11 +296,11 @@ class AgentHost:
     def doctor(self) -> dict:
         return self._call("GET", "/v1/doctor", timeout=120).json()
 
-    def trial(self, rel: str, duration: int) -> tuple[int, bytes, bytes]:
+    def trial(self, rel: str, duration: int) -> tuple[dict, bytes]:
         data = self._call("POST", "/v1/trial", json={"rel": rel, "duration": duration},
                           timeout=duration + 180).json()
         shot = base64.b64decode(data["screenshot"]) if data.get("screenshot") else b""
-        return int(data["code"]), data["output"].encode("utf-8"), shot
+        return data["report"], shot
 
     def listing(self, path: str) -> dict[str, int]:
         return self._call("GET", "/v1/runner/list", params={"path": path}).json()["entries"]
@@ -470,51 +411,21 @@ def _demux(stream: bytes) -> bytes:
     return bytes(out)
 
 
-_DOCTOR_ITEM_RE = re.compile(r"^  ([✓✗–]) (.*)$")
-_DOCTOR_RUNNER_RE = re.compile(r"^      (\S+)\s{2,}(/\S.*)$")
-DOCTOR_STATUS = {"✓": "ok", "✗": "missing", "–": "optional"}
-
-
-def parse_doctor(text: str) -> dict:
-    """Sortie de `wsquashfs-launcher --doctor` → sections, points vérifiés
-    (ok, missing, optional, avec leurs lignes de détail), runners installés
-    et verdict (dernière ligne)."""
-    sections: list[dict] = []
-    runners: list[dict] = []
-    verdict = ""
-    for line in text.splitlines():
-        if not line.strip():
-            continue
-        if m := _DOCTOR_RUNNER_RE.match(line):
-            runners.append({"name": m.group(1), "path": m.group(2).strip()})
-        if m := _DOCTOR_ITEM_RE.match(line):
-            if not sections:
-                sections.append({"title": "", "items": []})
-            sections[-1]["items"].append({"status": DOCTOR_STATUS[m.group(1)],
-                                          "text": m.group(2), "details": []})
-        elif line.startswith("  ") and sections and sections[-1]["items"]:
-            sections[-1]["items"][-1]["details"].append(line.strip())
-        elif not line.startswith(" "):
-            if line[:1] in DOCTOR_STATUS:
-                verdict = line
-            else:
-                sections.append({"title": line.strip(), "items": []})
-    return {"sections": sections, "runners": runners, "verdict": verdict}
-
-
 def run_doctor(settings: Settings) -> dict:
-    """`wsquashfs-launcher --doctor` sur la machine de jeu, sous l'utilisateur
+    """`wsquashfs-launcher --doctor --json` sur la machine de jeu, sous l'utilisateur
     des jeux : l'état du lanceur tel qu'il lancera les jeux."""
     host = game_host(settings, 120)
     if isinstance(host, AgentHost):
         data = host.doctor()
-        code, text = int(data["code"]), data["text"]
     else:
-        code, out = host.exec(["bash", "-lc", "wsquashfs-launcher --doctor"])
-        text = out.decode("utf-8", "replace")
-    if code == 127 or "command not found" in text:
-        raise RebuildError(f"wsquashfs-launcher introuvable sur {host.name}")
-    return {"container": host.name, "code": code, "text": text, **parse_doctor(text)}
+        code, out = host.exec(["bash", "-lc", 'wsquashfs-launcher "$@"', "wsfs-doctor", "--doctor", "--json"])
+        if code == 127 or "command not found" in out.decode("utf-8", "replace"):
+            raise RebuildError(f"wsquashfs-launcher introuvable sur {host.name}")
+        try:
+            data = json.loads(out)
+        except ValueError as exc:
+            raise RebuildError(f"rapport --doctor illisible sur {host.name}") from exc
+    return {"container": host.name, **data}
 
 
 # ------------------------------------------------------------------ fichiers de la machine de jeu
@@ -575,29 +486,35 @@ def trial_dir(settings: Settings) -> Path:
 
 
 def run_trial(settings: Settings, task: Task, job: Job) -> str:
-    """Gestionnaire de la tâche « trial »."""
+    """Gestionnaire de la tâche « trial » : `wsquashfs-launcher --trial` sur la
+    machine de jeu (local, Docker, ou agent) ; rapport JSON."""
     image = Path(task.image_path or "")
     duration = int(task.params.get("duration", settings.trial_duration))
     host = game_host(settings, duration + 180)
     target = host.path_of(image)
     job.log(f"Lancement sur {host.name} : {target} ({duration} s)")
     job.progress("lancement", 0.05)
+    shot: bytes | None = None
     if isinstance(host, AgentHost):
-        code, out, shot = host.trial(target, duration)
+        data, shot = host.trial(target, duration)
     else:
-        code, out = host.exec(["bash", "-c", _SCRIPT, "wsfs-trial", target, str(duration),
-                               settings.session_process or ""])
-        shot = None
-    text = out.decode("utf-8", "replace")
-    if "@@BUSY" in text:
+        args = ["--trial", target, str(duration), "--session", settings.session_process or "",
+                "--screenshot", "/tmp/wsfs-trial.png"]
+        code, out = host.exec(["bash", "-lc", 'wsquashfs-launcher "$@"', "wsfs-trial", *args])
+        try:
+            data = json.loads(out)
+        except ValueError as exc:
+            raise RebuildError(f"essai illisible sur {host.name} (code {code})") from exc
+    if data.get("error") == "busy":
         raise RebuildError(f"un jeu tourne déjà sur {host.name} : essai reporté")
-    if "@@NOIMAGE" in text:
+    if data.get("error") == "noimage":
         raise RebuildError(f"image introuvable sur {host.name} : {target}")
     job.check()
-    report = parse_report(text)
+    report = report_from_json(data)
     job.progress("capture", 0.95)
-    if shot is None:
+    if shot is None and data.get("screenshot"):
         _, shot = host.exec(["cat", "/tmp/wsfs-trial.png"])
+    shot = shot or b""
     if shot.startswith(b"\x89PNG"):
         trial_dir(settings).mkdir(parents=True, exist_ok=True)
         (trial_dir(settings) / f"{task.id}.png").write_bytes(shot)
@@ -609,10 +526,9 @@ def run_trial(settings: Settings, task: Task, job: Job) -> str:
     for w in report.windows:
         job.log(f"Fenêtre : {w['name']} [{w['state'] or 'normale'}]")
     ok, why = report.verdict
-    if code not in (0, 1) and not report.elapsed:
-        raise RebuildError(f"essai interrompu (code {code})")
+    if int(data.get("code", 0)) not in (0, 1) and not report.elapsed:
+        raise RebuildError(f"essai interrompu (code {data.get('code')})")
     message = f"{'Réussi' if ok else 'Échec'} : {why}"
     if not ok:
         raise RebuildError(why)
     return message
-
