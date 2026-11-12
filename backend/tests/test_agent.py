@@ -176,6 +176,8 @@ def test_maintenance_refuses_unlisted_actions(agent, tmp_path):
     with pytest.raises(RebuildError, match="non autorisée"):
         trial.maintenance(settings, "clear")          # --clear n'est pas exposé
     with pytest.raises(RebuildError, match="non autorisée"):
+        trial.maintenance(settings, "erase")          # --erase non plus
+    with pytest.raises(RebuildError, match="non autorisée"):
         trial.maintenance(settings, "pack")
     with pytest.raises(RebuildError, match="non autorisée"):
         trial.maintenance(settings, "backup")         # retiré du lanceur (--saves le remplace)

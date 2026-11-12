@@ -376,9 +376,11 @@ VIRTUAL_DESKTOP=1920x1080</pre></div>
         <dt><code>--install &lt;jeu.wsquashfs&gt; [dossier]</code></dt>
         <dd>L'inverse de <code>--pack</code> : extrait le jeu pour jouer sans FUSE. L'image est conservée, un dossier existant n'est jamais écrasé.</dd>
         <dt><code>--clean</code></dt>
-        <dd>Supprime le cache, les doublons des sauvegardes (fichiers recopiés sans modification) et les anciennes archives de <code>~/.local/share/wsquashfs/backups/</code>. Ce que le jeu a écrit est gardé.</dd>
+        <dd>Ménage sans risque : supprime le cache et les doublons des sauvegardes (fichiers recopiés sans modification). Ce que le jeu a écrit est gardé. Ne garde que les 3 dernières archives de <code>--erase</code> par jeu.</dd>
         <dt><code>--clear [jeu]</code></dt>
-        <dd>Radical : ne garde que <code>drive_c/users</code> des sauvegardes, sans archive. Scores et réglages écrits ailleurs sont perdus.</dd>
+        <dd>Plus profond : ne garde que <code>drive_c/users</code> des sauvegardes, sans archive. Scores et réglages écrits ailleurs sont perdus.</dd>
+        <dt><code>--erase [jeu]</code></dt>
+        <dd>Efface toutes les sauvegardes : le jeu repart de son image. <code>drive_c/users</code> est archivé avant dans <code>~/.local/share/wsquashfs/backups/</code>. Restauration : <code>tar -xf &lt;archive&gt; -C ~/.local/share/wsquashfs/saves/&lt;jeu&gt;/</code></dd>
         <dt><code>--saves [jeu]</code></dt>
         <dd>Copie les sauvegardes de partie (Documents, Saved Games, AppData) de tous les jeux, ou d'un seul, dans <code>saves/&lt;système&gt;/&lt;jeu&gt;</code> à côté de <code>roms/</code>. Sens unique, rien n'est supprimé. Restauration, jeu arrêté : <code>cp -a saves/&lt;système&gt;/&lt;jeu&gt;/drive_c ~/.local/share/wsquashfs/saves/&lt;jeu&gt;/</code></dd>
         <dt><code>--wine &lt;version&gt;</code></dt>
@@ -420,7 +422,7 @@ VIRTUAL_DESKTOP=1920x1080</pre></div>
     </details>
     <details class="more" id="h-install" data-f><summary>Installer le lanceur sur un PC</summary>
       <pre>curl -fsSL https://raw.githubusercontent.com/Gunnm92/wsquashfs-launcher/main/install.sh | bash</pre>
-      <p>Pour Debian/Ubuntu et Arch (CachyOS, Manjaro, EndeavourOS) : installe les paquets manquants, propose wine-tkg, umu-run et un Proton, DXVK, VKD3D-Proton et d7vk, puis termine par <code>--doctor</code>. Options : <code>--dry-run</code>, <code>--yes</code>, <code>--uninstall</code>.</p>
+      <p>Pour Debian/Ubuntu et Arch (CachyOS, Manjaro, EndeavourOS) : installe les paquets manquants, propose wine-tkg, umu-run et un Proton, DXVK, VKD3D-Proton et d7vk, puis termine par <code>--doctor</code>. Options : <code>--dry-run</code>, <code>--yes</code>, <code>--uninstall</code>. Le script ne fait que télécharger le lanceur s'il est absent : l'installation est faite par le lanceur lui-même (<code>wsquashfs-launcher --setup</code>), la mise à jour par <code>--update</code>.</p>
     </details>
     <details class="more" id="h-frontends" data-f><summary>Pegasus et EmulationStation</summary>
       <p>Commande de lancement : <code>wsquashfs-launcher "{file.path}"</code>.</p>
@@ -458,7 +460,7 @@ launch: wsquashfs-launcher "{file.path}"</pre></div>
       <details class="guide" data-f><summary><svg class="ico"><use href="#i-alert"/></svg><span>Un jeu reste monté</span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
         <div><code>wsquashfs-launcher --umount</code> démonte tous les jeux.</div></details>
       <details class="guide" data-f><summary><svg class="ico"><use href="#i-alert"/></svg><span>Repartir de zéro pour un jeu</span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
-        <div>Fiche → <b>Réinitialiser les sauvegardes</b> : elles sont mises de côté (renommées), pas supprimées. En ligne de commande : <code>--clear "MonJeu"</code>, après archive.</div></details>
+        <div>Fiche → <b>Réinitialiser les sauvegardes</b> : elles sont mises de côté (renommées), pas supprimées. En ligne de commande : <code>--erase "MonJeu"</code> (archive <code>drive_c/users</code>, puis efface tout) ; <code>--clear "MonJeu"</code> ne garde que <code>drive_c/users</code>.</div></details>
     </div>
   </section>
 </article>

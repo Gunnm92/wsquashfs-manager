@@ -1316,7 +1316,7 @@ $("tools-goto-host").onclick = () => showCfgPane("host");
 const MAINT = {
   list: ["Lister les jeux", ""],
   umount: ["Démonter les jeux", "Un jeu en cours sera arrêté."],
-  clean: ["Nettoyer", "Supprime les copies de travail, les doublons des sauvegardes et les anciennes archives (backups). Ce que les jeux ont écrit est gardé."],
+  clean: ["Nettoyer", "Supprime les copies de travail et les doublons des sauvegardes ; ne garde que les 3 dernières archives de --erase par jeu. Ce que les jeux ont écrit est gardé."],
   saves: ["Copier les sauvegardes de tous les jeux", "Copie les sauvegardes de partie dans la ludothèque (saves/<système>/<jeu>). Rien n'est supprimé."],
 };
 for (const button of document.querySelectorAll("[data-maint]")) {
