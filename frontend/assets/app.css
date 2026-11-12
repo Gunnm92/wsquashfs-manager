@@ -976,6 +976,13 @@ aside.panel.editing { border-color: var(--edit); box-shadow: var(--shadow-md); }
 @media (max-width: 640px) { .agent-manual-fields { grid-template-columns: 1fr; } }
 .maint-out { margin-top: 10px; max-height: 220px; overflow: auto; padding: 10px 12px; border-radius: 14px;
   background: var(--bg); font: 11.5px/1.55 var(--mono); color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Couleurs du lanceur (16 couleurs de base, thème sombre) */
+.ansi-b { font-weight: 700; color: var(--text); }
+.ansi-dim { opacity: .65; }
+.ansi-1, .ansi-9 { color: #f0787a; }   .ansi-2, .ansi-10 { color: #6fd29a; }
+.ansi-3, .ansi-11 { color: #f2c46d; }  .ansi-4, .ansi-12 { color: #8fa6ff; }
+.ansi-5, .ansi-13 { color: #c49bff; }  .ansi-6, .ansi-14 { color: #6cd0e0; }
+.ansi-7, .ansi-15 { color: var(--text); } .ansi-0 { color: var(--faint); } .ansi-8 { color: var(--muted); }
 
 /* Dossiers à empaqueter : vue liste */
 .grow.frow { grid-template-columns: 34px minmax(180px, 1fr) 120px 84px 160px; }

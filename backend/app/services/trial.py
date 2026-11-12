@@ -276,7 +276,8 @@ def maintenance(settings: Settings, action: str, image: Path | None = None) -> d
         body = {"action": action, **({"rel": target} if target else {})}
         return host._call("POST", "/v1/maintenance", json=body, timeout=900).json()
     args = [f"--{action}", *([target] if target else [])]
-    code, out = host.exec(["bash", "-lc", 'wsquashfs-launcher "$@"', "wsfs-maint", *args])
+    # Couleurs forcées : la sortie est affichée en couleurs par le manager (ansiToHtml).
+    code, out = host.exec(["bash", "-lc", 'CLICOLOR_FORCE=1 wsquashfs-launcher "$@"', "wsfs-maint", *args])
     return {"action": action, "code": code, "output": out.decode("utf-8", "replace")}
 
 

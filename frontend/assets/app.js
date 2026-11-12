@@ -1312,6 +1312,36 @@ function paintTools() {
 }
 $("tools-goto-host").onclick = () => showCfgPane("host");
 
+// Sortie colorée du lanceur (codes ANSI, couleurs forcées pour la maintenance) → HTML.
+// Gras, atténué et les 16 couleurs de base ; le reste des codes est ignoré.
+const ANSI_RE = /\x1b\[([0-9;]*)m/g;
+function stripAnsi(text) { return text.replace(ANSI_RE, ""); }
+function ansiToHtml(text) {
+  const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  let html = "", bold = false, dim = false, fg = null, last = 0, open = false;
+  const flush = (chunk) => {
+    if (!chunk) return;
+    const cls = [bold && "ansi-b", dim && "ansi-dim", fg !== null && `ansi-${fg}`].filter(Boolean);
+    html += cls.length ? `<span class="${cls.join(" ")}">${esc(chunk)}</span>` : esc(chunk);
+  };
+  text.replace(ANSI_RE, (match, params, offset) => {
+    flush(text.slice(last, offset));
+    last = offset + match.length;
+    for (const p of (params || "0").split(";").map(Number)) {
+      if (p === 0) { bold = false; dim = false; fg = null; }
+      else if (p === 1) bold = true;
+      else if (p === 2) dim = true;
+      else if (p === 22) { bold = false; dim = false; }
+      else if (p >= 30 && p <= 37) fg = p - 30;
+      else if (p >= 90 && p <= 97) fg = p - 90 + 8;
+      else if (p === 39) fg = null;
+    }
+    return match;
+  });
+  flush(text.slice(last));
+  return html;
+}
+
 // Maintenance du lanceur : chaque action demande confirmation, le résultat s'affiche sous la liste
 const MAINT = {
   list: ["Lister les jeux", ""],
@@ -1331,8 +1361,10 @@ for (const button of document.querySelectorAll("[data-maint]")) {
     buttons.forEach((b) => { b.disabled = true; });
     try {
       const r = await api("/api/game_host/maintenance", { method: "POST", body: { action }, timeout: 900000 });
-      out.textContent = (r.output || "").trim() || `${label} : terminé (code ${r.code})`;
-      if (r.code !== 0) out.textContent += `\n\nCode de retour : ${r.code}`;
+      const text = (r.output || "").trim();
+      if (text) out.innerHTML = ansiToHtml(text);
+      else out.textContent = `${label} : terminé (code ${r.code})`;
+      if (r.code !== 0) out.append(`\n\nCode de retour : ${r.code}`);
     } catch (error) {
       out.textContent = `${label} : ${error.message}`;
     } finally {
@@ -1951,8 +1983,10 @@ $("d-saves-copy").onclick = async () => {
   try {
     const r = await api("/api/game_host/maintenance", { method: "POST", timeout: 900000,
       body: { action: "saves", id: state.current.id } });
-    const out = (r.output || "").split("\n").filter((l) => l.startsWith("  ") && !l.startsWith("  dans ")).map((l) => l.trim()).join("\n");
-    if (r.code !== 0) alert(`Copie des sauvegardes : ${(r.output || "").trim() || `code ${r.code}`}`);
+    // Lignes de résultat par jeu de --saves : « ␣␣✓ Jeu  message » (– ignoré, ✗ échec).
+    const plain = stripAnsi(r.output || "");
+    const out = plain.split("\n").filter((l) => /^  [✓–✗] /.test(l)).map((l) => l.trim()).join("\n");
+    if (r.code !== 0) alert(`Copie des sauvegardes : ${plain.trim() || `code ${r.code}`}`);
     else toast(out || "Sauvegardes copiées", "save");
   } catch (error) { alert(error.message); } finally { button.disabled = false; }
 };
