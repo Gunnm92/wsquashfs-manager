@@ -185,14 +185,35 @@ def test_maintenance_refuses_unlisted_actions(agent, tmp_path):
         trial.maintenance(settings, "clean", tmp_path / "Jeu.wsquashfs")
 
 
-def test_maintenance_saves_all_or_one_game(agent, tmp_path):
+def test_maintenance_table_bodies_sent_to_agent(agent, tmp_path):
     settings = settings_for(tmp_path, agent["pem"], agent["url"])
     image = tmp_path / "roms" / "win" / "Jeu.wsquashfs"
     FakeAgent.bodies.clear()
+    trial.maintenance(settings, "save", image)
     trial.maintenance(settings, "saves")
-    trial.maintenance(settings, "saves", image)
-    assert FakeAgent.bodies == [("/v1/maintenance", {"action": "saves"}),
-                                ("/v1/maintenance", {"action": "saves", "rel": "win/Jeu.wsquashfs"})]
+    trial.maintenance(settings, "sync")
+    trial.maintenance(settings, "sync", image)
+    trial.maintenance(settings, "sync-status")
+    assert FakeAgent.bodies == [
+        ("/v1/maintenance", {"action": "save", "rel": "win/Jeu.wsquashfs"}),
+        ("/v1/maintenance", {"action": "saves"}),
+        ("/v1/maintenance", {"action": "sync"}),
+        ("/v1/maintenance", {"action": "sync", "rel": "win/Jeu.wsquashfs"}),
+        ("/v1/maintenance", {"action": "sync-status"}),
+    ]
+
+
+def test_maintenance_game_rule_refused_before_calling_agent(agent, tmp_path):
+    settings = settings_for(tmp_path, agent["pem"], agent["url"])
+    image = tmp_path / "roms" / "win" / "Jeu.wsquashfs"
+    FakeAgent.bodies.clear()
+    with pytest.raises(RebuildError, match="demande un jeu"):
+        trial.maintenance(settings, "save")           # save exige un jeu
+    with pytest.raises(RebuildError, match="ne prend pas de jeu"):
+        trial.maintenance(settings, "saves", image)   # saves : tous les jeux seulement
+    with pytest.raises(RebuildError, match="--sync status ne prend pas de jeu"):
+        trial.maintenance(settings, "sync-status", image)
+    assert FakeAgent.bodies == []
 
 
 def test_host_status_connected_and_refused(agent, tmp_path):

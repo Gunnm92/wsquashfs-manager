@@ -7,7 +7,9 @@ Valeurs par défaut alignées sur les conventions de wsquashfs-launcher
 import json
 import os
 import re
+import secrets
 import tempfile
+import threading
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -197,6 +199,37 @@ def save_game_host(settings: Settings, values: dict) -> None:
     _save_runtime(settings, **clean)
     for key, value in clean.items():
         setattr(settings, key, value)
+
+
+SAVES_MACHINE_FIELDS = ("id", "name", "url", "token", "pem")
+_saves_lock = threading.Lock()      # lectures-écritures de config.json pour la réserve
+
+
+def saves_machines(settings: Settings) -> list[dict]:
+    """Machines de la synchronisation des sauvegardes (config.json) : id, name,
+    url, token, pem. Le jeton et le certificat ne sortent jamais de l'API."""
+    raw = _read_runtime(settings).get("saves_machines", [])
+    if not isinstance(raw, list):
+        return []
+    return [m for m in raw
+            if isinstance(m, dict) and all(isinstance(m.get(k), str) for k in SAVES_MACHINE_FIELDS)]
+
+
+def save_saves_machines(settings: Settings, machines: list[dict]) -> None:
+    with _saves_lock:
+        _save_runtime(settings, saves_machines=machines)
+
+
+def saves_client_id(settings: Settings) -> str:
+    """Identifiant de ce manager auprès des agents (en-tête X-Wsq-Machine) :
+    tiré une fois, puis conservé dans config.json."""
+    with _saves_lock:
+        current = _read_runtime(settings).get("saves_client_id")
+        if isinstance(current, str) and re.fullmatch(r"[0-9a-f]{32}", current):
+            return current
+        client_id = secrets.token_hex(16)
+        _save_runtime(settings, saves_client_id=client_id)
+        return client_id
 
 
 def get_settings() -> Settings:

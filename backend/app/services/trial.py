@@ -24,6 +24,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import re
 import ssl
 import subprocess
@@ -34,7 +35,7 @@ from pathlib import Path
 
 import httpx
 
-from ..config import Settings
+from ..config import Settings, saves_client_id
 from ..models import Task
 from .rebuild import Job, RebuildError
 
@@ -177,11 +178,53 @@ def _pinned_context(pem: str) -> ssl.SSLContext:
     return context
 
 
+class AgentProbeError(RebuildError):
+    """Association refusée ou impossible ; `status` est le code HTTP à renvoyer."""
+
+    def __init__(self, status: int, message: str):
+        super().__init__(message)
+        self.status = status
+
+
+def probe_agent(settings: Settings, url: str, token: str = "", expected: str | None = None,
+                timeout: float = 10) -> dict:
+    """Associer un agent : récupère son certificat et interroge /v1/info avec ce
+    certificat seul. Rien n'est enregistré. `expected` : empreinte du code
+    d'association (sans deux-points) ; le certificat doit correspondre."""
+    url = url.strip().rstrip("/")
+    match = re.match(r"^https://([^\s/:]+):(\d+)$", url)
+    if not match:
+        raise AgentProbeError(422, "adresse : https://hôte:port (ex. https://192.168.1.20:8790)")
+    host, port = match.group(1), int(match.group(2))
+    try:
+        pem = ssl.get_server_certificate((host, port), timeout=timeout)
+    except OSError as exc:
+        raise AgentProbeError(502, f"agent injoignable : {exc}") from exc
+    fingerprint = fingerprint_pem(pem)
+    if expected is not None and fingerprint.replace(":", "") != expected:
+        # Autre machine, ou certificat régénéré depuis le code : refus, sans rien enregistrer
+        raise AgentProbeError(422, "le certificat de l'agent ne correspond pas au code d'association : "
+                              "relancer « wsquashfs-launcher --pair » et copier le nouveau code")
+    info = None
+    if token.strip():
+        try:
+            info = AgentHost(settings, 15, pem=pem, url=url, token=token.strip()).info()
+        except RebuildError as exc:
+            # 422 et non 401 : le client prendrait un 401 pour une demande de connexion
+            raise AgentProbeError(422 if "jeton" in str(exc) else 502, str(exc)) from exc
+    return {"url": url, "fingerprint": fingerprint, "pem": pem, "info": info,
+            "paired": expected is not None}
+
+
+class SavesBusy(RebuildError):
+    """Un jeu tourne sur la machine : ses sauvegardes ne se synchronisent pas maintenant."""
+
+
 class AgentHost:
     """Machine de jeu = wsquashfs-agent sur le réseau (HTTPS, jeton, certificat épinglé)."""
 
     def __init__(self, settings: Settings, timeout: float, pem: str | None = None,
-                 url: str | None = None, token: str | None = None):
+                 url: str | None = None, token: str | None = None, client_id: str | None = None):
         self.settings = settings
         self.url = (url or settings.agent_url).rstrip("/")
         if pem is None:
@@ -190,6 +233,8 @@ class AgentHost:
                 raise RebuildError("agent non associé : Réglages → Machine de jeu → Agent réseau")
             pem = cert.read_text()
         self.name = f"l'agent ({self.url})"
+        self.timeout = timeout
+        self._client_id = client_id     # identifiant de ce manager (sauvegardes), sinon config.json
         self.client = httpx.Client(base_url=self.url, verify=_pinned_context(pem),
                                    headers={"Authorization": f"Bearer {token or settings.agent_token}"},
                                    timeout=httpx.Timeout(timeout, connect=10))
@@ -246,6 +291,102 @@ class AgentHost:
     def path_of(self, image: Path) -> str:
         return self.rel_of(image)
 
+    # ---------------------------------------------------------- sauvegardes
+    # Routes /v1/saves/* (réserve, services/saves.py). Chaque requête porte
+    # X-Wsq-Machine : l'agent garde pour ce manager l'empreinte du dernier échange.
+
+    @property
+    def client_id(self) -> str:
+        if self._client_id is None:
+            self._client_id = saves_client_id(self.settings)
+        return self._client_id
+
+    def _unreachable(self, exc: httpx.HTTPError) -> RebuildError:
+        cause: BaseException | None = exc
+        while cause is not None:
+            if isinstance(cause, ssl.SSLCertVerificationError):
+                return RebuildError(f"certificat de la machine différent de celui associé ({self.url}) : "
+                                    "refaire l'association (wsquashfs-launcher --pair)")
+            cause = cause.__cause__ or cause.__context__
+        return RebuildError(f"machine injoignable ({self.url}) : {exc}")
+
+    def _saves_error(self, response: httpx.Response, conflict: str | None = None) -> RebuildError:
+        if response.status_code == 401:
+            return RebuildError("jeton refusé : refaire l'association (wsquashfs-launcher --pair)")
+        try:
+            data = response.json()
+            detail = str(data.get("detail", "")) if isinstance(data, dict) else ""
+        except ValueError:
+            detail = ""
+        detail = detail or response.text[:200] or f"erreur {response.status_code}"
+        if response.status_code == 409:
+            if detail == "jeu en cours":
+                return SavesBusy("jeu en cours sur la machine : sauvegardes non synchronisées")
+            return RebuildError(conflict or detail)
+        return RebuildError(detail)
+
+    def _saves_request(self, method: str, path: str, *, timeout: float, conflict: str | None = None,
+                       headers: dict | None = None, **kwargs) -> httpx.Response:
+        head = {"X-Wsq-Machine": self.client_id, **(headers or {})}
+        try:
+            response = self.client.request(method, path, headers=head, timeout=timeout, **kwargs)
+        except httpx.HTTPError as exc:
+            raise self._unreachable(exc) from exc
+        if response.status_code >= 400:
+            raise self._saves_error(response, conflict)
+        return response
+
+    def saves_list(self, timeout: float = 30) -> list[dict]:
+        """Jeux de la machine : [{name, fingerprint, newest, state}]."""
+        data = self._saves_request("GET", "/v1/saves/list", timeout=timeout).json()
+        games = data.get("games") if isinstance(data, dict) else None
+        if not isinstance(games, list):
+            raise RebuildError(f"liste des sauvegardes illisible sur {self.url}")
+        return games
+
+    def saves_get(self, game: str, dest: Path) -> tuple[str, str | None]:
+        """Archive d'un jeu, écrite (et fsync) dans `dest` ; renvoie (empreinte,
+        profil). Le profil est None si la machine ne l'envoie pas."""
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with self.client.stream("GET", "/v1/saves/tar", params={"game": game},
+                                    headers={"X-Wsq-Machine": self.client_id}, timeout=3600) as response:
+                if response.status_code >= 400:
+                    response.read()
+                    raise self._saves_error(response)
+                fingerprint = response.headers.get("X-Wsq-Fingerprint", "")
+                profile = response.headers.get("X-Wsq-Profile")
+                if not fingerprint:
+                    raise RebuildError("réponse sans empreinte : sauvegarde non reçue")
+                with open(dest, "wb") as out:
+                    out.writelines(response.iter_bytes())
+                    out.flush()
+                    os.fsync(out.fileno())
+        except httpx.HTTPError as exc:
+            raise self._unreachable(exc) from exc
+        return fingerprint, profile
+
+    def saves_put(self, game: str, archive: Path, profile: str | None) -> dict:
+        """Envoie une archive ; la machine archive sa version si elle a changé
+        depuis le dernier échange avec ce manager. → {fingerprint, archived}."""
+        headers = {"Content-Type": "application/gzip", "Content-Length": str(archive.stat().st_size)}
+        if profile:
+            try:
+                profile.encode("ascii")
+            except UnicodeEncodeError as exc:
+                raise RebuildError("profil non ASCII : pas transmissible à l'agent") from exc
+            headers["X-Wsq-Profile"] = profile
+        with archive.open("rb") as body:
+            response = self._saves_request("PUT", "/v1/saves/tar", timeout=3600, headers=headers,
+                                           params={"game": game}, content=body)
+        return response.json()
+
+    def saves_ack(self, game: str, fingerprint: str) -> None:
+        """Enregistre l'empreinte commune de ce jeu pour ce manager."""
+        self._saves_request("POST", "/v1/saves/state", timeout=30,
+                            conflict="la machine a changé entre-temps : relancer la synchronisation",
+                            json={"game": game, "fingerprint": fingerprint})
+
 
 GAME_HOST_LABELS = {"off": "désactivée", "local": "cette machine", "agent": "agent réseau"}
 
@@ -260,22 +401,45 @@ def game_host(settings: Settings, timeout: float = 120) -> LocalHost | AgentHost
 
 
 # Maintenance du lanceur (Réglages → Machine de jeu) : liste fermée, comme celle de l'agent.
-# saves accepte en plus une image (fiche du jeu) : sans image, tous les jeux.
-MAINTENANCE_ACTIONS = ("list", "umount", "clean", "saves")
+# Table action → (arguments de la ligne de commande, règle sur le jeu) :
+#   "obligatoire" : une image (fiche du jeu) est requise (save) ;
+#   "facultatif"  : sans image, tous les jeux ; avec une image, ce seul jeu (sync) ;
+#   "interdit"    : aucune image (list, umount, clean, saves, sync-status).
+# Mode agent : même action dans le corps {"action", "rel"} de POST /v1/maintenance.
+MAINTENANCE_COMMANDS: dict[str, tuple[tuple[str, ...], str]] = {
+    "list": (("--list",), "interdit"),
+    "umount": (("--umount",), "interdit"),
+    "clean": (("--clean",), "interdit"),
+    "save": (("--save",), "obligatoire"),
+    "saves": (("--saves",), "interdit"),
+    "sync": (("--sync",), "facultatif"),
+    "sync-status": (("--sync", "status"), "interdit"),
+}
+MAINTENANCE_ACTIONS = tuple(MAINTENANCE_COMMANDS)
+
+
+def maintenance_game_rule(action: str) -> str:
+    """Règle sur le jeu d'une action : obligatoire, facultatif ou interdit."""
+    if action not in MAINTENANCE_COMMANDS:
+        raise RebuildError("action de maintenance non autorisée")
+    return MAINTENANCE_COMMANDS[action][1]
 
 
 def maintenance(settings: Settings, action: str, image: Path | None = None) -> dict:
     """Lance une action de maintenance du lanceur sur la machine de jeu."""
-    if action not in MAINTENANCE_ACTIONS:
-        raise RebuildError("action de maintenance non autorisée")
-    if image is not None and action != "saves":
-        raise RebuildError(f"--{action} ne prend pas de jeu")
+    rule = maintenance_game_rule(action)
+    flags, _ = MAINTENANCE_COMMANDS[action]
+    shown = " ".join(flags)
+    if rule == "obligatoire" and image is None:
+        raise RebuildError(f"{shown} demande un jeu")
+    if rule == "interdit" and image is not None:
+        raise RebuildError(f"{shown} ne prend pas de jeu")
     host = game_host(settings, 900)
     target = host.path_of(image) if image is not None else None
     if isinstance(host, AgentHost):
         body = {"action": action, **({"rel": target} if target else {})}
         return host._call("POST", "/v1/maintenance", json=body, timeout=900).json()
-    args = [f"--{action}", *([target] if target else [])]
+    args = [*flags, *([target] if target else [])]
     # Couleurs forcées : la sortie est affichée en couleurs par le manager (ansiToHtml).
     code, out = host.exec(["bash", "-lc", 'CLICOLOR_FORCE=1 wsquashfs-launcher "$@"', "wsfs-maint", *args])
     return {"action": action, "code": code, "output": out.decode("utf-8", "replace")}

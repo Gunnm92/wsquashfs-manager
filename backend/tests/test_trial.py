@@ -97,3 +97,28 @@ def test_local_listing_and_fetch(tmp_path, monkeypatch):
     trial.steambox_fetch(s, str(runner), dest)
     assert (dest / "files/bin/wine").read_bytes() == b"x" * 10
     assert (dest / "proton").is_symlink()
+
+
+def test_maintenance_table_local_arguments(tmp_path, monkeypatch):
+    s = _settings(tmp_path, monkeypatch)
+    s.game_host = "local"
+    assert trial.MAINTENANCE_ACTIONS == ("list", "umount", "clean", "save", "saves", "sync", "sync-status")
+    calls = []
+    monkeypatch.setattr(trial.LocalHost, "exec", lambda self, cmd: (calls.append(cmd[4:]) or (0, b"ok")))
+    image = Path("/n/importe/ou/Jeu.wsquashfs")
+    trial.maintenance(s, "save", image)
+    trial.maintenance(s, "saves")
+    trial.maintenance(s, "sync")
+    trial.maintenance(s, "sync", image)
+    trial.maintenance(s, "sync-status")
+    trial.maintenance(s, "list")
+    assert calls == [["--save", str(image)], ["--saves"], ["--sync"], ["--sync", str(image)],
+                     ["--sync", "status"], ["--list"]]
+    calls.clear()
+    with pytest.raises(RebuildError, match="--save demande un jeu"):
+        trial.maintenance(s, "save")
+    with pytest.raises(RebuildError, match="--saves ne prend pas de jeu"):
+        trial.maintenance(s, "saves", image)
+    with pytest.raises(RebuildError, match="non autorisée"):
+        trial.maintenance(s, "saves-all")
+    assert calls == []

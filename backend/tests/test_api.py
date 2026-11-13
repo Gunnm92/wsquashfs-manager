@@ -229,6 +229,30 @@ def test_saves_reset(client, monkeypatch, tmp_path):
     assert response.status_code == 200 and response.json()["renamed"].startswith("jeu.avant-")
 
 
+# ------------------------------------------------------------------ maintenance du lanceur
+def test_maintenance_rejects_unlisted_actions_and_bad_game(client, monkeypatch):
+    calls = []
+    monkeypatch.setattr(main, "maintenance", lambda settings, action, image=None: calls.append((action, image)) or {})
+    post = lambda body: client.post("/api/game_host/maintenance", json=body).status_code
+    assert post({"action": "clear"}) == 422              # hors liste
+    assert post({"action": "pack"}) == 422
+    assert post({"action": "save"}) == 422               # save exige un jeu
+    assert post({"action": "saves", "id": "arcade/jeu"}) == 422
+    assert post({"action": "sync-status", "id": "arcade/jeu"}) == 422
+    assert post({"action": "clean", "id": "arcade/jeu"}) == 422
+    assert calls == []
+
+
+def test_maintenance_sync_with_or_without_game(client, monkeypatch):
+    calls = []
+    monkeypatch.setattr(main, "maintenance", lambda settings, action, image=None: calls.append((action, image)) or {})
+    assert client.post("/api/game_host/maintenance", json={"action": "sync"}).status_code == 200
+    assert client.post("/api/game_host/maintenance", json={"action": "sync", "id": "arcade/jeu"}).status_code == 200
+    assert client.post("/api/game_host/maintenance", json={"action": "save", "id": "arcade/jeu"}).status_code == 200
+    assert [action for action, _ in calls] == ["sync", "sync", "save"]
+    assert calls[0][1] is None and calls[1][1].name == "jeu.wsquashfs" and calls[2][1] is not None
+
+
 # ------------------------------------------------------------------ création
 
 @pytest.fixture

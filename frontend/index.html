@@ -161,6 +161,11 @@
             <button class="btn secondary sm" id="d-links" title="Liens du prefix vers un runner hors de l'image ou absent, et réparation avec les runners installés sur la machine de jeu">Analyser</button></div>
           <div id="d-links-result" class="msg">Vérifie que l'image ne dépend pas d'un runner installé sur la machine.</div>
         </div>
+        <div class="box" id="d-syncs" hidden>
+          <div class="box-head"><svg class="ico"><use href="#i-save"/></svg><strong>Sauvegardes entre machines</strong>
+            <button class="iconbtn bare sm" id="d-syncs-refresh" title="Relire l'état des machines"><svg class="ico sm"><use href="#i-refresh"/></svg></button></div>
+          <div id="d-syncs-body"></div>
+        </div>
       </div>
       <div data-pane="autorun" hidden>
         <div id="a-override-box"></div>
@@ -186,6 +191,7 @@
           <span class="trial"><button class="btn bare sm" id="d-trial" title="Lance le jeu sur la machine de jeu, l'observe puis l'arrête : tient-il, fenêtre, erreurs, capture"><svg class="ico sm"><use href="#i-flask"/></svg>Lancement d'essai</button>
             <select id="d-trial-duration" title="Durée de l'essai"><option value="30">30 s</option><option value="60" selected>60 s</option><option value="120">2 min</option></select></span>
           <button class="btn bare sm" id="d-saves-copy" title="Copie les sauvegardes de partie de ce jeu dans la ludothèque (saves/&lt;système&gt;/&lt;jeu&gt;), sur la machine de jeu"><svg class="ico sm"><use href="#i-save"/></svg>Copier les sauvegardes</button>
+          <button class="btn bare sm" id="d-saves-sync" title="Synchronise les sauvegardes de ce jeu avec les autres machines associées du réseau local : la plus récente gagne, l'autre est archivée"><svg class="ico sm"><use href="#i-refresh"/></svg>Synchroniser</button>
           <button class="btn bare sm" id="d-saves-reset" title="Met de côté les sauvegardes du jeu (renommées, pas supprimées)"><svg class="ico sm"><use href="#i-save"/></svg>Réinitialiser les sauvegardes</button>
         </div>
       </div>
@@ -321,6 +327,7 @@
   <div class="pills on-s2 cfg-tabs" id="cfg-tabs" role="tablist">
     <button data-cpane="dirs" class="on" role="tab">Bibliothèque</button>
     <button data-cpane="host" role="tab">Machine de jeu</button>
+    <button data-cpane="saves" role="tab">Sauvegardes</button>
     <button data-cpane="tools" role="tab">Outils</button>
     <button data-cpane="general" role="tab">Général</button>
   </div>
@@ -375,6 +382,34 @@
     </div>
   </section>
 
+  <!-- Sauvegardes : machines avec lesquelles le manager échange les sauvegardes -->
+  <section class="cfg-pane" data-pane-name="saves" hidden>
+    <p class="dlg-intro">Machines avec lesquelles le manager échange les sauvegardes de partie (réserve du manager). Actions immédiates : « Enregistrer » ne sert pas ici.</p>
+    <div class="section-label">Machines</div>
+    <div class="tool-list" id="saves-machines"></div>
+    <div class="section-label">Sauvegardes entre machines</div>
+    <p class="dlg-intro">Pousser ou mettre dans la réserve toutes les sauvegardes d'une machine. Indépendant de la machine de jeu.</p>
+    <div class="tool-list" id="saves-tools">
+      <div class="tool stack">
+        <div><b>Pousser toutes les sauvegardes</b><span>Chaque jeu de la source est envoyé aux cibles ; la version écrasée y est archivée.</span></div>
+        <div class="ctl"><label class="field">Source<select id="stools-push-source"></select></label></div>
+        <div class="sys-toggles" id="stools-targets"></div>
+        <div class="ctl"><button class="btn primary sm" id="stools-push" type="button"><svg class="ico sm"><use href="#i-upload"/></svg>Pousser</button></div>
+      </div>
+      <div class="tool stack">
+        <div><b>Tout mettre dans la réserve</b><span>Récupère les sauvegardes de tous les jeux de la source dans la réserve du manager.</span></div>
+        <div class="ctl"><label class="field">Source<select id="stools-pull-source"></select></label>
+          <button class="btn secondary sm" id="stools-pull" type="button"><svg class="ico sm"><use href="#i-save"/></svg>Mettre dans la réserve</button></div>
+      </div>
+    </div>
+    <div id="stools-result" hidden></div>
+    <div class="section-label">Associer une machine</div>
+    <label class="field">Code d'association<input id="saves-code" autocomplete="off" placeholder="wsq://…"></label>
+    <p class="dlg-intro">Sur la machine : <code>wsquashfs-launcher --pair</code>, puis colle ici le code affiché.</p>
+    <div class="row"><button class="btn secondary sm" id="saves-pair" type="button"><svg class="ico sm"><use href="#i-link"/></svg>Associer</button></div>
+    <div id="saves-msg" hidden></div>
+  </section>
+
   <!-- Outils : actions immédiates sur la machine de jeu enregistrée -->
   <section class="cfg-pane" data-pane-name="tools" hidden>
     <div class="notice tools-off" id="tools-off" hidden>
@@ -394,6 +429,10 @@
         <button class="btn secondary sm" data-maint="clean">Nettoyer</button></div>
       <div class="tool"><div><b>Copier les sauvegardes</b><span>De tous les jeux vers saves/&lt;système&gt;/&lt;jeu&gt; dans la ludothèque. Rien n'est supprimé.</span></div>
         <button class="btn secondary sm" data-maint="saves">Copier</button></div>
+      <div class="tool"><div><b>Synchroniser les sauvegardes</b><span>Avec les autres machines associées du réseau local : la plus récente gagne, l'autre est archivée. Association une fois, en ligne de commande : <code>wsquashfs-launcher --pair</code> sur l'autre machine, puis <code>wsquashfs-launcher --sync wsq://…</code> sur celle-ci.</span></div>
+        <button class="btn secondary sm" data-maint="sync">Synchroniser</button></div>
+      <div class="tool"><div><b>État de la synchro</b><span>Ce qui serait synchronisé, sans rien changer.</span></div>
+        <button class="btn secondary sm" data-maint="sync-status">Voir l'état</button></div>
     </div>
     <pre class="maint-out" id="maint-out" hidden></pre>
   </section>

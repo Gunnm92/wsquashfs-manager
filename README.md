@@ -79,13 +79,19 @@ fenêtre minimisée, erreurs connues, capture ; refusé si un jeu .wsquashfs
 tourne déjà), l'état du lanceur (`--doctor`) et les runners installés
 (réparation des liens du runner). Facultative : tout le reste fonctionne
 sans. Le diagnostic et la maintenance du lanceur sont dans Réglages → Outils,
-utilisables une fois la machine de jeu enregistrée et joignable.
+utilisables une fois la machine de jeu enregistrée et joignable : lister,
+démonter, nettoyer, copier les sauvegardes (tous les jeux), synchroniser les
+sauvegardes avec les autres machines associées, voir l'état de la synchro.
+La fiche d'un jeu a « Copier les sauvegardes » (ce jeu) et « Synchroniser ».
+L'association d'une machine se fait une fois, en ligne de commande, sur les
+deux machines : `wsquashfs-launcher --pair` sur l'autre, puis
+`wsquashfs-launcher --sync wsq://…` sur celle-ci (le manager ne l'expose pas).
 
 | Mode | Usage |
 |---|---|
 | Désactivée | défaut d'une installation neuve |
 | Cette machine | lanceur installé sur la machine du gestionnaire, avec un écran ; le service tourne sous l'utilisateur de la session graphique |
-| Agent réseau | `wsquashfs-launcher --agent` sur la machine de jeu, ou dans son conteneur (ex. SteamBox) : le code `wsq://…` affiché par `wsquashfs-launcher --pair` se colle dans **Associer** (le certificat est vérifié contre le code). Voir `docs/agent.md` du lanceur. |
+| Agent réseau | Sur la machine de jeu, ou dans son conteneur (ex. SteamBox) : `wsquashfs-launcher --pair` affiche le code `wsq://…` et attend qu'il soit collé dans **Associer** (le certificat est vérifié contre le code) ; ensuite `wsquashfs-launcher --agent` lance l'agent en arrière-plan (`--agent stop` l'arrête, `--setup --agent` le démarre avec la session). Voir `docs/agent.md` du lanceur. |
 
 Le mode Conteneur Docker (API Docker, `docker-socket-proxy`) a été retiré : un
 conteneur se joint par l'agent. Une configuration qui le mentionne repasse en
@@ -98,6 +104,50 @@ dans SteamBox et ne pas reconstruire leur image pendant une partie),
 Le conteneur démarre en root, prépare `/data`, puis passe à PUID/PGID.
 Le travail sur une image se fait à côté d'elle (`.wsquashfs-manager/`, même
 disque), jamais dans l'appdata.
+
+## Réserve de sauvegardes
+
+Le manager tourne en permanence : il garde une **réserve** des sauvegardes de
+partie (`wsquashfs-launcher`, `/v1/saves/*` de l'agent) et peut pousser celles
+d'une machine **source** (celle qui a de l'avance) vers les autres machines.
+
+- **Machines** : `POST /api/saves/machines {code}` associe une machine par son
+  code `wsq://…` (même vérification que l'association de l'agent ; le nom est
+  le `host` de `/v1/info`). Une même empreinte ou une même adresse remplace
+  l'entrée. Le jeton et le certificat ne sont jamais renvoyés. La machine de
+  jeu en mode agent apparaît d'office (identifiant `game-host`, non
+  supprimable) sauf si une machine de la liste a la même adresse.
+- **Réserve** : `state_dir/saves-reserve/<jeu>/` : `current.tar.gz`,
+  `meta.json` (empreinte, newest, profil, source, date de réception) ; avant
+  chaque remplacement, l'ancienne version devient `AAAAMMJJ-HHMMSS.tar.gz`
+  (3 gardées). Écritures atomiques (durable.py).
+- **Pull** (machine → réserve), **push** (réserve → cibles), **push_from**
+  (pull puis push des seuls jeux récupérés). Une machine occupée (jeu en
+  cours, 409) n'est pas touchée : le résultat le dit, par jeu et par machine.
+- **États** (`GET /api/saves/status`) : par jeu et par machine, « identique »
+  (toutes les machines ont la même version), sinon « plus récente » (la
+  version la plus récente : la source à choisir) ou « plus ancienne » ; et
+  « absente », « injoignable ». Chaque machine n'est interrogée qu'une fois.
+- **Tâches** : pull et push passent par la file (tâche `saves`, sans image) ;
+  le détail par jeu est dans `params.result` de la tâche.
+- **Écrans** : Réglages → Sauvegardes (associer et oublier les machines, tout
+  pousser, tout mettre dans la réserve), fiche d'un jeu → « Sauvegardes entre
+  machines » (états, pousser, mettre dans la réserve).
+
+Routes (toutes sous `/api/saves/`) :
+
+| Méthode | Chemin | Corps / réponse |
+|---|---|---|
+| GET | `machines` | `{"machines":[{id,name,url,fingerprint,kind,removable}]}` |
+| POST | `machines` | `{"code":"wsq://…"}` → `{id,name,url,fingerprint,replaced}` ; 422 code, empreinte ou jeton ; 502 injoignable |
+| DELETE | `machines/{id}` | `{"removed":id}` ; 404 inconnue ; 422 `game-host` |
+| GET | `status[?id=<image>]` | `{machines:[…], games:[{game, reserve, machines:[{id,name,state,fingerprint,newest,message}]}]}` |
+| POST | `pull` | `{"source":id, "ids":[…]}` ou `{"source":id, "all":true}` → `{"task":id}` |
+| POST | `push` | `{"source"?:id, "targets":[id…], "ids":[…]}` ou `"all":true` → `{"task":id}` ; sans source : depuis la réserve |
+
+`ids` et `all` s'excluent (422 sinon) ; source inconnue ou cible inconnue : 404 ;
+source parmi les cibles, cible en double, jeu absent de la réserve ou réserve
+vide : 422. Le jeu d'une image est son nom sans `.wsquashfs` ni `.pc`.
 
 ## Configuration
 
@@ -219,11 +269,13 @@ Les images sont désignées par leur identifiant `<système>/<nom>` en paramètr
 | POST | `/api/image/autorun/preview?id=` · `/api/image/autorun?id=` | vérifier, reconstruire |
 | POST | `/api/image/old/validate?id=` · `/api/image/old/restore?id=` | `.old` |
 | POST | `/api/image/saves/reset?id=` | sauvegardes → `<jeu>.avant-<date>` |
+| POST | `/api/game_host/maintenance` | lanceur sur la machine de jeu : corps `{"action", "id"?}` ; `list`, `umount`, `clean`, `saves` (sans jeu) ; `save` (jeu requis) ; `sync` (jeu facultatif) ; `sync-status` (sans jeu) |
 | POST | `/api/mass/autorun[/preview]` · `/api/mass/files[/preview]` | masse : autorun, fichiers/registre |
 | POST | `/api/mass/verify` · `/api/mass/old/validate` · `/api/mass/saves/reset` | masse : intégrité, `.old`, sauvegardes |
 | GET | `/api/folders` · `/api/folders/analyze?id=&exe=` | dossiers à empaqueter, analyse |
 | POST | `/api/folders/pack` · `/api/folders/delete` | empaquetage en batch, suppression des dossiers empaquetés |
 | GET/POST | `/api/tasks[?image=]` · `/api/tasks/{id}` · `/api/tasks/{id}/cancel` | file |
+| GET/POST/DELETE | `/api/saves/machines` · `/api/saves/status[?id=]` · `/api/saves/pull` · `/api/saves/push` | réserve de sauvegardes (voir ci-dessus) |
 
 ## Structure
 

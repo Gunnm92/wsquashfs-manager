@@ -66,7 +66,9 @@ modifiées sont relues.
     `WINEDLLOVERRIDES` (il écraserait les réglages DLL du lanceur).
 - **Montée de version** (§ 3.3).
 - **Sauvegardes** : taille, type du prefix, bouton « réinitialiser »
-  (renomme en `.avant-<date>`, ne supprime pas).
+  (renomme en `.avant-<date>`, ne supprime pas), « Copier les sauvegardes »
+  (action `save` : ce jeu vers la ludothèque) et « Synchroniser » (action
+  `sync` avec ce jeu, § 2.6).
 - **Historique** des opérations sur cette image.
 
 ### 2.3 Création
@@ -182,6 +184,75 @@ d'essai** chronométré (comme les tests de compatibilité faits à la main :
 le jeu tient-il 60 s, erreurs connues dans le journal — `SOCK_RAW`,
 `install_bpf`, `out of memory`, `page fault`), résultat joint à la
 proposition.
+
+### 2.6 Machine de jeu : maintenance du lanceur
+
+Réglages → Outils, et la fiche pour les sauvegardes d'un jeu. Les actions
+passent par `POST /api/game_host/maintenance` vers la machine de jeu (mode
+local : ligne de commande ; mode agent : `POST /v1/maintenance`), avec la
+même liste fermée des deux côtés (`MAINTENANCE_COMMANDS` dans
+`services/trial.py`) :
+
+| Action | Ligne de commande | Jeu | Confirmation |
+|---|---|---|---|
+| `list` | `--list` | interdit | non |
+| `umount` | `--umount` | interdit | oui (un jeu en cours est arrêté) |
+| `clean` | `--clean` | interdit | oui |
+| `save` | `--save <jeu>` | obligatoire (fiche) | non |
+| `saves` | `--saves` | interdit (tous les jeux) | oui |
+| `sync` | `--sync [jeu]` | facultatif | oui |
+| `sync-status` | `--sync status` | interdit | non |
+
+- Un jeu absent là où il est interdit ou requis : 422 avant tout appel.
+- `sync` envoie et reçoit les sauvegardes de partie avec les autres machines
+  associées du réseau local (association une fois, en ligne de commande :
+  `--pair` sur l'autre machine, `--sync wsq://…` sur celle-ci). Conflit : la
+  version la plus récente gagne, l'autre est archivée. Les jeux en cours sont
+  ignorés. Le manager n'expose ni l'association ni `--sync forget`.
+- Sortie : lignes par jeu `  ✓ Jeu  message` (– ignoré, ✗ échec, → état),
+  sections `▍<machine>` pour `sync` ; la fiche n'affiche que les lignes par jeu.
+
+### 2.7 Réserve de sauvegardes
+
+Le manager garde une réserve des sauvegardes de partie et sert de point de
+passage entre les machines associées (`wsquashfs-launcher --pair`, agent
+`/v1/saves/*`). Le lanceur reste inchangé : la synchronisation ici est
+explicite, la machine source étant choisie.
+
+- **Machines** (config.json, `saves_machines` : `id`, `name`, `url`, `token`,
+  `pem`) et identifiant du manager auprès des agents (`saves_client_id`, tiré
+  une fois, en-tête `X-Wsq-Machine` de chaque requête). Association par code
+  `wsq://` : même contrôle que l'agent (certificat contre l'empreinte du code,
+  jeton par `/v1/info`), nom = `host`. Même empreinte ou même adresse :
+  remplacement, identifiant conservé. Jeton et certificat jamais renvoyés.
+  La machine de jeu en mode agent est listée d'office (`game-host`), non
+  supprimable, sauf si une machine enregistrée a la même adresse.
+- **Réserve** : `state_dir/saves-reserve/<jeu>/current.tar.gz` et `meta.json`
+  (`fingerprint`, `newest`, `profile`, `source`, `fetched_at`). Un remplacement
+  d'une version différente archive l'ancienne en `AAAAMMJJ-HHMMSS.tar.gz` (+
+  `.json`), 3 versions datées gardées. Même empreinte : rien d'archivé. Nom de
+  jeu : sans `/`, sans `..`, sans point initial, 200 caractères au plus.
+  Écritures par durable.py (`.part`, fsync, échange par lien physique).
+- **Pull** : `saves_list` puis `saves_get` (flux vers un `.part`), enregistrement
+  dans la réserve, puis `saves_ack` (POST `/v1/saves/state`) : l'empreinte
+  commune est ainsi notée pour ce manager.
+- **Push** : `saves_put` (PUT, la machine archive sa version si elle a changé
+  depuis le dernier échange), puis `saves_ack` avec l'empreinte renvoyée.
+- **Push depuis une source** (`push_from`) : pull, puis push des seuls jeux
+  récupérés ; la source ne figure pas parmi les cibles.
+- **Erreurs** : 409 « jeu en cours » → résultat « non récupéré / non envoyée »
+  pour ce jeu sur cette machine (pas d'échec global) ; 401 → jeton à refaire ;
+  certificat différent de l'association → message dédié ; réseau → « injoignable ».
+  Un échec partiel fait échouer la tâche, son détail reste dans le résultat.
+- **États** (`status`) : une requête `saves_list` par machine (en parallèle,
+  délai 15 s). Libellés par jeu : « identique » (toutes les machines qui ont le
+  jeu ont la même version) ; sinon « plus récente » pour les machines qui ont
+  la version au `newest` maximal (la source à proposer), « plus ancienne »
+  pour les autres ; « absente » ;
+  « injoignable » (machine non jointe ou erreur de la requête).
+- **Exécution** : pull et push sont des tâches de la file (`saves`, sans image,
+  annulables entre deux jeux, reprises en attente après un redémarrage). Les
+  états restent synchrones (lecture seule, quelques secondes au plus).
 
 ## 3. Opérations sur une image
 

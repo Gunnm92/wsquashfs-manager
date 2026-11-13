@@ -5,9 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
-import re
 import shutil
-import ssl
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -29,6 +27,7 @@ from .config import (
 )
 from .models import ImageInfo, ImageState, Task
 from .services import analyze as analyze_mod
+from .services import saves as saves_svc
 from .services import scan
 from .services.analyze import FolderAnalysis, add_local_game, analyze_folder, analyze_image, report
 from .services.artwork import artwork
@@ -68,16 +67,20 @@ from .services.rebuild import (
     validate_backup,
 )
 from .services.runners import plan_runner, run_relink, run_runner, suggest
+from .services.saves import run_saves
 from .services.tasks import QueueLocked, TaskConflict, TaskQueue
 from .services.trial import (
-    AgentHost,
-    parse_pair_code,
+    MAINTENANCE_COMMANDS,
+    AgentProbeError,
     agent_cert_path,
     fingerprint_pem,
     game_host,
     host_name,
     host_status,
     maintenance,
+    maintenance_game_rule,
+    parse_pair_code,
+    probe_agent,
     run_doctor,
     run_trial,
     trial_dir,
@@ -104,6 +107,7 @@ queue = TaskQueue(
         "trial": lambda task, job: run_trial(_settings, task, job),
         "runner": lambda task, job: run_runner(_settings, task, job),
         "relink": lambda task, job: run_relink(_settings, task, job),
+        "saves": lambda task, job: run_saves(_settings, task, job),
     },
     concurrency=_settings.task_concurrency,
     night_now=lambda: in_night(_settings),
@@ -257,28 +261,10 @@ def agent_probe(body: AgentProbe):
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         expected = pair["fingerprint"]
         body = body.model_copy(update={"url": pair["url"], "token": pair["token"]})
-    url = body.url.strip().rstrip("/")
-    match = re.match(r"^https://([^\s/:]+):(\d+)$", url)
-    if not match:
-        raise HTTPException(status_code=422, detail="adresse : https://hôte:port (ex. https://192.168.1.20:8790)")
-    host, port = match.group(1), int(match.group(2))
     try:
-        pem = ssl.get_server_certificate((host, port), timeout=10)
-    except OSError as exc:
-        raise HTTPException(status_code=502, detail=f"agent injoignable : {exc}") from exc
-    fingerprint = fingerprint_pem(pem)
-    if expected is not None and fingerprint.replace(":", "") != expected:
-        # Autre machine, ou certificat régénéré depuis le code : refus, sans rien enregistrer
-        raise HTTPException(status_code=422, detail="le certificat de l'agent ne correspond pas au code d'association : "
-                            "relancer « wsquashfs-launcher --pair » et copier le nouveau code")
-    info = None
-    if body.token.strip():
-        try:
-            info = AgentHost(_settings, 15, pem=pem, url=url, token=body.token.strip()).info()
-        except RebuildError as exc:
-            # 422 et non 401 : le client prendrait un 401 pour une demande de connexion
-            raise HTTPException(status_code=422 if "jeton" in str(exc) else 502, detail=str(exc)) from exc
-    return {"url": url, "fingerprint": fingerprint, "pem": pem, "info": info, "paired": expected is not None}
+        return probe_agent(_settings, body.url, body.token, expected=expected)
+    except AgentProbeError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
 
 
 _doctor_cache: dict = {}
@@ -296,16 +282,22 @@ def _doctor(refresh: bool = False) -> dict:
 
 
 class MaintenanceRequest(BaseModel):
-    action: Literal["list", "umount", "clean", "saves"]
-    id: str | None = None           # saves : une image (fiche du jeu) ; sans : tous les jeux
+    action: Literal["list", "umount", "clean", "save", "saves", "sync", "sync-status"]
+    id: str | None = None           # save : requis (fiche du jeu) ; sync : facultatif ; les autres : interdit
 
 
 @app.post("/api/game_host/maintenance")
 def game_host_maintenance(body: MaintenanceRequest):
     """Maintenance du lanceur sur la machine de jeu : lister, démonter, nettoyer,
-    copier les sauvegardes dans la ludothèque (tous les jeux, ou un seul)."""
-    if body.id and body.action != "saves":
-        raise HTTPException(status_code=422, detail=f"--{body.action} ne prend pas de jeu")
+    copier les sauvegardes d'un jeu (save) ou de tous (saves), synchroniser les
+    sauvegardes avec les autres machines associées (sync, un jeu ou tous) et
+    afficher l'état de la synchro (sync-status, sans rien changer)."""
+    rule = maintenance_game_rule(body.action)
+    shown = " ".join(MAINTENANCE_COMMANDS[body.action][0])
+    if rule == "obligatoire" and not body.id:
+        raise HTTPException(status_code=422, detail=f"{shown} demande un jeu")
+    if rule == "interdit" and body.id:
+        raise HTTPException(status_code=422, detail=f"{shown} ne prend pas de jeu")
     image = _find_image(body.id).path if body.id else None
     try:
         return maintenance(_settings, body.action, image)
@@ -1368,6 +1360,128 @@ def task_screenshot(task_id: str):
 @app.delete("/api/tasks/finished")
 def clear_finished_tasks():
     return {"removed": queue.clear_finished()}
+
+
+# ------------------------------------------------------------- sauvegardes (réserve)
+# Réserve de sauvegardes et synchronisation entre machines (services/saves.py).
+# Lectures et états : réponse immédiate. Pull / push : tâches de la file
+# (« saves »), suivies par /api/tasks/{id} ; le résultat détaillé est dans
+# task.params.result.
+
+class SavesMachineAdd(BaseModel):
+    code: str = Field(min_length=1, max_length=600)     # code wsq:// de « wsquashfs-launcher --pair »
+
+
+@app.get("/api/saves/machines")
+def saves_machines_list():
+    """Machines de la synchronisation (jeton et certificat jamais renvoyés)."""
+    return {"machines": saves_svc.machine_rows(_settings)}
+
+
+@app.post("/api/saves/machines")
+def saves_machine_add(body: SavesMachineAdd):
+    """Associe une machine par son code wsq:// ; même empreinte ou même adresse → remplacement."""
+    try:
+        return saves_svc.add_machine(_settings, body.code)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except AgentProbeError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+
+@app.delete("/api/saves/machines/{machine_id}")
+def saves_machine_remove(machine_id: str):
+    try:
+        saves_svc.remove_machine(_settings, machine_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"machine inconnue : {machine_id}") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"removed": machine_id}
+
+
+@app.get("/api/saves/status")
+def saves_status(id: str | None = None):
+    """État par machine et par jeu (identique, plus récente, plus ancienne, absente,
+    injoignable) et réserve. Sans id : tous les jeux connus ; avec id d'image : ce jeu."""
+    games = [saves_svc.game_name(_find_image(id).path.name)] if id is not None else None
+    return saves_svc.status(_settings, games)
+
+
+class SavesSelection(BaseModel):
+    ids: list[str] | None = None        # identifiants d'images (<système>/<nom>)
+    all: bool = False                   # tous les jeux : de la source, ou de la réserve
+
+    @model_validator(mode="after")
+    def _one_of(self) -> SavesSelection:
+        if self.all == bool(self.ids):
+            raise ValueError("ids (liste non vide) ou all (vrai) : l'un des deux")
+        return self
+
+
+class SavesPull(SavesSelection):
+    source: str = Field(min_length=1, max_length=64)
+
+
+class SavesPush(SavesSelection):
+    source: str | None = Field(default=None, max_length=64)    # absent : depuis la réserve
+    targets: list[str] = Field(min_length=1, max_length=20)
+
+
+def _saves_games(selection: SavesSelection) -> list[str] | None:
+    """Jeux désignés par les images (None : tous). 404 si une image est inconnue."""
+    if selection.all:
+        return None
+    games = []
+    for image_id in selection.ids or []:
+        game = saves_svc.game_name(_find_image(image_id).path.name)
+        if not saves_svc.valid_game(game):
+            raise HTTPException(status_code=422, detail=f"nom de jeu invalide : {game}")
+        games.append(game)
+    return list(dict.fromkeys(games))
+
+
+def _saves_machine(machine_id: str) -> dict:
+    try:
+        return saves_svc.find_machine(_settings, machine_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"machine inconnue : {machine_id}") from None
+
+
+@app.post("/api/saves/pull")
+def saves_pull(body: SavesPull):
+    """Sauvegardes d'une machine source vers la réserve (tâche « saves »)."""
+    source = _saves_machine(body.source)
+    games = _saves_games(body)
+    task = queue.submit("saves", None, None, {"op": "pull", "source": body.source, "games": games},
+                        f"sauvegardes : récupérer depuis {source['name']}")
+    return {"task": task.id}
+
+
+@app.post("/api/saves/push")
+def saves_push(body: SavesPush):
+    """Réserve (sans source) ou machine source (push_from) vers les cibles (tâche « saves »)."""
+    if len(set(body.targets)) != len(body.targets):
+        raise HTTPException(status_code=422, detail="machine cible en double")
+    targets = [_saves_machine(machine_id) for machine_id in body.targets]
+    games = _saves_games(body)
+    if body.source is not None:
+        source = _saves_machine(body.source)
+        if body.source in body.targets:
+            raise HTTPException(status_code=422, detail="la source ne peut pas être une cible")
+        params = {"op": "push_from", "source": body.source, "targets": body.targets, "games": games}
+        title = f"sauvegardes : {source['name']} → {len(targets)} machine(s)"
+    else:
+        reserve = set(saves_svc.reserve_games(_settings))
+        if games is None and not reserve:
+            raise HTTPException(status_code=422, detail="réserve vide : rien à envoyer")
+        missing = [game for game in games or [] if game not in reserve]
+        if missing:
+            raise HTTPException(status_code=422, detail=f"absent de la réserve : {', '.join(missing)}")
+        params = {"op": "push", "targets": body.targets, "games": games}
+        title = f"sauvegardes : réserve → {len(targets)} machine(s)"
+    task = queue.submit("saves", None, None, params, title)
+    return {"task": task.id}
 
 
 # ------------------------------------------------------------- frontend
