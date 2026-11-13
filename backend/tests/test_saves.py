@@ -709,13 +709,14 @@ def test_api_validation_codes(agents, api):
     mid = machine_ids(settings)["m1"]
     assert client.post("/api/saves/pull", json={"source": "inconnue", "all": True}).status_code == 404
     assert client.post("/api/saves/pull", json={"source": mid}).status_code == 422
-    assert client.post("/api/saves/pull", json={"source": mid, "all": True, "ids": ["arcade/Jeu"]}).status_code == 422
-    assert client.post("/api/saves/pull", json={"source": mid, "ids": ["arcade/Absent"]}).status_code == 404
+    assert client.post("/api/saves/pull", json={"source": mid, "all": True, "games": ["Jeu"]}).status_code == 422
+    assert client.post("/api/saves/pull", json={"source": mid, "games": ["../x"]}).status_code == 422
+    assert client.post("/api/saves/pull", json={"source": mid, "games": [".cache"]}).status_code == 422
     assert client.post("/api/saves/push", json={"targets": [mid, mid], "all": True}).status_code == 422
     assert client.post("/api/saves/push", json={"targets": ["inconnue"], "all": True}).status_code == 404
     assert client.post("/api/saves/push", json={"source": mid, "targets": [mid], "all": True}).status_code == 422
     assert client.post("/api/saves/push", json={"targets": [mid], "all": True}).status_code == 422   # réserve vide
-    assert client.post("/api/saves/push", json={"targets": [mid], "ids": ["arcade/Jeu"]}).status_code == 422
+    assert client.post("/api/saves/push", json={"targets": [mid], "games": ["Jeu"]}).status_code == 422
 
 
 def test_api_pull_and_push_queue_tasks(agents, api):
@@ -724,7 +725,7 @@ def test_api_pull_and_push_queue_tasks(agents, api):
     associate(settings, m1)
     associate(settings, m2)
     ids = machine_ids(settings)
-    pulled = client.post("/api/saves/pull", json={"source": ids["m1"], "ids": ["arcade/Jeu"]})
+    pulled = client.post("/api/saves/pull", json={"source": ids["m1"], "games": ["Jeu"]})
     assert pulled.status_code == 200
     task = client.get(f"/api/tasks/{pulled.json()['task']}").json()
     assert task["kind"] == "saves" and task["params"]["op"] == "pull"
@@ -732,7 +733,7 @@ def test_api_pull_and_push_queue_tasks(agents, api):
     data = gz("reserve")
     saves.store(settings, "Jeu", part_with(settings, "Jeu", data), fingerprint=fp_of(data), newest=1,
                 size=len(data), profile=None, source="m1")
-    pushed = client.post("/api/saves/push", json={"targets": [ids["m2"]], "ids": ["arcade/Jeu"]})
+    pushed = client.post("/api/saves/push", json={"targets": [ids["m2"]], "games": ["Jeu"]})
     assert pushed.status_code == 200
     assert client.get(f"/api/tasks/{pushed.json()['task']}").json()["params"]["op"] == "push"
     assert queue.get(pushed.json()["task"]) is not None
@@ -746,12 +747,13 @@ def test_api_push_auto_queues_one_task_without_reserve(agents, api):
     ids = machine_ids(settings)
     # Pas de réserve : « auto » ne l'exige pas
     response = client.post("/api/saves/push", json={"source": "auto", "targets": [ids["m1"], ids["m2"]],
-                                                    "ids": ["arcade/Jeu"]})
+                                                    "games": ["Jeu"]})
     assert response.status_code == 200
     task = client.get(f"/api/tasks/{response.json()['task']}").json()
     assert task["params"]["op"] == "push_auto" and task["params"]["games"] == ["Jeu"]
+    # Un jeu sans image dans la bibliothèque (installé sur une seule machine) est accepté
     assert client.post("/api/saves/push", json={"source": "auto", "targets": [ids["m1"]],
-                                                "ids": ["arcade/Absent"]}).status_code == 404
+                                                "games": ["Seulement sur aibox"]}).status_code == 200
 
 
 def test_pull_auto_takes_each_game_from_its_newest_machine(agents, tmp_path):
@@ -774,7 +776,7 @@ def test_api_pull_auto_queues_a_pull_task(agents, api):
     client, settings, _ = api
     m1 = agents("m1", games={"Jeu": (gz("x"), None, 1)})
     associate(settings, m1)
-    response = client.post("/api/saves/pull", json={"source": "auto", "ids": ["arcade/Jeu"]})
+    response = client.post("/api/saves/pull", json={"source": "auto", "games": ["Jeu"]})
     assert response.status_code == 200
     task = client.get(f"/api/tasks/{response.json()['task']}").json()
     assert task["params"]["op"] == "pull_auto" and task["params"]["games"] == ["Jeu"]

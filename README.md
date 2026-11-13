@@ -172,8 +172,8 @@ Routes (toutes sous `/api/saves/`) :
 | PATCH | `machines/{id}` | `{"icon":"linux"\|"steamos"\|"batocera"\|null}` → `{id,icon,icon_set}` ; 400 icône ; 404 inconnue |
 | DELETE | `machines/{id}` | `{"removed":id}` ; 404 inconnue ; 422 `game-host` |
 | GET | `status[?id=<image>]` | `{machines:[{…,os,icon,icon_set}], games:[{game, reserve, check, check_by, machines:[{id,name,state,fingerprint,newest,size,message}]}]}` |
-| POST | `pull` | `{"source":id, "ids":[…]}` ou `{"source":id, "all":true}` → `{"task":id}` |
-| POST | `push` | `{"source"?:id, "targets":[id…], "ids":[…]}` ou `"all":true` → `{"task":id}` ; sans source : depuis le manager |
+| POST | `pull` | `{"source":id, "games":[…]}` ou `{"source":id, "all":true}` → `{"task":id}` |
+| POST | `push` | `{"source"?:id, "targets":[id…], "games":[…]}` ou `"all":true` → `{"task":id}` ; sans source : depuis le manager |
 
 `"source":"auto"` (pull et push) : chaque jeu vient de sa machine « plus
 avancée ». Push : seules les cibles « en retard » reçoivent le jeu ; une cible
@@ -181,7 +181,7 @@ avancée ». Push : seules les cibles « en retard » reçoivent le jeu ; une ci
 toutes les cibles reçoivent (c'est ainsi qu'on installe sur une machine) ; un jeu
 identique, ou seulement sur le manager, n'est pas transféré.
 
-`ids` et `all` s'excluent (422 sinon) ; source inconnue ou cible inconnue : 404 ;
+`games` (noms de jeux, sans image requise : un jeu installé sur une seule machine peut ne pas être dans la bibliothèque) et `all` s'excluent (422 sinon ; nom invalide : 422) ; source inconnue ou cible inconnue : 404 ;
 source parmi les cibles, cible en double, jeu absent du manager ou manager
 vide : 422. Le jeu d'une image est son nom sans `.wsquashfs` ni `.pc`.
 

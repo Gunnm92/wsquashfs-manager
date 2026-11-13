@@ -1557,8 +1557,7 @@ async function loadSaves() {
     sv.games = status.games;
     sv.loaded = true;
     sv.error = "";
-    const known = imageIds();
-    sv.selected = new Set([...sv.selected].filter((g) => known.has(g) && sv.games.some((x) => x.game === g)));
+    sv.selected = new Set([...sv.selected].filter((g) => sv.games.some((x) => x.game === g)));
     if (sv.source !== AUTO && sv.source !== RESERVE && !reachableIds().includes(sv.source)) sv.source = AUTO;
   } catch (error) {
     if (seq !== sv.seq) return;
@@ -1738,7 +1737,7 @@ function paintTable() {
   const first = filteredMachine();
   const cols = first ? [...sv.machines.filter((m) => m.id === first), ...sv.machines.filter((m) => m.id !== first)] : sv.machines;
   const ids = imageIds(), games = visibleGames();
-  const selectable = games.filter((g) => ids.has(g.game));
+  const selectable = games;
   const all = $("s-all");
   all.checked = selectable.length > 0 && selectable.every((g) => sv.selected.has(g.game));
   all.onchange = () => {
@@ -1752,14 +1751,15 @@ function paintTable() {
     el("th", { title: "Copie des sauvegardes sur le manager" }, el("span", { className: "sv-th" }, icon("server", "sm"), el("span", { textContent: "Manager" }))),
     el("th", {}));
   const rows = games.map((g) => {
-    const actionable = ids.has(g.game), img = ids.get(g.game);
-    const box = el("input", { type: "checkbox", checked: sv.selected.has(g.game), disabled: !actionable,
-      title: actionable ? "Sélectionner" : "Pas d'image dans la bibliothèque : action impossible" });
+    // Toutes les lignes sont actionnables (les routes prennent le nom du jeu) ; seule la fiche
+    // demande une image dans la bibliothèque (un jeu installé sur une seule machine n'en a pas)
+    const img = ids.get(g.game), actionable = true;
+    const box = el("input", { type: "checkbox", checked: sv.selected.has(g.game), title: "Sélectionner" });
     box.onchange = () => { box.checked ? sv.selected.add(g.game) : sv.selected.delete(g.game); paintTable(); paintSelection(); };
-    const name = actionable
+    const name = img
       ? el("button", { type: "button", className: "sv-name", textContent: g.game, title: "Ouvrir la fiche de l'image" })
-      : el("span", { className: "sv-name off", textContent: g.game, title: "Pas d'image dans la bibliothèque" });
-    if (actionable) name.onclick = () => { showView("images"); openDetail(img); };
+      : el("span", { className: "sv-name", textContent: g.game, title: "Pas d'image dans la bibliothèque du manager" });
+    if (img) name.onclick = () => { showView("images"); openDetail(img); };
     const top = suggestedOf(g), targets = differs(g) ? rowTargets(g) : [];
     const reserve = g.reserve
       ? el("td", { className: "sv-mgr", title: `Copie du manager : depuis ${g.reserve.source || "?"}, le ${when(g.reserve.newest)} · ${g.reserve.archives} version(s) précédente(s)` },
@@ -1793,7 +1793,7 @@ function paintTable() {
 
 // Menu « … » d'une ligne
 function rowItems(g) {
-  const img = imageIds().get(g.game), idle = !busy() && Boolean(img);
+  const idle = !busy();
   const reach = reachableIds(), top = sourceOf(g);
   // Depuis une machine qui a le jeu vers les autres qui l'ont dans une autre version
   const others = (s) => presentIn(g).filter((o) => o.id !== s.id && o.fingerprint !== s.fingerprint && reach.includes(o.id)).map((o) => o.id);
@@ -1825,7 +1825,7 @@ function paintSelection() {
   if (!options.some(([value]) => value === sv.source)) sv.source = AUTO;
   $("s-source").replaceChildren(...options.map(([value, label]) => new Option(label, value)));
   $("s-source").value = sv.source;
-  const games = sv.games.filter((g) => sv.selected.has(g.game) && imageIds().has(g.game));
+  const games = sv.games.filter((g) => sv.selected.has(g.game));
   const targets = pushTargets();
   $("s-targets").textContent = `Cibles · ${targets.length}`;
   $("s-targets").disabled = busy();
@@ -1957,45 +1957,43 @@ async function runSaveOp(path, body) {
   });
 }
 
-const imageOf = (g) => imageIds().get(g.game);
 const ARCHIVED = "La version écrasée sur chaque machine est archivée.";
-// Cibles d'une copie du manager vers les machines : joignables, pas déjà à sa version
 // Cibles d'une copie du manager vers les machines : joignables, qui ont le jeu, pas déjà à sa version
 const reachManagerTargets = (g) => reachableIds().filter((id) => onMachine(g, id) && (!g.reserve || stateOf(g, id)?.fingerprint !== g.reserve.fingerprint));
 
 // Copie vers le manager : depuis `source` (une machine, ou AUTO : la suggérée, jeu par jeu)
 function pullGames(games, source) {
-  const ids = games.map(imageOf).filter(Boolean);
-  if (!ids.length || source === RESERVE) return;
-  runSaveOp("/api/saves/pull", { source, ids });
+  const names = games.map((g) => g.game);
+  if (!names.length || source === RESERVE) return;
+  runSaveOp("/api/saves/pull", { source, games: names });
 }
 function syncRow(g) {                       // la suggérée vers les autres machines joignables
   const from = suggestedOf(g), targets = rowTargets(g);
   if (!from || !targets.length) return;
   if (!confirm(`Sync « ${g.game} » : ${from.name} → ${names(targets)}.\n\n${ARCHIVED}`)) return;
-  runSaveOp("/api/saves/push", { source: AUTO, targets, ids: [imageOf(g)] });
+  runSaveOp("/api/saves/push", { source: AUTO, targets, games: [g.game] });
 }
 function pushFrom(g, sourceId, targets) {
   if (!targets.length) return;
   if (!confirm(`Sync « ${g.game} » : ${machineName(sourceId)} → ${names(targets)}.\n\n${ARCHIVED}`)) return;
-  runSaveOp("/api/saves/push", { source: sourceId, targets, ids: [imageOf(g)] });
+  runSaveOp("/api/saves/push", { source: sourceId, targets, games: [g.game] });
 }
 function pushReserve(g) {                   // copie du manager (sans source) vers les machines
   const targets = reachManagerTargets(g);
   if (!targets.length) return;
   if (!confirm(`Sync « ${g.game} » : Manager → ${names(targets)}.\n\n${ARCHIVED}`)) return;
-  runSaveOp("/api/saves/push", { targets, ids: [imageOf(g)] });
+  runSaveOp("/api/saves/push", { targets, games: [g.game] });
 }
 function pushSelection() {
-  const games = sv.games.filter((g) => sv.selected.has(g.game) && imageIds().has(g.game));
+  const games = sv.games.filter((g) => sv.selected.has(g.game));
   const targets = pushTargets();
   if (!games.length || !targets.length) return;
-  const idsOf = (list) => list.map(imageOf);
+  const idsOf = (list) => list.map((g) => g.game);
   let body, lines;
   if (sv.source === RESERVE) {
     const onManager = games.filter((g) => g.reserve);
     if (!onManager.length) { toast("Aucun jeu sélectionné n'est sur le manager.", "alert", true); return; }
-    body = { targets, ids: idsOf(onManager) };
+    body = { targets, games: idsOf(onManager) };
     lines = [`${onManager.length > 1 ? `${onManager.length} jeux` : `« ${onManager[0].game} »`} : Manager → ${names(targets)}.`];
     if (onManager.length < games.length) lines.push(`${games.length - onManager.length} jeu(x) absent(s) du manager, ignoré(s).`);
   } else if (sv.source === AUTO) {
@@ -2007,13 +2005,13 @@ function pushSelection() {
       return { g, from, to };
     }).filter((x) => x.to.length);
     if (!moves.length) { toast("Rien à synchroniser : aucune machine cochée n'a ces jeux dans une version en retard.", "info"); return; }
-    body = { source: AUTO, targets, ids: idsOf(games) };
+    body = { source: AUTO, targets, games: idsOf(games) };
     lines = moves.map(({ g, from, to }) => `Sync « ${g.game} » : ${from.name} → ${names(to)}.`);
     if (moves.length < games.length) lines.push(`${games.length - moves.length} jeu(x) déjà à jour, ignoré(s).`);
     lines.push("Les machines qui n'ont pas le jeu ne sont pas touchées.");
   } else {
     const dest = targets.filter((id) => id !== sv.source);
-    body = { source: sv.source, targets, ids: idsOf(games) };
+    body = { source: sv.source, targets, games: idsOf(games) };
     lines = [`${games.length > 1 ? `${games.length} jeux` : `« ${games[0].game} »`} : ${machineName(sv.source)} → ${names(dest)}.`,
       "Source choisie : les cibles reçoivent ses sauvegardes, même si elles n'ont pas encore le jeu."];
   }

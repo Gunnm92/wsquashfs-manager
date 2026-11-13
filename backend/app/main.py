@@ -1425,13 +1425,15 @@ def saves_status(id: str | None = None):
 
 
 class SavesSelection(BaseModel):
-    ids: list[str] | None = None        # identifiants d'images (<système>/<nom>)
+    # Noms de jeux (comme le lanceur : nom de l'image sans .wsquashfs) ; un jeu installé
+    # seulement sur une machine n'a pas forcément d'image dans la bibliothèque du manager
+    games: list[str] | None = None
     all: bool = False                   # tous les jeux : de la source, ou du manager
 
     @model_validator(mode="after")
     def _one_of(self) -> SavesSelection:
-        if self.all == bool(self.ids):
-            raise ValueError("ids (liste non vide) ou all (vrai) : l'un des deux")
+        if self.all == bool(self.games):
+            raise ValueError("games (liste non vide) ou all (vrai) : l'un des deux")
         return self
 
 
@@ -1446,16 +1448,13 @@ class SavesPush(SavesSelection):
 
 
 def _saves_games(selection: SavesSelection) -> list[str] | None:
-    """Jeux désignés par les images (None : tous). 404 si une image est inconnue."""
+    """Jeux désignés (None : tous). 422 si un nom est invalide."""
     if selection.all:
         return None
-    games = []
-    for image_id in selection.ids or []:
-        game = saves_svc.game_name(_find_image(image_id).path.name)
+    for game in selection.games or []:
         if not saves_svc.valid_game(game):
             raise HTTPException(status_code=422, detail=f"nom de jeu invalide : {game}")
-        games.append(game)
-    return list(dict.fromkeys(games))
+    return list(dict.fromkeys(selection.games or []))
 
 
 def _saves_machine(machine_id: str) -> dict:
