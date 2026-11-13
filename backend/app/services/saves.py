@@ -5,7 +5,8 @@
 - Manager : `state_dir/saves-reserve/<jeu>/` avec `current.tar.gz`, `meta.json`
   et, avant chaque remplacement, l'ancienne version datée (3 gardées).
 - Opérations : pull (machine → manager), push (manager → machines),
-  push_from (pull puis push des jeux récupérés), status (états par machine).
+  push_from (pull puis push des jeux récupérés), status (états par machine),
+  delete (suppression sur des machines et/ou le manager ; archivée d'abord).
 - Source suggérée : la machine « la plus avancée » (`best`) : la plus lourde,
   puis la plus récente à taille égale.
 
@@ -33,7 +34,7 @@ from ..config import (
     saves_machines,
 )
 from ..models import Task
-from .durable import publish_new, swap_keep_old, write_atomic
+from .durable import fsync_dir, publish_new, swap_keep_old, write_atomic
 from .rebuild import Job, RebuildError
 from .trial import (
     AgentHost,
@@ -307,6 +308,25 @@ def store(settings: Settings, game: str, part: Path, *, fingerprint: str, newest
     return meta
 
 
+def remove_from_manager(settings: Settings, game: str) -> dict:
+    """Retire la copie du jeu du manager : la version courante devient une version
+    datée (avec son .json, comme store() lors d'un remplacement), puis current.tar.gz
+    et meta.json disparaissent. Les versions datées sont gardées (KEEP_ARCHIVES).
+    Absent du manager : rien à faire, sans erreur. {ok, message, archived}."""
+    d = reserve_dir(settings, game)
+    current, meta_path = d / CURRENT, d / META
+    if not current.is_file():
+        return {"ok": True, "message": "pas sur le manager", "archived": False}
+    stamp = _stamp(d)
+    # os.replace : renommage atomique dans le même dossier, jamais de version à moitié écrite
+    os.replace(current, d / f"{stamp}.tar.gz")
+    if meta_path.is_file():
+        os.replace(meta_path, d / f"{stamp}.json")
+    fsync_dir(d)
+    _prune(d)
+    return {"ok": True, "message": "supprimée du manager (version archivée)", "archived": True}
+
+
 # ------------------------------------------------------------------ opérations
 
 def _progress(job: Job | None, phase: str, done: int, total: int) -> None:
@@ -326,8 +346,7 @@ def pull(settings: Settings, source_id: str, games: list[str] | None,
     chaque réception réussie."""
     host = open_machine(settings, source_id)
     source = _label(settings, source_id)
-    listing = {g["name"]: g for g in host.saves_list()
-               if isinstance(g, dict) and isinstance(g.get("name"), str)}
+    listing = _present_listing(host.saves_list())
     wanted = sorted(n for n in listing if valid_game(n)) if games is None else _dedupe(games)
     results = []
     for index, game in enumerate(wanted):
@@ -336,6 +355,13 @@ def pull(settings: Settings, source_id: str, games: list[str] | None,
         results.append(_pull_one(settings, host, source, game, listing.get(game)))
     _progress(job, "récupéré", len(wanted), len(wanted))
     return {"source": {"id": source_id, "name": source}, "results": results}
+
+
+def _present_listing(games: list) -> dict[str, dict]:
+    """Jeux d'une réponse de saves_list qui ont une sauvegarde : une entrée sans
+    empreinte (jeu supprimé sur la machine) compte comme absente."""
+    return {g["name"]: g for g in games
+            if isinstance(g, dict) and isinstance(g.get("name"), str) and g.get("fingerprint")}
 
 
 def _pull_one(settings: Settings, host: AgentHost, source: str, game: str,
@@ -438,6 +464,74 @@ def push_from(settings: Settings, source_id: str, target_ids: list[str],
     if ok_games:
         pushed = push(settings, target_ids, ok_games, job)
     return {"pull": pulled, "push": pushed}
+
+
+def _delete_one(game: str, machine_id: str, label: str, host: AgentHost | None, error: str) -> dict:
+    result = {"game": game, "machine": label, "machine_id": machine_id, "ok": False,
+              "message": "", "archived": None}
+    try:
+        if host is None:
+            raise RebuildError(error or "machine indisponible")
+        reply = host.saves_delete(game)
+    except SavesBusy:
+        result["message"] = f"jeu en cours sur {label} : non supprimée"
+        return result
+    except RebuildError as exc:
+        result["message"] = str(exc)
+        return result
+    if not int(reply.get("removed") or 0):
+        result.update(ok=True, message=f"rien à supprimer sur {label}")
+        return result
+    archived = bool(reply.get("archived"))
+    result.update(ok=True, archived=archived,
+                  message=f"supprimée sur {label}{' (archivée)' if archived else ''}")
+    return result
+
+
+def delete(settings: Settings, machine_ids: list[str], games: list[str], manager: bool,
+           job: Job | None = None) -> dict:
+    """Supprime les sauvegardes des jeux sur les machines cibles (archivées puis effacées
+    par la machine) et, si `manager`, sur le manager (version courante datée).
+    Par (jeu, cible) : {game, machine, machine_id, ok, message, archived}. Pour chaque jeu,
+    les machines puis le manager ; une machine injoignable ou occupée échoue seule."""
+    wanted = _dedupe(games)
+    bad = [g for g in wanted if not valid_game(g)]
+    if bad:
+        raise RebuildError(f"nom de jeu invalide : {bad[0]!r}")
+    targets = []
+    for machine_id in _dedupe(machine_ids):
+        try:
+            host = open_machine(settings, machine_id)
+            error = ""
+        except RebuildError as exc:
+            host, error = None, str(exc)
+        targets.append((machine_id, _label(settings, machine_id), host, error))
+    per_game = len(targets) + (1 if manager else 0)
+    total = len(wanted) * per_game
+    results = []
+    for game in wanted:
+        for machine_id, label, host, error in targets:
+            _check(job)
+            _progress(job, f"suppression {len(results) + 1}/{total} : {game} → {label}", len(results), total)
+            results.append(_delete_one(game, machine_id, label, host, error))
+        if manager:
+            _check(job)
+            _progress(job, f"suppression {len(results) + 1}/{total} : {game} → Manager", len(results), total)
+            results.append(_delete_manager(settings, game))
+    _progress(job, "supprimé", total, total)
+    return {"results": results}
+
+
+def _delete_manager(settings: Settings, game: str) -> dict:
+    result = {"game": game, "machine": "Manager", "machine_id": "manager", "ok": False,
+              "message": "", "archived": None}
+    try:
+        reply = remove_from_manager(settings, game)
+    except (RebuildError, OSError) as exc:
+        result["message"] = str(exc)
+        return result
+    result.update(ok=True, message=reply["message"], archived=reply["archived"] or None)
+    return result
 
 
 PRESENT_STATES = {"présente", "identique", "plus avancée", "en retard"}
@@ -594,8 +688,7 @@ def status(settings: Settings, games: list[str] | None = None) -> dict:
         rendre la machine injoignable si saves_list a répondu."""
         try:
             host = open_machine(settings, row["id"], timeout=15)
-            listing = {g["name"]: g for g in host.saves_list(timeout=15)
-                       if isinstance(g, dict) and isinstance(g.get("name"), str)}
+            listing = _present_listing(host.saves_list(timeout=15))
         except RebuildError as exc:
             return None, str(exc), ""
         try:
@@ -645,7 +738,8 @@ def status(settings: Settings, games: list[str] | None = None) -> dict:
 
 def run_saves(settings: Settings, task: Task, job: Job) -> str:
     """Gestionnaire de la tâche « saves » (file de tâches, comme la vérification).
-    params : {op: pull|pull_auto|push|push_from|push_auto, source?, targets?, games (liste ou null = tous)}.
+    params : {op: pull|pull_auto|push|push_from|push_auto|delete, source?, targets?, games (liste ou null = tous)} ;
+    delete : {machines (ids), manager (bool), games (liste)}.
     Le résultat détaillé est gardé dans params.result ; un échec partiel fait
     échouer la tâche (le détail reste lisible)."""
     p = task.params
@@ -670,6 +764,13 @@ def run_saves(settings: Settings, task: Task, job: Job) -> str:
         result = push_auto(settings, p["targets"], games, job)
         items = result["pull"]["results"] + result["push"]["results"]
         label = f"vers {len(p['targets'])} machine(s), chacune depuis la plus avancée"
+    elif op == "delete":
+        machines = list(p.get("machines") or [])
+        result = delete(settings, machines, games or [], bool(p.get("manager")), job)
+        items = result["results"]
+        where = " et ".join(part for part in (f"{len(machines)} machine(s)" if machines else "",
+                                              "le manager" if p.get("manager") else "") if part)
+        label = f"sur {where}"
     else:
         raise RebuildError(f"opération de sauvegardes inconnue : {op}")
     task.params["result"] = result

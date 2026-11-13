@@ -1119,6 +1119,18 @@ button.mcard:hover .chev { color: var(--muted); }
   .sv-flow { max-width: 11ch; }
   .sv-arrow { display: none; }
 }
+/* Suppression des sauvegardes : bouton de la barre de sélection, dialogue par machine */
+.sv-danger { color: var(--err); }
+.sv-danger:hover { background: var(--err-900); color: var(--err-200); }
+.sv-danger:disabled { opacity: .4; }
+.sd-targets { display: flex; flex-direction: column; gap: 6px; margin: 14px 0 12px; }
+.sd-row { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 10px; padding: 9px 12px;
+  border-radius: 16px; background: var(--s3); font-size: 13.5px; cursor: pointer; }
+.sd-row:has(input:disabled) { opacity: .5; cursor: default; }
+.sd-row input:disabled { cursor: default; }
+.sd-row span { display: flex; flex-direction: column; min-width: 0; }
+.sd-row small { color: var(--muted); font-size: 12px; }
+.sd-note { margin: 0; }
 .sync-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; overflow-wrap: anywhere; }
 .sync-list li.ok { color: var(--accent2-300); }
 .sync-list li.err { color: var(--err-200); }

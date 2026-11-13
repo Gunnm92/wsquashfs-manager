@@ -1509,6 +1509,34 @@ def saves_push(body: SavesPush):
     return {"task": task.id}
 
 
+class SavesDelete(BaseModel):
+    games: list[str] = Field(min_length=1, max_length=200)     # noms de jeux, comme ceux de l'onglet
+    machines: list[str] = Field(default_factory=list, max_length=20)
+    manager: bool = False                                       # aussi sur le manager
+
+
+@app.post("/api/saves/delete")
+def saves_delete(body: SavesDelete):
+    """Supprime les sauvegardes de jeux sur des machines (archivées puis effacées) et/ou sur
+    le manager (version courante datée) : tâche « saves »."""
+    for game in body.games:
+        if not saves_svc.valid_game(game):
+            raise HTTPException(status_code=422, detail=f"nom de jeu invalide : {game}")
+    if len(set(body.games)) != len(body.games):
+        raise HTTPException(status_code=422, detail="jeu en double")
+    if len(set(body.machines)) != len(body.machines):
+        raise HTTPException(status_code=422, detail="machine en double")
+    if not body.machines and not body.manager:
+        raise HTTPException(status_code=422, detail="aucune machine ni le manager : rien à supprimer")
+    targets = [_saves_machine(machine_id) for machine_id in body.machines]
+    where = " et ".join(part for part in (f"{len(targets)} machine(s)" if targets else "",
+                                          "le manager" if body.manager else "") if part)
+    params = {"op": "delete", "machines": body.machines, "games": body.games, "manager": body.manager}
+    title = f"sauvegardes : suppression de {len(body.games)} jeu(x) sur {where}"
+    task = queue.submit("saves", None, None, params, title)
+    return {"task": task.id}
+
+
 # ------------------------------------------------------------- frontend
 
 @app.get("/", response_class=FileResponse)

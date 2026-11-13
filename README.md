@@ -138,8 +138,15 @@ machine **source** (celle qui est la plus avancée) vers les autres machines.
   machines non jointes sont « injoignable » (elles ne comptent pas). `check` : la plus lourde n'est
   pas la plus récente (`check_by` = la plus récente), à vérifier avant de
   synchroniser. Chaque machine n'est interrogée qu'une fois.
-- **Tâches** : pull et push passent par la file (tâche `saves`, sans image) ;
-  le détail par jeu est dans `params.result` de la tâche.
+- **Suppression** (`POST /api/saves/delete {games, machines, manager}`) : sur
+  les machines cochées, l'agent archive la sauvegarde dans son dossier des
+  backups puis l'efface (`DELETE /v1/saves/tar?game=`, route de l'agent v5) ;
+  sur le manager, la version courante devient une version datée (3 gardées) et
+  le jeu n'est plus dans la copie. Une machine occupée (409), injoignable, ou
+  un agent plus ancien (404/405 : `--update` demandé) échoue seule. Le jeu doit
+  être arrêté. Rien à supprimer sur une machine : réussite sans effet.
+- **Tâches** : pull, push et suppression passent par la file (tâche `saves`,
+  sans image) ; le détail par jeu et par cible est dans `params.result` de la tâche.
 - **Écran** : l'onglet **Sauvegardes** (à côté d'Images et de Dossiers à
   empaqueter).
   - Bandeau : une carte par machine (icône, pastille verte joignable ou rouge
@@ -155,7 +162,11 @@ machine **source** (celle qui est la plus avancée) vers les autres machines.
   - Une ligne : « Sync X → Y » (la plus avancée vers les machines en retard)
     et « … » : sync depuis une machine précise, « Installer sur Z » (machine
     qui n'a pas le jeu, choix explicite), copier vers le manager, sync depuis
-    le manager (machines qui ont le jeu).
+    le manager (machines qui ont le jeu), et « Supprimer… ».
+  - « Supprimer… » (menu de la ligne, ou bouton de la barre de sélection) ouvre
+    un dialogue : une case par machine joignable et une pour le manager, cochées
+    si le jeu (ou un des jeux) y a une sauvegarde, sinon grisées ; « Supprimer »
+    reste désactivé tant que rien n'est coché.
   - Sélection : source (la plus avancée, jeu par jeu ; une machine ; le
     manager), cibles, « Sync » (récapitulatif avant envoi), « Copier vers le
     manager ». Une opération à la fois ; le résultat liste les échecs par jeu et
@@ -174,6 +185,7 @@ Routes (toutes sous `/api/saves/`) :
 | GET | `status[?id=<image>]` | `{machines:[{…,os,icon,icon_set}], games:[{game, reserve, check, check_by, machines:[{id,name,state,fingerprint,newest,size,message}]}]}` |
 | POST | `pull` | `{"source":id, "games":[…]}` ou `{"source":id, "all":true}` → `{"task":id}` |
 | POST | `push` | `{"source"?:id, "targets":[id…], "games":[…]}` ou `"all":true` → `{"task":id}` ; sans source : depuis le manager |
+| POST | `delete` | `{"games":[…], "machines":[id…], "manager":bool}` → `{"task":id}` ; 422 : jeu invalide ou en double, machine en double, ni machine ni manager ; 404 machine inconnue |
 
 `"source":"auto"` (pull et push) : chaque jeu vient de sa machine « plus
 avancée ». Push : seules les cibles « en retard » reçoivent le jeu ; une cible
@@ -311,7 +323,7 @@ Les images sont désignées par leur identifiant `<système>/<nom>` en paramètr
 | GET | `/api/folders` · `/api/folders/analyze?id=&exe=` | dossiers à empaqueter, analyse |
 | POST | `/api/folders/pack` · `/api/folders/delete` | empaquetage en batch, suppression des dossiers empaquetés |
 | GET/POST | `/api/tasks[?image=]` · `/api/tasks/{id}` · `/api/tasks/{id}/cancel` | file |
-| GET/POST/DELETE | `/api/saves/machines` · `/api/saves/status[?id=]` · `/api/saves/pull` · `/api/saves/push` | sauvegardes entre machines (voir ci-dessus) |
+| GET/POST/PATCH/DELETE | `/api/saves/machines` · `/api/saves/status[?id=]` · `/api/saves/pull` · `/api/saves/push` · `/api/saves/delete` | sauvegardes entre machines (voir ci-dessus) |
 
 ## Structure
 

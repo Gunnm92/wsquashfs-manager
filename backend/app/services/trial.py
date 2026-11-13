@@ -318,6 +318,11 @@ class AgentHost:
             detail = str(data.get("detail", "")) if isinstance(data, dict) else ""
         except ValueError:
             detail = ""
+        if response.status_code in (404, 405) and not detail:
+            # Route inconnue (réponse texte du routeur Go, sans « detail ») : agent d'avant
+            # la synchro des sauvegardes (version < 5)
+            return RebuildError("agent trop ancien : wsquashfs-launcher --update sur cette machine, "
+                                "puis relancer son agent")
         detail = detail or response.text[:200] or f"erreur {response.status_code}"
         if response.status_code == 409:
             if detail == "jeu en cours":
@@ -379,6 +384,22 @@ class AgentHost:
         with archive.open("rb") as body:
             response = self._saves_request("PUT", "/v1/saves/tar", timeout=3600, headers=headers,
                                            params={"game": game}, content=body)
+        return response.json()
+
+    def saves_delete(self, game: str, timeout: float = 120) -> dict:
+        """Archive puis efface le jeu sur la machine (DELETE /v1/saves/tar) → {archived, removed}.
+        Un agent plus ancien ne connaît pas la route (404/405) : sa mise à jour est demandée."""
+        try:
+            response = self.client.request("DELETE", "/v1/saves/tar", params={"game": game},
+                                           headers={"X-Wsq-Machine": self.client_id}, timeout=timeout)
+        except httpx.HTTPError as exc:
+            raise self._unreachable(exc) from exc
+        if response.status_code in (404, 405):
+            raise RebuildError("agent trop ancien : wsquashfs-launcher --update sur cette machine")
+        if response.status_code == 409:
+            raise SavesBusy("jeu en cours sur la machine : non supprimée")
+        if response.status_code >= 400:
+            raise self._saves_error(response)
         return response.json()
 
     def saves_ack(self, game: str, fingerprint: str) -> None:

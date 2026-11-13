@@ -256,10 +256,27 @@ explicite, la machine source étant choisie.
   quand la plus avancée n'a pas la date la plus récente (`check_by`).
 - **Push auto** : seules les machines « en retard » reçoivent ; une machine
   « absente » n'est touchée qu'avec une source explicite (`push_from`).
+- **Suppression** (`delete`) : par jeu, par machine cible puis pour le manager.
+  Machine : `DELETE /v1/saves/tar?game=` (en-tête `X-Wsq-Machine`) → 200
+  `{archived, removed}` ; l'agent archive sa sauvegarde avant de l'effacer, et
+  `/v1/saves/list` ne la liste plus (ou avec empreinte vide). 409 → « jeu en
+  cours sur la machine : non supprimée » ; 404/405 (agent d'avant la route) →
+  « agent trop ancien : wsquashfs-launcher --update sur cette machine » ; 400
+  nom invalide ; 500 : rien supprimé. Injoignable : échec pour ce jeu et cette
+  machine. Manager : la version courante devient `AAAAMMJJ-HHMMSS.tar.gz`
+  (+ `.json`, 3 gardées), puis `current.tar.gz` et `meta.json` sont renommés
+  (`os.replace`, atomique) ; absent du manager : « pas sur le manager », réussi.
+  Résultats `{game, machine, machine_id, ok, message, archived}` ; « Manager »
+  a l'identifiant `manager`. Un échec partiel fait échouer la tâche.
+  Route : `POST /api/saves/delete {games, machines, manager}` (422 si `games`
+  est vide, un nom invalide ou en double, une machine en double, ou ni machine
+  ni manager ; 404 machine inconnue) → `{task}`.
+- **États** : une entrée de `saves_list` sans empreinte (jeu supprimé sur la
+  machine) compte comme « absente » ; la copie intégrale (pull sans jeu) ne la prend pas.
 - **Icône** : `icon` choisie (machine enregistrée : champ `icon` ; machine de
   jeu : `saves_game_host_icon`), sinon `os` détecté s'il est connu (`linux`,
   `steamos`, `batocera`), sinon `linux`.
-- **Exécution** : pull et push sont des tâches de la file (`saves`, sans image,
+- **Exécution** : pull, push et suppression sont des tâches de la file (`saves`, sans image,
   annulables entre deux jeux, reprises en attente après un redémarrage). Les
   états restent synchrones (lecture seule, quelques secondes au plus).
 

@@ -1,5 +1,5 @@
 """Manager de sauvegardes : machines (association, icônes), manager (rotation), pull, push,
-push_from, états (taille, suggestion), tâche et API.
+push_from, suppression (machines, manager), états (taille, suggestion), tâche et API.
 
 De faux wsquashfs-agent tournent dans des threads, en HTTPS avec un certificat
 auto-signé par machine (test ignoré sans openssl). Ils gardent les sauvegardes
@@ -86,8 +86,10 @@ class SavesAgent(BaseHTTPRequestHandler):
             return self._send(200, json.dumps({"version": "4", "host": self.st["host"], "user": "arcade",
                                                "os": self.st["os"]}).encode())
         if url.path == "/v1/saves/list":
-            games = [{"name": name, "fingerprint": fp_of(g["data"]), "newest": g["newest"],
-                      "size": g["size"], "state": ""}
+            if self.st.get("no_saves_routes"):         # agent v2 : route inconnue du routeur Go
+                return self._send(404, b"404 page not found\n", ctype="text/plain; charset=utf-8")
+            games = [{"name": name, "fingerprint": "" if g.get("gone") else fp_of(g["data"]),
+                      "newest": g["newest"], "size": g["size"], "state": ""}
                      for name, g in sorted(self.st["games"].items())]
             return self._send(200, json.dumps({"games": games}).encode())
         if url.path == "/v1/saves/tar":
@@ -125,6 +127,25 @@ class SavesAgent(BaseHTTPRequestHandler):
         self.st["archived"] += [game] if archived else []
         self._send(200, json.dumps({"fingerprint": fp_of(body), "archived": archived}).encode())
 
+    def do_DELETE(self):
+        url = urlsplit(self.path)
+        game = parse_qs(url.query).get("game", [""])[0]
+        self._record("DELETE", url.path, game=game)
+        if not self._auth():
+            return
+        if url.path != "/v1/saves/tar":
+            return self._send(404, b'{"detail":"route inconnue"}')
+        if self.st["old_status"]:                       # agent plus ancien : route absente
+            return self._send(self.st["old_status"], b'{"detail":"non trouve"}')
+        if game in self.st["busy"]:
+            return self._send(409, b'{"detail":"jeu en cours"}')
+        if game not in self.st["games"]:
+            return self._send(200, json.dumps({"archived": "", "removed": 0}).encode())
+        del self.st["games"][game]
+        self.st["deleted"].append(game)
+        archived = f"/saves/archive/{game}"
+        self._send(200, json.dumps({"archived": archived, "removed": 1}).encode())
+
     def do_POST(self):
         url = urlsplit(self.path)
         length = int(self.headers.get("Content-Length", "0"))
@@ -150,16 +171,18 @@ def fake_game(spec: tuple) -> dict:
 @pytest.fixture
 def agents(tmp_path):
     """Fabrique de faux agents (un par machine) ; arrêtés à la fin du test.
-    `os_name` : système renvoyé par /v1/info ; `info_fail` : /v1/info en erreur."""
+    `os_name` : système renvoyé par /v1/info ; `info_fail` : /v1/info en erreur ;
+    `old_status` : code de réponse de DELETE /v1/saves/tar (agent plus ancien : 404 ou 405)."""
     if not shutil.which("openssl"):
         pytest.skip("openssl absent")
     servers = []
 
     def make(host: str, games=None, busy=(), conflict=(), now=1000, token=TOKEN, cert_dir=None,
-             os_name="linux", info_fail=False):
+             os_name="linux", info_fail=False, old_status=None, no_saves_routes=False):
         cert, key = make_cert(tmp_path / (cert_dir or host))
         st = {"host": host, "token": token, "busy": set(busy), "conflict": set(conflict),
               "now": now, "archived": [], "log": [], "os": os_name, "info_fail": info_fail,
+              "old_status": old_status, "deleted": [], "no_saves_routes": no_saves_routes,
               "games": {name: fake_game(spec) for name, spec in (games or {}).items()}}
         handler = type("H", (SavesAgent,), {"st": st})
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
@@ -648,6 +671,173 @@ def test_status_reports_reserve_and_single_game(agents, tmp_path):
     assert status["games"][0]["check"] is False
 
 
+# ------------------------------------------------------------------ suppression
+
+def delete_machine_ids(settings, *names):
+    ids = machine_ids(settings)
+    return [ids[name] for name in names]
+
+
+def test_delete_on_a_machine_archives_and_removes_it(agents, tmp_path):
+    steambox = agents("steambox", games={"Jeu": (gz("a"), None, 5), "Autre": (gz("b"), None, 6)})
+    settings = make_settings(tmp_path)
+    associate(settings, steambox)
+    result = saves.delete(settings, delete_machine_ids(settings, "steambox"), ["Jeu"], manager=False)
+    assert result["results"] == [{"game": "Jeu", "machine": "steambox", "machine_id": machine_ids(settings)["steambox"],
+                                  "ok": True, "message": "supprimée sur steambox (archivée)", "archived": True}]
+    assert steambox["st"]["deleted"] == ["Jeu"] and "Jeu" not in steambox["st"]["games"]
+    assert "Autre" in steambox["st"]["games"]                       # les autres jeux ne bougent pas
+    log = [e for e in steambox["st"]["log"] if e["method"] == "DELETE"]
+    assert log == [{"method": "DELETE", "path": "/v1/saves/tar", "machine": saves_client_id(settings), "game": "Jeu"}]
+    # le jeu n'est plus listé sur la machine : absent, pas présent
+    jeu = saves.status(settings, ["Jeu"])["games"][0]
+    assert {s["name"]: s["state"] for s in jeu["machines"]} == {"steambox": "absente"}
+
+
+def test_delete_on_a_machine_without_the_game_is_a_noop(agents, tmp_path):
+    steambox = agents("steambox")
+    settings = make_settings(tmp_path)
+    associate(settings, steambox)
+    result = saves.delete(settings, delete_machine_ids(settings, "steambox"), ["Jeu"], manager=False)
+    assert result["results"][0]["ok"] is True
+    assert result["results"][0]["message"] == "rien à supprimer sur steambox"
+    assert result["results"][0]["archived"] is None
+
+
+def test_delete_on_the_manager_keeps_the_current_version_as_dated(tmp_path):
+    settings = make_settings(tmp_path)
+    data = gz("courante")
+    saves.store(settings, "Jeu", part_with(settings, "Jeu", gz("ancienne")), fingerprint=fp_of(gz("ancienne")),
+                newest=1, size=8, profile="wine", source="x")
+    saves.store(settings, "Jeu", part_with(settings, "Jeu", data), fingerprint=fp_of(data), newest=2,
+                size=len(data), profile="wine", source="x")
+    d = saves.reserve_dir(settings, "Jeu")
+    result = saves.delete(settings, [], ["Jeu"], manager=True)
+    entry = result["results"][0]
+    assert (entry["game"], entry["machine"], entry["machine_id"], entry["ok"]) == ("Jeu", "Manager", "manager", True)
+    assert entry["message"] == "supprimée du manager (version archivée)" and entry["archived"] is True
+    assert not (d / "current.tar.gz").exists() and not (d / "meta.json").exists()
+    assert saves.reserve_games(settings) == []
+    archived = saves.archives(settings, "Jeu")
+    assert len(archived) == 2
+    # la version datée garde l'archive et les informations de la version retirée
+    assert (d / f"{archived[0]}.tar.gz").read_bytes() == data
+    assert json.loads((d / f"{archived[0]}.json").read_text())["fingerprint"] == fp_of(data)
+
+
+def test_manager_removal_rotates_to_three_dated_versions(tmp_path):
+    settings = make_settings(tmp_path)
+    versions = [gz(f"v{i}") for i in range(4)]
+    for i, data in enumerate(versions):
+        saves.store(settings, "Jeu", part_with(settings, "Jeu", data), fingerprint=fp_of(data), newest=i,
+                    size=len(data), profile=None, source="s")
+    assert len(saves.archives(settings, "Jeu")) == 3
+    saves.remove_from_manager(settings, "Jeu")
+    d = saves.reserve_dir(settings, "Jeu")
+    archived = saves.archives(settings, "Jeu")
+    assert len(archived) == 3
+    assert [(d / f"{name}.tar.gz").read_bytes() for name in archived] == [versions[3], versions[2], versions[1]]
+
+
+def test_delete_on_the_manager_of_an_absent_game_is_ok(tmp_path):
+    settings = make_settings(tmp_path)
+    result = saves.delete(settings, [], ["Absent"], manager=True)
+    assert result["results"] == [{"game": "Absent", "machine": "Manager", "machine_id": "manager", "ok": True,
+                                  "message": "pas sur le manager", "archived": None}]
+
+
+def test_delete_on_a_machine_and_the_manager(agents, tmp_path):
+    steambox = agents("steambox", games={"Jeu": (gz("a"), None, 5)})
+    settings = make_settings(tmp_path)
+    associate(settings, steambox)
+    data = gz("reserve")
+    saves.store(settings, "Jeu", part_with(settings, "Jeu", data), fingerprint=fp_of(data), newest=9,
+                size=len(data), profile=None, source="steambox")
+    result = saves.delete(settings, delete_machine_ids(settings, "steambox"), ["Jeu"], manager=True)
+    by_machine = {r["machine"]: r for r in result["results"]}
+    assert set(by_machine) == {"steambox", "Manager"}
+    assert all(r["ok"] for r in result["results"])
+    assert "Jeu" not in steambox["st"]["games"]
+    assert saves.reserve_games(settings) == [] and len(saves.archives(settings, "Jeu")) == 1
+
+
+def test_delete_busy_game_fails_on_that_machine_only(agents, tmp_path):
+    busy = agents("occupee", games={"Jeu": (gz("a"), None, 5)}, busy={"Jeu"})
+    free = agents("libre", games={"Jeu": (gz("b"), None, 5)})
+    settings = make_settings(tmp_path)
+    associate(settings, busy)
+    associate(settings, free)
+    ids = delete_machine_ids(settings, "occupee", "libre")
+    result = saves.delete(settings, ids, ["Jeu"], manager=False)
+    by_machine = {r["machine"]: r for r in result["results"]}
+    assert by_machine["occupee"]["ok"] is False
+    assert by_machine["occupee"]["message"] == "jeu en cours sur occupee : non supprimée"
+    assert by_machine["libre"]["ok"] is True
+    assert "Jeu" in busy["st"]["games"] and "Jeu" not in free["st"]["games"]
+
+
+@pytest.mark.parametrize("status", [404, 405])
+def test_old_agent_gets_a_clear_message(agents, tmp_path, status):
+    old = agents("vieux", games={"Jeu": (gz("a"), None, 5)}, old_status=status)
+    settings = make_settings(tmp_path)
+    associate(settings, old)
+    result = saves.delete(settings, delete_machine_ids(settings, "vieux"), ["Jeu"], manager=False)
+    assert result["results"][0]["ok"] is False
+    assert result["results"][0]["message"] == "agent trop ancien : wsquashfs-launcher --update sur cette machine"
+    assert "Jeu" in old["st"]["games"]
+
+
+def test_delete_unreachable_machine_fails_for_each_game(agents, tmp_path):
+    steambox = agents("steambox", games={"A": (gz("a"), None, 5), "B": (gz("b"), None, 5)})
+    settings = make_settings(tmp_path)
+    associate(settings, steambox)
+    save_saves_machines(settings, saves_machines(settings) + [
+        {"id": "morte", "name": "morte", "url": "https://127.0.0.1:1", "token": TOKEN, "pem": steambox["pem"]}])
+    result = saves.delete(settings, ["morte"], ["A", "B"], manager=False)
+    assert [r["ok"] for r in result["results"]] == [False, False]
+    assert all("injoignable" in r["message"] for r in result["results"])
+
+
+def test_delete_refuses_invalid_game_name(tmp_path):
+    settings = make_settings(tmp_path)
+    with pytest.raises(RebuildError, match="nom de jeu invalide"):
+        saves.delete(settings, [], ["../x"], manager=True)
+
+
+def test_delete_task_reports_partial_failure(agents, tmp_path):
+    busy = agents("occupee", games={"Jeu": (gz("a"), None, 5)}, busy={"Jeu"})
+    settings = make_settings(tmp_path)
+    associate(settings, busy)
+    task = Task(id="t9", kind="saves", params={"op": "delete", "machines": delete_machine_ids(settings, "occupee"),
+                                               "games": ["Jeu"], "manager": False})
+    with pytest.raises(RebuildError, match="1 échec"):
+        saves.run_saves(settings, task, Job())
+    assert task.params["result"]["results"][0]["ok"] is False
+
+
+def test_delete_task_succeeds_on_manager_only(tmp_path):
+    settings = make_settings(tmp_path)
+    data = gz("r")
+    saves.store(settings, "Jeu", part_with(settings, "Jeu", data), fingerprint=fp_of(data), newest=1,
+                size=len(data), profile=None, source="x")
+    task = Task(id="t10", kind="saves", params={"op": "delete", "machines": [], "games": ["Jeu"], "manager": True})
+    message = saves.run_saves(settings, task, Job())
+    assert message == "1 opération(s) réussie(s) sur le manager"
+    assert saves.reserve_games(settings) == []
+
+
+def test_fingerprint_less_entry_counts_as_absent(agents, tmp_path):
+    steambox = agents("steambox", games={"Jeu": (gz("a"), None, 5)})
+    settings = make_settings(tmp_path)
+    associate(settings, steambox)
+    steambox["st"]["games"]["Jeu"]["gone"] = True            # listé, sans empreinte
+    jeu = saves.status(settings, ["Jeu"])["games"][0]
+    assert {s["name"]: s["state"] for s in jeu["machines"]} == {"steambox": "absente"}
+    # une copie complète ne prend pas le jeu supprimé
+    result = saves.pull(settings, machine_ids(settings)["steambox"], None)
+    assert result["results"] == []
+
+
 # ------------------------------------------------------------------ API
 
 @pytest.fixture
@@ -928,3 +1118,49 @@ def test_api_patch_icon_of_the_game_host(agents, api):
     assert json.loads(config.read_text())["saves_game_host_icon"] is None
     assert client.patch("/api/saves/machines/game-host", json={"icon": "xbox"}).status_code == 400
     assert settings.saves_game_host_icon is None
+
+
+def test_api_delete_validation_codes(agents, api):
+    client, settings, _ = api
+    m1 = agents("m1")
+    associate(settings, m1)
+    mid = machine_ids(settings)["m1"]
+    post = lambda body: client.post("/api/saves/delete", json=body)  # noqa: E731
+    assert post({"games": [], "machines": [mid]}).status_code == 422              # jeu obligatoire
+    assert post({"games": ["../x"], "machines": [mid]}).status_code == 422
+    assert post({"games": ["Jeu", "Jeu"], "machines": [mid]}).status_code == 422   # jeu en double
+    assert post({"games": ["Jeu"], "machines": [mid, mid]}).status_code == 422     # machine en double
+    assert post({"games": ["Jeu"], "machines": []}).status_code == 422             # ni machine ni manager
+    assert post({"games": ["Jeu"]}).status_code == 422
+    assert post({"games": ["Jeu"], "machines": ["inconnue"]}).status_code == 404
+    assert post({"games": ["Jeu"], "machines": [mid], "manager": "pas un booléen"}).status_code == 422
+
+
+def test_api_delete_queues_one_task(agents, api):
+    client, settings, queue = api
+    m1, m2 = agents("m1", games={"Jeu": (gz("x"), None, 1)}), agents("m2")
+    associate(settings, m1)
+    associate(settings, m2)
+    ids = machine_ids(settings)
+    response = client.post("/api/saves/delete", json={"games": ["Jeu", "Autre"], "machines": [ids["m1"]],
+                                                      "manager": True})
+    assert response.status_code == 200
+    task = client.get(f"/api/tasks/{response.json()['task']}").json()
+    assert task["kind"] == "saves" and task["image"] is None
+    assert task["params"] == {"op": "delete", "machines": [ids["m1"]], "games": ["Jeu", "Autre"], "manager": True}
+    assert "1 machine" in task["title"] and "manager" in task["title"]
+    manager_only = client.post("/api/saves/delete", json={"games": ["Jeu"], "machines": [], "manager": True})
+    assert manager_only.status_code == 200
+    assert client.get(f"/api/tasks/{manager_only.json()['task']}").json()["params"]["machines"] == []
+    assert queue.get(response.json()["task"]) is not None
+
+
+
+def test_status_names_an_agent_too_old_for_saves(agents, tmp_path):
+    # Agent d'avant la synchro (v2) : /v1/saves/list répond le 404 texte du routeur Go
+    old = agents("steamdeck", no_saves_routes=True)
+    settings = make_settings(tmp_path)
+    associate(settings, old)
+    machine = saves.status(settings)["machines"][0]
+    assert machine["ok"] is False
+    assert "agent trop ancien" in machine["message"] and "--update" in machine["message"]

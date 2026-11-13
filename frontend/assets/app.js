@@ -1804,6 +1804,7 @@ function rowItems(g) {
     ...(top ? absentIn(g).map((id) => [`Installer sur ${machineName(id)} (depuis ${top.name})`, "arrow", !idle, () => pushFrom(g, top.id, [id])]) : []),
     [top ? `Copier vers le manager (${top.name} → Manager)` : "Copier vers le manager", "save", !idle || !top, () => pullGames([g], AUTO)],
     ["Sync depuis le manager (Manager → machines)", "server", !idle || !g.reserve || !reachManagerTargets(g).length, () => pushReserve(g)],
+    ["Supprimer…", "trash", !idle, () => openSaveDelete([g]), true],
   ];
 }
 
@@ -1834,6 +1835,7 @@ function paintSelection() {
   $("s-push").title = targets.length ? "" : "Aucune cible : coche au moins une autre machine joignable";
   $("s-pull").disabled = busy() || !games.length || sv.source === RESERVE;
   $("s-pull").title = sv.source === RESERVE ? "Choisis une machine, ou « La plus avancée », comme source" : "Copier les sauvegardes sélectionnées sur le manager";
+  $("s-delete").disabled = busy();
 }
 
 // Cibles : cases par machine joignable (la source choisie est grisée)
@@ -1855,6 +1857,7 @@ $("s-refresh").onclick = () => loadSaves();
 $("s-clear").onclick = () => { sv.selected.clear(); paintTable(); paintSelection(); };
 $("s-push").onclick = () => pushSelection();
 $("s-pull").onclick = () => pullGames(sv.games.filter((g) => sv.selected.has(g.game)), sv.source);
+$("s-delete").onclick = () => openSaveDelete(sv.games.filter((g) => sv.selected.has(g.game)));
 
 // Appairage : même code wsq:// que l'agent ; l'erreur reste dans le dialogue
 function setPairError(text) {
@@ -1886,6 +1889,44 @@ $("pair-save").onclick = async () => {
   }
 };
 $("pair-code").addEventListener("keydown", (event) => { if (event.key === "Enter") $("pair-save").click(); });
+
+// Suppression des sauvegardes (#dlg-save-delete) : une case par machine joignable et une pour le
+// manager ; pré-cochée si un des jeux y a une sauvegarde, sinon grisée. Valider : tâche « saves ».
+let sdGames = [];
+function openSaveDelete(games) {
+  sdGames = games;
+  const gameNames = games.map((g) => g.game);
+  const total = gameNames.length;
+  const shownNames = gameNames.slice(0, 3).map((n) => `« ${n} »`).join(", ");
+  const rest = total - 3;
+  $("sd-games").textContent = `${total} jeu${total > 1 ? "x" : ""} : ${shownNames}${rest > 0 ? ` et ${rest} autre${rest > 1 ? "s" : ""}` : ""}`;
+  const row = (id, label, count, iconNode, detail) => {
+    const box = el("input", { type: "checkbox", checked: count > 0, disabled: count === 0 });
+    box.dataset.id = id;
+    box.onchange = sdRefresh;
+    return el("label", { className: `sd-row${count ? "" : " none"}` }, box, iconNode,
+      el("span", {}, el("b", { textContent: label }),
+        el("small", { textContent: count ? (count === total ? "tous les jeux" : `${count} jeu${count > 1 ? "x" : ""} sur ${total}`) : "aucune sauvegarde de ces jeux" })));
+  };
+  const machines = sv.machines.filter((m) => m.ok).map((m) =>
+    row(m.id, m.name, games.filter((g) => PRESENT_STATES.has(stateOf(g, m.id)?.state)).length, osIcon(m.icon, "sm")));
+  const manager = row("manager", "Manager", games.filter((g) => g.reserve).length, icon("server", "sm"));
+  $("sd-targets").replaceChildren(...machines, manager);
+  sdRefresh();
+  $("dlg-save-delete").showModal();
+}
+// Le bouton reste désactivé tant que rien n'est coché (ou pendant une opération)
+function sdRefresh() {
+  $("sd-run").disabled = busy() || !$("sd-targets").querySelector("input:checked");
+}
+$("sd-run").onclick = () => {
+  const checked = [...$("sd-targets").querySelectorAll("input:checked")].map((box) => box.dataset.id);
+  const manager = checked.includes("manager");
+  const machines = checked.filter((id) => id !== "manager");
+  if (!machines.length && !manager) return;
+  $("dlg-save-delete").close();
+  runSaveOp("/api/saves/delete", { games: sdGames.map((g) => g.game), machines, manager });
+};
 
 // Suit une tâche de la file jusqu'à sa fin : onEnd(tâche) ou onEnd(null, message) ; onTick à chaque relevé
 async function followTask(taskId, onEnd, onTick = null) {
@@ -1919,11 +1960,15 @@ function syncResultNode(task, failuresOnly = false) {
   if (!items.length) return notice("info", "Rien à faire.");
   const failed = syncFailed(items);
   const shown = failuresOnly ? failed : items;
+  // Suppression : le message dit déjà où (« supprimée sur <machine> ») et si c'est archivé
+  const removal = task?.params?.op === "delete";
   const rows = shown.slice(0, 40).map((item) => {
     // « envoyée vers <machine> » : le nom de la machine est déjà affiché à côté
-    const message = item.machine ? item.message.replace(` vers ${item.machine}`, "") : item.message;
+    const message = item.machine && !removal ? item.message.replace(` vers ${item.machine}`, "") : item.message;
+    const where = item.machine && !removal ? ` → ${item.machine}` : "";
+    const archived = item.archived && !removal ? " · version précédente archivée" : "";
     return el("li", { className: item.ok ? "ok" : "err",
-      textContent: `${item.ok ? "✓" : "✗"} ${item.game}${item.machine ? ` → ${item.machine}` : ""} : ${message}${item.archived ? " · version précédente archivée" : ""}` });
+      textContent: `${item.ok ? "✓" : "✗"} ${item.game}${where} : ${message}${archived}` });
   });
   if (shown.length > 40) rows.push(el("li", { className: "muted", textContent: `… ${shown.length - 40} de plus` }));
   return el("div", { className: `sync-res${failed.length ? " err" : ""}` },

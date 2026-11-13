@@ -348,6 +348,7 @@
     <span class="sep"></span>
     <button class="btn primary sm" id="s-push"><svg class="ico sm"><use href="#i-arrow"/></svg>Sync</button>
     <button class="btn bare sm" id="s-pull" title="Copier les sauvegardes sélectionnées sur le manager"><svg class="ico sm"><use href="#i-server"/></svg>Copier vers le manager</button>
+    <button class="btn bare sm sv-danger" id="s-delete" title="Supprimer les sauvegardes sélectionnées, sur des machines et/ou le manager"><svg class="ico sm"><use href="#i-trash"/></svg>Supprimer…</button>
     <button class="iconbtn bare sm" id="s-clear" title="Désélectionner"><svg class="ico sm"><use href="#i-x"/></svg></button>
   </div>
 </main>
@@ -379,6 +380,17 @@
   <p id="pair-err" class="notice err" hidden></p>
   <div class="dlg-foot"><span class="spacer"></span>
     <button class="btn secondary" data-close>Fermer</button><button class="btn primary" id="pair-save"><svg class="ico sm"><use href="#i-link"/></svg>Associer</button></div>
+</dialog>
+
+<dialog id="dlg-save-delete" class="small">
+  <div class="dlg-head"><h2>Supprimer des sauvegardes</h2>
+    <button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
+  <p class="dlg-intro" id="sd-games"></p>
+  <div class="sd-targets" id="sd-targets"></div>
+  <p class="dlg-intro sd-note">Sur chaque machine, la sauvegarde est archivée dans le dossier des backups avant d'être effacée ; sur le manager, elle reste dans ses versions précédentes. Le jeu doit être arrêté.</p>
+  <div class="dlg-foot"><span class="spacer"></span>
+    <button class="btn secondary" data-close>Annuler</button>
+    <button class="btn danger" id="sd-run"><svg class="ico sm"><use href="#i-trash"/></svg>Supprimer</button></div>
 </dialog>
 
 <dialog id="dlg-login" class="small">
