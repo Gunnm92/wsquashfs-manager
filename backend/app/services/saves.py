@@ -293,7 +293,7 @@ def pull(settings: Settings, source_id: str, games: list[str] | None,
     results = []
     for index, game in enumerate(wanted):
         _check(job)
-        _progress(job, f"récupération {game}", index, len(wanted))
+        _progress(job, f"récupération {index + 1}/{len(wanted)} : {game}", index, len(wanted))
         results.append(_pull_one(settings, host, source, game, listing.get(game)))
     _progress(job, "récupéré", len(wanted), len(wanted))
     return {"source": {"id": source_id, "name": source}, "results": results}
@@ -352,7 +352,7 @@ def push(settings: Settings, target_ids: list[str], games: list[str] | None,
     for game in wanted:
         for machine_id, label, host, error in targets:
             _check(job)
-            _progress(job, f"envoi {game} → {label}", len(results), total)
+            _progress(job, f"envoi {len(results) + 1}/{total} : {game} → {label}", len(results), total)
             results.append(_push_one(settings, game, machine_id, label, host, error))
     _progress(job, "envoyé", total, total)
     return {"results": results}
@@ -401,6 +401,90 @@ def push_from(settings: Settings, source_id: str, target_ids: list[str],
     return {"pull": pulled, "push": pushed}
 
 
+PRESENT_STATES = {"identique", "plus récente", "plus ancienne"}
+
+
+def _note(game: str, message: str) -> dict:
+    """Résultat sans transfert, pour un jeu (pas de machine)."""
+    return {"game": game, "machine": "", "machine_id": "", "ok": True, "message": message, "archived": None}
+
+
+def _pull_sources(settings: Settings, games: list[str] | None) -> tuple[dict, list[str]]:
+    """Machine source par jeu pour une copie dans la réserve : la « plus récente »,
+    à défaut la première qui a le jeu. Renvoie ({identifiant: [jeux]}, [jeux sans source])."""
+    sources: dict[str, list[str]] = {}
+    none: list[str] = []
+    for entry in status(settings, games)["games"]:
+        present = [s for s in entry["machines"] if s["state"] in PRESENT_STATES]
+        pick = next((s for s in present if s["state"] == "plus récente"), None) or (present[0] if present else None)
+        if pick is None:
+            none.append(entry["game"])
+        else:
+            sources.setdefault(pick["id"], []).append(entry["game"])
+    return sources, none
+
+
+def push_auto(settings: Settings, target_ids: list[str], games: list[str] | None,
+              job: Job | None = None) -> dict:
+    """Chaque jeu part de sa machine « plus récente » vers les cibles qui n'ont pas sa
+    version (« plus ancienne » ou « absente ») ; une cible déjà à la même empreinte est
+    sautée (« déjà identique »), une cible injoignable échoue. Un jeu sans machine
+    « plus récente » (identique, ou seulement dans la réserve) n'est pas transféré."""
+    wanted = _dedupe(target_ids)
+    results: list[dict] = []
+    groups: dict[tuple[str, tuple[str, ...]], list[str]] = {}
+    for entry in status(settings, games)["games"]:
+        game = entry["game"]
+        source = next((s for s in entry["machines"] if s["state"] == "plus récente"), None)
+        if source is None:
+            identical = any(s["state"] == "identique" for s in entry["machines"])
+            results.append(_note(game, "déjà identiques" if identical else "aucune machine ne l'a : rien à pousser"))
+            continue
+        by_id = {s["id"]: s for s in entry["machines"]}
+        to_push: list[str] = []
+        emitted = False
+        for target in wanted:
+            if target == source["id"]:
+                continue
+            state = by_id.get(target)
+            if state is None or state["state"] == "injoignable":
+                results.append({"game": game, "machine": state["name"] if state else target, "machine_id": target,
+                                "ok": False, "message": (state or {}).get("message") or "machine injoignable",
+                                "archived": None})
+                emitted = True
+            elif source["fingerprint"] and state["fingerprint"] == source["fingerprint"]:
+                results.append({"game": game, "machine": state["name"], "machine_id": target, "ok": True,
+                                "message": "déjà identique", "archived": None})
+                emitted = True
+            else:
+                to_push.append(target)
+        if to_push:
+            groups.setdefault((source["id"], tuple(to_push)), []).append(game)
+        elif not emitted:
+            results.append(_note(game, "aucune cible joignable autre que la source"))
+    pulls: list[dict] = []
+    pushes: list[dict] = list(results)
+    for (source_id, targets), group in groups.items():
+        done = push_from(settings, source_id, list(targets), group, job)
+        pulls.extend(done["pull"]["results"])
+        pushes.extend(done["push"]["results"])
+    return {"pull": {"source": {"id": "", "name": "les plus récentes"}, "results": pulls},
+            "push": {"results": pushes}}
+
+
+def pull_auto(settings: Settings, games: list[str] | None, job: Job | None = None) -> dict:
+    """Mettre dans la réserve, chaque jeu depuis sa machine « plus récente » (à défaut,
+    la première qui l'a). Un jeu qu'aucune machine joignable n'a : échec explicite."""
+    sources, none = _pull_sources(settings, games)
+    results: list[dict] = []
+    for source_id, source_games in sources.items():
+        results.extend(pull(settings, source_id, source_games, job)["results"])
+    for game in none:
+        results.append({"game": game, "ok": False, "message": "absent de toutes les machines joignables",
+                        "fingerprint": "", "newest": 0})
+    return {"source": {"id": "", "name": "les plus récentes"}, "results": results}
+
+
 def _reserve_summary(settings: Settings, game: str) -> dict | None:
     if not (reserve_dir(settings, game) / CURRENT).is_file():
         return None
@@ -413,19 +497,22 @@ def _reserve_summary(settings: Settings, game: str) -> dict | None:
 def label_states(states: list[dict]) -> None:
     """Libellés par machine, pour un jeu (modifie `state` en place).
 
-    - « injoignable » : la machine n'a pas répondu ; « absente » : pas ce jeu ;
-    - « identique » : toutes les machines qui ont le jeu ont la même version ;
-    - sinon, « plus récente » pour les machines qui ont la version la plus récente
-      (newest max : la source à choisir), « plus ancienne » pour les autres."""
-    present = [s for s in states if s["state"] == "présente"]
-    if not present:
+    - « injoignable » : la machine n'a pas répondu, elle ne compte pas ;
+    - « identique » : toutes les machines joignables ont le jeu, avec la même
+      empreinte (deux machines au moins) ;
+    - sinon, parmi les joignables qui ont le jeu : « plus récente » pour celles qui
+      ont la version au newest max (la source à choisir), « plus ancienne » pour les
+      autres ; les joignables sans le jeu restent « absente »."""
+    reachable = [s for s in states if s["state"] != "injoignable"]
+    have = [s for s in reachable if s["state"] == "présente"]
+    if not have:
         return
-    if len({s["fingerprint"] for s in present}) == 1:
-        for s in present:
+    if len(have) == len(reachable) and len(have) >= 2 and len({s["fingerprint"] for s in have}) == 1:
+        for s in have:
             s["state"] = "identique"
         return
-    newest = max(present, key=lambda s: s["newest"])["fingerprint"]
-    for s in present:
+    newest = max(have, key=lambda s: s["newest"])["fingerprint"]
+    for s in have:
         s["state"] = "plus récente" if s["fingerprint"] == newest else "plus ancienne"
 
 
@@ -479,7 +566,7 @@ def status(settings: Settings, games: list[str] | None = None) -> dict:
 
 def run_saves(settings: Settings, task: Task, job: Job) -> str:
     """Gestionnaire de la tâche « saves » (file de tâches, comme la vérification).
-    params : {op: pull|push|push_from, source?, targets?, games (liste ou null = tous)}.
+    params : {op: pull|pull_auto|push|push_from|push_auto, source?, targets?, games (liste ou null = tous)}.
     Le résultat détaillé est gardé dans params.result ; un échec partiel fait
     échouer la tâche (le détail reste lisible)."""
     p = task.params
@@ -496,6 +583,14 @@ def run_saves(settings: Settings, task: Task, job: Job) -> str:
         result = push_from(settings, p["source"], p["targets"], games, job)
         items = result["pull"]["results"] + result["push"]["results"]
         label = f"depuis {result['pull']['source']['name']}"
+    elif op == "pull_auto":
+        result = pull_auto(settings, games, job)
+        items = result["results"]
+        label = "depuis les machines les plus récentes"
+    elif op == "push_auto":
+        result = push_auto(settings, p["targets"], games, job)
+        items = result["pull"]["results"] + result["push"]["results"]
+        label = f"vers {len(p['targets'])} machine(s), chacune depuis sa plus récente"
     else:
         raise RebuildError(f"opération de sauvegardes inconnue : {op}")
     task.params["result"] = result

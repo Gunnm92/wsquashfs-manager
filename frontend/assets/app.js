@@ -330,6 +330,30 @@ let openMenu = null;
 function closeMenu() { if (openMenu) { openMenu.remove(); openMenu = null; } }
 document.addEventListener("click", (event) => { if (openMenu && !event.target.closest(".dd")) closeMenu(); });
 document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeMenu(); });
+// Menu sous (ou au-dessus de) son déclencheur, aligné à droite ; position fixe : il n'est
+// pas rogné par les tableaux et barres qui défilent, et suit son déclencheur au défilement
+// (il se ferme si celui-ci sort de l'écran). Les menus des filtres restent en position absolue.
+function positionMenu(menu, wrap) {
+  const r = wrap.getBoundingClientRect(), h = menu.offsetHeight;
+  menu.style.position = "fixed";
+  menu.style.left = "auto";
+  menu.style.right = `${Math.max(8, innerWidth - r.right)}px`;
+  menu.style.top = "auto";
+  menu.style.bottom = "auto";
+  if (r.bottom + 6 + h <= innerHeight - 8) menu.style.top = `${r.bottom + 6}px`;
+  else menu.style.bottom = `${innerHeight - r.top + 6}px`;
+}
+function placeMenu(menu, wrap) {
+  wrap.append(menu);
+  menu.dataset.fixed = "1";
+  positionMenu(menu, wrap);
+}
+addEventListener("scroll", () => {
+  if (!openMenu?.dataset.fixed) return;
+  const wrap = openMenu.parentElement, r = wrap.getBoundingClientRect();
+  if (r.bottom < 0 || r.top > innerHeight) closeMenu();
+  else positionMenu(openMenu, wrap);
+}, true);
 
 function renderFilters() {
   const f = state.filter;
@@ -452,10 +476,11 @@ function renderLibrary() {
         selectBox(i),
         el("div", { className: "gname" }, thumb(i), el("div", { className: "t" },
           el("span", { className: "n", textContent: i.name, title: i.name }),
-          el("span", { className: "sub" }, versionLabel(i), el("span", { textContent: "·" }), el("span", { textContent: cap(i.system) || "—" })))),
+          el("span", { className: "sub" }, versionLabel(i), el("span", { textContent: "·" }), el("span", { textContent: cap(i.system) || "—" }))),
+          sv.machines.length ? savesOpen(i, "sv-open-alt") : null),
         profileBadges(i),
         el("span", { className: "gsize", textContent: size(i.size) }),
-        el("span", { className: `gsize c-saves${i.saves_present ? "" : " none"}`, textContent: i.saves_present ? size(i.saves_size) : "—" }),
+        savesCell(i),
         stateBadge(i));
       row.dataset.id = i.id;
       row.onclick = () => openDetail(i.id);
@@ -540,7 +565,6 @@ async function openDetail(id) {
   markCurrent();
   renderDetailHeader();
   showTab("info");
-  loadSyncs();                 // sans bloquer : la section a son propre chargement
   await loadAutorun();
 }
 
@@ -1237,6 +1261,7 @@ async function refreshTasks() {
     await loadLibrary();
     if (state.current) await loadAutorun();
     if (!$("folders-main").hidden) loadFolders();
+    if (!$("saves-main").hidden) loadSaves();
   }
   activeBefore = nowActive;
   if (state.current && !$("detail").hidden && !document.querySelector('[data-pane="history"]').hidden) renderHistory();
@@ -1387,7 +1412,6 @@ function showCfgPane(name) {
     b.setAttribute("aria-selected", b.dataset.cpane === name);
   }
   for (const pane of document.querySelectorAll(".cfg-pane")) pane.hidden = pane.dataset.paneName !== name;
-  if (name === "saves") refreshSaveMachines();
 }
 $("cfg-tabs").onclick = (event) => {
   const b = event.target.closest("button[data-cpane]");
@@ -1465,85 +1489,316 @@ $("cfg-agent-probe").onclick = async () => {
 };
 
 // ------------------------------------------------------------------ sauvegardes entre machines
-// Réserve du manager et machines de la synchronisation (services/saves.py) : onglet
-// Sauvegardes (machines), fiche d'un jeu et Outils (tout pousser). Pull et push sont
-// des tâches de la file ; leur résultat (params.result) est suivi ici jusqu'à la fin.
+// Onglet « Sauvegardes » (services/saves.py via /api/saves/*) : bandeau des machines,
+// tableau jeux × machines, sélection et barre d'actions. Une opération à la fois : la
+// tâche « saves » est suivie jusqu'à la fin (followTask), puis l'état est relu.
 
-const RESERVE = "__reserve__";          // valeur des sélecteurs pour la réserve du manager
-const SYNC_STATES = { "identique": ["identique", "t-sage"], "plus récente": ["plus récente", "t-accent"],
-  "plus ancienne": ["plus ancienne", "t-neutral"], "absente": ["absente", "t-neutral"], "injoignable": ["injoignable", "t-err"] };
-const PRESENT = new Set(["identique", "plus récente", "plus ancienne"]);
-const stoolsUnchecked = new Set();      // cibles décochées dans Sauvegardes (gardées si la source change)
-const shortFp = (fp) => !fp ? "empreinte inconnue"
-  : `${fp.includes(":") ? fp.split(":").slice(0, 4).join(":") : fp.slice(0, 16)}…`;
-const machineName = (id) => state.saveMachines?.find((m) => m.id === id)?.name ?? id;
-const checkedIds = (container) => [...container.querySelectorAll("input[type=checkbox]:checked")].map((box) => box.value);
-const archivesText = (n) => n ? `${n} archive${n > 1 ? "s" : ""}` : "aucune archive";
-// Case « Cibles » ; `unchecked` retient les machines décochées
-function targetBox(id, name, unchecked) {
-  const box = el("input", { type: "checkbox", value: id, checked: !unchecked.has(id) });
-  box.onchange = () => (box.checked ? unchecked.delete(id) : unchecked.add(id));
-  return el("label", {}, box, el("span", { textContent: name }));
-}
+const RESERVE = "__reserve__";          // source : réserve du manager
+const AUTO = "auto";                    // source : la machine la plus récente, jeu par jeu
+const PRESENT_STATES = new Set(["identique", "plus récente", "plus ancienne"]);
+const SAVE_FILTERS = [["", "Tous"], ["diff", "Différences"], ["same", "Identiques"], ["reserve", "Dans la réserve"]];
+const sv = {
+  machines: [],          // machines jointes à leur état (kind, removable, ok, games, message)
+  games: [],             // { game, reserve, machines: [état par machine] }
+  loaded: false, error: "", seq: 0,
+  filter: "", selected: new Set(), unchecked: new Set(),   // unchecked : cibles décochées
+  source: AUTO,
+  op: null,              // { text } pendant une opération
+  result: null,          // { task, error } de la dernière opération
+};
 
-// Onglet Sauvegardes : machines associées (code wsq:// comme pour l'agent), oubli
-function saveMsg(text) {
-  const box = $("saves-msg");
-  box.replaceChildren(...(text ? [notice("err", text)] : []));
-  box.hidden = !text;
-}
-function saveMachineRow(m) {
-  const forget = el("button", { className: "btn danger sm" }, icon("trash", "sm"), "Oublier");
-  forget.onclick = async () => {
-    if (!confirm(`Oublier « ${m.name} » ? Le manager ne lira plus ses sauvegardes. Celles déjà reçues restent dans la réserve.`)) return;
-    try {
-      await api(`/api/saves/machines/${encodeURIComponent(m.id)}`, { method: "DELETE" });
-      saveMsg(null);
-      toast("Machine oubliée");
-      refreshSaveMachines();
-      paintSaveTools();
-    } catch (error) { saveMsg(error.message); }
-  };
-  return el("div", { className: "tool" },
-    el("div", {}, el("b", { textContent: m.name }),
-      el("span", { className: "mono", textContent: `${m.url} · ${shortFp(m.fingerprint)}`, title: m.fingerprint || "" })),
-    m.kind === "game_host" ? badge("Machine de jeu", "info") : null,
-    m.removable ? forget : null);
-}
-async function refreshSaveMachines() {
-  const list = $("saves-machines");
-  try {
-    const { machines } = await api("/api/saves/machines");
-    state.saveMachines = machines;
-    list.replaceChildren(...(machines.length ? machines.map(saveMachineRow)
-      : [el("p", { className: "muted", style: "margin:6px 14px", textContent: "Aucune machine associée." })]));
-  } catch (error) {
-    list.replaceChildren(notice("err", error.message));
+// Nom de jeu comme services/saves.game_name : nom de fichier sans .wsquashfs ni .pc
+function gameOfItem(i) {
+  let name = (i.path || i.id).split("/").pop();
+  for (const suffix of [".wsquashfs", ".pc"]) {
+    if (name.toLowerCase().endsWith(suffix) && name.length > suffix.length) name = name.slice(0, -suffix.length);
   }
-  paintSaveTools();
-  if (state.current) loadSyncs();
+  return name;
 }
-$("saves-pair").onclick = async () => {
-  const code = $("saves-code").value.trim(), button = $("saves-pair");
-  if (!code) { saveMsg("Colle le code wsq:// affiché par wsquashfs-launcher --pair."); return; }
+const imageIds = () => new Map(state.items.map((i) => [gameOfItem(i), i.id]));   // jeu → identifiant d'image
+const busy = () => Boolean(sv.op);
+const machineName = (id) => sv.machines.find((m) => m.id === id)?.name ?? id;
+const names = (ids) => ids.map(machineName).join(", ");
+const reachableIds = () => sv.machines.filter((m) => m.ok).map((m) => m.id);
+const targetIds = () => reachableIds().filter((id) => !sv.unchecked.has(id));
+const pushTargets = () => targetIds().filter((id) => id !== sv.source);
+const stateOf = (g, id) => g.machines.find((s) => s.id === id);
+const newestOf = (g) => g.machines.find((s) => s.state === "plus récente");
+const presentIn = (g) => g.machines.filter((s) => PRESENT_STATES.has(s.state));
+// Identique : toutes les machines joignables ont la même version. Différences : sinon,
+// avec une source (« plus récente »), les autres joignables sont à pousser ou absentes.
+const identical = (g) => g.machines.some((s) => s.state === "identique");
+const differs = (g) => !identical(g) && Boolean(newestOf(g));
+const shortDate = (t) => {
+  if (!t) return "";
+  const d = new Date(t * 1000), p = (n) => String(n).padStart(2, "0");
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
+async function loadSaves() {
+  const seq = ++sv.seq;               // seule la dernière lecture compte
+  paintSaves();
+  try {
+    const [status, listed] = await Promise.all([api("/api/saves/status"), api("/api/saves/machines")]);
+    if (seq !== sv.seq) return;
+    const kinds = new Map(listed.machines.map((m) => [m.id, m]));
+    sv.machines = status.machines.map((m) => ({ ...(kinds.get(m.id) || {}), ...m }));
+    sv.games = status.games;
+    sv.loaded = true;
+    sv.error = "";
+    const known = imageIds();
+    sv.selected = new Set([...sv.selected].filter((g) => known.has(g) && sv.games.some((x) => x.game === g)));
+    if (sv.source !== AUTO && sv.source !== RESERVE && !reachableIds().includes(sv.source)) sv.source = AUTO;
+  } catch (error) {
+    if (seq !== sv.seq) return;
+    sv.error = error.message;
+  }
+  paintSaves();
+  if (!$("main").hidden) renderLibrary();      // la colonne « Sauveg. » des images
+}
+
+function paintSaves() {
+  const diff = sv.games.filter(differs).length;
+  $("count-saves").textContent = diff || "";
+  $("count-saves").title = diff ? `${diff} jeu(x) dont les versions diffèrent entre machines` : "";
+  $("s-loading").hidden = sv.loaded || Boolean(sv.error);
+  $("s-error").replaceChildren(...(sv.error ? [notice("err", sv.error)] : []));
+  const none = sv.loaded && sv.machines.length === 0;
+  $("s-empty").hidden = !none;
+  $("s-body").hidden = !sv.loaded || none;
+  paintChips();
+  if (!$("s-body").hidden) {
+    paintFilters();
+    paintTable();
+    paintStatus();
+  }
+  paintSelection();
+}
+
+// Bandeau : une puce par machine ; « Oublier » sauf pour la machine de jeu
+function paintChips() {
+  $("s-chips").replaceChildren(...sv.machines.map((m) => {
+    const title = m.ok ? `${m.url} : joignable` : `Injoignable : ${m.message || "pas de réponse"}`;
+    const inner = [el("span", { className: "led" }), el("b", { textContent: m.name }),
+      el("span", { className: "muted", textContent: m.ok ? `${m.games} jeu${m.games > 1 ? "x" : ""}` : "injoignable" }),
+      m.kind === "game_host" ? el("span", { className: "chip plain t-accent", textContent: "machine de jeu" }) : null];
+    if (!m.removable || m.kind === "game_host") {
+      return el("span", { className: `mchip${m.ok ? "" : " off"}`, title: m.kind === "game_host" ? `${title} : configurée dans Réglages › Machine de jeu` : title }, ...inner);
+    }
+    const button = el("button", { type: "button", className: `mchip${m.ok ? "" : " off"}`, title, "aria-haspopup": "menu" }, ...inner);
+    const wrap = el("div", { className: "dd" }, button);
+    button.onclick = () => toggleMenu(wrap, () => [["Oublier cette machine", "trash", false, () => forgetMachine(m), true]]);
+    return wrap;
+  }));
+}
+
+async function forgetMachine(m) {
+  if (!confirm(`Oublier « ${m.name} » ? Le manager ne lira plus ses sauvegardes. Celles déjà reçues restent dans la réserve.`)) return;
+  try {
+    await api(`/api/saves/machines/${encodeURIComponent(m.id)}`, { method: "DELETE" });
+    toast("Machine oubliée");
+    loadSaves();
+  } catch (error) { toast(error.message, "alert", true); }
+}
+
+// Menu d'action (même mécanique que les filtres de la liste) : items → [libellé, icône, désactivé, action, danger]
+function toggleMenu(wrap, items) {
+  const open = openMenu?.parentElement === wrap;
+  closeMenu();
+  if (open) return;
+  const menu = el("div", { className: "dd-menu end", role: "menu" }, ...items().map(([label, iconName, disabled, action, danger]) => {
+    const b = el("button", { type: "button", className: danger ? "danger" : "", disabled: Boolean(disabled) },
+      icon(iconName, "sm"), el("span", { textContent: label }));
+    b.onclick = () => { closeMenu(); action(); };
+    return b;
+  }));
+  openMenu = menu;
+  placeMenu(menu, wrap);
+  menu.querySelector("button:not([disabled])")?.focus({ preventScroll: true });
+}
+
+function paintFilters() {
+  const counts = { "": sv.games.length, diff: sv.games.filter(differs).length,
+    same: sv.games.filter(identical).length, reserve: sv.games.filter((g) => g.reserve).length };
+  $("s-filter").replaceChildren(...SAVE_FILTERS.map(([key, label]) => {
+    const b = el("button", { type: "button", className: sv.filter === key ? "on" : "" },
+      el("span", { textContent: label }), el("span", { className: "count", textContent: counts[key] }));
+    b.onclick = () => { sv.filter = key; paintSaves(); };
+    return b;
+  }));
+}
+
+function visibleGames() {
+  const q = $("s-search").value.trim().toLowerCase();
+  const keep = (g) => {
+    if (sv.filter === "diff") return differs(g);
+    if (sv.filter === "same") return identical(g);
+    if (sv.filter === "reserve") return Boolean(g.reserve);
+    return true;
+  };
+  return sv.games.filter((g) => (!q || g.game.toLowerCase().includes(q)) && keep(g))
+    .sort((a, b) => a.game.localeCompare(b.game, "fr", { numeric: true, sensitivity: "base" }));
+}
+
+// Cellule d'une machine : badge (★ plus récente, identique, ancienne, — absente, ? injoignable) + date
+function machineCell(g, m) {
+  const s = stateOf(g, m.id), st = s?.state ?? "absente";
+  const [label, tone] = { "plus récente": ["★ plus récente", "t-accent"], identique: ["identique", "t-sage"],
+    "plus ancienne": ["ancienne", "t-neutral"], injoignable: ["?", "t-err"] }[st] ?? ["—", ""];
+  const detail = [`${m.name} : ${st}`, s?.newest ? when(s.newest) : "", st === "injoignable" ? (s?.message || m.message || "") : ""]
+    .filter(Boolean).join(" · ");
+  const cls = { "plus récente": "sv-newest", "plus ancienne": "sv-old", absente: "sv-none" }[st] ?? "";
+  return el("td", { className: cls, title: detail },
+    st === "absente" ? dash() : el("span", { className: `chip plain ${tone}`, textContent: label }),
+    PRESENT_STATES.has(st) ? el("div", { className: "sv-date", textContent: shortDate(s.newest) }) : null);
+}
+
+function paintTable() {
+  closeMenu();
+  const ids = imageIds(), games = visibleGames();
+  const selectable = games.filter((g) => ids.has(g.game));
+  const all = $("s-all");
+  all.checked = selectable.length > 0 && selectable.every((g) => sv.selected.has(g.game));
+  all.onchange = () => {
+    for (const g of selectable) (all.checked ? sv.selected.add(g.game) : sv.selected.delete(g.game));
+    paintTable();
+    paintSelection();
+  };
+  const head = el("tr", {}, el("th", { className: "sv-stick" }), el("th", { className: "sv-stick2", textContent: "Jeu" }),
+    ...sv.machines.map((m) => el("th", { textContent: m.name, title: m.url })),
+    el("th", { textContent: "Réserve" }), el("th", {}));
+  const rows = games.map((g) => {
+    const actionable = ids.has(g.game), img = ids.get(g.game);
+    const box = el("input", { type: "checkbox", checked: sv.selected.has(g.game), disabled: !actionable,
+      title: actionable ? "Sélectionner" : "Pas d'image dans la bibliothèque : action impossible" });
+    box.onchange = () => { box.checked ? sv.selected.add(g.game) : sv.selected.delete(g.game); paintTable(); paintSelection(); };
+    const name = actionable
+      ? el("button", { type: "button", className: "sv-name", textContent: g.game, title: "Ouvrir la fiche de l'image" })
+      : el("span", { className: "sv-name off", textContent: g.game, title: "Pas d'image dans la bibliothèque" });
+    if (actionable) name.onclick = () => { showView("images"); openDetail(img); };
+    const newest = newestOf(g);
+    const reserve = g.reserve
+      ? el("td", { title: `Réserve : depuis ${g.reserve.source || "?"} (${when(g.reserve.newest)}) · ${g.reserve.archives} archive(s)` },
+        el("span", { textContent: shortDate(g.reserve.newest) }))
+      : el("td", {}, dash());
+    const actions = el("td", { className: "sv-act" });
+    if (actionable && differs(g)) {
+      const push = el("button", { type: "button", className: "btn primary sm", disabled: busy() || !newest || !reachableIds().some((id) => id !== newest.id),
+        title: "Pousse la version la plus récente vers les autres machines joignables" },
+        icon("upload", "sm"), "Pousser");
+      push.onclick = () => pushRow(g);
+      actions.append(push);
+    }
+    if (actionable) {
+      const wrap = el("div", { className: "dd end" }, el("button", { type: "button", className: "iconbtn bare sm", title: "Autres actions", "aria-label": `Autres actions pour ${g.game}`, "aria-haspopup": "menu" }, icon("chevd", "sm")));
+      wrap.querySelector("button").onclick = () => toggleMenu(wrap, () => rowItems(g));
+      actions.append(wrap);
+    }
+    return el("tr", { className: differs(g) ? "sv-diff" : "" },
+      el("td", { className: "sv-stick" }, box), el("td", { className: "sv-stick2" }, name),
+      ...sv.machines.map((m) => machineCell(g, m)), reserve, actions);
+  });
+  if (!games.length) {
+    rows.push(el("tr", {}, el("td", { colSpan: sv.machines.length + 4 },
+      sv.games.length ? emptyState("search", "Aucun jeu pour ces filtres", "Élargir la recherche ou choisir « Tous ».")
+        : emptyState("save", "Aucune sauvegarde", "Les machines associées n'ont aucune sauvegarde de partie."))));
+  }
+  $("s-table").replaceChildren(el("thead", {}, head), el("tbody", {}, ...rows));
+}
+
+// Menu « … » d'une ligne
+function rowItems(g) {
+  const img = imageIds().get(g.game), idle = !busy() && Boolean(img);
+  const reach = reachableIds();
+  return [
+    ["Mettre dans la réserve", "save", !idle || !presentIn(g).length, () => pullGames([g], AUTO)],
+    ...presentIn(g).map((s) => [`Pousser depuis ${s.name}`, "upload", !idle || !reach.some((id) => id !== s.id), () => pushFrom(g, s.id)]),
+    ["Envoyer la réserve", "refresh", !idle || !g.reserve || !reach.length, () => pushReserve(g)],
+  ];
+}
+
+function paintStatus() {
+  const nodes = [];
+  if (sv.op) nodes.push(el("div", { className: "notice info", role: "status" }, el("span", { className: "spinner" }), el("span", { textContent: sv.op.text })));
+  if (sv.result) nodes.push(sv.result.error && !sv.result.task ? notice("err", sv.result.error) : syncResultNode(sv.result.task, true));
+  $("s-status").replaceChildren(...nodes);
+}
+
+// Barre de sélection : source, cibles (cases dans un menu), Pousser, Mettre dans la réserve
+function paintSelection() {
+  const bar = $("s-selection"), n = sv.selected.size;
+  bar.hidden = n === 0 || !sv.loaded;
+  if (bar.hidden) return;
+  $("s-count").textContent = n > 1 ? `${n} jeux` : "1 jeu";
+  const options = [[AUTO, "La plus récente (par jeu)"], ...sv.machines.filter((m) => m.ok).map((m) => [m.id, m.name]),
+    [RESERVE, "Réserve du manager"]];
+  if (!options.some(([value]) => value === sv.source)) sv.source = AUTO;
+  $("s-source").replaceChildren(...options.map(([value, label]) => new Option(label, value)));
+  $("s-source").value = sv.source;
+  const games = sv.games.filter((g) => sv.selected.has(g.game) && imageIds().has(g.game));
+  const targets = pushTargets();
+  $("s-targets").textContent = `Cibles · ${targets.length}`;
+  $("s-targets").disabled = busy();
+  const pushable = !busy() && games.length && targets.length && (sv.source !== RESERVE || games.some((g) => g.reserve));
+  $("s-push").disabled = !pushable;
+  $("s-push").title = targets.length ? "" : "Aucune cible : coche au moins une autre machine joignable";
+  $("s-pull").disabled = busy() || !games.length || sv.source === RESERVE;
+  $("s-pull").title = sv.source === RESERVE ? "Choisis une machine, ou « La plus récente », comme source" : "Copier les sauvegardes sélectionnées dans la réserve du manager";
+}
+
+// Cibles : cases par machine joignable (la source choisie est grisée)
+$("s-targets").onclick = () => {
+  const wrap = $("s-targets-dd"), open = openMenu?.parentElement === wrap;
+  closeMenu();
+  if (open) return;
+  const boxes = sv.machines.filter((m) => m.ok).map((m) => {
+    const box = el("input", { type: "checkbox", checked: !sv.unchecked.has(m.id) && m.id !== sv.source, disabled: m.id === sv.source });
+    box.onchange = () => { box.checked ? sv.unchecked.delete(m.id) : sv.unchecked.add(m.id); paintSelection(); };
+    return el("label", { className: "dd-check" }, box, el("span", { textContent: m.name }));
+  });
+  openMenu = el("div", { className: "dd-menu", role: "group" }, ...(boxes.length ? boxes : [el("span", { className: "muted dd-check", textContent: "Aucune machine joignable" })]));
+  placeMenu(openMenu, wrap);
+};
+$("s-source").onchange = () => { sv.source = $("s-source").value; paintSelection(); };
+$("s-search").addEventListener("input", paintTable);
+$("s-refresh").onclick = () => loadSaves();
+$("s-clear").onclick = () => { sv.selected.clear(); paintTable(); paintSelection(); };
+$("s-push").onclick = () => pushSelection();
+$("s-pull").onclick = () => pullGames(sv.games.filter((g) => sv.selected.has(g.game)), sv.source);
+
+// Appairage : même code wsq:// que l'agent ; l'erreur reste dans le dialogue
+function setPairError(text) {
+  $("pair-err").textContent = text || "";
+  $("pair-err").hidden = !text;
+}
+function openPair() {
+  $("pair-code").value = "";
+  setPairError("");
+  $("dlg-pair").showModal();
+  $("pair-code").focus();
+}
+$("s-pair").onclick = openPair;
+$("s-empty-pair").onclick = openPair;
+$("pair-save").onclick = async () => {
+  const code = $("pair-code").value.trim(), button = $("pair-save");
+  if (!code) { setPairError("Colle le code wsq:// affiché par wsquashfs-launcher --pair."); return; }
   button.disabled = true;
-  saveMsg(null);
+  setPairError("");
   try {
     const r = await api("/api/saves/machines", { method: "POST", body: { code } });
-    $("saves-code").value = "";
+    $("dlg-pair").close();
     toast(r.replaced ? `Machine mise à jour : ${r.name}` : `Machine associée : ${r.name}`);
-    refreshSaveMachines();
-    paintSaveTools();
+    loadSaves();
   } catch (error) {
-    saveMsg(error.message);
+    setPairError(error.message);
   } finally {
     button.disabled = false;
   }
 };
-$("saves-code").addEventListener("keydown", (event) => { if (event.key === "Enter") $("saves-pair").click(); });
+$("pair-code").addEventListener("keydown", (event) => { if (event.key === "Enter") $("pair-save").click(); });
 
-// Suit une tâche de la file jusqu'à sa fin : onEnd(tâche) ou onEnd(null, message)
-async function followTask(taskId, onEnd) {
+// Suit une tâche de la file jusqu'à sa fin : onEnd(tâche) ou onEnd(null, message) ; onTick à chaque relevé
+async function followTask(taskId, onEnd, onTick = null) {
   let misses = 0;
   for (;;) {
     await new Promise((resolve) => setTimeout(resolve, 1500));
@@ -1556,9 +1811,10 @@ async function followTask(taskId, onEnd) {
       continue;
     }
     if (task.status !== "pending" && task.status !== "running") { onEnd(task); return; }
+    onTick?.(task);
   }
 }
-// Lignes d'un résultat : pull → results ; push → results ; push_from → pull + push
+// Lignes d'un résultat : pull → results ; push → results ; push_from / push_auto → pull + push
 function syncItems(task) {
   const r = task?.params?.result;
   if (!r) return null;
@@ -1566,15 +1822,7 @@ function syncItems(task) {
   return r.results || [];
 }
 const syncFailed = (items) => items.filter((item) => !item.ok);
-function syncToast(task) {
-  const items = syncItems(task);
-  if (items === null) { toast(task?.error || "Sauvegardes : tâche sans résultat", "alert", true); return; }
-  if (!items.length) { toast("Sauvegardes : rien à faire", "info"); return; }
-  const failed = syncFailed(items).length;
-  toast(`Sauvegardes : ${items.length - failed} réussie(s)${failed ? `, ${failed} échec(s)` : ""}`,
-    failed ? "alert" : "check", Boolean(failed));
-}
-// Résultat détaillé : ✓ / ✗ par jeu (et par machine) ; failuresOnly : les échecs seulement
+// Résultat : ✓ / ✗ par jeu et machine ; failuresOnly : les échecs détaillés, les réussites en compte
 function syncResultNode(task, failuresOnly = false) {
   const items = syncItems(task);
   if (items === null) return notice("err", task?.error || `Tâche ${TASK_STATES[task?.status]?.[1] || "sans résultat"}.`);
@@ -1593,188 +1841,109 @@ function syncResultNode(task, failuresOnly = false) {
     shown.length ? el("ul", { className: "sync-list" }, ...rows) : el("p", { className: "muted", textContent: "Aucun échec." }));
 }
 
-// Lance un pull ou un push (tâche « saves ») ; `job` dit où afficher le résultat
-async function startSaveJob(path, body, job) {
-  state.saveJob = job;
-  if (job.scope === "detail") state.syncResult = null;
-  else state.toolsResult = null;
-  repaintSaves();
+// Une opération : POST (tâche « saves ») puis suivi ; à la fin, résultat et état relu
+async function runSaveOp(path, body) {
+  sv.result = null;
+  sv.op = { text: "Démarrage…" };
+  paintSaves();
   let taskId;
   try {
     ({ task: taskId } = await api(path, { method: "POST", body }));
   } catch (error) {
-    endSaveJob(job, null, error.message);
+    sv.op = null;
+    sv.result = { task: null, error: error.message };
+    paintSaves();
     return;
   }
-  toast("Ajouté à la file de tâches");
   refreshTasks();
-  followTask(taskId, (task, error) => endSaveJob(job, task, error));
-}
-function endSaveJob(job, task, error = "") {
-  state.saveJob = null;
-  if (job.scope === "detail") state.syncResult = { image: job.image, task, error };
-  else state.toolsResult = { task, error };
-  if (error) toast(error, "alert", true);
-  else syncToast(task);
-  repaintSaves();
-  if (state.current) loadSyncs();      // les états ont pu changer
-}
-function repaintSaves() {
-  if (state.syncs && state.current?.id === state.syncs.image) paintSyncs();
-  paintToolButtons();
-  paintToolsResult();
-}
-
-// Outils : tout pousser (source ou réserve) et tout mettre dans la réserve
-async function paintSaveTools() {
-  const push = $("stools-push-source"), pull = $("stools-pull-source");
-  let machines;
-  try {
-    machines = (await api("/api/saves/machines")).machines;
-  } catch (error) {
-    state.toolsResult = { error: error.message };
-    paintToolsResult();
-    return;
-  }
-  state.saveMachines = machines;
-  const keepPush = push.value, keepPull = pull.value;
-  push.replaceChildren(...machines.map((m) => new Option(m.name, m.id)), new Option("Réserve du manager", RESERVE));
-  pull.replaceChildren(...machines.map((m) => new Option(m.name, m.id)));
-  push.value = [...push.options].some((o) => o.value === keepPush) ? keepPush : (machines[0]?.id ?? RESERVE);
-  pull.value = [...pull.options].some((o) => o.value === keepPull) ? keepPull : (machines[0]?.id ?? "");
-  paintStoolTargets();
-  paintToolsResult();
-}
-function paintStoolTargets() {
-  const source = $("stools-push-source").value;
-  const choices = (state.saveMachines || []).filter((m) => m.id !== source);
-  $("stools-targets").replaceChildren(...(choices.length ? choices.map((m) => targetBox(m.id, m.name, stoolsUnchecked))
-    : [el("span", { className: "muted", textContent: "Aucune autre machine associée." })]));
-  paintToolButtons();
-}
-function paintToolButtons() {
-  const busy = Boolean(state.saveJob);
-  $("stools-push").disabled = busy || !$("stools-push-source").value || !checkedIds($("stools-targets")).length;
-  $("stools-pull").disabled = busy || !$("stools-pull-source").value;
-}
-function paintToolsResult() {
-  const out = $("stools-result");
-  const running = state.saveJob?.scope === "tools", result = state.toolsResult;
-  out.replaceChildren(...(running ? [waiting("Tâche en cours : suivi dans la file de tâches.")] : []),
-    ...(result ? [result.error ? notice("err", result.error) : syncResultNode(result.task, true)] : []));
-  out.hidden = !running && !result;
-}
-$("stools-push-source").onchange = paintStoolTargets;
-$("stools-targets").addEventListener("change", paintToolButtons);
-$("stools-push").onclick = () => {
-  const source = $("stools-push-source").value, picked = checkedIds($("stools-targets"));
-  const from = source === RESERVE ? "la réserve du manager" : machineName(source);
-  if (!confirm(`Pousser toutes les sauvegardes de ${from} vers ${picked.map(machineName).join(", ")} ? La version écrasée sur chaque machine y est archivée.`)) return;
-  startSaveJob("/api/saves/push", { targets: picked, all: true, ...(source === RESERVE ? {} : { source }) },
-    { scope: "tools" });
-};
-$("stools-pull").onclick = () => {
-  const source = $("stools-pull-source").value;
-  if (!confirm(`Mettre dans la réserve les sauvegardes de tous les jeux de ${machineName(source)} ? La version précédente de chaque jeu y est archivée.`)) return;
-  startSaveJob("/api/saves/pull", { source, all: true }, { scope: "tools" });
-};
-
-// Fiche d'un jeu : états par machine et réserve, puis pousser / mettre dans la réserve
-async function loadSyncs() {
-  const image = state.current;
-  if (!image) return;
-  const id = image.id;
-  if (state.syncResult?.image !== id) state.syncResult = null;
-  $("d-syncs").hidden = false;
-  $("d-syncs-body").replaceChildren(el("div", { className: "row muted" }, el("span", { className: "spinner" }), "lecture des machines…"));
-  let data;
-  try {
-    data = await api(`/api/saves/status?id=${encodeURIComponent(id)}`);
-  } catch (error) {
-    state.syncs = null;
-    if (state.current?.id === id) $("d-syncs-body").replaceChildren(notice("err", error.message));
-    return;
-  }
-  if (state.current?.id !== id) return;
-  const game = data.games[0];
-  if (!data.machines.length || !game) {
-    state.syncs = null;
-    $("d-syncs").hidden = true;
-    return;
-  }
-  state.syncs = { image: id, game, unchecked: new Set() };
-  paintSyncs();
-}
-function paintSyncs() {
-  const cache = state.syncs;
-  if (!cache || state.current?.id !== cache.image) return;
-  const { game, unchecked } = cache, id = cache.image;
-  const names = new Map(game.machines.map((m) => [m.id, m.name]));
-  const rows = game.machines.map((m) => {
-    const [label, tone] = SYNC_STATES[m.state] || [m.state, "t-neutral"];
-    const chip = el("span", { className: `chip plain ${tone}`, textContent: label });
-    if (m.state === "injoignable") chip.title = m.message || "injoignable";
-    return el("tr", { className: m.state === "plus récente" ? "newest" : m.state === "plus ancienne" ? "older" : "" },
-      el("td", { textContent: m.name }), el("td", {}, chip), el("td", { textContent: m.newest ? when(m.newest) : "—" }));
+  followTask(taskId, (task, error) => {
+    sv.op = null;
+    sv.result = { task, error };
+    refreshTasks();
+    loadSaves();
+  }, (task) => {
+    sv.op = { text: cap(task.phase || "En cours…") };
+    paintStatus();
   });
-  const reserve = game.reserve;
-  rows.push(el("tr", { className: "reserve" }, el("td", { textContent: "Réserve du manager" }),
-    el("td", { className: reserve ? "" : "muted",
-      textContent: reserve ? `depuis ${reserve.source || "?"} · ${archivesText(reserve.archives)}` : "vide" }),
-    el("td", { textContent: reserve?.newest ? when(reserve.newest) : "—",
-      title: reserve?.fetched_at ? `reçue le ${new Date(reserve.fetched_at).toLocaleString("fr-FR")}` : "" })));
-
-  const present = game.machines.filter((m) => PRESENT.has(m.state));
-  const preferred = present.find((m) => m.state === "plus récente") || present[0];
-  const options = [...present.map((m) => new Option(`${m.name} — ${m.state}`, m.id)),
-    ...(reserve ? [new Option("Réserve du manager", RESERVE)] : [])];
-  const source = el("select", {}, ...options);
-  source.value = preferred?.id ?? (reserve ? RESERVE : "");
-  const targets = el("div", { className: "sys-toggles" });
-  const push = el("button", { className: "btn primary sm", type: "button" }, icon("upload", "sm"), "Pousser");
-  const pull = el("button", { className: "btn secondary sm", type: "button" }, icon("save", "sm"), "Mettre dans la réserve");
-  const picked = () => checkedIds(targets);
-  const paintButtons = () => {
-    const busy = Boolean(state.saveJob);
-    push.disabled = busy || !source.value || !picked().length;
-    pull.disabled = busy || !source.value || source.value === RESERVE;
-  };
-  const paintTargets = () => {
-    const choices = game.machines.filter((m) => m.id !== source.value && m.state !== "injoignable");
-    targets.replaceChildren(...(choices.length ? choices.map((m) => targetBox(m.id, m.name, unchecked))
-      : [el("span", { className: "muted", textContent: "Aucune autre machine joignable." })]));
-    paintButtons();
-  };
-  source.onchange = paintTargets;
-  targets.addEventListener("change", paintButtons);
-  push.onclick = () => {
-    const from = source.value === RESERVE ? "la réserve du manager" : names.get(source.value);
-    const chosen = picked();
-    const to = chosen.map((x) => names.get(x)).join(", ");
-    if (!confirm(`Envoyer les sauvegardes de « ${state.current.name} » de ${from} vers ${to} ? La version écrasée sur chaque machine y est archivée.`)) return;
-    startSaveJob("/api/saves/push", { targets: chosen, ids: [id], ...(source.value === RESERVE ? {} : { source: source.value }) },
-      { scope: "detail", image: id });
-  };
-  pull.onclick = () => startSaveJob("/api/saves/pull", { source: source.value, ids: [id] }, { scope: "detail", image: id });
-  paintTargets();
-
-  const running = state.saveJob?.scope === "detail" && state.saveJob.image === id;
-  const result = state.syncResult?.image === id ? state.syncResult : null;
-  const controls = options.length
-    ? [el("label", { className: "field" }, "Source", source),
-      el("div", { className: "section-label", textContent: "Cibles" }), targets,
-      el("div", { className: "row" }, push, pull)]
-    : [el("p", { className: "muted", textContent: "Aucune sauvegarde de ce jeu à envoyer ni à mettre dans la réserve." })];
-  // replaceChildren écrit « null » pour un null : seuls les nœuds réels sont passés
-  $("d-syncs-body").replaceChildren(...[
-    el("div", { className: "syncs-wrap" }, el("table", { className: "syncs" },
-      el("thead", {}, el("tr", {}, el("th", { textContent: "Machine" }), el("th", { textContent: "État" }), el("th", { textContent: "Sauvegarde" }))),
-      el("tbody", {}, ...rows))),
-    el("div", { className: "syncs-ctl" }, ...controls),
-    running ? waiting("Tâche en cours : suivi dans la file de tâches.") : null,
-    result ? (result.error ? notice("err", result.error) : syncResultNode(result.task)) : null].filter(Boolean));
 }
-$("d-syncs-refresh").onclick = () => { if (state.current) loadSyncs(); };
+
+const imageOf = (g) => imageIds().get(g.game);
+// Copie dans la réserve : depuis `source` (une machine, ou AUTO : la plus récente, jeu par jeu)
+function pullGames(games, source) {
+  const ids = games.map(imageOf).filter(Boolean);
+  if (!ids.length || source === RESERVE) return;
+  runSaveOp("/api/saves/pull", { source, ids });
+}
+function pushRow(g) {                       // la plus récente vers les autres machines joignables
+  const from = newestOf(g), targets = reachableIds().filter((id) => id !== from?.id);
+  if (!from || !targets.length) return;
+  if (!confirm(`Pousser « ${g.game} » depuis ${from.name} vers ${names(targets)} ?\n\nLa version écrasée sur chaque machine est archivée.`)) return;
+  runSaveOp("/api/saves/push", { source: AUTO, targets, ids: [imageOf(g)] });
+}
+function pushFrom(g, sourceId) {
+  const targets = reachableIds().filter((id) => id !== sourceId);
+  if (!targets.length) return;
+  if (!confirm(`Pousser « ${g.game} » depuis ${machineName(sourceId)} vers ${names(targets)} ?\n\nLa version écrasée sur chaque machine est archivée.`)) return;
+  runSaveOp("/api/saves/push", { source: sourceId, targets, ids: [imageOf(g)] });
+}
+function pushReserve(g) {
+  const targets = reachableIds();
+  if (!confirm(`Envoyer la copie de la réserve de « ${g.game} » vers ${names(targets)} ?\n\nLa version écrasée sur chaque machine est archivée.`)) return;
+  runSaveOp("/api/saves/push", { targets, ids: [imageOf(g)] });
+}
+function pushSelection() {
+  const games = sv.games.filter((g) => sv.selected.has(g.game) && imageIds().has(g.game));
+  const targets = pushTargets();
+  if (!games.length || !targets.length) return;
+  const idsOf = (list) => list.map(imageOf);
+  let body, lines;
+  if (sv.source === RESERVE) {
+    const inReserve = games.filter((g) => g.reserve);
+    if (!inReserve.length) { toast("Aucun jeu sélectionné n'est dans la réserve.", "alert", true); return; }
+    body = { targets, ids: idsOf(inReserve) };
+    lines = [`${inReserve.length} jeu(x) depuis la réserve du manager vers ${names(targets)}.`];
+    if (inReserve.length < games.length) lines.push(`${games.length - inReserve.length} jeu(x) absent(s) de la réserve, ignoré(s).`);
+  } else if (sv.source === AUTO) {
+    // Chaque jeu depuis sa plus récente ; les jeux identiques ne sont pas transférés
+    // Cibles qui n'ont pas la version de la source (absentes ou plus anciennes)
+    const moves = games.map((g) => {
+      const from = newestOf(g);
+      const to = from ? targets.filter((id) => id !== from.id && stateOf(g, id)?.fingerprint !== from.fingerprint) : [];
+      return { g, from, to };
+    }).filter((x) => x.to.length);
+    if (!moves.length) { toast("Rien à envoyer : les jeux sélectionnés sont déjà identiques.", "info"); return; }
+    body = { source: AUTO, targets, ids: idsOf(games) };
+    lines = moves.map(({ g, from, to }) => `${g.game} : ${from.name} → ${names(to)}`);
+    if (moves.length < games.length) lines.push(`${games.length - moves.length} jeu(x) déjà identiques ou sans source, ignoré(s).`);
+  } else {
+    body = { source: sv.source, targets, ids: idsOf(games) };
+    lines = [`${games.length} jeu(x) depuis ${machineName(sv.source)} vers ${names(targets.filter((id) => id !== sv.source))}.`];
+  }
+  if (!confirm(`Pousser ?\n\n${lines.join("\n")}\n\nLa version écrasée sur chaque machine est archivée.`)) return;
+  runSaveOp("/api/saves/push", body);
+}
+
+// Ouvre l'onglet filtré sur un jeu (liste des images, fiche)
+function openSavesFor(game) {
+  sv.filter = "";
+  $("s-search").value = game;
+  showView("saves");
+  window.scrollTo(0, 0);
+}
+
+// Colonne « Sauveg. » de la liste : taille et, si une machine est associée, un accès à l'onglet
+function savesOpen(i, cls) {
+  const open = el("button", { type: "button", className: `iconbtn bare sm ${cls}`, title: "Sauvegardes entre machines de ce jeu", "aria-label": "Sauvegardes entre machines de ce jeu" },
+    icon("save", "sm"));
+  open.onclick = (event) => { event.stopPropagation(); openSavesFor(gameOfItem(i)); };
+  return open;
+}
+function savesCell(i) {
+  const cell = el("span", { className: `gsize c-saves sv-cell${i.saves_present ? "" : " none"}` },
+    el("span", { textContent: i.saves_present ? size(i.saves_size) : "—" }));
+  if (sv.machines.length) cell.append(savesOpen(i, "sv-open"));
+  return cell;
+}
 
 // ------------------------------------------------------------------ état du lanceur (--doctor)
 
@@ -2311,6 +2480,7 @@ async function gameSaveAction(button, body, label, doneText) {
 }
 $("d-saves-copy").onclick = () => gameSaveAction($("d-saves-copy"), { action: "save", id: state.current.id },
   "Copie des sauvegardes", "Sauvegardes copiées");
+$("d-saves-open").onclick = () => { if (state.current) openSavesFor(gameOfItem(state.current)); };
 $("d-saves-sync").onclick = () => {
   if (!confirm(`Synchroniser les sauvegardes de « ${state.current.name} » avec les autres machines associées du réseau local ? En cas de conflit, la plus récente gagne et l'autre est archivée.`)) return;
   gameSaveAction($("d-saves-sync"), { action: "sync", id: state.current.id }, "Synchronisation", "Sauvegardes synchronisées");
@@ -2417,12 +2587,15 @@ function showView(name) {
   for (const b of $("views").children) b.classList.toggle("active", b.dataset.view === name);
   $("main").hidden = name !== "images";
   $("folders-main").hidden = name !== "folders";
+  $("saves-main").hidden = name !== "saves";
   $("help-main").hidden = name !== "help";
   $("btn-help").classList.toggle("active", name === "help");
   $("btn-help").setAttribute("aria-pressed", name === "help");
   if (name !== "help") lastView = name;
   storage.set("wsfs-view", name);
   if (name === "folders") loadFolders();
+  if (name === "saves") loadSaves();
+  if (name === "images" && state.items.length) renderLibrary();   // icônes « Sauveg. » à jour
   if (name === "help") return loadHelp();
   return Promise.resolve();
 }
@@ -2840,6 +3013,7 @@ document.addEventListener("click", (event) => {
   $("known-keys").replaceChildren(...state.keys.map((k) => new Option(k.key, k.key)));
   buildForm();
   await loadLibrary();
+  loadSaves();                 // compteur de l'onglet et icônes de la liste (sans bloquer)
   refreshTasks();
-  if (["folders", "help"].includes(storage.get("wsfs-view"))) showView(storage.get("wsfs-view"));
+  if (["folders", "saves", "help"].includes(storage.get("wsfs-view"))) showView(storage.get("wsfs-view"));
 })();

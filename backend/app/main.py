@@ -1424,7 +1424,8 @@ class SavesPull(SavesSelection):
 
 
 class SavesPush(SavesSelection):
-    source: str | None = Field(default=None, max_length=64)    # absent : depuis la réserve
+    # absent : depuis la réserve ; « auto » : pour chaque jeu, depuis la machine la plus récente
+    source: str | None = Field(default=None, max_length=64)
     targets: list[str] = Field(min_length=1, max_length=20)
 
 
@@ -1450,11 +1451,17 @@ def _saves_machine(machine_id: str) -> dict:
 
 @app.post("/api/saves/pull")
 def saves_pull(body: SavesPull):
-    """Sauvegardes d'une machine source vers la réserve (tâche « saves »)."""
-    source = _saves_machine(body.source)
+    """Sauvegardes d'une machine source vers la réserve (tâche « saves »). Source « auto » :
+    chaque jeu depuis sa machine la plus récente."""
     games = _saves_games(body)
-    task = queue.submit("saves", None, None, {"op": "pull", "source": body.source, "games": games},
-                        f"sauvegardes : récupérer depuis {source['name']}")
+    if body.source == "auto":
+        params = {"op": "pull_auto", "games": games}
+        title = "sauvegardes : réserve ← plus récente"
+    else:
+        source = _saves_machine(body.source)
+        params = {"op": "pull", "source": body.source, "games": games}
+        title = f"sauvegardes : récupérer depuis {source['name']}"
+    task = queue.submit("saves", None, None, params, title)
     return {"task": task.id}
 
 
@@ -1465,7 +1472,10 @@ def saves_push(body: SavesPush):
         raise HTTPException(status_code=422, detail="machine cible en double")
     targets = [_saves_machine(machine_id) for machine_id in body.targets]
     games = _saves_games(body)
-    if body.source is not None:
+    if body.source == "auto":            # chaque jeu depuis sa machine la plus récente
+        params = {"op": "push_auto", "targets": body.targets, "games": games}
+        title = f"sauvegardes : plus récente → {len(targets)} machine(s)"
+    elif body.source is not None:
         source = _saves_machine(body.source)
         if body.source in body.targets:
             raise HTTPException(status_code=422, detail="la source ne peut pas être une cible")

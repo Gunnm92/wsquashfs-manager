@@ -475,6 +475,92 @@ def test_failed_push_marks_the_task_failed_with_its_result(agents, tmp_path):
     assert task.params["result"]["results"][0]["ok"] is False
 
 
+def test_push_auto_takes_each_game_from_its_most_recent_machine(agents, tmp_path):
+    # A : la plus récente est m1 ; B : la plus récente est m2 (sources différentes)
+    m1 = agents("m1", games={"A": (gz("a-new"), None, 300), "B": (gz("b-old"), None, 100)})
+    m2 = agents("m2", games={"B": (gz("b-new"), None, 900)})
+    m3 = agents("m3", games={"A": (gz("a-old"), None, 10)})
+    settings = make_settings(tmp_path)
+    associate(settings, m1)
+    associate(settings, m2)
+    associate(settings, m3)
+    ids = machine_ids(settings)
+    result = saves.push_auto(settings, [ids["m1"], ids["m2"], ids["m3"]], None)
+    pushed = {(r["game"], r["machine"]): r["ok"] for r in result["push"]["results"] if r["machine"]}
+    # A part de m1 vers m2 et m3 (pas vers elle-même) ; B part de m2 vers m1 et m3
+    assert pushed == {("A", "m2"): True, ("A", "m3"): True, ("B", "m1"): True, ("B", "m3"): True}
+    assert m2["st"]["games"]["A"]["data"] == gz("a-new")
+    assert m3["st"]["games"]["A"]["data"] == gz("a-new")
+    assert m1["st"]["games"]["B"]["data"] == gz("b-new")
+    assert m3["st"]["games"]["B"]["data"] == gz("b-new")
+    # Les sources ne reçoivent rien d'elles-mêmes
+    assert not [e for e in m1["st"]["log"] if e["method"] == "PUT" and e["game"] == "A"]
+    assert not [e for e in m2["st"]["log"] if e["method"] == "PUT" and e["game"] == "B"]
+
+
+def test_push_auto_skips_identical_and_reserve_only_games(agents, tmp_path):
+    m1 = agents("m1", games={"A": (gz("a-new"), None, 300), "C": (gz("c"), None, 50)})
+    m2 = agents("m2", games={"A": (gz("a-old"), None, 10), "C": (gz("c"), None, 40)})
+    settings = make_settings(tmp_path)
+    associate(settings, m1)
+    associate(settings, m2)
+    data = gz("reserve")
+    saves.store(settings, "D", part_with(settings, "D", data), fingerprint=fp_of(data), newest=7,
+                profile=None, source="m1")
+    ids = machine_ids(settings)
+    result = saves.push_auto(settings, [ids["m1"], ids["m2"]], None)
+    by_game = {r["game"]: r for r in result["push"]["results"] if not r["machine"]}
+    assert by_game["C"]["ok"] is True and by_game["C"]["message"] == "déjà identiques"
+    assert by_game["D"]["ok"] is True and by_game["D"]["message"] == "aucune machine ne l'a : rien à pousser"
+    # Aucun transfert pour C ni D : seul A part de m1 vers m2
+    assert not [e for e in m1["st"]["log"] + m2["st"]["log"] if e["method"] == "PUT" and e["game"] in ("C", "D")]
+    assert [(r["game"], r["machine"]) for r in result["push"]["results"] if r["machine"]] == [("A", "m2")]
+    assert m2["st"]["games"]["A"]["data"] == gz("a-new")
+
+
+def test_push_auto_reports_a_game_whose_only_target_is_its_source(agents, tmp_path):
+    m1 = agents("m1", games={"A": (gz("a-new"), None, 300)})
+    m2 = agents("m2", games={"A": (gz("a-old"), None, 10)})
+    settings = make_settings(tmp_path)
+    associate(settings, m1)
+    associate(settings, m2)
+    ids = machine_ids(settings)
+    result = saves.push_auto(settings, [ids["m1"]], None)
+    assert result["push"]["results"] == [{"game": "A", "machine": "", "machine_id": "", "ok": True,
+                                          "message": "aucune cible joignable autre que la source",
+                                          "archived": None}]
+    assert not [e for e in m1["st"]["log"] + m2["st"]["log"] if e["method"] == "PUT"]
+
+def test_push_auto_sends_to_an_absent_machine_and_skips_an_identical_one(agents, tmp_path):
+    m1 = agents("m1", games={"A": (gz("a"), None, 300)})
+    m2 = agents("m2", games={"A": (gz("a"), None, 300)})     # même version que m1
+    m3 = agents("m3")                                       # joignable, sans le jeu
+    settings = make_settings(tmp_path)
+    associate(settings, m1)
+    associate(settings, m2)
+    associate(settings, m3)
+    ids = machine_ids(settings)
+    result = saves.push_auto(settings, [ids["m2"], ids["m3"]], ["A"])
+    by_machine = {r["machine"]: r for r in result["push"]["results"]}
+    assert by_machine["m2"]["message"] == "déjà identique" and by_machine["m2"]["ok"] is True
+    assert by_machine["m3"]["ok"] is True and "envoyée" in by_machine["m3"]["message"]
+    assert m3["st"]["games"]["A"]["data"] == gz("a")
+    assert not [e for e in m2["st"]["log"] if e["method"] == "PUT"]
+
+def test_push_auto_task_result_is_kept_and_reported(agents, tmp_path):
+    m1 = agents("m1", games={"A": (gz("a-new"), None, 300)})
+    m2 = agents("m2", games={"A": (gz("a-old"), None, 10)}, busy={"A"})
+    settings = make_settings(tmp_path)
+    associate(settings, m1)
+    associate(settings, m2)
+    ids = machine_ids(settings)
+    task = Task(id="t2", kind="saves", params={"op": "push_auto", "targets": [ids["m1"], ids["m2"]],
+                                               "games": None})
+    with pytest.raises(RebuildError, match="1 échec"):
+        saves.run_saves(settings, task, Job())
+    assert task.params["result"]["push"]["results"][0]["ok"] is False
+
+
 # ------------------------------------------------------------------ états
 
 def test_status_labels_and_one_listing_per_machine(agents, tmp_path):
@@ -498,8 +584,9 @@ def test_status_labels_and_one_listing_per_machine(agents, tmp_path):
     assert labels == {"m1": "plus récente", "m2": "plus ancienne", "m3": "plus ancienne",
                       "m4": "absente", "morte": "injoignable"}
     autre = next(g for g in status["games"] if g["game"] == "Autre")
-    assert {s["name"]: s["state"] for s in autre["machines"]
-            if s["state"] not in ("absente", "injoignable")} == {"m1": "identique", "m4": "identique"}
+    # m1 et m4 ont la même version, m2 et m3 (joignables) ne l'ont pas : elles sont « absente »
+    assert {s["name"]: s["state"] for s in autre["machines"]} == {
+        "m1": "plus récente", "m2": "absente", "m3": "absente", "m4": "plus récente", "morte": "injoignable"}
     assert all(len([e for e in m["st"]["log"] if e["path"] == "/v1/saves/list"]) == 1
                for m in (m1, m2, m3, m4))
     dead = next(s for s in jeu["machines"] if s["name"] == "morte")
@@ -509,8 +596,10 @@ def test_status_labels_and_one_listing_per_machine(agents, tmp_path):
 
 def test_status_reports_reserve_and_single_game(agents, tmp_path):
     m1 = agents("m1", games={"Jeu": (gz("x"), None, 300)})
+    m2 = agents("m2")                       # joignable, sans le jeu
     settings = make_settings(tmp_path)
     associate(settings, m1)
+    associate(settings, m2)
     data = gz("reserve")
     saves.store(settings, "Jeu", part_with(settings, "Jeu", data), fingerprint=fp_of(data), newest=7,
                 profile=None, source="m1")
@@ -518,7 +607,8 @@ def test_status_reports_reserve_and_single_game(agents, tmp_path):
     assert [g["game"] for g in status["games"]] == ["Jeu"]
     assert status["games"][0]["reserve"]["fingerprint"] == fp_of(data)
     assert status["games"][0]["reserve"]["archives"] == 0
-    assert status["games"][0]["machines"][0]["state"] == "identique"
+    # seule machine à avoir le jeu : « plus récente » ; la joignable sans le jeu : « absente »
+    assert {s["name"]: s["state"] for s in status["games"][0]["machines"]} == {"m1": "plus récente", "m2": "absente"}
 
 
 # ------------------------------------------------------------------ API
@@ -609,3 +699,45 @@ def test_api_pull_and_push_queue_tasks(agents, api):
     assert pushed.status_code == 200
     assert client.get(f"/api/tasks/{pushed.json()['task']}").json()["params"]["op"] == "push"
     assert queue.get(pushed.json()["task"]) is not None
+
+
+def test_api_push_auto_queues_one_task_without_reserve(agents, api):
+    client, settings, queue = api
+    m1, m2 = agents("m1", games={"Jeu": (gz("x"), None, 5)}), agents("m2", games={"Jeu": (gz("y"), None, 1)})
+    associate(settings, m1)
+    associate(settings, m2)
+    ids = machine_ids(settings)
+    # Pas de réserve : « auto » ne l'exige pas
+    response = client.post("/api/saves/push", json={"source": "auto", "targets": [ids["m1"], ids["m2"]],
+                                                    "ids": ["arcade/Jeu"]})
+    assert response.status_code == 200
+    task = client.get(f"/api/tasks/{response.json()['task']}").json()
+    assert task["params"]["op"] == "push_auto" and task["params"]["games"] == ["Jeu"]
+    assert client.post("/api/saves/push", json={"source": "auto", "targets": [ids["m1"]],
+                                                "ids": ["arcade/Absent"]}).status_code == 404
+
+
+def test_pull_auto_takes_each_game_from_its_newest_machine(agents, tmp_path):
+    m1 = agents("m1", games={"A": (gz("a-new"), None, 300), "B": (gz("b"), None, 5)})
+    m2 = agents("m2", games={"A": (gz("a-old"), None, 10), "B": (gz("b"), None, 4)})
+    settings = make_settings(tmp_path)
+    associate(settings, m1)
+    associate(settings, m2)
+    result = saves.pull_auto(settings, ["A", "B", "C"])
+    by_game = {r["game"]: r for r in result["results"]}
+    assert by_game["A"]["ok"] is True and by_game["B"]["ok"] is True
+    assert by_game["C"]["ok"] is False and "absent" in by_game["C"]["message"]
+    # A vient de m1 (la plus récente), jamais de m2 ; B (identique) vient de la première machine
+    assert saves.reserve_dir(settings, "A").joinpath(saves.CURRENT).read_bytes() == gz("a-new")
+    assert [e["game"] for e in m2["st"]["log"] if e["method"] == "GET" and e["path"] == "/v1/saves/tar"] == []
+    assert [e for e in m1["st"]["log"] if e["path"] == "/v1/saves/tar"] != []
+
+
+def test_api_pull_auto_queues_a_pull_task(agents, api):
+    client, settings, _ = api
+    m1 = agents("m1", games={"Jeu": (gz("x"), None, 1)})
+    associate(settings, m1)
+    response = client.post("/api/saves/pull", json={"source": "auto", "ids": ["arcade/Jeu"]})
+    assert response.status_code == 200
+    task = client.get(f"/api/tasks/{response.json()['task']}").json()
+    assert task["params"]["op"] == "pull_auto" and task["params"]["games"] == ["Jeu"]

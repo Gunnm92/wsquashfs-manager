@@ -78,6 +78,7 @@
   <nav class="views" id="views">
     <button data-view="images" class="active" title="Images"><svg class="ico"><use href="#i-layers"/></svg><span>Images</span><span class="count" id="count-images"></span></button>
     <button data-view="folders" title="Dossiers à empaqueter"><svg class="ico"><use href="#i-package"/></svg><span>Dossiers à empaqueter</span><span class="count" id="count-folders"></span></button>
+    <button data-view="saves" title="Sauvegardes entre machines"><svg class="ico"><use href="#i-save"/></svg><span>Sauvegardes</span><span class="count" id="count-saves"></span></button>
   </nav>
   <span id="status"></span>
   <span class="spacer"></span>
@@ -161,11 +162,6 @@
             <button class="btn secondary sm" id="d-links" title="Liens du prefix vers un runner hors de l'image ou absent, et réparation avec les runners installés sur la machine de jeu">Analyser</button></div>
           <div id="d-links-result" class="msg">Vérifie que l'image ne dépend pas d'un runner installé sur la machine.</div>
         </div>
-        <div class="box" id="d-syncs" hidden>
-          <div class="box-head"><svg class="ico"><use href="#i-save"/></svg><strong>Sauvegardes entre machines</strong>
-            <button class="iconbtn bare sm" id="d-syncs-refresh" title="Relire l'état des machines"><svg class="ico sm"><use href="#i-refresh"/></svg></button></div>
-          <div id="d-syncs-body"></div>
-        </div>
       </div>
       <div data-pane="autorun" hidden>
         <div id="a-override-box"></div>
@@ -190,6 +186,7 @@
           <button class="btn bare sm" id="d-verify" title="Vérifier l'intégrité de l'image"><svg class="ico sm"><use href="#i-shield"/></svg>Vérifier</button>
           <span class="trial"><button class="btn bare sm" id="d-trial" title="Lance le jeu sur la machine de jeu, l'observe puis l'arrête : tient-il, fenêtre, erreurs, capture"><svg class="ico sm"><use href="#i-flask"/></svg>Lancement d'essai</button>
             <select id="d-trial-duration" title="Durée de l'essai"><option value="30">30 s</option><option value="60" selected>60 s</option><option value="120">2 min</option></select></span>
+          <button class="btn secondary sm" id="d-saves-open" title="Ouvre l'onglet Sauvegardes, filtré sur ce jeu"><svg class="ico sm"><use href="#i-save"/></svg>Sauvegardes entre machines</button>
           <button class="btn bare sm" id="d-saves-copy" title="Copie les sauvegardes de partie de ce jeu dans la ludothèque (saves/&lt;système&gt;/&lt;jeu&gt;), sur la machine de jeu"><svg class="ico sm"><use href="#i-save"/></svg>Copier les sauvegardes</button>
           <button class="btn bare sm" id="d-saves-sync" title="Synchronise les sauvegardes de ce jeu avec les autres machines associées du réseau local : la plus récente gagne, l'autre est archivée"><svg class="ico sm"><use href="#i-refresh"/></svg>Synchroniser</button>
           <button class="btn bare sm" id="d-saves-reset" title="Met de côté les sauvegardes du jeu (renommées, pas supprimées)"><svg class="ico sm"><use href="#i-save"/></svg>Réinitialiser les sauvegardes</button>
@@ -292,6 +289,60 @@
   </div>
 </main>
 
+<!-- ================================================================ Sauvegardes -->
+<main id="saves-main" class="folders" hidden>
+  <div class="page-head">
+    <h1>Sauvegardes</h1>
+    <p>Sauvegardes de partie de tes machines. Choisis la plus récente comme source et pousse-la vers les autres ; la version écrasée est archivée sur chaque machine. La réserve du manager garde une copie, même machine éteinte.</p>
+  </div>
+
+  <section class="sv-bar" aria-label="Machines associées">
+    <span class="glabel">Machines</span>
+    <div class="sv-chips" id="s-chips"></div>
+    <span class="spacer"></span>
+    <button class="btn bare sm" id="s-refresh" title="Relire les machines et leurs sauvegardes"><svg class="ico sm"><use href="#i-refresh"/></svg>Actualiser</button>
+    <button class="btn secondary sm" id="s-pair" title="Associer une machine avec son code wsq://"><svg class="ico sm"><use href="#i-plus"/></svg>Associer une machine</button>
+  </section>
+
+  <div class="notice info" id="s-loading" role="status" hidden><span class="spinner"></span><span>Lecture des machines…</span></div>
+  <div id="s-error"></div>
+
+  <section class="sv-empty" id="s-empty" hidden>
+    <svg class="ico"><use href="#i-save"/></svg>
+    <strong>Aucune machine associée</strong>
+    <p class="dlg-intro">Associe les machines entre lesquelles tu veux garder les mêmes sauvegardes de partie.</p>
+    <ol>
+      <li>Sur la machine : <code>wsquashfs-launcher --pair</code> affiche un code <code>wsq://</code>.</li>
+      <li>Ici : « Associer une machine » et colle ce code.</li>
+      <li>Sur la machine : <code>wsquashfs-launcher --agent</code> pour qu'elle reste joignable.</li>
+    </ol>
+    <div class="row"><button class="btn primary sm" id="s-empty-pair"><svg class="ico sm"><use href="#i-plus"/></svg>Associer une machine</button></div>
+  </section>
+
+  <div id="s-body" hidden>
+    <div class="toolbar">
+      <label class="search"><svg class="ico"><use href="#i-search"/></svg><input type="search" id="s-search" placeholder="Rechercher un jeu…"></label>
+      <div class="pills" id="s-filter"></div>
+      <span class="spacer"></span>
+      <label class="row muted" id="s-all-label" style="font-size:12.5px;cursor:pointer" title="Tout sélectionner (filtre actuel)"><input type="checkbox" id="s-all">Tout sélectionner</label>
+    </div>
+    <div id="s-status"></div>
+    <div class="glist sv-list">
+      <div class="syncs-wrap"><table class="syncs sv" id="s-table"></table></div>
+    </div>
+  </div>
+
+  <div class="selbar" id="s-selection" hidden>
+    <span class="lbl" id="s-count"></span>
+    <label class="sv-src"><span>Source</span><select id="s-source"></select></label>
+    <div class="dd" id="s-targets-dd"><button type="button" class="dd-btn" id="s-targets" aria-haspopup="listbox" title="Machines qui reçoivent"></button></div>
+    <span class="sep"></span>
+    <button class="btn primary sm" id="s-push"><svg class="ico sm"><use href="#i-upload"/></svg>Pousser</button>
+    <button class="btn bare sm" id="s-pull" title="Copier les sauvegardes sélectionnées dans la réserve du manager"><svg class="ico sm"><use href="#i-save"/></svg>Mettre dans la réserve</button>
+    <button class="iconbtn bare sm" id="s-clear" title="Désélectionner"><svg class="ico sm"><use href="#i-x"/></svg></button>
+  </div>
+</main>
+
 <!-- ================================================================ Aide (contenu : assets/help.html, chargé à l'ouverture) -->
 <main id="help-main" class="help" hidden></main>
 
@@ -311,6 +362,16 @@
   </div>
 </dialog>
 
+<dialog id="dlg-pair" class="small">
+  <div class="dlg-head"><h2>Associer une machine</h2><span class="spacer"></span>
+    <button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
+  <p class="dlg-intro">Sur la machine : <code>wsquashfs-launcher --pair</code>, colle ici le code affiché ; puis <code>wsquashfs-launcher --agent</code> pour qu'elle reste joignable.</p>
+  <label class="field">Code wsq://<input id="pair-code" autocomplete="off" placeholder="wsq://…"></label>
+  <p id="pair-err" class="notice err" hidden></p>
+  <div class="dlg-foot"><span class="spacer"></span>
+    <button class="btn secondary" data-close>Fermer</button><button class="btn primary" id="pair-save"><svg class="ico sm"><use href="#i-link"/></svg>Associer</button></div>
+</dialog>
+
 <dialog id="dlg-login" class="small">
   <form method="dialog" id="login-form">
     <h2>Connexion</h2>
@@ -327,7 +388,6 @@
   <div class="pills on-s2 cfg-tabs" id="cfg-tabs" role="tablist">
     <button data-cpane="dirs" class="on" role="tab">Bibliothèque</button>
     <button data-cpane="host" role="tab">Machine de jeu</button>
-    <button data-cpane="saves" role="tab">Sauvegardes</button>
     <button data-cpane="tools" role="tab">Outils</button>
     <button data-cpane="general" role="tab">Général</button>
   </div>
@@ -380,34 +440,6 @@
       <div class="section-label">Session graphique</div>
       <label class="field">Processus de la session (son affichage est repris pour l'essai)<input id="cfg-session" placeholder="emulationstation — vide : environnement du gestionnaire"></label>
     </div>
-  </section>
-
-  <!-- Sauvegardes : machines avec lesquelles le manager échange les sauvegardes -->
-  <section class="cfg-pane" data-pane-name="saves" hidden>
-    <p class="dlg-intro">Machines avec lesquelles le manager échange les sauvegardes de partie (réserve du manager). Actions immédiates : « Enregistrer » ne sert pas ici.</p>
-    <div class="section-label">Machines</div>
-    <div class="tool-list" id="saves-machines"></div>
-    <div class="section-label">Sauvegardes entre machines</div>
-    <p class="dlg-intro">Pousser ou mettre dans la réserve toutes les sauvegardes d'une machine. Indépendant de la machine de jeu.</p>
-    <div class="tool-list" id="saves-tools">
-      <div class="tool stack">
-        <div><b>Pousser toutes les sauvegardes</b><span>Chaque jeu de la source est envoyé aux cibles ; la version écrasée y est archivée.</span></div>
-        <div class="ctl"><label class="field">Source<select id="stools-push-source"></select></label></div>
-        <div class="sys-toggles" id="stools-targets"></div>
-        <div class="ctl"><button class="btn primary sm" id="stools-push" type="button"><svg class="ico sm"><use href="#i-upload"/></svg>Pousser</button></div>
-      </div>
-      <div class="tool stack">
-        <div><b>Tout mettre dans la réserve</b><span>Récupère les sauvegardes de tous les jeux de la source dans la réserve du manager.</span></div>
-        <div class="ctl"><label class="field">Source<select id="stools-pull-source"></select></label>
-          <button class="btn secondary sm" id="stools-pull" type="button"><svg class="ico sm"><use href="#i-save"/></svg>Mettre dans la réserve</button></div>
-      </div>
-    </div>
-    <div id="stools-result" hidden></div>
-    <div class="section-label">Associer une machine</div>
-    <label class="field">Code d'association<input id="saves-code" autocomplete="off" placeholder="wsq://…"></label>
-    <p class="dlg-intro">Sur la machine : <code>wsquashfs-launcher --pair</code>, puis colle ici le code affiché.</p>
-    <div class="row"><button class="btn secondary sm" id="saves-pair" type="button"><svg class="ico sm"><use href="#i-link"/></svg>Associer</button></div>
-    <div id="saves-msg" hidden></div>
   </section>
 
   <!-- Outils : actions immédiates sur la machine de jeu enregistrée -->

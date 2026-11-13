@@ -82,7 +82,8 @@ sans. Le diagnostic et la maintenance du lanceur sont dans Réglages → Outils,
 utilisables une fois la machine de jeu enregistrée et joignable : lister,
 démonter, nettoyer, copier les sauvegardes (tous les jeux), synchroniser les
 sauvegardes avec les autres machines associées, voir l'état de la synchro.
-La fiche d'un jeu a « Copier les sauvegardes » (ce jeu) et « Synchroniser ».
+La fiche d'un jeu a « Copier les sauvegardes » et « Synchroniser » (ce jeu), et
+« Sauvegardes entre machines », qui ouvre l'onglet Sauvegardes filtré sur le jeu.
 L'association d'une machine se fait une fois, en ligne de commande, sur les
 deux machines : `wsquashfs-launcher --pair` sur l'autre, puis
 `wsquashfs-launcher --sync wsq://…` sur celle-ci (le manager ne l'expose pas).
@@ -124,15 +125,34 @@ d'une machine **source** (celle qui a de l'avance) vers les autres machines.
 - **Pull** (machine → réserve), **push** (réserve → cibles), **push_from**
   (pull puis push des seuls jeux récupérés). Une machine occupée (jeu en
   cours, 409) n'est pas touchée : le résultat le dit, par jeu et par machine.
-- **États** (`GET /api/saves/status`) : par jeu et par machine, « identique »
-  (toutes les machines ont la même version), sinon « plus récente » (la
-  version la plus récente : la source à choisir) ou « plus ancienne » ; et
-  « absente », « injoignable ». Chaque machine n'est interrogée qu'une fois.
+- **États** (`GET /api/saves/status`) : par jeu et par machine. « identique » :
+  toutes les machines joignables ont le jeu, avec la même version (deux
+  machines au moins). Sinon, parmi les joignables qui l'ont : « plus récente »
+  (la version la plus récente : la source) ou « plus ancienne » ; les
+  joignables sans le jeu sont « absente » ; les autres « injoignable » (elles ne
+  comptent pas). Chaque machine n'est interrogée qu'une fois.
 - **Tâches** : pull et push passent par la file (tâche `saves`, sans image) ;
   le détail par jeu est dans `params.result` de la tâche.
-- **Écrans** : Réglages → Sauvegardes (associer et oublier les machines, tout
-  pousser, tout mettre dans la réserve), fiche d'un jeu → « Sauvegardes entre
-  machines » (états, pousser, mettre dans la réserve).
+- **Écran** : l'onglet **Sauvegardes** (à côté d'Images et de Dossiers à
+  empaqueter).
+  - Bandeau des machines : une puce par machine (pastille verte joignable,
+    rouge injoignable, avec le message en infobulle) ; un clic propose
+    « Oublier » (pas pour la machine de jeu). « Associer une machine » prend le
+    code `wsq://` ; sur la machine : `wsquashfs-launcher --pair`, puis
+    `wsquashfs-launcher --agent` pour qu'elle reste joignable. Sans machine, un
+    encadré explique ces étapes.
+  - Tableau jeux × machines : ★ plus récente, identique, ancienne, — absente,
+    ? injoignable, avec la date de la version ; colonne Réserve. Filtres :
+    Tous, Différences, Identiques, Dans la réserve.
+  - Une ligne : « Pousser » (la plus récente vers les autres machines
+    joignables, si les versions diffèrent) et « … » : mettre dans la réserve,
+    pousser depuis une machine précise, envoyer la copie de la réserve.
+  - Sélection : source (la plus récente, jeu par jeu ; une machine ; la
+    réserve), cibles, « Pousser » (récapitulatif avant envoi), « Mettre dans la
+    réserve ». Une opération à la fois ; le résultat liste les échecs par jeu et
+    par machine.
+  - Liste des images : une icône dans « Sauveg. » ouvre l'onglet filtré sur le
+    jeu, dès qu'une machine est associée.
 
 Routes (toutes sous `/api/saves/`) :
 
@@ -144,6 +164,12 @@ Routes (toutes sous `/api/saves/`) :
 | GET | `status[?id=<image>]` | `{machines:[…], games:[{game, reserve, machines:[{id,name,state,fingerprint,newest,message}]}]}` |
 | POST | `pull` | `{"source":id, "ids":[…]}` ou `{"source":id, "all":true}` → `{"task":id}` |
 | POST | `push` | `{"source"?:id, "targets":[id…], "ids":[…]}` ou `"all":true` → `{"task":id}` ; sans source : depuis la réserve |
+
+`"source":"auto"` (pull et push) : chaque jeu vient de sa machine « plus
+récente ». Push : les cibles « plus ancienne » ou « absente » reçoivent le jeu ;
+une cible déjà à la même version est sautée (« déjà identique ») ; un jeu
+identique, ou seulement dans la réserve, n'est pas transféré. Pull : à défaut de
+version plus récente, la première machine qui a le jeu.
 
 `ids` et `all` s'excluent (422 sinon) ; source inconnue ou cible inconnue : 404 ;
 source parmi les cibles, cible en double, jeu absent de la réserve ou réserve
