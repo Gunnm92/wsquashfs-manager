@@ -1376,7 +1376,7 @@ const MAINT = {
   umount: ["Démonter les jeux", "Un jeu en cours sera arrêté."],
   clean: ["Nettoyer", "Supprime les copies de travail et les doublons des sauvegardes ; ne garde que les 3 dernières archives de --erase par jeu. Ce que les jeux ont écrit est gardé."],
   saves: ["Copier les sauvegardes de tous les jeux", "Copie les sauvegardes de partie dans la ludothèque (saves/<système>/<jeu>). Rien n'est supprimé."],
-  sync: ["Synchroniser les sauvegardes", "Envoie et reçoit les sauvegardes de partie avec les autres machines associées du réseau local ; en cas de conflit, la plus récente gagne et l'autre est archivée. Les jeux en cours sont ignorés."],
+  sync: ["Synchroniser les sauvegardes", "Envoie et reçoit les sauvegardes de partie avec les autres machines associées du réseau local ; en cas de conflit, la plus lourde gagne (à taille égale, la plus récente) et l'autre est archivée. Les jeux en cours sont ignorés."],
   "sync-status": ["État de la synchro", ""],
 };
 // Sans confirmation : les actions qui ne modifient rien
@@ -1493,10 +1493,12 @@ $("cfg-agent-probe").onclick = async () => {
 // tableau jeux × machines, sélection et barre d'actions. Une opération à la fois : la
 // tâche « saves » est suivie jusqu'à la fin (followTask), puis l'état est relu.
 
-const RESERVE = "__reserve__";          // source : réserve du manager
-const AUTO = "auto";                    // source : la machine la plus récente, jeu par jeu
-const PRESENT_STATES = new Set(["identique", "plus récente", "plus ancienne"]);
-const SAVE_FILTERS = [["", "Tous"], ["diff", "Différences"], ["same", "Identiques"], ["reserve", "Dans la réserve"]];
+const RESERVE = "__reserve__";          // source : le manager (copie des sauvegardes)
+const AUTO = "auto";                    // source : la machine suggérée (la plus lourde), jeu par jeu
+const PRESENT_STATES = new Set(["identique", "plus avancée", "en retard"]);
+const SAVE_FILTERS = [["", "Tous"], ["diff", "Différences"], ["same", "Identiques"], ["reserve", "Sur le manager"]];
+const OS_ICONS = ["linux", "steamos", "batocera"];          // icônes choisissables d'une machine
+const OS_LABELS = { linux: "Linux", steamos: "SteamOS", batocera: "Batocera" };
 const sv = {
   machines: [],          // machines jointes à leur état (kind, removable, ok, games, message)
   games: [],             // { game, reserve, machines: [état par machine] }
@@ -1523,17 +1525,25 @@ const reachableIds = () => sv.machines.filter((m) => m.ok).map((m) => m.id);
 const targetIds = () => reachableIds().filter((id) => !sv.unchecked.has(id));
 const pushTargets = () => targetIds().filter((id) => id !== sv.source);
 const stateOf = (g, id) => g.machines.find((s) => s.id === id);
-const newestOf = (g) => g.machines.find((s) => s.state === "plus récente");
+const suggestedOf = (g) => g.machines.find((s) => s.state === "plus avancée");   // la suggérée (la plus lourde)
 const presentIn = (g) => g.machines.filter((s) => PRESENT_STATES.has(s.state));
+// Cibles d'une synchro d'un jeu : machines joignables qui ne sont pas à l'empreinte de la suggérée
+const rowTargets = (g) => {
+  const top = suggestedOf(g);
+  return top ? reachableIds().filter((id) => stateOf(g, id)?.fingerprint !== top.fingerprint) : [];
+};
 // Identique : toutes les machines joignables ont la même version. Différences : sinon,
-// avec une source (« plus récente »), les autres joignables sont à pousser ou absentes.
+// avec une suggérée (« plus avancée »), les autres joignables sont à synchroniser ou absentes.
 const identical = (g) => g.machines.some((s) => s.state === "identique");
-const differs = (g) => !identical(g) && Boolean(newestOf(g));
+const differs = (g) => !identical(g) && Boolean(suggestedOf(g));
 const shortDate = (t) => {
   if (!t) return "";
   const d = new Date(t * 1000), p = (n) => String(n).padStart(2, "0");
   return `${p(d.getDate())}/${p(d.getMonth() + 1)} ${p(d.getHours())}:${p(d.getMinutes())}`;
 };
+// « 246 Mo · 13/11 10:02 » : taille et date d'une version (la date seule n'est pas fiable)
+const sizeDate = (bytes, t) => [bytes ? size(bytes) : "", shortDate(t)].filter(Boolean).join(" · ");
+const osIcon = (key, cls = "") => icon(OS_ICONS.includes(key) || key === "server" ? key : "linux", cls);
 
 async function loadSaves() {
   const seq = ++sv.seq;               // seule la dernière lecture compte
@@ -1575,25 +1585,65 @@ function paintSaves() {
   paintSelection();
 }
 
-// Bandeau : une puce par machine ; « Oublier » sauf pour la machine de jeu
+// Bandeau : une carte par machine (icône du système, nom, état) ; clic : menu (icône, oubli).
+// Le manager est une carte de plus, sans menu ; « Associer » est la dernière carte.
 function paintChips() {
-  $("s-chips").replaceChildren(...sv.machines.map((m) => {
-    const title = m.ok ? `${m.url} : joignable` : `Injoignable : ${m.message || "pas de réponse"}`;
-    const inner = [el("span", { className: "led" }), el("b", { textContent: m.name }),
-      el("span", { className: "muted", textContent: m.ok ? `${m.games} jeu${m.games > 1 ? "x" : ""}` : "injoignable" }),
-      m.kind === "game_host" ? el("span", { className: "chip plain t-accent", textContent: "machine de jeu" }) : null];
-    if (!m.removable || m.kind === "game_host") {
-      return el("span", { className: `mchip${m.ok ? "" : " off"}`, title: m.kind === "game_host" ? `${title} : configurée dans Réglages › Machine de jeu` : title }, ...inner);
-    }
-    const button = el("button", { type: "button", className: `mchip${m.ok ? "" : " off"}`, title, "aria-haspopup": "menu" }, ...inner);
-    const wrap = el("div", { className: "dd" }, button);
-    button.onclick = () => toggleMenu(wrap, () => [["Oublier cette machine", "trash", false, () => forgetMachine(m), true]]);
-    return wrap;
-  }));
+  const kept = sv.games.filter((g) => g.reserve).length;
+  const manager = el("div", { className: "mcard mgr", title: "Copie des sauvegardes sur le manager : elle reste même si une machine est éteinte" },
+    el("span", { className: "mcard-ico" }, icon("server", "lg")),
+    el("span", { className: "mcard-txt" },
+      el("span", { className: "mcard-name" }, el("b", { textContent: "Manager" })),
+      el("span", { className: "mcard-sub", textContent: kept ? `${kept} jeu${kept > 1 ? "x" : ""} gardé${kept > 1 ? "s" : ""}` : "aucun jeu gardé" })));
+  $("s-chips").replaceChildren(...sv.machines.map(machineCard), manager, $("s-pair"));
+}
+
+function machineCard(m) {
+  const isHost = m.kind === "game_host";
+  const title = m.ok ? `${m.url} : joignable` : `Injoignable : ${m.message || "pas de réponse"}`;
+  const card = el("button", { type: "button", className: `mcard${m.ok ? "" : " off"}`, "aria-haspopup": "menu",
+    title: isHost ? `${title} · configurée dans Réglages › Machine de jeu` : title },
+    el("span", { className: "mcard-ico" }, osIcon(m.icon, "lg")),
+    el("span", { className: "mcard-txt" },
+      el("span", { className: "mcard-name" }, el("b", { textContent: m.name }),
+        isHost ? el("span", { className: "chip plain t-accent", textContent: "machine de jeu" }) : null),
+      el("span", { className: "mcard-sub" }, el("span", { className: "led" }),
+        el("span", { textContent: m.ok ? `${m.games} jeu${m.games > 1 ? "x" : ""}` : "injoignable" }))),
+    icon("chevd", "sm chev"));
+  const wrap = el("div", { className: "dd" }, card);
+  card.onclick = () => openMenuNode(wrap, machineMenu(m));
+  return wrap;
+}
+
+// Menu d'une machine : icône (détectée ou choisie), puis oubli (sauf machine de jeu)
+function machineMenu(m) {
+  const choice = (label, key, checked, onpick) => menuItem(label, key, onpick, { checked, role: "menuitemradio" });
+  const nodes = [
+    el("div", { className: "dd-sub", textContent: "Icône" }),
+    choice(`Détectée (${({ linux: "Linux", steamos: "SteamOS", batocera: "Batocera" })[m.os] || m.os || "Linux"})`, m.icon || "linux", !m.icon_set, () => setMachineIcon(m, null)),
+    ...OS_ICONS.map((key) => choice(OS_LABELS[key], key, m.icon_set && m.icon === key, () => setMachineIcon(m, key))),
+  ];
+  if (m.removable) nodes.push(menuItem("Oublier cette machine", "trash", () => forgetMachine(m), { danger: true }));
+  return nodes;
+}
+
+// Entrée de menu : bouton (cochée, danger) avec icône optionnelle
+function menuItem(label, iconName, action, { checked = null, danger = false, role = "menuitem" } = {}) {
+  const b = el("button", { type: "button", className: danger ? "danger" : "", role, "aria-checked": checked === null ? undefined : String(checked) },
+    el("span", { className: "nocheck" }, checked ? icon("check", "sm") : null),
+    icon(iconName, "sm"), el("span", { textContent: label }));
+  b.onclick = () => { closeMenu(); action(); };
+  return b;
+}
+
+async function setMachineIcon(m, key) {
+  try {
+    await api(`/api/saves/machines/${encodeURIComponent(m.id)}`, { method: "PATCH", body: { icon: key } });
+    loadSaves();
+  } catch (error) { toast(error.message, "alert", true); }
 }
 
 async function forgetMachine(m) {
-  if (!confirm(`Oublier « ${m.name} » ? Le manager ne lira plus ses sauvegardes. Celles déjà reçues restent dans la réserve.`)) return;
+  if (!confirm(`Oublier « ${m.name} » ? Le manager ne lira plus ses sauvegardes. Les sauvegardes déjà copiées sur le manager restent.`)) return;
   try {
     await api(`/api/saves/machines/${encodeURIComponent(m.id)}`, { method: "DELETE" });
     toast("Machine oubliée");
@@ -1601,20 +1651,23 @@ async function forgetMachine(m) {
   } catch (error) { toast(error.message, "alert", true); }
 }
 
-// Menu d'action (même mécanique que les filtres de la liste) : items → [libellé, icône, désactivé, action, danger]
-function toggleMenu(wrap, items) {
+// Ouvre un menu sous (ou au-dessus de) son déclencheur ; un second clic le referme
+function openMenuNode(wrap, nodes) {
   const open = openMenu?.parentElement === wrap;
   closeMenu();
   if (open) return;
-  const menu = el("div", { className: "dd-menu end", role: "menu" }, ...items().map(([label, iconName, disabled, action, danger]) => {
-    const b = el("button", { type: "button", className: danger ? "danger" : "", disabled: Boolean(disabled) },
-      icon(iconName, "sm"), el("span", { textContent: label }));
-    b.onclick = () => { closeMenu(); action(); };
+  openMenu = el("div", { className: "dd-menu end sv-menu", role: "menu" }, ...nodes);
+  placeMenu(openMenu, wrap);
+  openMenu.querySelector("button:not([disabled])")?.focus({ preventScroll: true });
+}
+
+// Menu d'action (même mécanique que les filtres de la liste) : items → [libellé, icône, désactivé, action, danger]
+function toggleMenu(wrap, items) {
+  openMenuNode(wrap, items().map(([label, iconName, disabled, action, danger]) => {
+    const b = menuItem(label, iconName, action, { danger: Boolean(danger) });
+    b.disabled = Boolean(disabled);
     return b;
   }));
-  openMenu = menu;
-  placeMenu(menu, wrap);
-  menu.querySelector("button:not([disabled])")?.focus({ preventScroll: true });
 }
 
 function paintFilters() {
@@ -1640,17 +1693,32 @@ function visibleGames() {
     .sort((a, b) => a.game.localeCompare(b.game, "fr", { numeric: true, sensitivity: "base" }));
 }
 
-// Cellule d'une machine : badge (★ plus récente, identique, ancienne, — absente, ? injoignable) + date
-function machineCell(g, m) {
+// Cellule d'une machine : badge (★ plus avancée, identique, en retard, — absente, ? injoignable),
+// « ⚠ à vérifier » si la suggérée n'est pas la plus récente, « ← » si elle reçoit la version,
+// puis « taille · date »
+function machineCell(g, m, target) {
   const s = stateOf(g, m.id), st = s?.state ?? "absente";
-  const [label, tone] = { "plus récente": ["★ plus récente", "t-accent"], identique: ["identique", "t-sage"],
-    "plus ancienne": ["ancienne", "t-neutral"], injoignable: ["?", "t-err"] }[st] ?? ["—", ""];
+  const [label, tone] = { "plus avancée": ["★ plus avancée", "t-accent"], identique: ["identique", "t-sage"],
+    "en retard": ["en retard", "t-neutral"], injoignable: ["?", "t-err"] }[st] ?? ["—", ""];
   const detail = [`${m.name} : ${st}`, s?.newest ? when(s.newest) : "", st === "injoignable" ? (s?.message || m.message || "") : ""]
     .filter(Boolean).join(" · ");
-  const cls = { "plus récente": "sv-newest", "plus ancienne": "sv-old", absente: "sv-none" }[st] ?? "";
+  const cls = { "plus avancée": "sv-best", "en retard": "sv-old", absente: "sv-none" }[st] ?? "";
+  const top = suggestedOf(g);
+  const check = g.check && st === "plus avancée" ? checkMarker(g) : null;
+  const incoming = target && top && st !== "plus avancée"
+    ? el("span", { className: "sv-in", title: `Reçoit la version de ${top.name}`, textContent: "←" }) : null;
   return el("td", { className: cls, title: detail },
-    st === "absente" ? dash() : el("span", { className: `chip plain ${tone}`, textContent: label }),
-    PRESENT_STATES.has(st) ? el("div", { className: "sv-date", textContent: shortDate(s.newest) }) : null);
+    el("div", { className: "sv-line" }, incoming,
+      st === "absente" ? dash() : el("span", { className: `chip plain ${tone}`, textContent: label }), check),
+    PRESENT_STATES.has(st) ? el("div", { className: "sv-date", textContent: sizeDate(s.size, s.newest) }) : null);
+}
+
+// Suggestion douteuse : la plus lourde n'est pas la plus récente
+function checkMarker(g) {
+  const other = g.machines.find((s) => s.name === g.check_by);
+  const dated = other ? ` (${g.check_by}, ${when(other.newest)})` : "";
+  return el("span", { className: "sv-check", tabIndex: 0, textContent: "⚠ à vérifier",
+    title: `La plus lourde (${suggestedOf(g)?.name ?? "?"}) n'est pas la plus récente${dated} : vérifie avant de synchroniser` });
 }
 
 function paintTable() {
@@ -1665,8 +1733,10 @@ function paintTable() {
     paintSelection();
   };
   const head = el("tr", {}, el("th", { className: "sv-stick" }), el("th", { className: "sv-stick2", textContent: "Jeu" }),
-    ...sv.machines.map((m) => el("th", { textContent: m.name, title: m.url })),
-    el("th", { textContent: "Réserve" }), el("th", {}));
+    ...sv.machines.map((m) => el("th", { title: m.url },
+      el("span", { className: "sv-th" }, osIcon(m.icon, "sm"), el("span", { textContent: m.name })))),
+    el("th", { title: "Copie des sauvegardes sur le manager" }, el("span", { className: "sv-th" }, icon("server", "sm"), el("span", { textContent: "Manager" }))),
+    el("th", {}));
   const rows = games.map((g) => {
     const actionable = ids.has(g.game), img = ids.get(g.game);
     const box = el("input", { type: "checkbox", checked: sv.selected.has(g.game), disabled: !actionable,
@@ -1676,18 +1746,19 @@ function paintTable() {
       ? el("button", { type: "button", className: "sv-name", textContent: g.game, title: "Ouvrir la fiche de l'image" })
       : el("span", { className: "sv-name off", textContent: g.game, title: "Pas d'image dans la bibliothèque" });
     if (actionable) name.onclick = () => { showView("images"); openDetail(img); };
-    const newest = newestOf(g);
+    const top = suggestedOf(g), targets = differs(g) ? rowTargets(g) : [];
     const reserve = g.reserve
-      ? el("td", { title: `Réserve : depuis ${g.reserve.source || "?"} (${when(g.reserve.newest)}) · ${g.reserve.archives} archive(s)` },
-        el("span", { textContent: shortDate(g.reserve.newest) }))
+      ? el("td", { className: "sv-mgr", title: `Copie du manager : depuis ${g.reserve.source || "?"}, le ${when(g.reserve.newest)} · ${g.reserve.archives} version(s) précédente(s)` },
+        el("span", { className: "sv-date", textContent: sizeDate(g.reserve.size, g.reserve.newest) }))
       : el("td", {}, dash());
     const actions = el("td", { className: "sv-act" });
     if (actionable && differs(g)) {
-      const push = el("button", { type: "button", className: "btn primary sm", disabled: busy() || !newest || !reachableIds().some((id) => id !== newest.id),
-        title: "Pousse la version la plus récente vers les autres machines joignables" },
-        icon("upload", "sm"), "Pousser");
-      push.onclick = () => pushRow(g);
-      actions.append(push);
+      const flow = targets.length ? `${top.name} → ${targets.length === 1 ? machineName(targets[0]) : `${targets.length} machines`}` : "";
+      const sync = el("button", { type: "button", className: "btn primary sm sv-sync", disabled: busy() || !targets.length,
+        title: targets.length ? `Sync de ${top.name} vers : ${names(targets)}` : "Aucune autre machine joignable à synchroniser" },
+        icon("arrow", "sm"), el("b", { textContent: "Sync" }), flow ? el("span", { className: "sv-flow", textContent: flow }) : null);
+      sync.onclick = () => syncRow(g);
+      actions.append(sync);
     }
     if (actionable) {
       const wrap = el("div", { className: "dd end" }, el("button", { type: "button", className: "iconbtn bare sm", title: "Autres actions", "aria-label": `Autres actions pour ${g.game}`, "aria-haspopup": "menu" }, icon("chevd", "sm")));
@@ -1696,7 +1767,7 @@ function paintTable() {
     }
     return el("tr", { className: differs(g) ? "sv-diff" : "" },
       el("td", { className: "sv-stick" }, box), el("td", { className: "sv-stick2" }, name),
-      ...sv.machines.map((m) => machineCell(g, m)), reserve, actions);
+      ...sv.machines.map((m) => machineCell(g, m, targets.includes(m.id))), reserve, actions);
   });
   if (!games.length) {
     rows.push(el("tr", {}, el("td", { colSpan: sv.machines.length + 4 },
@@ -1709,11 +1780,11 @@ function paintTable() {
 // Menu « … » d'une ligne
 function rowItems(g) {
   const img = imageIds().get(g.game), idle = !busy() && Boolean(img);
-  const reach = reachableIds();
+  const reach = reachableIds(), top = suggestedOf(g);
   return [
-    ["Mettre dans la réserve", "save", !idle || !presentIn(g).length, () => pullGames([g], AUTO)],
-    ...presentIn(g).map((s) => [`Pousser depuis ${s.name}`, "upload", !idle || !reach.some((id) => id !== s.id), () => pushFrom(g, s.id)]),
-    ["Envoyer la réserve", "refresh", !idle || !g.reserve || !reach.length, () => pushReserve(g)],
+    ...presentIn(g).map((s) => [`Sync depuis ${s.name} → les autres`, "arrow", !idle || !reach.some((id) => id !== s.id), () => pushFrom(g, s.id)]),
+    [top ? `Copier vers le manager (${top.name} → Manager)` : "Copier vers le manager", "save", !idle || !top, () => pullGames([g], AUTO)],
+    ["Sync depuis le manager (Manager → machines)", "server", !idle || !g.reserve || !reachManagerTargets(g).length, () => pushReserve(g)],
   ];
 }
 
@@ -1724,14 +1795,14 @@ function paintStatus() {
   $("s-status").replaceChildren(...nodes);
 }
 
-// Barre de sélection : source, cibles (cases dans un menu), Pousser, Mettre dans la réserve
+// Barre de sélection : source → cibles (cases dans un menu), Sync, Copier vers le manager
 function paintSelection() {
   const bar = $("s-selection"), n = sv.selected.size;
   bar.hidden = n === 0 || !sv.loaded;
   if (bar.hidden) return;
   $("s-count").textContent = n > 1 ? `${n} jeux` : "1 jeu";
-  const options = [[AUTO, "La plus récente (par jeu)"], ...sv.machines.filter((m) => m.ok).map((m) => [m.id, m.name]),
-    [RESERVE, "Réserve du manager"]];
+  const options = [[AUTO, "La plus avancée (par jeu)"], ...sv.machines.filter((m) => m.ok).map((m) => [m.id, m.name]),
+    [RESERVE, "Manager"]];
   if (!options.some(([value]) => value === sv.source)) sv.source = AUTO;
   $("s-source").replaceChildren(...options.map(([value, label]) => new Option(label, value)));
   $("s-source").value = sv.source;
@@ -1743,7 +1814,7 @@ function paintSelection() {
   $("s-push").disabled = !pushable;
   $("s-push").title = targets.length ? "" : "Aucune cible : coche au moins une autre machine joignable";
   $("s-pull").disabled = busy() || !games.length || sv.source === RESERVE;
-  $("s-pull").title = sv.source === RESERVE ? "Choisis une machine, ou « La plus récente », comme source" : "Copier les sauvegardes sélectionnées dans la réserve du manager";
+  $("s-pull").title = sv.source === RESERVE ? "Choisis une machine, ou « La plus avancée », comme source" : "Copier les sauvegardes sélectionnées sur le manager";
 }
 
 // Cibles : cases par machine joignable (la source choisie est grisée)
@@ -1868,27 +1939,32 @@ async function runSaveOp(path, body) {
 }
 
 const imageOf = (g) => imageIds().get(g.game);
-// Copie dans la réserve : depuis `source` (une machine, ou AUTO : la plus récente, jeu par jeu)
+const ARCHIVED = "La version écrasée sur chaque machine est archivée.";
+// Cibles d'une copie du manager vers les machines : joignables, pas déjà à sa version
+const reachManagerTargets = (g) => reachableIds().filter((id) => !g.reserve || stateOf(g, id)?.fingerprint !== g.reserve.fingerprint);
+
+// Copie vers le manager : depuis `source` (une machine, ou AUTO : la suggérée, jeu par jeu)
 function pullGames(games, source) {
   const ids = games.map(imageOf).filter(Boolean);
   if (!ids.length || source === RESERVE) return;
   runSaveOp("/api/saves/pull", { source, ids });
 }
-function pushRow(g) {                       // la plus récente vers les autres machines joignables
-  const from = newestOf(g), targets = reachableIds().filter((id) => id !== from?.id);
+function syncRow(g) {                       // la suggérée vers les autres machines joignables
+  const from = suggestedOf(g), targets = rowTargets(g);
   if (!from || !targets.length) return;
-  if (!confirm(`Pousser « ${g.game} » depuis ${from.name} vers ${names(targets)} ?\n\nLa version écrasée sur chaque machine est archivée.`)) return;
+  if (!confirm(`Sync « ${g.game} » : ${from.name} → ${names(targets)}.\n\n${ARCHIVED}`)) return;
   runSaveOp("/api/saves/push", { source: AUTO, targets, ids: [imageOf(g)] });
 }
 function pushFrom(g, sourceId) {
   const targets = reachableIds().filter((id) => id !== sourceId);
   if (!targets.length) return;
-  if (!confirm(`Pousser « ${g.game} » depuis ${machineName(sourceId)} vers ${names(targets)} ?\n\nLa version écrasée sur chaque machine est archivée.`)) return;
+  if (!confirm(`Sync « ${g.game} » : ${machineName(sourceId)} → ${names(targets)}.\n\n${ARCHIVED}`)) return;
   runSaveOp("/api/saves/push", { source: sourceId, targets, ids: [imageOf(g)] });
 }
-function pushReserve(g) {
-  const targets = reachableIds();
-  if (!confirm(`Envoyer la copie de la réserve de « ${g.game} » vers ${names(targets)} ?\n\nLa version écrasée sur chaque machine est archivée.`)) return;
+function pushReserve(g) {                   // copie du manager (sans source) vers les machines
+  const targets = reachManagerTargets(g);
+  if (!targets.length) return;
+  if (!confirm(`Sync « ${g.game} » : Manager → ${names(targets)}.\n\n${ARCHIVED}`)) return;
   runSaveOp("/api/saves/push", { targets, ids: [imageOf(g)] });
 }
 function pushSelection() {
@@ -1898,28 +1974,29 @@ function pushSelection() {
   const idsOf = (list) => list.map(imageOf);
   let body, lines;
   if (sv.source === RESERVE) {
-    const inReserve = games.filter((g) => g.reserve);
-    if (!inReserve.length) { toast("Aucun jeu sélectionné n'est dans la réserve.", "alert", true); return; }
-    body = { targets, ids: idsOf(inReserve) };
-    lines = [`${inReserve.length} jeu(x) depuis la réserve du manager vers ${names(targets)}.`];
-    if (inReserve.length < games.length) lines.push(`${games.length - inReserve.length} jeu(x) absent(s) de la réserve, ignoré(s).`);
+    const onManager = games.filter((g) => g.reserve);
+    if (!onManager.length) { toast("Aucun jeu sélectionné n'est sur le manager.", "alert", true); return; }
+    body = { targets, ids: idsOf(onManager) };
+    lines = [`${onManager.length > 1 ? `${onManager.length} jeux` : `« ${onManager[0].game} »`} : Manager → ${names(targets)}.`];
+    if (onManager.length < games.length) lines.push(`${games.length - onManager.length} jeu(x) absent(s) du manager, ignoré(s).`);
   } else if (sv.source === AUTO) {
-    // Chaque jeu depuis sa plus récente ; les jeux identiques ne sont pas transférés
+    // Chaque jeu depuis sa suggérée ; les jeux identiques ne sont pas transférés
     // Cibles qui n'ont pas la version de la source (absentes ou plus anciennes)
     const moves = games.map((g) => {
-      const from = newestOf(g);
+      const from = suggestedOf(g);
       const to = from ? targets.filter((id) => id !== from.id && stateOf(g, id)?.fingerprint !== from.fingerprint) : [];
       return { g, from, to };
     }).filter((x) => x.to.length);
-    if (!moves.length) { toast("Rien à envoyer : les jeux sélectionnés sont déjà identiques.", "info"); return; }
+    if (!moves.length) { toast("Rien à synchroniser : les jeux sélectionnés sont déjà identiques.", "info"); return; }
     body = { source: AUTO, targets, ids: idsOf(games) };
-    lines = moves.map(({ g, from, to }) => `${g.game} : ${from.name} → ${names(to)}`);
+    lines = moves.map(({ g, from, to }) => `Sync « ${g.game} » : ${from.name} → ${names(to)}.`);
     if (moves.length < games.length) lines.push(`${games.length - moves.length} jeu(x) déjà identiques ou sans source, ignoré(s).`);
   } else {
+    const dest = targets.filter((id) => id !== sv.source);
     body = { source: sv.source, targets, ids: idsOf(games) };
-    lines = [`${games.length} jeu(x) depuis ${machineName(sv.source)} vers ${names(targets.filter((id) => id !== sv.source))}.`];
+    lines = [`${games.length > 1 ? `${games.length} jeux` : `« ${games[0].game} »`} : ${machineName(sv.source)} → ${names(dest)}.`];
   }
-  if (!confirm(`Pousser ?\n\n${lines.join("\n")}\n\nLa version écrasée sur chaque machine est archivée.`)) return;
+  if (!confirm(`${lines.join("\n")}\n\n${ARCHIVED}`)) return;
   runSaveOp("/api/saves/push", body);
 }
 
@@ -2482,7 +2559,7 @@ $("d-saves-copy").onclick = () => gameSaveAction($("d-saves-copy"), { action: "s
   "Copie des sauvegardes", "Sauvegardes copiées");
 $("d-saves-open").onclick = () => { if (state.current) openSavesFor(gameOfItem(state.current)); };
 $("d-saves-sync").onclick = () => {
-  if (!confirm(`Synchroniser les sauvegardes de « ${state.current.name} » avec les autres machines associées du réseau local ? En cas de conflit, la plus récente gagne et l'autre est archivée.`)) return;
+  if (!confirm(`Synchroniser les sauvegardes de « ${state.current.name} » avec les autres machines associées du réseau local ? En cas de conflit, la plus lourde gagne (à taille égale, la plus récente) et l'autre est archivée.`)) return;
   gameSaveAction($("d-saves-sync"), { action: "sync", id: state.current.id }, "Synchronisation", "Sauvegardes synchronisées");
 };
 $("btn-verify").onclick = () => verify([...state.selected]).catch((error) => alert(error.message));

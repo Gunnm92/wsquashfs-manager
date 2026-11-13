@@ -66,6 +66,11 @@
 <symbol id="i-image" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21"></path></symbol>
 <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"></path></symbol>
 <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><path d="M12 17h.01"></path></symbol>
+<symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></symbol>
+<symbol id="i-server" viewBox="0 0 24 24"><rect width="20" height="8" x="2" y="2" rx="2"></rect><rect width="20" height="8" x="2" y="14" rx="2"></rect><path d="M6 6h.01M6 18h.01"></path></symbol>
+<symbol id="i-linux" viewBox="0 0 24 24"><path d="M9 9.6C7.2 12 6 14.5 6.2 17c.2 2.3 2.3 3.6 5.8 3.6s5.6-1.3 5.8-3.6c.2-2.5-1-5-2.8-7.4"></path><circle cx="12" cy="6.6" r="3.6"></circle><ellipse cx="12" cy="15.6" rx="2.5" ry="3.2"></ellipse><path d="M10.7 6h.01M13.3 6h.01"></path><path d="m11 7.8 1 .8 1-.8"></path><path d="M7.6 19.6 5.2 21.2h4.4M16.4 19.6l2.4 1.6h-4.4"></path></symbol>
+<symbol id="i-steamos" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5"></circle><circle cx="15.2" cy="10.6" r="2.8"></circle><path d="m13.3 12.7-5.6 4.4"></path><circle cx="6.4" cy="17.8" r="2"></circle></symbol>
+<symbol id="i-batocera" viewBox="0 0 24 24"><path d="M7.2 7.5h9.6a5 5 0 0 1 4.8 6.2l-.8 2.9a2.4 2.4 0 0 1-4.1.9L14.7 15H9.3l-1.9 2.5a2.4 2.4 0 0 1-4.1-.9l-.8-2.9a5 5 0 0 1 4.7-6.2Z"></path><path d="M7.4 10.6v3.2M5.8 12.2h3.2"></path><circle cx="15.8" cy="11.2" r=".6"></circle><circle cx="17.8" cy="13.2" r=".6"></circle></symbol>
 </defs></svg>
 <div id="tip" role="tooltip" hidden></div>
 <div id="toast" role="status" hidden></div>
@@ -188,7 +193,7 @@
             <select id="d-trial-duration" title="Durée de l'essai"><option value="30">30 s</option><option value="60" selected>60 s</option><option value="120">2 min</option></select></span>
           <button class="btn secondary sm" id="d-saves-open" title="Ouvre l'onglet Sauvegardes, filtré sur ce jeu"><svg class="ico sm"><use href="#i-save"/></svg>Sauvegardes entre machines</button>
           <button class="btn bare sm" id="d-saves-copy" title="Copie les sauvegardes de partie de ce jeu dans la ludothèque (saves/&lt;système&gt;/&lt;jeu&gt;), sur la machine de jeu"><svg class="ico sm"><use href="#i-save"/></svg>Copier les sauvegardes</button>
-          <button class="btn bare sm" id="d-saves-sync" title="Synchronise les sauvegardes de ce jeu avec les autres machines associées du réseau local : la plus récente gagne, l'autre est archivée"><svg class="ico sm"><use href="#i-refresh"/></svg>Synchroniser</button>
+          <button class="btn bare sm" id="d-saves-sync" title="Synchronise les sauvegardes de ce jeu avec les autres machines associées du réseau local : la plus lourde gagne (à taille égale, la plus récente), l'autre est archivée"><svg class="ico sm"><use href="#i-refresh"/></svg>Synchroniser</button>
           <button class="btn bare sm" id="d-saves-reset" title="Met de côté les sauvegardes du jeu (renommées, pas supprimées)"><svg class="ico sm"><use href="#i-save"/></svg>Réinitialiser les sauvegardes</button>
         </div>
       </div>
@@ -293,15 +298,18 @@
 <main id="saves-main" class="folders" hidden>
   <div class="page-head">
     <h1>Sauvegardes</h1>
-    <p>Sauvegardes de partie de tes machines. Choisis la plus récente comme source et pousse-la vers les autres ; la version écrasée est archivée sur chaque machine. La réserve du manager garde une copie, même machine éteinte.</p>
+    <p>Sauvegardes de partie de tes machines. <b>Sync</b> copie la version suggérée (la plus lourde) vers les autres machines ; la version écrasée est archivée sur chaque machine. Le manager garde une copie, même machine éteinte.</p>
   </div>
 
   <section class="sv-bar" aria-label="Machines associées">
-    <span class="glabel">Machines</span>
-    <div class="sv-chips" id="s-chips"></div>
-    <span class="spacer"></span>
-    <button class="btn bare sm" id="s-refresh" title="Relire les machines et leurs sauvegardes"><svg class="ico sm"><use href="#i-refresh"/></svg>Actualiser</button>
-    <button class="btn secondary sm" id="s-pair" title="Associer une machine avec son code wsq://"><svg class="ico sm"><use href="#i-plus"/></svg>Associer une machine</button>
+    <div class="sv-bar-head">
+      <span class="glabel">Machines</span>
+      <span class="spacer"></span>
+      <button class="btn bare sm" id="s-refresh" title="Relire les machines et leurs sauvegardes"><svg class="ico sm"><use href="#i-refresh"/></svg>Actualiser</button>
+    </div>
+    <div class="sv-chips" id="s-chips">
+      <button type="button" class="mcard add" id="s-pair" title="Associer une machine avec son code wsq://"><svg class="ico"><use href="#i-plus"/></svg><span>Associer une machine</span></button>
+    </div>
   </section>
 
   <div class="notice info" id="s-loading" role="status" hidden><span class="spinner"></span><span>Lecture des machines…</span></div>
@@ -334,11 +342,12 @@
 
   <div class="selbar" id="s-selection" hidden>
     <span class="lbl" id="s-count"></span>
-    <label class="sv-src"><span>Source</span><select id="s-source"></select></label>
-    <div class="dd" id="s-targets-dd"><button type="button" class="dd-btn" id="s-targets" aria-haspopup="listbox" title="Machines qui reçoivent"></button></div>
+    <label class="sv-src"><span>Source</span><select id="s-source" title="D'où viennent les sauvegardes"></select></label>
+    <span class="sv-arrow" aria-hidden="true"><svg class="ico sm"><use href="#i-arrow"/></svg></span>
+    <div class="dd" id="s-targets-dd"><button type="button" class="dd-btn" id="s-targets" aria-haspopup="menu" title="Machines qui reçoivent"></button></div>
     <span class="sep"></span>
-    <button class="btn primary sm" id="s-push"><svg class="ico sm"><use href="#i-upload"/></svg>Pousser</button>
-    <button class="btn bare sm" id="s-pull" title="Copier les sauvegardes sélectionnées dans la réserve du manager"><svg class="ico sm"><use href="#i-save"/></svg>Mettre dans la réserve</button>
+    <button class="btn primary sm" id="s-push"><svg class="ico sm"><use href="#i-arrow"/></svg>Sync</button>
+    <button class="btn bare sm" id="s-pull" title="Copier les sauvegardes sélectionnées sur le manager"><svg class="ico sm"><use href="#i-server"/></svg>Copier vers le manager</button>
     <button class="iconbtn bare sm" id="s-clear" title="Désélectionner"><svg class="ico sm"><use href="#i-x"/></svg></button>
   </div>
 </main>
@@ -461,7 +470,7 @@
         <button class="btn secondary sm" data-maint="clean">Nettoyer</button></div>
       <div class="tool"><div><b>Copier les sauvegardes</b><span>De tous les jeux vers saves/&lt;système&gt;/&lt;jeu&gt; dans la ludothèque. Rien n'est supprimé.</span></div>
         <button class="btn secondary sm" data-maint="saves">Copier</button></div>
-      <div class="tool"><div><b>Synchroniser les sauvegardes</b><span>Avec les autres machines associées du réseau local : la plus récente gagne, l'autre est archivée. Association une fois, en ligne de commande : <code>wsquashfs-launcher --pair</code> sur l'autre machine, puis <code>wsquashfs-launcher --sync wsq://…</code> sur celle-ci.</span></div>
+      <div class="tool"><div><b>Synchroniser les sauvegardes</b><span>Avec les autres machines associées du réseau local : la plus lourde gagne (à taille égale, la plus récente), l'autre est archivée. Association une fois, en ligne de commande : <code>wsquashfs-launcher --pair</code> sur l'autre machine, puis <code>wsquashfs-launcher --sync wsq://…</code> sur celle-ci.</span></div>
         <button class="btn secondary sm" data-maint="sync">Synchroniser</button></div>
       <div class="tool"><div><b>État de la synchro</b><span>Ce qui serait synchronisé, sans rien changer.</span></div>
         <button class="btn secondary sm" data-maint="sync-status">Voir l'état</button></div>

@@ -1362,8 +1362,8 @@ def clear_finished_tasks():
     return {"removed": queue.clear_finished()}
 
 
-# ------------------------------------------------------------- sauvegardes (réserve)
-# Réserve de sauvegardes et synchronisation entre machines (services/saves.py).
+# ------------------------------------------------------------- sauvegardes (manager)
+# Manager de sauvegardes et synchronisation entre machines (services/saves.py).
 # Lectures et états : réponse immédiate. Pull / push : tâches de la file
 # (« saves »), suivies par /api/tasks/{id} ; le résultat détaillé est dans
 # task.params.result.
@@ -1400,17 +1400,33 @@ def saves_machine_remove(machine_id: str):
     return {"removed": machine_id}
 
 
+class SavesMachineIcon(BaseModel):
+    icon: str | None                    # linux, steamos, batocera ; null : retour à la détection
+
+
+@app.patch("/api/saves/machines/{machine_id}")
+def saves_machine_icon(machine_id: str, body: SavesMachineIcon):
+    """Icône choisie à la main d'une machine ; null la rend à la détection (système)."""
+    try:
+        return saves_svc.set_icon(_settings, machine_id, body.icon)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"machine inconnue : {machine_id}") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.get("/api/saves/status")
 def saves_status(id: str | None = None):
-    """État par machine et par jeu (identique, plus récente, plus ancienne, absente,
-    injoignable) et réserve. Sans id : tous les jeux connus ; avec id d'image : ce jeu."""
+    """État par machine (identique, plus avancée, en retard, absente, injoignable) avec sa
+    taille, son système et son icône ; par jeu : le manager, la suggestion (check,
+    check_by). Sans id : tous les jeux connus ; avec id d'image : ce jeu."""
     games = [saves_svc.game_name(_find_image(id).path.name)] if id is not None else None
     return saves_svc.status(_settings, games)
 
 
 class SavesSelection(BaseModel):
     ids: list[str] | None = None        # identifiants d'images (<système>/<nom>)
-    all: bool = False                   # tous les jeux : de la source, ou de la réserve
+    all: bool = False                   # tous les jeux : de la source, ou du manager
 
     @model_validator(mode="after")
     def _one_of(self) -> SavesSelection:
@@ -1424,7 +1440,7 @@ class SavesPull(SavesSelection):
 
 
 class SavesPush(SavesSelection):
-    # absent : depuis la réserve ; « auto » : pour chaque jeu, depuis la machine la plus récente
+    # absent : depuis le manager ; « auto » : pour chaque jeu, depuis la machine la plus avancée
     source: str | None = Field(default=None, max_length=64)
     targets: list[str] = Field(min_length=1, max_length=20)
 
@@ -1451,12 +1467,12 @@ def _saves_machine(machine_id: str) -> dict:
 
 @app.post("/api/saves/pull")
 def saves_pull(body: SavesPull):
-    """Sauvegardes d'une machine source vers la réserve (tâche « saves »). Source « auto » :
-    chaque jeu depuis sa machine la plus récente."""
+    """Sauvegardes d'une machine source vers le manager (tâche « saves »). Source « auto » :
+    chaque jeu depuis sa machine la plus avancée."""
     games = _saves_games(body)
     if body.source == "auto":
         params = {"op": "pull_auto", "games": games}
-        title = "sauvegardes : réserve ← plus récente"
+        title = "sauvegardes : manager ← plus avancée"
     else:
         source = _saves_machine(body.source)
         params = {"op": "pull", "source": body.source, "games": games}
@@ -1467,14 +1483,14 @@ def saves_pull(body: SavesPull):
 
 @app.post("/api/saves/push")
 def saves_push(body: SavesPush):
-    """Réserve (sans source) ou machine source (push_from) vers les cibles (tâche « saves »)."""
+    """Manager (sans source) ou machine source (push_from) vers les cibles (tâche « saves »)."""
     if len(set(body.targets)) != len(body.targets):
         raise HTTPException(status_code=422, detail="machine cible en double")
     targets = [_saves_machine(machine_id) for machine_id in body.targets]
     games = _saves_games(body)
-    if body.source == "auto":            # chaque jeu depuis sa machine la plus récente
+    if body.source == "auto":            # chaque jeu depuis sa machine la plus avancée
         params = {"op": "push_auto", "targets": body.targets, "games": games}
-        title = f"sauvegardes : plus récente → {len(targets)} machine(s)"
+        title = f"sauvegardes : plus avancée → {len(targets)} machine(s)"
     elif body.source is not None:
         source = _saves_machine(body.source)
         if body.source in body.targets:
@@ -1484,12 +1500,12 @@ def saves_push(body: SavesPush):
     else:
         reserve = set(saves_svc.reserve_games(_settings))
         if games is None and not reserve:
-            raise HTTPException(status_code=422, detail="réserve vide : rien à envoyer")
+            raise HTTPException(status_code=422, detail="manager vide : rien à envoyer")
         missing = [game for game in games or [] if game not in reserve]
         if missing:
-            raise HTTPException(status_code=422, detail=f"absent de la réserve : {', '.join(missing)}")
+            raise HTTPException(status_code=422, detail=f"absent du manager : {', '.join(missing)}")
         params = {"op": "push", "targets": body.targets, "games": games}
-        title = f"sauvegardes : réserve → {len(targets)} machine(s)"
+        title = f"sauvegardes : manager → {len(targets)} machine(s)"
     task = queue.submit("saves", None, None, params, title)
     return {"task": task.id}
 

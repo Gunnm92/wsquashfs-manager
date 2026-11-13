@@ -39,6 +39,8 @@ class Settings(BaseSettings):
 
     # Sauvegardes (même convention que wsquashfs-launcher)
     saves_dir: Path = Path.home() / ".local/share/wsquashfs/saves"
+    # Icône choisie à la main pour la machine de jeu (Sauvegardes) ; None = détection
+    saves_game_host_icon: str | None = None
 
     # Cache de wsquashfs-launcher (son WSQUASHFS_CACHE) : montages des jeux et
     # verrous par jeu (locks/<jeu>.lock), pour reconnaître un jeu en cours
@@ -202,7 +204,8 @@ def save_game_host(settings: Settings, values: dict) -> None:
 
 
 SAVES_MACHINE_FIELDS = ("id", "name", "url", "token", "pem")
-_saves_lock = threading.Lock()      # lectures-écritures de config.json pour la réserve
+ICONS = ("linux", "steamos", "batocera")     # icônes des machines de la synchronisation des sauvegardes
+_saves_lock = threading.Lock()      # lectures-écritures de config.json pour le manager de sauvegardes
 
 
 def saves_machines(settings: Settings) -> list[dict]:
@@ -218,6 +221,16 @@ def saves_machines(settings: Settings) -> list[dict]:
 def save_saves_machines(settings: Settings, machines: list[dict]) -> None:
     with _saves_lock:
         _save_runtime(settings, saves_machines=machines)
+
+
+def save_saves_game_host_icon(settings: Settings, icon: str | None) -> None:
+    """Icône choisie pour la machine de jeu (None : retour à la détection).
+    ValueError si la valeur n'est pas dans ICONS."""
+    if icon is not None and icon not in ICONS:
+        raise ValueError(f"icône inconnue : {icon} (valeurs : {', '.join(ICONS)})")
+    with _saves_lock:
+        _save_runtime(settings, saves_game_host_icon=icon)
+    settings.saves_game_host_icon = icon
 
 
 def saves_client_id(settings: Settings) -> str:
@@ -251,4 +264,6 @@ def get_settings() -> Settings:
     if settings.game_host not in ("off", "local", "agent"):
         # Ancien mode « docker » (retiré) : la machine de jeu est désactivée
         settings.game_host = "off"
+    if runtime.get("saves_game_host_icon") in ICONS:
+        settings.saves_game_host_icon = runtime["saves_game_host_icon"]
     return settings

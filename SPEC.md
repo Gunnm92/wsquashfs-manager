@@ -207,14 +207,15 @@ même liste fermée des deux côtés (`MAINTENANCE_COMMANDS` dans
 - `sync` envoie et reçoit les sauvegardes de partie avec les autres machines
   associées du réseau local (association une fois, en ligne de commande :
   `--pair` sur l'autre machine, `--sync wsq://…` sur celle-ci). Conflit : la
-  version la plus récente gagne, l'autre est archivée. Les jeux en cours sont
+  version la plus lourde gagne (à taille égale, la plus récente), l'autre est
+  archivée. Les jeux en cours sont
   ignorés. Le manager n'expose ni l'association ni `--sync forget`.
 - Sortie : lignes par jeu `  ✓ Jeu  message` (– ignoré, ✗ échec, → état),
   sections `▍<machine>` pour `sync` ; la fiche n'affiche que les lignes par jeu.
 
-### 2.7 Réserve de sauvegardes
+### 2.7 Sauvegardes entre machines
 
-Le manager garde une réserve des sauvegardes de partie et sert de point de
+Le manager garde une copie des sauvegardes de partie et sert de point de
 passage entre les machines associées (`wsquashfs-launcher --pair`, agent
 `/v1/saves/*`). Le lanceur reste inchangé : la synchronisation ici est
 explicite, la machine source étant choisie.
@@ -227,14 +228,14 @@ explicite, la machine source étant choisie.
   remplacement, identifiant conservé. Jeton et certificat jamais renvoyés.
   La machine de jeu en mode agent est listée d'office (`game-host`), non
   supprimable, sauf si une machine enregistrée a la même adresse.
-- **Réserve** : `state_dir/saves-reserve/<jeu>/current.tar.gz` et `meta.json`
-  (`fingerprint`, `newest`, `profile`, `source`, `fetched_at`). Un remplacement
+- **Copie du manager** (« Manager » à l'écran) : `state_dir/saves-reserve/<jeu>/current.tar.gz` et `meta.json`
+  (`fingerprint`, `newest`, `size`, `profile`, `source`, `fetched_at`). Un remplacement
   d'une version différente archive l'ancienne en `AAAAMMJJ-HHMMSS.tar.gz` (+
   `.json`), 3 versions datées gardées. Même empreinte : rien d'archivé. Nom de
   jeu : sans `/`, sans `..`, sans point initial, 200 caractères au plus.
   Écritures par durable.py (`.part`, fsync, échange par lien physique).
 - **Pull** : `saves_list` puis `saves_get` (flux vers un `.part`), enregistrement
-  dans la réserve, puis `saves_ack` (POST `/v1/saves/state`) : l'empreinte
+  dans la copie du manager, puis `saves_ack` (POST `/v1/saves/state`) : l'empreinte
   commune est ainsi notée pour ce manager.
 - **Push** : `saves_put` (PUT, la machine archive sa version si elle a changé
   depuis le dernier échange), puis `saves_ack` avec l'empreinte renvoyée.
@@ -244,12 +245,17 @@ explicite, la machine source étant choisie.
   pour ce jeu sur cette machine (pas d'échec global) ; 401 → jeton à refaire ;
   certificat différent de l'association → message dédié ; réseau → « injoignable ».
   Un échec partiel fait échouer la tâche, son détail reste dans le résultat.
-- **États** (`status`) : une requête `saves_list` par machine (en parallèle,
-  délai 15 s). Libellés par jeu : « identique » (toutes les machines qui ont le
-  jeu ont la même version) ; sinon « plus récente » pour les machines qui ont
-  la version au `newest` maximal (la source à proposer), « plus ancienne »
-  pour les autres ; « absente » ;
-  « injoignable » (machine non jointe ou erreur de la requête).
+- **États** (`status`) : une requête `saves_list` et une `/v1/info` par machine
+  (en parallèle, délai 15 s ; l'échec de `/v1/info` laisse `os` vide). Libellés
+  par jeu : « identique » (toutes les machines joignables ont la même version) ;
+  sinon « plus avancée » pour les machines qui ont la version au couple
+  (`size`, `newest`) maximal (`best` : la source à proposer, aussi celle de
+  `source:"auto"`), « en retard » pour les autres ; « absente » ;
+  « injoignable » (machine non jointe ou erreur de la requête). `check` vrai
+  quand la plus avancée n'a pas la date la plus récente (`check_by`).
+- **Icône** : `icon` choisie (machine enregistrée : champ `icon` ; machine de
+  jeu : `saves_game_host_icon`), sinon `os` détecté s'il est connu (`linux`,
+  `steamos`, `batocera`), sinon `linux`.
 - **Exécution** : pull et push sont des tâches de la file (`saves`, sans image,
   annulables entre deux jeux, reprises en attente après un redémarrage). Les
   états restent synchrones (lecture seule, quelques secondes au plus).

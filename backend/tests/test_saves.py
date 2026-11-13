@@ -1,5 +1,5 @@
-"""Réserve de sauvegardes : machines (association), réserve (rotation), pull, push,
-push_from, états, tâche et API.
+"""Manager de sauvegardes : machines (association, icônes), manager (rotation), pull, push,
+push_from, états (taille, suggestion), tâche et API.
 
 De faux wsquashfs-agent tournent dans des threads, en HTTPS avec un certificat
 auto-signé par machine (test ignoré sans openssl). Ils gardent les sauvegardes
@@ -81,9 +81,13 @@ class SavesAgent(BaseHTTPRequestHandler):
         if not self._auth():
             return
         if url.path == "/v1/info":
-            return self._send(200, json.dumps({"version": "1", "host": self.st["host"], "user": "arcade"}).encode())
+            if self.st["info_fail"]:
+                return self._send(500, b'{"detail":"info indisponible"}')
+            return self._send(200, json.dumps({"version": "4", "host": self.st["host"], "user": "arcade",
+                                               "os": self.st["os"]}).encode())
         if url.path == "/v1/saves/list":
-            games = [{"name": name, "fingerprint": fp_of(g["data"]), "newest": g["newest"], "state": ""}
+            games = [{"name": name, "fingerprint": fp_of(g["data"]), "newest": g["newest"],
+                      "size": g["size"], "state": ""}
                      for name, g in sorted(self.st["games"].items())]
             return self._send(200, json.dumps({"games": games}).encode())
         if url.path == "/v1/saves/tar":
@@ -116,7 +120,8 @@ class SavesAgent(BaseHTTPRequestHandler):
             return self._send(400, b'{"detail":"archive refusee"}')
         previous = self.st["games"].get(game)
         archived = previous is not None and fp_of(previous["data"]) != fp_of(body)
-        self.st["games"][game] = {"data": body, "profile": profile, "newest": self.st.get("now", 1000)}
+        self.st["games"][game] = {"data": body, "profile": profile, "newest": self.st.get("now", 1000),
+                                  "size": len(body)}
         self.st["archived"] += [game] if archived else []
         self._send(200, json.dumps({"fingerprint": fp_of(body), "archived": archived}).encode())
 
@@ -134,19 +139,28 @@ class SavesAgent(BaseHTTPRequestHandler):
         self._send(404, b'{"detail":"route inconnue"}')
 
 
+def fake_game(spec: tuple) -> dict:
+    """Jeu d'un faux agent : (données, profil, newest) ou (données, profil, newest, taille).
+    Sans taille, la taille est celle des données."""
+    data, profile, newest, *rest = spec
+    return {"data": data, "profile": profile, "newest": newest,
+            "size": rest[0] if rest else len(data)}
+
+
 @pytest.fixture
 def agents(tmp_path):
-    """Fabrique de faux agents (un par machine) ; arrêtés à la fin du test."""
+    """Fabrique de faux agents (un par machine) ; arrêtés à la fin du test.
+    `os_name` : système renvoyé par /v1/info ; `info_fail` : /v1/info en erreur."""
     if not shutil.which("openssl"):
         pytest.skip("openssl absent")
     servers = []
 
-    def make(host: str, games=None, busy=(), conflict=(), now=1000, token=TOKEN, cert_dir=None):
+    def make(host: str, games=None, busy=(), conflict=(), now=1000, token=TOKEN, cert_dir=None,
+             os_name="linux", info_fail=False):
         cert, key = make_cert(tmp_path / (cert_dir or host))
         st = {"host": host, "token": token, "busy": set(busy), "conflict": set(conflict),
-              "now": now, "archived": [], "log": [],
-              "games": {name: {"data": data, "profile": profile, "newest": newest}
-                        for name, (data, profile, newest) in (games or {}).items()}}
+              "now": now, "archived": [], "log": [], "os": os_name, "info_fail": info_fail,
+              "games": {name: fake_game(spec) for name, spec in (games or {}).items()}}
         handler = type("H", (SavesAgent,), {"st": st})
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -225,7 +239,8 @@ def test_association_names_the_machine_and_hides_secrets(agents, tmp_path):
     assert [r["name"] for r in rows] == ["steambox"]
     text = json.dumps({"added": added, "rows": rows})
     assert TOKEN not in text and "BEGIN CERTIFICATE" not in text
-    assert set(rows[0]) == {"id", "name", "url", "fingerprint", "kind", "removable"}
+    assert set(rows[0]) == {"id", "name", "url", "fingerprint", "kind", "removable", "icon"}
+    assert rows[0]["icon"] is None                       # pas d'icône choisie : détection
 
 
 def test_same_fingerprint_or_same_url_replaces(agents, tmp_path):
@@ -317,12 +332,13 @@ def test_saves_errors_are_clear(agents, tmp_path):
 def test_store_writes_current_and_meta(tmp_path):
     settings = make_settings(tmp_path)
     part = part_with(settings, "Jeu", gz("v1"))
-    meta = saves.store(settings, "Jeu", part, fingerprint="F1", newest=42, profile="wine-tkg",
-                       source="steambox")
+    meta = saves.store(settings, "Jeu", part, fingerprint="F1", newest=42, size=1234,
+                       profile="wine-tkg", source="steambox")
     d = saves.reserve_dir(settings, "Jeu")
     assert (d / "current.tar.gz").read_bytes() == gz("v1") and not part.exists()
     stored = json.loads((d / "meta.json").read_text())
     assert stored == meta and stored["fingerprint"] == "F1" and stored["newest"] == 42
+    assert stored["size"] == 1234
     assert stored["source"] == "steambox" and stored["profile"] == "wine-tkg"
     assert stored["fetched_at"].endswith("+00:00")
     assert saves.reserve_games(settings) == ["Jeu"]
@@ -333,7 +349,8 @@ def test_rotation_keeps_the_three_most_recent_versions(tmp_path):
     versions = [gz(f"v{i}") for i in range(5)]
     for i, data in enumerate(versions):
         part = part_with(settings, "Jeu", data)
-        saves.store(settings, "Jeu", part, fingerprint=fp_of(data), newest=i, profile=None, source="s")
+        saves.store(settings, "Jeu", part, fingerprint=fp_of(data), newest=i, size=len(data), profile=None,
+                    source="s")
     d = saves.reserve_dir(settings, "Jeu")
     archived = saves.archives(settings, "Jeu")
     assert len(archived) == 3
@@ -347,9 +364,9 @@ def test_same_version_is_not_archived(tmp_path):
     settings = make_settings(tmp_path)
     data = gz("same")
     saves.store(settings, "Jeu", part_with(settings, "Jeu", data), fingerprint="F", newest=1,
-                profile=None, source="s")
+                size=1, profile=None, source="s")
     saves.store(settings, "Jeu", part_with(settings, "Jeu", data), fingerprint="F", newest=2,
-                profile=None, source="s")
+                size=1, profile=None, source="s")
     assert saves.archives(settings, "Jeu") == []
     assert saves.reserve_meta(settings, "Jeu")["newest"] == 2
 
@@ -359,14 +376,14 @@ def test_store_refuses_invalid_game_name(tmp_path):
     part = tmp_path / "x.part"
     part.write_bytes(gz("x"))
     with pytest.raises(RebuildError, match="nom de jeu invalide"):
-        saves.store(settings, "../evasion", part, fingerprint="F", newest=1, profile=None, source="s")
+        saves.store(settings, "../evasion", part, fingerprint="F", newest=1, size=1, profile=None, source="s")
     assert not (settings.state_dir / "evasion").exists()
 
 
 # ------------------------------------------------------------------ pull
 
 def test_pull_stores_each_game_and_acks(agents, tmp_path):
-    steambox = agents("steambox", games={"Alpha": (gz("a"), "wine-tkg", 300),
+    steambox = agents("steambox", games={"Alpha": (gz("a"), "wine-tkg", 300, 4096),
                                          "Beta": (gz("b"), None, 200)})
     settings = make_settings(tmp_path)
     associate(settings, steambox)
@@ -376,6 +393,8 @@ def test_pull_stores_each_game_and_acks(agents, tmp_path):
     assert all(r["ok"] for r in result["results"])
     assert saves.reserve_dir(settings, "Alpha").joinpath("current.tar.gz").read_bytes() == gz("a")
     assert saves.reserve_meta(settings, "Alpha")["newest"] == 300
+    assert saves.reserve_meta(settings, "Alpha")["size"] == 4096          # taille de la liste, gardée
+    assert saves.reserve_meta(settings, "Beta")["size"] == len(gz("b"))   # à défaut, celle des données
     assert saves.reserve_meta(settings, "Alpha")["source"] == "steambox"
     acks = [e for e in steambox["st"]["log"] if e["path"] == "/v1/saves/state"]
     assert [a["body"] for a in acks] == [{"game": "Alpha", "fingerprint": fp_of(gz("a"))},
@@ -389,7 +408,7 @@ def test_pull_reports_busy_and_missing_games_per_game(agents, tmp_path):
     settings = make_settings(tmp_path)
     associate(settings, steambox)
     source = machine_ids(settings)["steambox"]
-    steambox["st"]["games"]["Occupe"] = {"data": gz("o"), "profile": None, "newest": 2}
+    steambox["st"]["games"]["Occupe"] = fake_game((gz("o"), None, 2))
     result = saves.pull(settings, source, ["Alpha", "Occupe", "Absent"])
     by_game = {r["game"]: r for r in result["results"]}
     assert by_game["Alpha"]["ok"] is True
@@ -409,7 +428,7 @@ def test_push_to_two_targets_one_busy(agents, tmp_path):
     ids = machine_ids(settings)
     data = gz("reserve")
     saves.store(settings, "Jeu", part_with(settings, "Jeu", data), fingerprint=fp_of(data), newest=9,
-                profile="proton", source="x")
+                size=len(data), profile="proton", source="x")
     result = saves.push(settings, [ids["a-machine"], ids["b-machine"]], ["Jeu"])
     by_machine = {r["machine"]: r for r in result["results"]}
     assert by_machine["a-machine"]["ok"] is True and by_machine["a-machine"]["archived"] is False
@@ -427,7 +446,7 @@ def test_push_archives_on_target_when_it_changed(agents, tmp_path):
     associate(settings, a)
     data = gz("nouveau")
     saves.store(settings, "Jeu", part_with(settings, "Jeu", data), fingerprint=fp_of(data), newest=9,
-                profile=None, source="x")
+                size=len(data), profile=None, source="x")
     result = saves.push(settings, [machine_ids(settings)["a-machine"]], ["Jeu"])
     assert result["results"][0]["archived"] is True and a["st"]["archived"] == ["Jeu"]
 
@@ -467,7 +486,7 @@ def test_failed_push_marks_the_task_failed_with_its_result(agents, tmp_path):
     associate(settings, a)
     data = gz("r")
     saves.store(settings, "Jeu", part_with(settings, "Jeu", data), fingerprint=fp_of(data), newest=1,
-                profile=None, source="x")
+                size=len(data), profile=None, source="x")
     task = Task(id="t1", kind="saves", params={"op": "push", "targets": [machine_ids(settings)["a-machine"]],
                                                "games": ["Jeu"]})
     with pytest.raises(RebuildError, match="1 échec"):
@@ -477,9 +496,10 @@ def test_failed_push_marks_the_task_failed_with_its_result(agents, tmp_path):
 
 def test_push_auto_takes_each_game_from_its_most_recent_machine(agents, tmp_path):
     # A : la plus récente est m1 ; B : la plus récente est m2 (sources différentes)
-    m1 = agents("m1", games={"A": (gz("a-new"), None, 300), "B": (gz("b-old"), None, 100)})
-    m2 = agents("m2", games={"B": (gz("b-new"), None, 900)})
-    m3 = agents("m3", games={"A": (gz("a-old"), None, 10)})
+    # Tailles égales : la plus récente l'emporte (la taille est testée à part)
+    m1 = agents("m1", games={"A": (gz("a-new"), None, 300, 50), "B": (gz("b-old"), None, 100, 50)})
+    m2 = agents("m2", games={"B": (gz("b-new"), None, 900, 50)})
+    m3 = agents("m3", games={"A": (gz("a-old"), None, 10, 50)})
     settings = make_settings(tmp_path)
     associate(settings, m1)
     associate(settings, m2)
@@ -506,7 +526,7 @@ def test_push_auto_skips_identical_and_reserve_only_games(agents, tmp_path):
     associate(settings, m2)
     data = gz("reserve")
     saves.store(settings, "D", part_with(settings, "D", data), fingerprint=fp_of(data), newest=7,
-                profile=None, source="m1")
+                size=len(data), profile=None, source="m1")
     ids = machine_ids(settings)
     result = saves.push_auto(settings, [ids["m1"], ids["m2"]], None)
     by_game = {r["game"]: r for r in result["push"]["results"] if not r["machine"]}
@@ -580,13 +600,14 @@ def test_status_labels_and_one_listing_per_machine(agents, tmp_path):
     status = saves.status(settings)
     jeu = next(g for g in status["games"] if g["game"] == "Jeu")
     labels = {s["name"]: s["state"] for s in jeu["machines"]}
-    # m1 a la version la plus récente (300) : c'est la source à proposer
-    assert labels == {"m1": "plus récente", "m2": "plus ancienne", "m3": "plus ancienne",
+    # Tailles égales (3 octets) : m1 a la date la plus récente (300), c'est la source suggérée
+    assert labels == {"m1": "plus avancée", "m2": "en retard", "m3": "en retard",
                       "m4": "absente", "morte": "injoignable"}
+    assert (jeu["check"], jeu["check_by"]) == (False, "")
     autre = next(g for g in status["games"] if g["game"] == "Autre")
     # m1 et m4 ont la même version, m2 et m3 (joignables) ne l'ont pas : elles sont « absente »
     assert {s["name"]: s["state"] for s in autre["machines"]} == {
-        "m1": "plus récente", "m2": "absente", "m3": "absente", "m4": "plus récente", "morte": "injoignable"}
+        "m1": "plus avancée", "m2": "absente", "m3": "absente", "m4": "plus avancée", "morte": "injoignable"}
     assert all(len([e for e in m["st"]["log"] if e["path"] == "/v1/saves/list"]) == 1
                for m in (m1, m2, m3, m4))
     dead = next(s for s in jeu["machines"] if s["name"] == "morte")
@@ -602,13 +623,14 @@ def test_status_reports_reserve_and_single_game(agents, tmp_path):
     associate(settings, m2)
     data = gz("reserve")
     saves.store(settings, "Jeu", part_with(settings, "Jeu", data), fingerprint=fp_of(data), newest=7,
-                profile=None, source="m1")
+                size=777, profile=None, source="m1")
     status = saves.status(settings, ["Jeu"])
     assert [g["game"] for g in status["games"]] == ["Jeu"]
     assert status["games"][0]["reserve"]["fingerprint"] == fp_of(data)
     assert status["games"][0]["reserve"]["archives"] == 0
-    # seule machine à avoir le jeu : « plus récente » ; la joignable sans le jeu : « absente »
-    assert {s["name"]: s["state"] for s in status["games"][0]["machines"]} == {"m1": "plus récente", "m2": "absente"}
+    assert status["games"][0]["reserve"]["size"] == 777
+    # seule machine à avoir le jeu : « plus avancée » ; la joignable sans le jeu : « absente »
+    assert {s["name"]: s["state"] for s in status["games"][0]["machines"]} == {"m1": "plus avancée", "m2": "absente"}
 
 
 # ------------------------------------------------------------------ API
@@ -694,7 +716,7 @@ def test_api_pull_and_push_queue_tasks(agents, api):
     assert task["params"]["games"] == ["Jeu"] and task["image"] is None
     data = gz("reserve")
     saves.store(settings, "Jeu", part_with(settings, "Jeu", data), fingerprint=fp_of(data), newest=1,
-                profile=None, source="m1")
+                size=len(data), profile=None, source="m1")
     pushed = client.post("/api/saves/push", json={"targets": [ids["m2"]], "ids": ["arcade/Jeu"]})
     assert pushed.status_code == 200
     assert client.get(f"/api/tasks/{pushed.json()['task']}").json()["params"]["op"] == "push"
@@ -741,3 +763,151 @@ def test_api_pull_auto_queues_a_pull_task(agents, api):
     assert response.status_code == 200
     task = client.get(f"/api/tasks/{response.json()['task']}").json()
     assert task["params"]["op"] == "pull_auto" and task["params"]["games"] == ["Jeu"]
+
+
+# ------------------------------------------------------------------ suggestion : taille, puis date
+
+def test_best_orders_by_size_then_date():
+    states = [{"state": "présente", "name": "a", "size": 10, "newest": 900},
+              {"state": "plus avancée", "name": "b", "size": 20, "newest": 1},
+              {"state": "absente", "name": "c", "size": 99, "newest": 99},
+              {"state": "injoignable", "name": "d", "size": 99, "newest": 99}]
+    assert saves.best(states)["name"] == "b"
+    assert saves.best([s for s in states if s["state"] in ("absente", "injoignable")]) is None
+
+
+def test_suggestion_prefers_the_heavier_even_when_older(agents, tmp_path):
+    heavy = agents("heavy", games={"Jeu": (gz("lourd"), None, 100, 900)})
+    recent = agents("recent", games={"Jeu": (gz("leger"), None, 300, 500)})
+    settings = make_settings(tmp_path)
+    associate(settings, heavy)
+    associate(settings, recent)
+    jeu = saves.status(settings, ["Jeu"])["games"][0]
+    assert {s["name"]: s["state"] for s in jeu["machines"]} == {"heavy": "plus avancée", "recent": "en retard"}
+    assert {s["name"]: s["size"] for s in jeu["machines"]} == {"heavy": 900, "recent": 500}
+    # la suggérée (heavy) n'a pas la date la plus récente : à vérifier, « recent » la donne
+    assert (jeu["check"], jeu["check_by"]) == (True, "recent")
+
+
+def test_equal_size_falls_back_to_the_date(agents, tmp_path):
+    old = agents("old", games={"Jeu": (gz("a"), None, 100, 500)})
+    new = agents("new", games={"Jeu": (gz("b"), None, 300, 500)})
+    settings = make_settings(tmp_path)
+    associate(settings, old)
+    associate(settings, new)
+    jeu = saves.status(settings, ["Jeu"])["games"][0]
+    assert {s["name"]: s["state"] for s in jeu["machines"]} == {"old": "en retard", "new": "plus avancée"}
+    assert (jeu["check"], jeu["check_by"]) == (False, "")
+
+
+def test_identical_machines_are_labelled_identical(agents, tmp_path):
+    a = agents("a", games={"Jeu": (gz("same"), None, 100, 500)})
+    b = agents("b", games={"Jeu": (gz("same"), None, 100, 500)})
+    settings = make_settings(tmp_path)
+    associate(settings, a)
+    associate(settings, b)
+    jeu = saves.status(settings, ["Jeu"])["games"][0]
+    assert {s["name"]: s["state"] for s in jeu["machines"]} == {"a": "identique", "b": "identique"}
+    assert (jeu["check"], jeu["check_by"]) == (False, "")
+
+
+def test_push_auto_takes_the_heaviest_machine(agents, tmp_path):
+    heavy = agents("heavy", games={"Jeu": (gz("lourd"), None, 100, 900)})
+    recent = agents("recent", games={"Jeu": (gz("leger"), None, 300, 500)})
+    target = agents("cible")
+    settings = make_settings(tmp_path)
+    for m in (heavy, recent, target):
+        associate(settings, m)
+    ids = machine_ids(settings)
+    result = saves.push_auto(settings, [ids["cible"]], None)
+    pushed = [(r["game"], r["machine"], r["ok"]) for r in result["push"]["results"] if r["machine"]]
+    assert pushed == [("Jeu", "cible", True)]
+    assert target["st"]["games"]["Jeu"]["data"] == gz("lourd")
+    assert not [e for e in heavy["st"]["log"] + recent["st"]["log"] if e["method"] == "PUT"]
+
+
+# ------------------------------------------------------------------ système et icônes
+
+def test_machines_carry_os_and_detected_icon(agents, tmp_path):
+    steamos = agents("sb", os_name="steamos")
+    unknown = agents("truc", os_name="fedora")
+    settings = make_settings(tmp_path)
+    associate(settings, steamos)
+    associate(settings, unknown)
+    machines = {m["name"]: m for m in saves.status(settings)["machines"]}
+    assert (machines["sb"]["os"], machines["sb"]["icon"], machines["sb"]["icon_set"]) == ("steamos", "steamos", False)
+    # système inconnu des icônes : icône « linux », le système reste affiché
+    assert (machines["truc"]["os"], machines["truc"]["icon"], machines["truc"]["icon_set"]) == ("fedora", "linux", False)
+
+
+def test_failed_info_keeps_the_machine_reachable(agents, tmp_path):
+    m = agents("m", games={"Jeu": (gz("x"), None, 5)})
+    settings = make_settings(tmp_path)
+    associate(settings, m)
+    m["st"]["info_fail"] = True                 # /v1/info en erreur, /v1/saves/list répond
+    status = saves.status(settings)
+    machine = status["machines"][0]
+    assert machine["ok"] is True and (machine["os"], machine["icon"]) == ("", "linux")
+    assert status["games"][0]["machines"][0]["state"] == "plus avancée"
+
+
+def test_chosen_icon_wins_over_detection_and_can_be_reset(agents, tmp_path):
+    sb = agents("sb", os_name="steamos")
+    settings = make_settings(tmp_path)
+    associate(settings, sb)
+    mid = machine_ids(settings)["sb"]
+    assert saves.set_icon(settings, mid, "batocera") == {"id": mid, "icon": "batocera", "icon_set": True}
+    row = saves.status(settings)["machines"][0]
+    assert (row["os"], row["icon"], row["icon_set"]) == ("steamos", "batocera", True)
+    assert saves.machine_rows(settings)[0]["icon"] == "batocera"
+    saves.set_icon(settings, mid, None)
+    row = saves.status(settings)["machines"][0]
+    assert (row["icon"], row["icon_set"]) == ("steamos", False)
+    # l'icône choisie survit à une nouvelle association de la même machine
+    saves.set_icon(settings, mid, "linux")
+    associate(settings, sb)
+    assert saves.machine_rows(settings)[0]["icon"] == "linux"
+
+
+def test_game_host_icon_is_read_back_from_config(tmp_path, monkeypatch):
+    from app.config import get_settings
+
+    cfg = tmp_path / "config.json"
+    cfg.write_text(json.dumps({"saves_game_host_icon": "steamos"}))
+    monkeypatch.setenv("WSQUASHFS_MGR_RUNTIME_CONFIG_FILE", str(cfg))
+    assert get_settings().saves_game_host_icon == "steamos"
+    cfg.write_text(json.dumps({"saves_game_host_icon": "xbox"}))     # valeur inconnue : ignorée
+    assert get_settings().saves_game_host_icon is None
+
+
+def test_api_patch_icon(agents, api):
+    client, settings, _ = api
+    sb = agents("sb", os_name="steamos")
+    associate(settings, sb)
+    mid = machine_ids(settings)["sb"]
+    response = client.patch(f"/api/saves/machines/{mid}", json={"icon": "batocera"})
+    assert response.status_code == 200 and response.json() == {"id": mid, "icon": "batocera", "icon_set": True}
+    assert client.get("/api/saves/machines").json()["machines"][0]["icon"] == "batocera"
+    response = client.patch(f"/api/saves/machines/{mid}", json={"icon": None})
+    assert response.status_code == 200 and response.json()["icon_set"] is False
+    assert client.get("/api/saves/status").json()["machines"][0]["icon"] == "steamos"
+    assert client.patch(f"/api/saves/machines/{mid}", json={"icon": "windows"}).status_code == 400
+    assert client.patch("/api/saves/machines/inconnue", json={"icon": "linux"}).status_code == 404
+    assert client.patch("/api/saves/machines/inconnue", json={"icon": None}).status_code == 404
+
+
+def test_api_patch_icon_of_the_game_host(agents, api):
+    client, settings, _ = api
+    host = agents("sb", os_name="steamos")
+    settings.game_host, settings.agent_url, settings.agent_token = "agent", host["url"], TOKEN
+    (settings.state_dir / "agent-cert.pem").write_text(host["pem"])
+    config = settings.runtime_config_file
+    assert client.patch("/api/saves/machines/game-host", json={"icon": "batocera"}).status_code == 200
+    assert json.loads(config.read_text())["saves_game_host_icon"] == "batocera"
+    assert settings.saves_game_host_icon == "batocera"
+    row = client.get("/api/saves/status").json()["machines"][0]
+    assert (row["id"], row["icon"], row["icon_set"]) == ("game-host", "batocera", True)
+    assert client.patch("/api/saves/machines/game-host", json={"icon": None}).status_code == 200
+    assert json.loads(config.read_text())["saves_game_host_icon"] is None
+    assert client.patch("/api/saves/machines/game-host", json={"icon": "xbox"}).status_code == 400
+    assert settings.saves_game_host_icon is None

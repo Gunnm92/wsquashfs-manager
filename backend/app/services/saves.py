@@ -1,13 +1,15 @@
-"""Réserve de sauvegardes et synchronisation entre machines (SPEC « Réserve de sauvegardes »).
+"""Manager de sauvegardes et synchronisation entre machines (SPEC « Manager de sauvegardes »).
 
 - Machines : celles de config.json (`saves_machines`, associées par code
   wsq://), plus la machine de jeu en mode agent (id « game-host », d'office).
-- Réserve : `state_dir/saves-reserve/<jeu>/` avec `current.tar.gz`, `meta.json`
+- Manager : `state_dir/saves-reserve/<jeu>/` avec `current.tar.gz`, `meta.json`
   et, avant chaque remplacement, l'ancienne version datée (3 gardées).
-- Opérations : pull (machine → réserve), push (réserve → machines),
+- Opérations : pull (machine → manager), push (manager → machines),
   push_from (pull puis push des jeux récupérés), status (états par machine).
+- Source suggérée : la machine « la plus avancée » (`best`) : la plus lourde,
+  puis la plus récente à taille égale.
 
-Les écritures de la réserve passent par durable.py (fichier .part, fsync,
+Les écritures du manager passent par durable.py (fichier .part, fsync,
 échange par lien physique : l'ancienne version reste sous son nom daté).
 """
 
@@ -22,7 +24,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from ..config import Settings, save_saves_machines, saves_client_id, saves_machines
+from ..config import (
+    ICONS,
+    Settings,
+    save_saves_game_host_icon,
+    save_saves_machines,
+    saves_client_id,
+    saves_machines,
+)
 from ..models import Task
 from .durable import publish_new, swap_keep_old, write_atomic
 from .rebuild import Job, RebuildError
@@ -88,22 +97,29 @@ def _fingerprint_or_empty(pem: str | None) -> str:
         return ""
 
 
+def _chosen_icon(value: object) -> str | None:
+    """Icône choisie à la main, si elle est connue ; sinon None (détection)."""
+    return value if isinstance(value, str) and value in ICONS else None
+
+
 def machine_rows(settings: Settings) -> list[dict]:
     """Machines de la synchronisation, sans jeton ni certificat :
-    {id, name, url, fingerprint, kind, removable}."""
+    {id, name, url, fingerprint, kind, removable, icon} ; `icon` est l'icône choisie
+    à la main, None si elle n'est pas choisie (la détection vient de status)."""
     rows: list[dict] = []
     saved_urls = set()
     for machine in saves_machines(settings):
         saved_urls.add(_norm(machine["url"]))
         rows.append({"id": machine["id"], "name": machine["name"], "url": machine["url"],
                      "fingerprint": _fingerprint_or_empty(machine["pem"]),
-                     "kind": "saved", "removable": True})
+                     "kind": "saved", "removable": True, "icon": _chosen_icon(machine.get("icon"))})
     if settings.game_host == "agent" and settings.agent_url and _norm(settings.agent_url) not in saved_urls:
         cert = agent_cert_path(settings)
         pem = cert.read_text() if cert.exists() else None
         url = settings.agent_url.rstrip("/")
         rows.insert(0, {"id": GAME_HOST_ID, "name": f"machine de jeu ({_host_of(url)})", "url": url,
-                        "fingerprint": _fingerprint_or_empty(pem), "kind": "game_host", "removable": False})
+                        "fingerprint": _fingerprint_or_empty(pem), "kind": "game_host", "removable": False,
+                        "icon": _chosen_icon(settings.saves_game_host_icon)})
     return rows
 
 
@@ -153,6 +169,8 @@ def add_machine(settings: Settings, code: str) -> dict:
              "token": pair["token"], "pem": probe["pem"]}
     if matches:
         entry["id"] = machines[matches[0]]["id"]          # le remplacement garde l'identifiant
+        if _chosen_icon(machines[matches[0]].get("icon")):
+            entry["icon"] = machines[matches[0]]["icon"]  # et l'icône choisie à la main
         kept = [m for i, m in enumerate(machines) if i not in matches]
         kept.insert(matches[0], entry)
         machines = kept
@@ -174,7 +192,27 @@ def remove_machine(settings: Settings, machine_id: str) -> None:
     save_saves_machines(settings, kept)
 
 
-# ------------------------------------------------------------------ réserve
+def set_icon(settings: Settings, machine_id: str, icon: str | None) -> dict:
+    """Icône choisie à la main d'une machine (None : retour à la détection).
+    KeyError si la machine est inconnue ; ValueError si l'icône n'est pas dans ICONS."""
+    find_machine(settings, machine_id)
+    if icon is not None and icon not in ICONS:
+        raise ValueError(f"icône inconnue : {icon} (valeurs : {', '.join(ICONS)})")
+    if machine_id == GAME_HOST_ID:
+        save_saves_game_host_icon(settings, icon)
+    else:
+        machines = saves_machines(settings)
+        for machine in machines:
+            if machine["id"] == machine_id:
+                if icon is None:
+                    machine.pop("icon", None)
+                else:
+                    machine["icon"] = icon
+        save_saves_machines(settings, machines)
+    return {"id": machine_id, "icon": icon, "icon_set": icon is not None}
+
+
+# ------------------------------------------------------------------ manager
 
 def reserve_root(settings: Settings) -> Path:
     return settings.state_dir / RESERVE_DIR
@@ -185,7 +223,7 @@ def reserve_dir(settings: Settings, game: str) -> Path:
 
 
 def reserve_games(settings: Settings) -> list[str]:
-    """Jeux ayant une version courante dans la réserve."""
+    """Jeux ayant une version courante dans le manager."""
     root = reserve_root(settings)
     if not root.is_dir():
         return []
@@ -235,18 +273,19 @@ def _write_part(path: Path, text: str) -> None:
 
 
 def store(settings: Settings, game: str, part: Path, *, fingerprint: str, newest: int,
-          profile: str | None, source: str) -> dict:
-    """Range une archive reçue (`part`, écrite entièrement) dans la réserve.
+          size: int, profile: str | None, source: str) -> dict:
+    """Range une archive reçue (`part`, écrite entièrement) dans le manager.
 
     Même empreinte que la version courante : rien n'est archivé, seules les
     informations sont rafraîchies. Sinon l'ancienne version devient
     `<AAAAMMJJ-HHMMSS>.tar.gz` (+ `.json`) et `part` prend sa place ; les
-    versions datées au-delà de KEEP_ARCHIVES sont supprimées."""
+    versions datées au-delà de KEEP_ARCHIVES sont supprimées. `size` : octets
+    des fichiers de sauvegarde, tels que la machine les a comptés."""
     d = reserve_dir(settings, game)
     d.mkdir(parents=True, exist_ok=True)
     current, meta_path = d / CURRENT, d / META
     old = reserve_meta(settings, game) if current.exists() else None
-    meta = {"fingerprint": fingerprint, "newest": int(newest), "profile": profile,
+    meta = {"fingerprint": fingerprint, "newest": int(newest), "size": int(size), "profile": profile,
             "source": source, "fetched_at": datetime.now(UTC).isoformat(timespec="seconds")}
     text = json.dumps(meta, indent=2, ensure_ascii=False) + "\n"
     if old is not None and old.get("fingerprint") == fingerprint:
@@ -282,7 +321,7 @@ def _check(job: Job | None) -> None:
 
 def pull(settings: Settings, source_id: str, games: list[str] | None,
          job: Job | None = None) -> dict:
-    """Sauvegardes de la machine source → réserve. `games` None : tous ceux de la source.
+    """Sauvegardes de la machine source → manager. `games` None : tous ceux de la source.
     Par jeu : {game, ok, message, fingerprint, newest}. Accusé (saves_ack) après
     chaque réception réussie."""
     host = open_machine(settings, source_id)
@@ -315,7 +354,7 @@ def _pull_one(settings: Settings, host: AgentHost, source: str, game: str,
         fingerprint, profile = host.saves_get(game, part)
         newest = int(entry.get("newest") or 0)
         store(settings, game, part, fingerprint=fingerprint, newest=newest,
-              profile=profile, source=source)
+              size=_size_of(entry), profile=profile, source=source)
     except SavesBusy:
         result["message"] = f"jeu en cours sur {source} : non récupéré"
         return result
@@ -336,7 +375,7 @@ def _pull_one(settings: Settings, host: AgentHost, source: str, game: str,
 
 def push(settings: Settings, target_ids: list[str], games: list[str] | None,
          job: Job | None = None) -> dict:
-    """Réserve → machines cibles. `games` None : tous les jeux de la réserve.
+    """Manager → machines cibles. `games` None : tous les jeux du manager.
     Par (jeu, machine) : {game, machine, machine_id, ok, message, archived}."""
     wanted = _dedupe(games) if games is not None else reserve_games(settings)
     targets = []
@@ -368,7 +407,7 @@ def _push_one(settings: Settings, game: str, machine_id: str, label: str,
         meta = reserve_meta(settings, game)
         archive = reserve_dir(settings, game) / CURRENT
         if meta is None or not archive.is_file():
-            raise RebuildError("absent de la réserve")
+            raise RebuildError("absent du manager")
         reply = host.saves_put(game, archive, meta.get("profile"))
         fingerprint = str(reply.get("fingerprint") or meta.get("fingerprint") or "")
         result["archived"] = bool(reply.get("archived"))
@@ -379,7 +418,7 @@ def _push_one(settings: Settings, game: str, machine_id: str, label: str,
         result["message"] = str(exc)
         return result
     except OSError as exc:
-        result["message"] = f"réserve illisible : {exc}"
+        result["message"] = f"manager illisible : {exc}"
         return result
     message = f"envoyée vers {label}"
     try:
@@ -401,7 +440,7 @@ def push_from(settings: Settings, source_id: str, target_ids: list[str],
     return {"pull": pulled, "push": pushed}
 
 
-PRESENT_STATES = {"identique", "plus récente", "plus ancienne"}
+PRESENT_STATES = {"présente", "identique", "plus avancée", "en retard"}
 
 
 def _note(game: str, message: str) -> dict:
@@ -409,14 +448,28 @@ def _note(game: str, message: str) -> dict:
     return {"game": game, "machine": "", "machine_id": "", "ok": True, "message": message, "archived": None}
 
 
+def _size_of(entry: dict | None) -> int:
+    """Taille (octets) d'une entrée de saves_list ; 0 si absente ou illisible."""
+    try:
+        return int((entry or {}).get("size") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def best(states: list[dict]) -> dict | None:
+    """Machine suggérée parmi les états présents : la plus lourde, puis la plus
+    récente (couple (size, newest) le plus grand). None si aucune ne l'a."""
+    candidates = [s for s in states if s["state"] in PRESENT_STATES]
+    return max(candidates, key=lambda s: (s["size"], s["newest"])) if candidates else None
+
+
 def _pull_sources(settings: Settings, games: list[str] | None) -> tuple[dict, list[str]]:
-    """Machine source par jeu pour une copie dans la réserve : la « plus récente »,
-    à défaut la première qui a le jeu. Renvoie ({identifiant: [jeux]}, [jeux sans source])."""
+    """Machine source par jeu pour une copie dans le manager : la « plus avancée »
+    (`best`). Renvoie ({identifiant: [jeux]}, [jeux sans source])."""
     sources: dict[str, list[str]] = {}
     none: list[str] = []
     for entry in status(settings, games)["games"]:
-        present = [s for s in entry["machines"] if s["state"] in PRESENT_STATES]
-        pick = next((s for s in present if s["state"] == "plus récente"), None) or (present[0] if present else None)
+        pick = best(entry["machines"])
         if pick is None:
             none.append(entry["game"])
         else:
@@ -426,17 +479,17 @@ def _pull_sources(settings: Settings, games: list[str] | None) -> tuple[dict, li
 
 def push_auto(settings: Settings, target_ids: list[str], games: list[str] | None,
               job: Job | None = None) -> dict:
-    """Chaque jeu part de sa machine « plus récente » vers les cibles qui n'ont pas sa
-    version (« plus ancienne » ou « absente ») ; une cible déjà à la même empreinte est
-    sautée (« déjà identique »), une cible injoignable échoue. Un jeu sans machine
-    « plus récente » (identique, ou seulement dans la réserve) n'est pas transféré."""
+    """Chaque jeu part de sa machine « plus avancée » (`best`) vers les cibles qui n'ont
+    pas sa version (« en retard » ou « absente ») ; une cible déjà à la même empreinte
+    est sautée (« déjà identique »), une cible injoignable échoue. Un jeu identique
+    partout, ou seulement dans le manager, n'est pas transféré."""
     wanted = _dedupe(target_ids)
     results: list[dict] = []
     groups: dict[tuple[str, tuple[str, ...]], list[str]] = {}
     for entry in status(settings, games)["games"]:
         game = entry["game"]
-        source = next((s for s in entry["machines"] if s["state"] == "plus récente"), None)
-        if source is None:
+        source = best(entry["machines"])
+        if source is None or source["state"] == "identique":
             identical = any(s["state"] == "identique" for s in entry["machines"])
             results.append(_note(game, "déjà identiques" if identical else "aucune machine ne l'a : rien à pousser"))
             continue
@@ -468,13 +521,13 @@ def push_auto(settings: Settings, target_ids: list[str], games: list[str] | None
         done = push_from(settings, source_id, list(targets), group, job)
         pulls.extend(done["pull"]["results"])
         pushes.extend(done["push"]["results"])
-    return {"pull": {"source": {"id": "", "name": "les plus récentes"}, "results": pulls},
+    return {"pull": {"source": {"id": "", "name": "les plus avancées"}, "results": pulls},
             "push": {"results": pushes}}
 
 
 def pull_auto(settings: Settings, games: list[str] | None, job: Job | None = None) -> dict:
-    """Mettre dans la réserve, chaque jeu depuis sa machine « plus récente » (à défaut,
-    la première qui l'a). Un jeu qu'aucune machine joignable n'a : échec explicite."""
+    """Mettre dans le manager, chaque jeu depuis sa machine « plus avancée » (`best`).
+    Un jeu qu'aucune machine joignable n'a : échec explicite."""
     sources, none = _pull_sources(settings, games)
     results: list[dict] = []
     for source_id, source_games in sources.items():
@@ -482,7 +535,7 @@ def pull_auto(settings: Settings, games: list[str] | None, job: Job | None = Non
     for game in none:
         results.append({"game": game, "ok": False, "message": "absent de toutes les machines joignables",
                         "fingerprint": "", "newest": 0})
-    return {"source": {"id": "", "name": "les plus récentes"}, "results": results}
+    return {"source": {"id": "", "name": "les plus avancées"}, "results": results}
 
 
 def _reserve_summary(settings: Settings, game: str) -> dict | None:
@@ -490,75 +543,94 @@ def _reserve_summary(settings: Settings, game: str) -> dict | None:
         return None
     meta = reserve_meta(settings, game) or {}
     return {"fingerprint": meta.get("fingerprint", ""), "newest": int(meta.get("newest") or 0),
-            "source": meta.get("source", ""), "fetched_at": meta.get("fetched_at", ""),
+            "size": _size_of(meta), "source": meta.get("source", ""), "fetched_at": meta.get("fetched_at", ""),
             "archives": len(archives(settings, game))}
 
 
-def label_states(states: list[dict]) -> None:
-    """Libellés par machine, pour un jeu (modifie `state` en place).
+def label_states(states: list[dict]) -> dict:
+    """Libellés par machine, pour un jeu (modifie `state` en place). Renvoie
+    {check, check_by} : `check` vrai si la machine suggérée n'a pas la date newest
+    maximale parmi les présentes ; `check_by` est alors le nom de celle-ci.
 
     - « injoignable » : la machine n'a pas répondu, elle ne compte pas ;
     - « identique » : toutes les machines joignables ont le jeu, avec la même
       empreinte (deux machines au moins) ;
-    - sinon, parmi les joignables qui ont le jeu : « plus récente » pour celles qui
-      ont la version au newest max (la source à choisir), « plus ancienne » pour les
-      autres ; les joignables sans le jeu restent « absente »."""
+    - sinon, parmi les joignables qui ont le jeu : « plus avancée » pour celles qui
+      ont l'empreinte de `best` (la source suggérée), « en retard » pour les autres ;
+      les joignables sans le jeu restent « absente »."""
+    no_check = {"check": False, "check_by": ""}
     reachable = [s for s in states if s["state"] != "injoignable"]
     have = [s for s in reachable if s["state"] == "présente"]
     if not have:
-        return
+        return no_check
     if len(have) == len(reachable) and len(have) >= 2 and len({s["fingerprint"] for s in have}) == 1:
         for s in have:
             s["state"] = "identique"
-        return
-    newest = max(have, key=lambda s: s["newest"])["fingerprint"]
+        return no_check
+    top = best(have)
     for s in have:
-        s["state"] = "plus récente" if s["fingerprint"] == newest else "plus ancienne"
+        s["state"] = "plus avancée" if s["fingerprint"] == top["fingerprint"] else "en retard"
+    newest = max(have, key=lambda s: s["newest"])
+    if top["newest"] >= newest["newest"]:
+        return no_check
+    return {"check": True, "check_by": newest["name"]}
 
 
 def status(settings: Settings, games: list[str] | None = None) -> dict:
-    """État de la synchronisation : par machine (une seule requête saves_list, en
-    parallèle) et par jeu (libellés, réserve). `games` None : tous les jeux connus."""
+    """État de la synchronisation : par machine (une requête saves_list et une requête
+    info, en parallèle) et par jeu (libellés, manager, suggestion à vérifier).
+    `games` None : tous les jeux connus."""
     rows = machine_rows(settings)
 
-    def fetch(row: dict):
+    def fetch(row: dict) -> tuple[dict | None, str, str]:
+        """(jeux, erreur, système) : un échec de info laisse le système vide, sans
+        rendre la machine injoignable si saves_list a répondu."""
         try:
             host = open_machine(settings, row["id"], timeout=15)
             listing = {g["name"]: g for g in host.saves_list(timeout=15)
                        if isinstance(g, dict) and isinstance(g.get("name"), str)}
-            return listing, ""
         except RebuildError as exc:
-            return None, str(exc)
+            return None, str(exc), ""
+        try:
+            info = host.info()
+            system = str(info.get("os") or "") if isinstance(info, dict) else ""
+        except RebuildError:
+            system = ""
+        return listing, "", system
 
     with ThreadPoolExecutor(max_workers=max(1, min(8, len(rows)))) as pool:
         fetched = list(pool.map(fetch, rows))
     if games is None:
         names = set(reserve_games(settings))
-        for listing, _ in fetched:
+        for listing, _, _ in fetched:
             if listing:
                 names.update(n for n in listing if valid_game(n))
         wanted = sorted(names)
     else:
         wanted = _dedupe(g for g in games if valid_game(g))
-    machines = [{"id": row["id"], "name": row["name"], "url": row["url"],
-                 "ok": listing is not None, "message": error,
-                 "games": len(listing) if listing is not None else None}
-                for row, (listing, error) in zip(rows, fetched)]
+    machines = []
+    for row, (listing, error, system) in zip(rows, fetched):
+        machines.append({"id": row["id"], "name": row["name"], "url": row["url"],
+                         "ok": listing is not None, "message": error,
+                         "games": len(listing) if listing is not None else None,
+                         "os": system, "icon": row["icon"] or (system if system in ICONS else "linux"),
+                         "icon_set": row["icon"] is not None})
     out = []
     for game in wanted:
         states = []
-        for row, (listing, error) in zip(rows, fetched):
+        for row, (listing, error, _) in zip(rows, fetched):
             state = {"id": row["id"], "name": row["name"], "state": "absente",
-                     "fingerprint": "", "newest": 0, "message": ""}
+                     "fingerprint": "", "newest": 0, "size": 0, "message": ""}
             if listing is None:
                 state.update(state="injoignable", message=error)
             elif game in listing:
                 entry = listing[game]
                 state.update(state="présente", fingerprint=str(entry.get("fingerprint") or ""),
-                             newest=int(entry.get("newest") or 0))
+                             newest=int(entry.get("newest") or 0), size=_size_of(entry))
             states.append(state)
-        label_states(states)
-        out.append({"game": game, "reserve": _reserve_summary(settings, game), "machines": states})
+        verdict = label_states(states)
+        out.append({"game": game, "reserve": _reserve_summary(settings, game), "machines": states,
+                    "check": verdict["check"], "check_by": verdict["check_by"]})
     return {"machines": machines, "games": out}
 
 
@@ -586,11 +658,11 @@ def run_saves(settings: Settings, task: Task, job: Job) -> str:
     elif op == "pull_auto":
         result = pull_auto(settings, games, job)
         items = result["results"]
-        label = "depuis les machines les plus récentes"
+        label = "depuis les machines les plus avancées"
     elif op == "push_auto":
         result = push_auto(settings, p["targets"], games, job)
         items = result["pull"]["results"] + result["push"]["results"]
-        label = f"vers {len(p['targets'])} machine(s), chacune depuis sa plus récente"
+        label = f"vers {len(p['targets'])} machine(s), chacune depuis la plus avancée"
     else:
         raise RebuildError(f"opération de sauvegardes inconnue : {op}")
     task.params["result"] = result

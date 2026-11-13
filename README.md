@@ -106,11 +106,12 @@ Le conteneur démarre en root, prépare `/data`, puis passe à PUID/PGID.
 Le travail sur une image se fait à côté d'elle (`.wsquashfs-manager/`, même
 disque), jamais dans l'appdata.
 
-## Réserve de sauvegardes
+## Sauvegardes entre machines
 
-Le manager tourne en permanence : il garde une **réserve** des sauvegardes de
-partie (`wsquashfs-launcher`, `/v1/saves/*` de l'agent) et peut pousser celles
-d'une machine **source** (celle qui a de l'avance) vers les autres machines.
+Le manager tourne en permanence : il garde une copie des sauvegardes de partie
+(`wsquashfs-launcher`, `/v1/saves/*` de l'agent) et synchronise celles d'une
+machine **source** (celle qui est la plus avancée) vers les autres machines.
+À l'écran, cette copie est la colonne et la carte **Manager**.
 
 - **Machines** : `POST /api/saves/machines {code}` associe une machine par son
   code `wsq://…` (même vérification que l'association de l'agent ; le nom est
@@ -118,38 +119,43 @@ d'une machine **source** (celle qui a de l'avance) vers les autres machines.
   l'entrée. Le jeton et le certificat ne sont jamais renvoyés. La machine de
   jeu en mode agent apparaît d'office (identifiant `game-host`, non
   supprimable) sauf si une machine de la liste a la même adresse.
-- **Réserve** : `state_dir/saves-reserve/<jeu>/` : `current.tar.gz`,
-  `meta.json` (empreinte, newest, profil, source, date de réception) ; avant
-  chaque remplacement, l'ancienne version devient `AAAAMMJJ-HHMMSS.tar.gz`
-  (3 gardées). Écritures atomiques (durable.py).
-- **Pull** (machine → réserve), **push** (réserve → cibles), **push_from**
+- **Icône** : `os` de `/v1/info` (ID de `/etc/os-release` : `steamos`,
+  `batocera`, sinon `linux`), remplaçable à la main (`PATCH`, champ `icon` de
+  la machine ; `saves_game_host_icon` pour la machine de jeu).
+- **Copie du manager** : `state_dir/saves-reserve/<jeu>/` : `current.tar.gz`,
+  `meta.json` (empreinte, newest, taille, profil, source, date de réception) ;
+  avant chaque remplacement, l'ancienne version devient
+  `AAAAMMJJ-HHMMSS.tar.gz` (3 gardées). Écritures atomiques (durable.py).
+- **Pull** (machine → manager), **push** (manager → cibles), **push_from**
   (pull puis push des seuls jeux récupérés). Une machine occupée (jeu en
   cours, 409) n'est pas touchée : le résultat le dit, par jeu et par machine.
-- **États** (`GET /api/saves/status`) : par jeu et par machine. « identique » :
-  toutes les machines joignables ont le jeu, avec la même version (deux
-  machines au moins). Sinon, parmi les joignables qui l'ont : « plus récente »
-  (la version la plus récente : la source) ou « plus ancienne » ; les
-  joignables sans le jeu sont « absente » ; les autres « injoignable » (elles ne
-  comptent pas). Chaque machine n'est interrogée qu'une fois.
+- **États** (`GET /api/saves/status`) : par jeu et par machine, avec la taille
+  et la date. « identique » : toutes les machines joignables ont le jeu, avec
+  la même version (deux machines au moins). Sinon, parmi les joignables qui
+  l'ont : « plus avancée » (la plus lourde, puis la plus récente : la source
+  suggérée) ou « en retard » ; les joignables sans le jeu sont « absente » ; les
+  autres « injoignable » (elles ne comptent pas). `check` : la plus lourde n'est
+  pas la plus récente (`check_by` = la plus récente), à vérifier avant de
+  synchroniser. Chaque machine n'est interrogée qu'une fois.
 - **Tâches** : pull et push passent par la file (tâche `saves`, sans image) ;
   le détail par jeu est dans `params.result` de la tâche.
 - **Écran** : l'onglet **Sauvegardes** (à côté d'Images et de Dossiers à
   empaqueter).
-  - Bandeau des machines : une puce par machine (pastille verte joignable,
-    rouge injoignable, avec le message en infobulle) ; un clic propose
-    « Oublier » (pas pour la machine de jeu). « Associer une machine » prend le
-    code `wsq://` ; sur la machine : `wsquashfs-launcher --pair`, puis
-    `wsquashfs-launcher --agent` pour qu'elle reste joignable. Sans machine, un
-    encadré explique ces étapes.
-  - Tableau jeux × machines : ★ plus récente, identique, ancienne, — absente,
-    ? injoignable, avec la date de la version ; colonne Réserve. Filtres :
-    Tous, Différences, Identiques, Dans la réserve.
-  - Une ligne : « Pousser » (la plus récente vers les autres machines
-    joignables, si les versions diffèrent) et « … » : mettre dans la réserve,
-    pousser depuis une machine précise, envoyer la copie de la réserve.
-  - Sélection : source (la plus récente, jeu par jeu ; une machine ; la
-    réserve), cibles, « Pousser » (récapitulatif avant envoi), « Mettre dans la
-    réserve ». Une opération à la fois ; le résultat liste les échecs par jeu et
+  - Bandeau : une carte par machine (icône, pastille verte joignable ou rouge
+    injoignable, nombre de jeux) et une carte Manager ; un clic sur une machine
+    propose son icône et « Oublier » (pas pour la machine de jeu). « Associer
+    une machine » prend le code `wsq://` ; sur la machine :
+    `wsquashfs-launcher --pair`, puis `wsquashfs-launcher --agent` pour
+    qu'elle reste joignable. Sans machine, un encadré explique ces étapes.
+  - Tableau jeux × machines : ★ plus avancée, identique, en retard, — absente,
+    ? injoignable, avec taille · date ; colonne Manager ; ⚠ à vérifier.
+    Filtres : Tous, Différences, Identiques, Sur le manager.
+  - Une ligne : « Sync X → Y » (la plus avancée vers les autres machines
+    joignables, si les versions diffèrent) et « … » : sync depuis une machine
+    précise, copier vers le manager, sync depuis le manager.
+  - Sélection : source (la plus avancée, jeu par jeu ; une machine ; le
+    manager), cibles, « Sync » (récapitulatif avant envoi), « Copier vers le
+    manager ». Une opération à la fois ; le résultat liste les échecs par jeu et
     par machine.
   - Liste des images : une icône dans « Sauveg. » ouvre l'onglet filtré sur le
     jeu, dès qu'une machine est associée.
@@ -158,21 +164,21 @@ Routes (toutes sous `/api/saves/`) :
 
 | Méthode | Chemin | Corps / réponse |
 |---|---|---|
-| GET | `machines` | `{"machines":[{id,name,url,fingerprint,kind,removable}]}` |
+| GET | `machines` | `{"machines":[{id,name,url,fingerprint,kind,removable,icon}]}` |
 | POST | `machines` | `{"code":"wsq://…"}` → `{id,name,url,fingerprint,replaced}` ; 422 code, empreinte ou jeton ; 502 injoignable |
+| PATCH | `machines/{id}` | `{"icon":"linux"\|"steamos"\|"batocera"\|null}` → `{id,icon,icon_set}` ; 400 icône ; 404 inconnue |
 | DELETE | `machines/{id}` | `{"removed":id}` ; 404 inconnue ; 422 `game-host` |
-| GET | `status[?id=<image>]` | `{machines:[…], games:[{game, reserve, machines:[{id,name,state,fingerprint,newest,message}]}]}` |
+| GET | `status[?id=<image>]` | `{machines:[{…,os,icon,icon_set}], games:[{game, reserve, check, check_by, machines:[{id,name,state,fingerprint,newest,size,message}]}]}` |
 | POST | `pull` | `{"source":id, "ids":[…]}` ou `{"source":id, "all":true}` → `{"task":id}` |
-| POST | `push` | `{"source"?:id, "targets":[id…], "ids":[…]}` ou `"all":true` → `{"task":id}` ; sans source : depuis la réserve |
+| POST | `push` | `{"source"?:id, "targets":[id…], "ids":[…]}` ou `"all":true` → `{"task":id}` ; sans source : depuis le manager |
 
 `"source":"auto"` (pull et push) : chaque jeu vient de sa machine « plus
-récente ». Push : les cibles « plus ancienne » ou « absente » reçoivent le jeu ;
+avancée ». Push : les cibles « en retard » ou « absente » reçoivent le jeu ;
 une cible déjà à la même version est sautée (« déjà identique ») ; un jeu
-identique, ou seulement dans la réserve, n'est pas transféré. Pull : à défaut de
-version plus récente, la première machine qui a le jeu.
+identique, ou seulement sur le manager, n'est pas transféré.
 
 `ids` et `all` s'excluent (422 sinon) ; source inconnue ou cible inconnue : 404 ;
-source parmi les cibles, cible en double, jeu absent de la réserve ou réserve
+source parmi les cibles, cible en double, jeu absent du manager ou manager
 vide : 422. Le jeu d'une image est son nom sans `.wsquashfs` ni `.pc`.
 
 ## Configuration
@@ -301,7 +307,7 @@ Les images sont désignées par leur identifiant `<système>/<nom>` en paramètr
 | GET | `/api/folders` · `/api/folders/analyze?id=&exe=` | dossiers à empaqueter, analyse |
 | POST | `/api/folders/pack` · `/api/folders/delete` | empaquetage en batch, suppression des dossiers empaquetés |
 | GET/POST | `/api/tasks[?image=]` · `/api/tasks/{id}` · `/api/tasks/{id}/cancel` | file |
-| GET/POST/DELETE | `/api/saves/machines` · `/api/saves/status[?id=]` · `/api/saves/pull` · `/api/saves/push` | réserve de sauvegardes (voir ci-dessus) |
+| GET/POST/DELETE | `/api/saves/machines` · `/api/saves/status[?id=]` · `/api/saves/pull` · `/api/saves/push` | sauvegardes entre machines (voir ci-dessus) |
 
 ## Structure
 

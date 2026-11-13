@@ -292,7 +292,7 @@ class AgentHost:
         return self.rel_of(image)
 
     # ---------------------------------------------------------- sauvegardes
-    # Routes /v1/saves/* (réserve, services/saves.py). Chaque requête porte
+    # Routes /v1/saves/* (manager, services/saves.py). Chaque requête porte
     # X-Wsq-Machine : l'agent garde pour ce manager l'empreinte du dernier échange.
 
     @property
