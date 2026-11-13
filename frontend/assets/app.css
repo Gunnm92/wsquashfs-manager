@@ -159,6 +159,7 @@ label.toggle input { margin-top: 1px; }
 /* Groupe de pilules (filtres, navigation, bascules) */
 .pills { display: inline-flex; gap: 4px; padding: 4px; border-radius: 999px; background: var(--surface); flex: none; flex-wrap: wrap; }
 .pills.on-s2 { background: var(--s2); }
+.pills > .sv-sep { width: 1px; align-self: stretch; margin: 4px 4px; background: var(--s3); }
 .pills > button { display: inline-flex; align-items: center; gap: 7px; border: 0; border-radius: 999px; padding: 5px 12px;
   background: transparent; color: var(--muted); font-size: 12.5px; font-weight: 600; transition: background .2s, color .2s; }
 .pills > button:hover { color: var(--text); }

@@ -1495,7 +1495,7 @@ $("cfg-agent-probe").onclick = async () => {
 
 const RESERVE = "__reserve__";          // source : le manager (copie des sauvegardes)
 const AUTO = "auto";                    // source : la machine suggérée (la plus lourde), jeu par jeu
-const PRESENT_STATES = new Set(["identique", "plus avancée", "en retard"]);
+const PRESENT_STATES = new Set(["présente", "identique", "plus avancée", "en retard"]);
 const SAVE_FILTERS = [["", "Tous"], ["diff", "Différences"], ["same", "Identiques"], ["reserve", "Sur le manager"]];
 const OS_ICONS = ["linux", "steamos", "batocera"];          // icônes choisissables d'une machine
 const OS_LABELS = { linux: "Linux", steamos: "SteamOS", batocera: "Batocera" };
@@ -1527,15 +1527,16 @@ const pushTargets = () => targetIds().filter((id) => id !== sv.source);
 const stateOf = (g, id) => g.machines.find((s) => s.id === id);
 const suggestedOf = (g) => g.machines.find((s) => s.state === "plus avancée");   // la suggérée (la plus lourde)
 const presentIn = (g) => g.machines.filter((s) => PRESENT_STATES.has(s.state));
-// Cibles d'une synchro d'un jeu : machines joignables qui ne sont pas à l'empreinte de la suggérée
-const rowTargets = (g) => {
-  const top = suggestedOf(g);
-  return top ? reachableIds().filter((id) => stateOf(g, id)?.fingerprint !== top.fingerprint) : [];
-};
-// Identique : toutes les machines joignables ont la même version. Différences : sinon,
-// avec une suggérée (« plus avancée »), les autres joignables sont à synchroniser ou absentes.
+// Une machine sans le jeu (« absente » : stockage plus petit, jeu pas installé) n'est pas une
+// différence : Sync ne vise que les machines « en retard ». L'installer : menu « … ».
+const lateIn = (g) => g.machines.filter((s) => s.state === "en retard").map((s) => s.id);
+const rowTargets = (g) => { const reach = reachableIds(); return lateIn(g).filter((id) => reach.includes(id)); };
+const absentIn = (g) => reachableIds().filter((id) => (stateOf(g, id)?.state ?? "absente") === "absente");
+// Identique : les machines qui ont le jeu ont la même version. Différences : une au moins est en retard.
 const identical = (g) => g.machines.some((s) => s.state === "identique");
-const differs = (g) => !identical(g) && Boolean(suggestedOf(g));
+const differs = (g) => lateIn(g).length > 0;
+// Source par défaut d'un jeu : la suggérée, sinon une machine qui l'a (seule ou identique)
+const sourceOf = (g) => suggestedOf(g) || presentIn(g).find((s) => reachableIds().includes(s.id));
 const shortDate = (t) => {
   if (!t) return "";
   const d = new Date(t * 1000), p = (n) => String(n).padStart(2, "0");
@@ -1670,15 +1671,25 @@ function toggleMenu(wrap, items) {
   }));
 }
 
+// Filtres d'état, puis un filtre par machine (jeux présents sur elle)
+const onMachine = (g, id) => PRESENT_STATES.has(stateOf(g, id)?.state);
+const filteredMachine = () => (sv.filter.startsWith("m:") ? sv.filter.slice(2) : "");
 function paintFilters() {
+  if (filteredMachine() && !sv.machines.some((m) => m.id === filteredMachine())) sv.filter = "";
   const counts = { "": sv.games.length, diff: sv.games.filter(differs).length,
     same: sv.games.filter(identical).length, reserve: sv.games.filter((g) => g.reserve).length };
-  $("s-filter").replaceChildren(...SAVE_FILTERS.map(([key, label]) => {
-    const b = el("button", { type: "button", className: sv.filter === key ? "on" : "" },
-      el("span", { textContent: label }), el("span", { className: "count", textContent: counts[key] }));
+  const pill = (key, label, count, extra) => {
+    const b = el("button", { type: "button", className: sv.filter === key ? "on" : "", title: extra || "" },
+      ...(label instanceof Node ? [label] : [el("span", { textContent: label })]), el("span", { className: "count", textContent: count }));
     b.onclick = () => { sv.filter = key; paintSaves(); };
     return b;
-  }));
+  };
+  const machines = sv.machines.map((m) => pill(`m:${m.id}`,
+    el("span", { className: "sv-th" }, osIcon(m.icon, "sm"), el("span", { textContent: m.name })),
+    m.ok ? sv.games.filter((g) => onMachine(g, m.id)).length : "?",
+    m.ok ? `Jeux qui ont des sauvegardes sur ${m.name}` : `${m.name} : injoignable`));
+  $("s-filter").replaceChildren(...SAVE_FILTERS.map(([key, label]) => pill(key, label, counts[key])),
+    ...(machines.length ? [el("span", { className: "sv-sep", "aria-hidden": "true" }), ...machines] : []));
 }
 
 function visibleGames() {
@@ -1687,6 +1698,7 @@ function visibleGames() {
     if (sv.filter === "diff") return differs(g);
     if (sv.filter === "same") return identical(g);
     if (sv.filter === "reserve") return Boolean(g.reserve);
+    if (filteredMachine()) return onMachine(g, filteredMachine());
     return true;
   };
   return sv.games.filter((g) => (!q || g.game.toLowerCase().includes(q)) && keep(g))
@@ -1699,7 +1711,7 @@ function visibleGames() {
 function machineCell(g, m, target) {
   const s = stateOf(g, m.id), st = s?.state ?? "absente";
   const [label, tone] = { "plus avancée": ["★ plus avancée", "t-accent"], identique: ["identique", "t-sage"],
-    "en retard": ["en retard", "t-neutral"], injoignable: ["?", "t-err"] }[st] ?? ["—", ""];
+    "en retard": ["en retard", "t-neutral"], présente: ["seule copie", "t-neutral"], injoignable: ["?", "t-err"] }[st] ?? ["—", ""];
   const detail = [`${m.name} : ${st}`, s?.newest ? when(s.newest) : "", st === "injoignable" ? (s?.message || m.message || "") : ""]
     .filter(Boolean).join(" · ");
   const cls = { "plus avancée": "sv-best", "en retard": "sv-old", absente: "sv-none" }[st] ?? "";
@@ -1723,6 +1735,8 @@ function checkMarker(g) {
 
 function paintTable() {
   closeMenu();
+  const first = filteredMachine();
+  const cols = first ? [...sv.machines.filter((m) => m.id === first), ...sv.machines.filter((m) => m.id !== first)] : sv.machines;
   const ids = imageIds(), games = visibleGames();
   const selectable = games.filter((g) => ids.has(g.game));
   const all = $("s-all");
@@ -1733,7 +1747,7 @@ function paintTable() {
     paintSelection();
   };
   const head = el("tr", {}, el("th", { className: "sv-stick" }), el("th", { className: "sv-stick2", textContent: "Jeu" }),
-    ...sv.machines.map((m) => el("th", { title: m.url },
+    ...cols.map((m) => el("th", { title: m.url },
       el("span", { className: "sv-th" }, osIcon(m.icon, "sm"), el("span", { textContent: m.name })))),
     el("th", { title: "Copie des sauvegardes sur le manager" }, el("span", { className: "sv-th" }, icon("server", "sm"), el("span", { textContent: "Manager" }))),
     el("th", {}));
@@ -1767,7 +1781,7 @@ function paintTable() {
     }
     return el("tr", { className: differs(g) ? "sv-diff" : "" },
       el("td", { className: "sv-stick" }, box), el("td", { className: "sv-stick2" }, name),
-      ...sv.machines.map((m) => machineCell(g, m, targets.includes(m.id))), reserve, actions);
+      ...cols.map((m) => machineCell(g, m, targets.includes(m.id))), reserve, actions);
   });
   if (!games.length) {
     rows.push(el("tr", {}, el("td", { colSpan: sv.machines.length + 4 },
@@ -1780,9 +1794,14 @@ function paintTable() {
 // Menu « … » d'une ligne
 function rowItems(g) {
   const img = imageIds().get(g.game), idle = !busy() && Boolean(img);
-  const reach = reachableIds(), top = suggestedOf(g);
+  const reach = reachableIds(), top = sourceOf(g);
+  // Depuis une machine qui a le jeu vers les autres qui l'ont dans une autre version
+  const others = (s) => presentIn(g).filter((o) => o.id !== s.id && o.fingerprint !== s.fingerprint && reach.includes(o.id)).map((o) => o.id);
   return [
-    ...presentIn(g).map((s) => [`Sync depuis ${s.name} → les autres`, "arrow", !idle || !reach.some((id) => id !== s.id), () => pushFrom(g, s.id)]),
+    ...presentIn(g).filter((s) => reach.includes(s.id) && others(s).length)
+      .map((s) => [`Sync ${s.name} → ${names(others(s))}`, "arrow", !idle, () => pushFrom(g, s.id, others(s))]),
+    // Installer sur une machine qui n'a pas le jeu : choix explicite, jamais par défaut
+    ...(top ? absentIn(g).map((id) => [`Installer sur ${machineName(id)} (depuis ${top.name})`, "arrow", !idle, () => pushFrom(g, top.id, [id])]) : []),
     [top ? `Copier vers le manager (${top.name} → Manager)` : "Copier vers le manager", "save", !idle || !top, () => pullGames([g], AUTO)],
     ["Sync depuis le manager (Manager → machines)", "server", !idle || !g.reserve || !reachManagerTargets(g).length, () => pushReserve(g)],
   ];
@@ -1941,7 +1960,8 @@ async function runSaveOp(path, body) {
 const imageOf = (g) => imageIds().get(g.game);
 const ARCHIVED = "La version écrasée sur chaque machine est archivée.";
 // Cibles d'une copie du manager vers les machines : joignables, pas déjà à sa version
-const reachManagerTargets = (g) => reachableIds().filter((id) => !g.reserve || stateOf(g, id)?.fingerprint !== g.reserve.fingerprint);
+// Cibles d'une copie du manager vers les machines : joignables, qui ont le jeu, pas déjà à sa version
+const reachManagerTargets = (g) => reachableIds().filter((id) => onMachine(g, id) && (!g.reserve || stateOf(g, id)?.fingerprint !== g.reserve.fingerprint));
 
 // Copie vers le manager : depuis `source` (une machine, ou AUTO : la suggérée, jeu par jeu)
 function pullGames(games, source) {
@@ -1955,8 +1975,7 @@ function syncRow(g) {                       // la suggérée vers les autres mac
   if (!confirm(`Sync « ${g.game} » : ${from.name} → ${names(targets)}.\n\n${ARCHIVED}`)) return;
   runSaveOp("/api/saves/push", { source: AUTO, targets, ids: [imageOf(g)] });
 }
-function pushFrom(g, sourceId) {
-  const targets = reachableIds().filter((id) => id !== sourceId);
+function pushFrom(g, sourceId, targets) {
   if (!targets.length) return;
   if (!confirm(`Sync « ${g.game} » : ${machineName(sourceId)} → ${names(targets)}.\n\n${ARCHIVED}`)) return;
   runSaveOp("/api/saves/push", { source: sourceId, targets, ids: [imageOf(g)] });
@@ -1984,17 +2003,19 @@ function pushSelection() {
     // Cibles qui n'ont pas la version de la source (absentes ou plus anciennes)
     const moves = games.map((g) => {
       const from = suggestedOf(g);
-      const to = from ? targets.filter((id) => id !== from.id && stateOf(g, id)?.fingerprint !== from.fingerprint) : [];
+      const to = from ? targets.filter((id) => lateIn(g).includes(id)) : [];
       return { g, from, to };
     }).filter((x) => x.to.length);
-    if (!moves.length) { toast("Rien à synchroniser : les jeux sélectionnés sont déjà identiques.", "info"); return; }
+    if (!moves.length) { toast("Rien à synchroniser : aucune machine cochée n'a ces jeux dans une version en retard.", "info"); return; }
     body = { source: AUTO, targets, ids: idsOf(games) };
     lines = moves.map(({ g, from, to }) => `Sync « ${g.game} » : ${from.name} → ${names(to)}.`);
-    if (moves.length < games.length) lines.push(`${games.length - moves.length} jeu(x) déjà identiques ou sans source, ignoré(s).`);
+    if (moves.length < games.length) lines.push(`${games.length - moves.length} jeu(x) déjà à jour, ignoré(s).`);
+    lines.push("Les machines qui n'ont pas le jeu ne sont pas touchées.");
   } else {
     const dest = targets.filter((id) => id !== sv.source);
     body = { source: sv.source, targets, ids: idsOf(games) };
-    lines = [`${games.length > 1 ? `${games.length} jeux` : `« ${games[0].game} »`} : ${machineName(sv.source)} → ${names(dest)}.`];
+    lines = [`${games.length > 1 ? `${games.length} jeux` : `« ${games[0].game} »`} : ${machineName(sv.source)} → ${names(dest)}.`,
+      "Source choisie : les cibles reçoivent ses sauvegardes, même si elles n'ont pas encore le jeu."];
   }
   if (!confirm(`${lines.join("\n")}\n\n${ARCHIVED}`)) return;
   runSaveOp("/api/saves/push", body);

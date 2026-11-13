@@ -480,9 +480,10 @@ def _pull_sources(settings: Settings, games: list[str] | None) -> tuple[dict, li
 def push_auto(settings: Settings, target_ids: list[str], games: list[str] | None,
               job: Job | None = None) -> dict:
     """Chaque jeu part de sa machine « plus avancée » (`best`) vers les cibles qui n'ont
-    pas sa version (« en retard » ou « absente ») ; une cible déjà à la même empreinte
-    est sautée (« déjà identique »), une cible injoignable échoue. Un jeu identique
-    partout, ou seulement dans le manager, n'est pas transféré."""
+    pas sa version (« en retard ») ; une cible qui n'a pas le jeu (« absente ») ou
+    déjà à la même empreinte est sautée, une cible injoignable échoue. Un jeu
+    identique partout, ou seulement dans le manager, n'est pas transféré. Pour
+    copier un jeu sur une machine qui ne l'a pas : push_from, source explicite."""
     wanted = _dedupe(target_ids)
     results: list[dict] = []
     groups: dict[tuple[str, tuple[str, ...]], list[str]] = {}
@@ -504,6 +505,10 @@ def push_auto(settings: Settings, target_ids: list[str], games: list[str] | None
                 results.append({"game": game, "machine": state["name"] if state else target, "machine_id": target,
                                 "ok": False, "message": (state or {}).get("message") or "machine injoignable",
                                 "archived": None})
+                emitted = True
+            elif state["state"] == "absente":
+                results.append({"game": game, "machine": state["name"], "machine_id": target, "ok": True,
+                                "message": "absente : non envoyée (le jeu n'y est pas)", "archived": None})
                 emitted = True
             elif source["fingerprint"] and state["fingerprint"] == source["fingerprint"]:
                 results.append({"game": game, "machine": state["name"], "machine_id": target, "ok": True,
@@ -553,17 +558,19 @@ def label_states(states: list[dict]) -> dict:
     maximale parmi les présentes ; `check_by` est alors le nom de celle-ci.
 
     - « injoignable » : la machine n'a pas répondu, elle ne compte pas ;
-    - « identique » : toutes les machines joignables ont le jeu, avec la même
-      empreinte (deux machines au moins) ;
-    - sinon, parmi les joignables qui ont le jeu : « plus avancée » pour celles qui
-      ont l'empreinte de `best` (la source suggérée), « en retard » pour les autres ;
-      les joignables sans le jeu restent « absente »."""
+    - « absente » : la machine n'a pas le jeu (stockage plus petit, jeu pas
+      installé) ; ce n'est pas une différence, elle ne compte pas ;
+    - « présente » : une seule machine a le jeu, rien à comparer ;
+    - « identique » : les machines qui ont le jeu (deux au moins) ont la même
+      empreinte ;
+    - sinon : « plus avancée » pour celles qui ont l'empreinte de `best` (la source
+      suggérée), « en retard » pour les autres."""
     no_check = {"check": False, "check_by": ""}
     reachable = [s for s in states if s["state"] != "injoignable"]
     have = [s for s in reachable if s["state"] == "présente"]
-    if not have:
+    if len(have) < 2:
         return no_check
-    if len(have) == len(reachable) and len(have) >= 2 and len({s["fingerprint"] for s in have}) == 1:
+    if len({s["fingerprint"] for s in have}) == 1:
         for s in have:
             s["state"] = "identique"
         return no_check

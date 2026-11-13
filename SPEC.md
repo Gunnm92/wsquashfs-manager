@@ -247,12 +247,15 @@ explicite, la machine source étant choisie.
   Un échec partiel fait échouer la tâche, son détail reste dans le résultat.
 - **États** (`status`) : une requête `saves_list` et une `/v1/info` par machine
   (en parallèle, délai 15 s ; l'échec de `/v1/info` laisse `os` vide). Libellés
-  par jeu : « identique » (toutes les machines joignables ont la même version) ;
-  sinon « plus avancée » pour les machines qui ont la version au couple
+  par jeu : « absente » (pas le jeu : ce n'est pas une différence) ; « présente »
+  (une seule machine l'a) ; « identique » (celles qui l'ont, deux au moins, ont
+  la même version) ; sinon « plus avancée » pour les machines qui ont la version au couple
   (`size`, `newest`) maximal (`best` : la source à proposer, aussi celle de
   `source:"auto"`), « en retard » pour les autres ; « absente » ;
   « injoignable » (machine non jointe ou erreur de la requête). `check` vrai
   quand la plus avancée n'a pas la date la plus récente (`check_by`).
+- **Push auto** : seules les machines « en retard » reçoivent ; une machine
+  « absente » n'est touchée qu'avec une source explicite (`push_from`).
 - **Icône** : `icon` choisie (machine enregistrée : champ `icon` ; machine de
   jeu : `saves_game_host_icon`), sinon `os` détecté s'il est connu (`linux`,
   `steamos`, `batocera`), sinon `linux`.

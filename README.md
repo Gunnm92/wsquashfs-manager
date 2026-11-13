@@ -130,11 +130,12 @@ machine **source** (celle qui est la plus avancée) vers les autres machines.
   (pull puis push des seuls jeux récupérés). Une machine occupée (jeu en
   cours, 409) n'est pas touchée : le résultat le dit, par jeu et par machine.
 - **États** (`GET /api/saves/status`) : par jeu et par machine, avec la taille
-  et la date. « identique » : toutes les machines joignables ont le jeu, avec
-  la même version (deux machines au moins). Sinon, parmi les joignables qui
-  l'ont : « plus avancée » (la plus lourde, puis la plus récente : la source
-  suggérée) ou « en retard » ; les joignables sans le jeu sont « absente » ; les
-  autres « injoignable » (elles ne comptent pas). `check` : la plus lourde n'est
+  et la date. une machine sans le jeu est « absente » et ce
+  n'est pas une différence (AIBox ou le Deck n'ont qu'une partie des jeux).
+  « présente » : une seule machine l'a. « identique » : les machines qui l'ont
+  (deux au moins) ont la même version. Sinon : « plus avancée » (la plus
+  lourde, puis la plus récente : la source suggérée) ou « en retard ». Les
+  machines non jointes sont « injoignable » (elles ne comptent pas). `check` : la plus lourde n'est
   pas la plus récente (`check_by` = la plus récente), à vérifier avant de
   synchroniser. Chaque machine n'est interrogée qu'une fois.
 - **Tâches** : pull et push passent par la file (tâche `saves`, sans image) ;
@@ -148,11 +149,13 @@ machine **source** (celle qui est la plus avancée) vers les autres machines.
     `wsquashfs-launcher --pair`, puis `wsquashfs-launcher --agent` pour
     qu'elle reste joignable. Sans machine, un encadré explique ces étapes.
   - Tableau jeux × machines : ★ plus avancée, identique, en retard, — absente,
-    ? injoignable, avec taille · date ; colonne Manager ; ⚠ à vérifier.
-    Filtres : Tous, Différences, Identiques, Sur le manager.
-  - Une ligne : « Sync X → Y » (la plus avancée vers les autres machines
-    joignables, si les versions diffèrent) et « … » : sync depuis une machine
-    précise, copier vers le manager, sync depuis le manager.
+    seule copie, ? injoignable, avec taille · date ; colonne Manager ;
+    ⚠ à vérifier. Filtres : Tous, Différences, Identiques, Sur le manager, puis
+    un par machine (jeux présents sur elle, sa colonne en premier).
+  - Une ligne : « Sync X → Y » (la plus avancée vers les machines en retard)
+    et « … » : sync depuis une machine précise, « Installer sur Z » (machine
+    qui n'a pas le jeu, choix explicite), copier vers le manager, sync depuis
+    le manager (machines qui ont le jeu).
   - Sélection : source (la plus avancée, jeu par jeu ; une machine ; le
     manager), cibles, « Sync » (récapitulatif avant envoi), « Copier vers le
     manager ». Une opération à la fois ; le résultat liste les échecs par jeu et
@@ -173,8 +176,9 @@ Routes (toutes sous `/api/saves/`) :
 | POST | `push` | `{"source"?:id, "targets":[id…], "ids":[…]}` ou `"all":true` → `{"task":id}` ; sans source : depuis le manager |
 
 `"source":"auto"` (pull et push) : chaque jeu vient de sa machine « plus
-avancée ». Push : les cibles « en retard » ou « absente » reçoivent le jeu ;
-une cible déjà à la même version est sautée (« déjà identique ») ; un jeu
+avancée ». Push : seules les cibles « en retard » reçoivent le jeu ; une cible
+« absente » ou déjà à la même version est sautée ; avec une source explicite,
+toutes les cibles reçoivent (c'est ainsi qu'on installe sur une machine) ; un jeu
 identique, ou seulement sur le manager, n'est pas transféré.
 
 `ids` et `all` s'excluent (422 sinon) ; source inconnue ou cible inconnue : 404 ;

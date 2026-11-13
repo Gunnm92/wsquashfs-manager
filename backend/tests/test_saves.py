@@ -506,13 +506,16 @@ def test_push_auto_takes_each_game_from_its_most_recent_machine(agents, tmp_path
     associate(settings, m3)
     ids = machine_ids(settings)
     result = saves.push_auto(settings, [ids["m1"], ids["m2"], ids["m3"]], None)
-    pushed = {(r["game"], r["machine"]): r["ok"] for r in result["push"]["results"] if r["machine"]}
-    # A part de m1 vers m2 et m3 (pas vers elle-même) ; B part de m2 vers m1 et m3
-    assert pushed == {("A", "m2"): True, ("A", "m3"): True, ("B", "m1"): True, ("B", "m3"): True}
-    assert m2["st"]["games"]["A"]["data"] == gz("a-new")
+    pushed = {(r["game"], r["machine"]): r["ok"] for r in result["push"]["results"]
+              if r["machine"] and r["message"].startswith("envoyée")}
+    # A part de m1 vers m3 ; B part de m2 vers m1. Les machines sans le jeu (m2 pour A,
+    # m3 pour B) ne reçoivent rien : absent n'est pas une différence
+    assert pushed == {("A", "m3"): True, ("B", "m1"): True}
+    skipped = {(r["game"], r["machine"]) for r in result["push"]["results"] if r["message"].startswith("absente")}
+    assert skipped == {("A", "m2"), ("B", "m3")}
     assert m3["st"]["games"]["A"]["data"] == gz("a-new")
     assert m1["st"]["games"]["B"]["data"] == gz("b-new")
-    assert m3["st"]["games"]["B"]["data"] == gz("b-new")
+    assert "A" not in m2["st"]["games"] and "B" not in m3["st"]["games"]
     # Les sources ne reçoivent rien d'elles-mêmes
     assert not [e for e in m1["st"]["log"] if e["method"] == "PUT" and e["game"] == "A"]
     assert not [e for e in m2["st"]["log"] if e["method"] == "PUT" and e["game"] == "B"]
@@ -551,7 +554,7 @@ def test_push_auto_reports_a_game_whose_only_target_is_its_source(agents, tmp_pa
                                           "archived": None}]
     assert not [e for e in m1["st"]["log"] + m2["st"]["log"] if e["method"] == "PUT"]
 
-def test_push_auto_sends_to_an_absent_machine_and_skips_an_identical_one(agents, tmp_path):
+def test_push_auto_skips_an_absent_machine_and_an_identical_one(agents, tmp_path):
     m1 = agents("m1", games={"A": (gz("a"), None, 300)})
     m2 = agents("m2", games={"A": (gz("a"), None, 300)})     # même version que m1
     m3 = agents("m3")                                       # joignable, sans le jeu
@@ -561,11 +564,22 @@ def test_push_auto_sends_to_an_absent_machine_and_skips_an_identical_one(agents,
     associate(settings, m3)
     ids = machine_ids(settings)
     result = saves.push_auto(settings, [ids["m2"], ids["m3"]], ["A"])
-    by_machine = {r["machine"]: r for r in result["push"]["results"]}
-    assert by_machine["m2"]["message"] == "déjà identique" and by_machine["m2"]["ok"] is True
-    assert by_machine["m3"]["ok"] is True and "envoyée" in by_machine["m3"]["message"]
-    assert m3["st"]["games"]["A"]["data"] == gz("a")
-    assert not [e for e in m2["st"]["log"] if e["method"] == "PUT"]
+    # m1 et m2 identiques, m3 sans le jeu : rien à synchroniser
+    assert [(r["game"], r["ok"], r["message"]) for r in result["push"]["results"]] == [("A", True, "déjà identiques")]
+    assert "A" not in m3["st"]["games"]
+    assert not [e for e in m2["st"]["log"] + m3["st"]["log"] if e["method"] == "PUT"]
+
+
+def test_push_from_an_explicit_source_installs_on_an_absent_machine(agents, tmp_path):
+    m1 = agents("m1", games={"A": (gz("a"), None, 300)})
+    m2 = agents("m2")                                       # joignable, sans le jeu
+    settings = make_settings(tmp_path)
+    associate(settings, m1)
+    associate(settings, m2)
+    ids = machine_ids(settings)
+    result = saves.push_from(settings, ids["m1"], [ids["m2"]], ["A"])
+    assert [r["ok"] for r in result["push"]["results"]] == [True]
+    assert m2["st"]["games"]["A"]["data"] == gz("a")
 
 def test_push_auto_task_result_is_kept_and_reported(agents, tmp_path):
     m1 = agents("m1", games={"A": (gz("a-new"), None, 300)})
@@ -605,9 +619,9 @@ def test_status_labels_and_one_listing_per_machine(agents, tmp_path):
                       "m4": "absente", "morte": "injoignable"}
     assert (jeu["check"], jeu["check_by"]) == (False, "")
     autre = next(g for g in status["games"] if g["game"] == "Autre")
-    # m1 et m4 ont la même version, m2 et m3 (joignables) ne l'ont pas : elles sont « absente »
+    # m1 et m4 ont la même version : « identique », même si m2 et m3 ne l'ont pas
     assert {s["name"]: s["state"] for s in autre["machines"]} == {
-        "m1": "plus avancée", "m2": "absente", "m3": "absente", "m4": "plus avancée", "morte": "injoignable"}
+        "m1": "identique", "m2": "absente", "m3": "absente", "m4": "identique", "morte": "injoignable"}
     assert all(len([e for e in m["st"]["log"] if e["path"] == "/v1/saves/list"]) == 1
                for m in (m1, m2, m3, m4))
     dead = next(s for s in jeu["machines"] if s["name"] == "morte")
@@ -629,8 +643,9 @@ def test_status_reports_reserve_and_single_game(agents, tmp_path):
     assert status["games"][0]["reserve"]["fingerprint"] == fp_of(data)
     assert status["games"][0]["reserve"]["archives"] == 0
     assert status["games"][0]["reserve"]["size"] == 777
-    # seule machine à avoir le jeu : « plus avancée » ; la joignable sans le jeu : « absente »
-    assert {s["name"]: s["state"] for s in status["games"][0]["machines"]} == {"m1": "plus avancée", "m2": "absente"}
+    # seule machine à avoir le jeu : « présente » (rien à comparer) ; sans le jeu : « absente »
+    assert {s["name"]: s["state"] for s in status["games"][0]["machines"]} == {"m1": "présente", "m2": "absente"}
+    assert status["games"][0]["check"] is False
 
 
 # ------------------------------------------------------------------ API
@@ -814,7 +829,7 @@ def test_identical_machines_are_labelled_identical(agents, tmp_path):
 def test_push_auto_takes_the_heaviest_machine(agents, tmp_path):
     heavy = agents("heavy", games={"Jeu": (gz("lourd"), None, 100, 900)})
     recent = agents("recent", games={"Jeu": (gz("leger"), None, 300, 500)})
-    target = agents("cible")
+    target = agents("cible", games={"Jeu": (gz("vieux"), None, 50, 100)})
     settings = make_settings(tmp_path)
     for m in (heavy, recent, target):
         associate(settings, m)
@@ -848,7 +863,7 @@ def test_failed_info_keeps_the_machine_reachable(agents, tmp_path):
     status = saves.status(settings)
     machine = status["machines"][0]
     assert machine["ok"] is True and (machine["os"], machine["icon"]) == ("", "linux")
-    assert status["games"][0]["machines"][0]["state"] == "plus avancée"
+    assert status["games"][0]["machines"][0]["state"] == "présente"
 
 
 def test_chosen_icon_wins_over_detection_and_can_be_reset(agents, tmp_path):
