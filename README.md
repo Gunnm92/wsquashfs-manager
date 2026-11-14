@@ -92,7 +92,7 @@ deux machines : `wsquashfs-launcher --pair` sur l'autre, puis
 |---|---|
 | Désactivée | défaut d'une installation neuve |
 | Cette machine | lanceur installé sur la machine du gestionnaire, avec un écran ; le service tourne sous l'utilisateur de la session graphique |
-| Agent réseau | Sur la machine de jeu, ou dans son conteneur (ex. SteamBox) : `wsquashfs-launcher --pair` affiche le code `wsq://…` et attend qu'il soit collé dans **Associer** (le certificat est vérifié contre le code) ; ensuite `wsquashfs-launcher --agent` lance l'agent en arrière-plan (`--agent stop` l'arrête, `--setup --agent` le démarre avec la session). Voir `docs/agent.md` du lanceur. |
+| Agent réseau | **Une machine déjà associée** (onglet Sauvegardes : SteamBox, AIBox, Deck…) se choisit dans la liste « Machine associée » : son adresse, son jeton et son certificat sont repris, sans nouveau code (`PUT /api/config/game_host/machine {"id"}`). **Autre machine** : sur la machine de jeu, ou dans son conteneur (ex. SteamBox) : `wsquashfs-launcher --pair` affiche le code `wsq://…` et attend qu'il soit collé dans **Associer** (le certificat est vérifié contre le code) ; ensuite `wsquashfs-launcher --agent` lance l'agent en arrière-plan (`--agent stop` l'arrête, `--setup --agent` le démarre avec la session). Voir `docs/agent.md` du lanceur. |
 
 Le mode Conteneur Docker (API Docker, `docker-socket-proxy`) a été retiré : un
 conteneur se joint par l'agent. Une configuration qui le mentionne repasse en
@@ -196,6 +196,35 @@ identique, ou seulement sur le manager, n'est pas transféré.
 `games` (noms de jeux, sans image requise : un jeu installé sur une seule machine peut ne pas être dans la bibliothèque) et `all` s'excluent (422 sinon ; nom invalide : 422) ; source inconnue ou cible inconnue : 404 ;
 source parmi les cibles, cible en double, jeu absent du manager ou manager
 vide : 422. Le jeu d'une image est son nom sans `.wsquashfs` ni `.pc`.
+
+## Installer un jeu sur une machine
+
+Une image `.wsquashfs` de la bibliothèque s'envoie sur les machines associées
+(les mêmes que l'onglet Sauvegardes), via leur agent (`/v1/games/*`, agent v6),
+et s'en désinstalle. Rien n'est créé sur la machine au-delà de l'image : le
+raccourci de lancement reste à ajouter à la main.
+
+- **Routes** : `GET /api/install/status` (par machine : joignable, dossier des
+  jeux, espace libre, jeux, envois partiels) ; `POST /api/install {ids, machines}`
+  (une tâche par image) ; `POST /api/uninstall {names, machines}` (une tâche par
+  nom de jeu) ; `POST /api/install/machines/{id}/dir {dir}`. Les tâches sont
+  de type `install` ; le résultat par machine est dans `params.result`.
+- **Dossier des jeux** : deviné par l'agent, modifiable (`dir` vide : retour au
+  dossier deviné). L'agent n'accepte qu'un dossier dans son HOME : sinon 400, avec
+  son message. `set` indique si le dossier a été choisi à la main.
+- **Envoi** : par blocs de 256 Mio (PUT à partir d'un décalage). Avant l'envoi,
+  l'espace libre doit couvrir le reste de l'image plus 1 Gio, sinon rien n'est
+  envoyé. L'empreinte SHA-256 est vérifiée par la machine au commit.
+- **Reprise** : une coupure ou un décalage différent relance l'envoi après 1, 2,
+  4, 8, puis 16 s (5 reprises au plus). La machine dit ce qu'elle a déjà reçu ;
+  l'empreinte est recalculée depuis le début de l'image jusqu'à cet endroit. Une
+  empreinte refusée au commit recommence un envoi complet, une fois.
+- **Déjà installé** : même nom et même taille → réussite sans envoi. Une autre
+  version → échec (la désinstaller d'abord).
+- **Désinstallation** : jeu monté ou en cours (409) → échec pour cette machine
+  seulement ; pas installé → réussite sans effet.
+- **Agent trop ancien** (404/405 sans détail) : `wsquashfs-launcher --update`
+  sur la machine, puis relancer son agent.
 
 ## Configuration
 
@@ -324,6 +353,7 @@ Les images sont désignées par leur identifiant `<système>/<nom>` en paramètr
 | POST | `/api/folders/pack` · `/api/folders/delete` | empaquetage en batch, suppression des dossiers empaquetés |
 | GET/POST | `/api/tasks[?image=]` · `/api/tasks/{id}` · `/api/tasks/{id}/cancel` | file |
 | GET/POST/PATCH/DELETE | `/api/saves/machines` · `/api/saves/status[?id=]` · `/api/saves/pull` · `/api/saves/push` · `/api/saves/delete` | sauvegardes entre machines (voir ci-dessus) |
+| GET/POST | `/api/install/status` · `/api/install` · `/api/uninstall` · `/api/install/machines/{id}/dir` | installer ou désinstaller un jeu sur les machines (voir ci-dessus) |
 
 ## Structure
 

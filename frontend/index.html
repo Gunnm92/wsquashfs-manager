@@ -135,6 +135,9 @@
       <button class="btn bare sm" id="btn-mass-validate" title="Supprimer l'ancienne version (.old) des images sélectionnées"><svg class="ico sm"><use href="#i-check"/></svg>Valider les .old</button>
       <button class="btn bare sm" id="btn-mass-commit" title="Reconstruit chaque image avec son autorun effectif, puis supprime la surcharge"><svg class="ico sm"><use href="#i-filepen"/></svg>Inscrire les surcharges</button>
       <button class="btn bare sm" id="btn-saves-reset" title="Met de côté les sauvegardes (renommées, pas supprimées)"><svg class="ico sm"><use href="#i-save"/></svg>Réinitialiser les sauvegardes</button>
+      <span class="sep"></span>
+      <button class="btn bare sm" id="btn-inst-install" title="Copie les images sélectionnées (.wsquashfs) dans le dossier des jeux des machines associées"><svg class="ico sm"><use href="#i-drive"/></svg>Installer sur…</button>
+      <button class="btn bare sm" id="btn-inst-uninstall" title="Retire les images sélectionnées (.wsquashfs) des machines associées ; elles restent dans la bibliothèque"><svg class="ico sm"><use href="#i-trash"/></svg>Désinstaller de…</button>
       <button class="iconbtn bare sm" id="btn-sel-clear" title="Désélectionner"><svg class="ico sm"><use href="#i-x"/></svg></button>
     </div>
   </section>
@@ -162,6 +165,13 @@
 
       <div data-pane="info">
         <dl class="facts" id="d-info"></dl>
+        <div class="box" id="d-inst" hidden>
+          <div class="box-head"><svg class="ico"><use href="#i-drive"/></svg><strong>Machines</strong></div>
+          <p id="d-inst-where"></p>
+          <div class="row" style="margin-top:10px">
+            <button class="btn primary sm" id="d-inst-install"><svg class="ico sm"><use href="#i-drive"/></svg>Installer sur…</button>
+            <button class="btn secondary sm" id="d-inst-uninstall"><svg class="ico sm"><use href="#i-trash"/></svg>Désinstaller de…</button></div>
+        </div>
         <div class="box">
           <div class="box-head"><svg class="ico"><use href="#i-link"/></svg><strong>Liens du runner</strong>
             <button class="btn secondary sm" id="d-links" title="Liens du prefix vers un runner hors de l'image ou absent, et réparation avec les runners installés sur la machine de jeu">Analyser</button></div>
@@ -372,6 +382,32 @@
   </div>
 </dialog>
 
+<dialog id="dlg-install" class="small">
+  <div class="dlg-head"><h2>Installer sur…</h2>
+    <button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
+  <p class="dlg-intro" id="in-images"></p>
+  <div id="in-status"></div>
+  <div class="in-targets" id="in-targets"></div>
+  <p class="dlg-intro sd-note">Le jeu est copié dans ce dossier ; ajoute-le ensuite toi-même à Steam ou à ton lanceur. Un envoi coupé reprend où il s'est arrêté.</p>
+  <div class="dlg-foot">
+    <button class="btn bare sm" id="in-refresh" title="Relit l'état des machines"><svg class="ico sm"><use href="#i-refresh"/></svg>Actualiser</button>
+    <span class="spacer"></span>
+    <button class="btn secondary" data-close>Annuler</button>
+    <button class="btn primary" id="in-run"><svg class="ico sm"><use href="#i-drive"/></svg>Installer</button></div>
+</dialog>
+<dialog id="dlg-uninstall" class="small">
+  <div class="dlg-head"><h2>Désinstaller de…</h2>
+    <button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
+  <p class="dlg-intro" id="un-images"></p>
+  <div id="un-status"></div>
+  <div class="in-targets" id="un-targets"></div>
+  <p class="dlg-intro sd-note">L'image est supprimée de la machine (pas d'archive : elle reste dans la bibliothèque). Le jeu ne doit pas être lancé.</p>
+  <div class="dlg-foot">
+    <button class="btn bare sm" id="un-refresh" title="Relit l'état des machines"><svg class="ico sm"><use href="#i-refresh"/></svg>Actualiser</button>
+    <span class="spacer"></span>
+    <button class="btn secondary" data-close>Annuler</button>
+    <button class="btn danger" id="un-run"><svg class="ico sm"><use href="#i-trash"/></svg>Désinstaller</button></div>
+</dialog>
 <dialog id="dlg-pair" class="small">
   <div class="dlg-head"><h2>Associer une machine</h2><span class="spacer"></span>
     <button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
@@ -440,6 +476,10 @@
     <p class="dlg-intro host-hint" id="cfg-host-hint"></p>
     <div class="host-summary" id="host-summary" hidden><span id="host-summary-text"></span>
       <button class="btn bare sm" id="host-edit" type="button"><svg class="ico sm"><use href="#i-pen"/></svg>Modifier la connexion</button></div>
+    <div class="host-fields" id="cfg-agent-pick" hidden>
+      <div class="section-label">Machine</div>
+      <label class="field">Machine associée (onglet Sauvegardes)<select id="cfg-agent-machine"></select></label>
+    </div>
     <div class="host-fields" id="cfg-agent" hidden>
       <div class="section-label">Association</div>
       <label class="field">Code d'association<input id="cfg-agent-code" autocomplete="off" placeholder="wsq://… affiché par « wsquashfs-launcher --pair »"></label>

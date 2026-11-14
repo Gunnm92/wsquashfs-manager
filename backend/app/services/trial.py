@@ -220,6 +220,30 @@ class SavesBusy(RebuildError):
     """Un jeu tourne sur la machine : ses sauvegardes ne se synchronisent pas maintenant."""
 
 
+class AgentUnreachable(RebuildError):
+    """La machine ne répond pas (réseau, certificat) : l'envoi peut reprendre plus tard."""
+
+
+class AgentRejected(RebuildError):
+    """L'agent refuse la demande (HTTP 400) ; son message est dans str(exc)."""
+
+
+class InstallOffset(RebuildError):
+    """PUT refusé : le décalage ne correspond pas à ce que l'agent a reçu (409 « décalage »)."""
+
+    def __init__(self, part_size: int):
+        super().__init__("décalage de l'envoi différent de la machine")
+        self.part_size = part_size
+
+
+class InstallChecksum(RebuildError):
+    """Empreinte de l'image installée différente de celle envoyée (422 au commit)."""
+
+
+OLD_AGENT_MESSAGE = ("agent trop ancien : wsquashfs-launcher --update sur cette machine, "
+                     "puis relancer son agent")
+
+
 class AgentHost:
     """Machine de jeu = wsquashfs-agent sur le réseau (HTTPS, jeton, certificat épinglé)."""
 
@@ -243,7 +267,7 @@ class AgentHost:
         try:
             response = self.client.request(method, path, **kwargs)
         except httpx.HTTPError as exc:
-            raise RebuildError(f"agent injoignable ({self.url}) : {exc}") from exc
+            raise AgentUnreachable(f"agent injoignable ({self.url}) : {exc}") from exc
         if response.status_code == 401:
             raise RebuildError("jeton de l'agent refusé : copier le jeton affiché par « wsquashfs-launcher --pair »")
         if response.status_code >= 400:
@@ -308,7 +332,7 @@ class AgentHost:
                 return RebuildError(f"certificat de la machine différent de celui associé ({self.url}) : "
                                     "refaire l'association (wsquashfs-launcher --pair)")
             cause = cause.__cause__ or cause.__context__
-        return RebuildError(f"machine injoignable ({self.url}) : {exc}")
+        return AgentUnreachable(f"machine injoignable ({self.url}) : {exc}")
 
     def _saves_error(self, response: httpx.Response, conflict: str | None = None) -> RebuildError:
         if response.status_code == 401:
@@ -321,8 +345,7 @@ class AgentHost:
         if response.status_code in (404, 405) and not detail:
             # Route inconnue (réponse texte du routeur Go, sans « detail ») : agent d'avant
             # la synchro des sauvegardes (version < 5)
-            return RebuildError("agent trop ancien : wsquashfs-launcher --update sur cette machine, "
-                                "puis relancer son agent")
+            return RebuildError(OLD_AGENT_MESSAGE)
         detail = detail or response.text[:200] or f"erreur {response.status_code}"
         if response.status_code == 409:
             if detail == "jeu en cours":
@@ -407,6 +430,74 @@ class AgentHost:
         self._saves_request("POST", "/v1/saves/state", timeout=30,
                             conflict="la machine a changé entre-temps : relancer la synchronisation",
                             json={"game": game, "fingerprint": fingerprint})
+
+    # ---------------------------------------------------------- jeux installés (agent v6)
+    # Routes /v1/games/* (services/install.py) : jeton seul, comme /v1/info.
+
+    def _games(self, method: str, path: str, *, timeout: float, conflict: str | None = None,
+               **kwargs) -> httpx.Response:
+        try:
+            response = self.client.request(method, path, timeout=timeout, **kwargs)
+        except httpx.HTTPError as exc:
+            raise self._unreachable(exc) from exc
+        if response.status_code >= 400:
+            raise self._games_error(response, conflict)
+        return response
+
+    def _games_error(self, response: httpx.Response, conflict: str | None) -> RebuildError:
+        if response.status_code == 401:
+            return RebuildError("jeton refusé : refaire l'association (wsquashfs-launcher --pair)")
+        try:
+            data = response.json()
+            detail = str(data.get("detail", "")) if isinstance(data, dict) else ""
+        except ValueError:
+            data, detail = {}, ""
+        if response.status_code in (404, 405) and not detail:
+            return RebuildError(OLD_AGENT_MESSAGE)
+        if response.status_code == 409:
+            if detail == "décalage":
+                return InstallOffset(int(data.get("part_size") or 0))
+            if conflict:
+                return RebuildError(conflict)
+            if "envoi" in detail:
+                return RebuildError("envoi en cours sur la machine : réessayer plus tard")
+            return RebuildError(detail or "conflit sur la machine")
+        if response.status_code == 422:
+            return InstallChecksum(detail or "empreinte incorrecte")
+        if response.status_code == 400:
+            return AgentRejected(detail or "demande refusée par l'agent")
+        return RebuildError(detail or response.text[:200] or f"erreur {response.status_code}")
+
+    def games_list(self, timeout: float = 30) -> dict:
+        """{dir, set, free, games:[{name,size,mtime}], parts:[{name,size}]}."""
+        return self._games("GET", "/v1/games/list", timeout=timeout).json()
+
+    def games_set_dir(self, directory: str, timeout: float = 30) -> dict:
+        """Dossier des jeux de la machine (« » : le dossier deviné) → {dir, set}."""
+        return self._games("POST", "/v1/games/dir", timeout=timeout, json={"dir": directory}).json()
+
+    def games_part(self, name: str, timeout: float = 30) -> dict:
+        """Envoi partiel du jeu → {part_size, installed, size}."""
+        return self._games("GET", "/v1/games/part", timeout=timeout, params={"name": name}).json()
+
+    def games_put(self, name: str, offset: int, body, length: int, total: int) -> dict:
+        """Un bloc de l'image à partir de `offset` ; `body` : itérable d'octets de `length` octets.
+        → {part_size}."""
+        headers = {"Content-Type": "application/octet-stream", "Content-Length": str(length),
+                   "X-Wsq-Total-Size": str(total)}
+        return self._games("PUT", "/v1/games/file", timeout=3600, headers=headers, content=body,
+                           params={"name": name, "offset": str(offset)}).json()
+
+    def games_commit(self, name: str, size: int, sha256: str) -> dict:
+        """Valide l'envoi (taille et empreinte) → {name, size}."""
+        return self._games("POST", "/v1/games/commit", timeout=3600,
+                           json={"name": name, "size": size, "sha256": sha256}).json()
+
+    def games_delete(self, name: str, timeout: float = 600) -> dict:
+        """Désinstalle le jeu → {removed}. 409 : jeu monté ou en cours."""
+        return self._games("DELETE", "/v1/games/file", timeout=timeout,
+                           conflict="jeu monté ou en cours : suppression refusée",
+                           params={"name": name}).json()
 
 
 GAME_HOST_LABELS = {"off": "désactivée", "local": "cette machine", "agent": "agent réseau"}

@@ -1164,3 +1164,22 @@ def test_status_names_an_agent_too_old_for_saves(agents, tmp_path):
     machine = saves.status(settings)["machines"][0]
     assert machine["ok"] is False
     assert "agent trop ancien" in machine["message"] and "--update" in machine["message"]
+
+
+# ------------------------------------------------------------------ machine de jeu choisie parmi les associées
+
+def test_associated_machine_becomes_the_game_host(agents, api):
+    client, settings, _ = api
+    aibox = agents("aibox")
+    associate(settings, aibox)
+    mid = machine_ids(settings)["aibox"]
+    config = client.put("/api/config/game_host/machine", json={"id": mid}).json()
+    assert config["game_host"] == "agent" and config["agent_url"] == aibox["url"]
+    assert config["game_host_machine"] == mid
+    # Même certificat épinglé que l'association : la machine de jeu répond sans nouveau code
+    assert saves.agent_cert_path(settings).read_text().strip() == aibox["pem"].strip()
+    assert saves.AgentHost(settings, 15).info()["host"] == "aibox"
+    # Pas de doublon « machine de jeu » dans la liste : même adresse que la machine associée
+    assert [r["id"] for r in saves.machine_rows(settings)] == [mid]
+    assert client.put("/api/config/game_host/machine", json={"id": "inconnue"}).status_code == 404
+    assert client.put("/api/config/game_host/machine", json={"id": saves.GAME_HOST_ID}).status_code == 404

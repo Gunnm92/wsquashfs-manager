@@ -7,7 +7,7 @@
 const state = {
   items: [], byId: new Map(), selected: new Set(), current: null,
   sort: { key: "name", dir: 1 }, keys: [], tasks: [],
-  filter: { system: "", type: "", runner: "", pad: "", extra: "", special: "" },
+  filter: { system: "", type: "", runner: "", pad: "", extra: "", special: "", inst: "" },
   layout: "list",
   autorun: null,          // dernière lecture de l'autorun de la fiche
   pendingKeys: new Set(), // clés ajoutées au formulaire, pas encore renseignées
@@ -232,6 +232,8 @@ const FILTERS = [
   { key: "extra", label: "Extras", all: "Tous", options: () => [["keys", "keyboard", "t-neutral", "Touches clavier"], ["fakeping", "wifi", "t-neutral", "Relais fakeping"]] },
   { key: "special", label: "État", all: "Tous les états", options: () => [["noversion", "tag", "t-accent", "Sans version"], ["old", "history", "t-accent", "Ancienne image (.old)"],
     ["inuse", "play", "t-accent", "En cours"], ["noautorun", "terminal", "t-accent", "Sans autorun"], ["override", "filepen", "t-accent", "Surcharge à inscrire"]] },
+  // Machines associées (état de l'installation, voir « Installation sur les machines »)
+  { key: "inst", label: "Installé sur…", all: "Quelle que soit la machine", options: () => instFilterOptions() },
 ];
 const SORTS = { name: (i) => i.name, size: (i) => i.size, saves_size: (i) => i.saves_present ? i.saves_size : -1, state: (i) => i.state };
 
@@ -386,6 +388,9 @@ function renderFilters() {
       };
       openMenu = el("div", { className: "dd-menu", role: "listbox" }, item("", null, "", def.all, total), ...options.map((o) => item(...o)));
       wrap.append(openMenu);
+      // Menu plus large que l'espace à droite (téléphone, dernier filtre) : décalé pour rester à l'écran
+      const wrapLeft = wrap.getBoundingClientRect().left;
+      openMenu.style.left = `${Math.max(8 - wrapLeft, Math.min(0, innerWidth - 8 - wrapLeft - openMenu.offsetWidth))}px`;
       openMenu.querySelector("button.on, button")?.focus();
     };
     return wrap;
@@ -402,6 +407,7 @@ function matches(i, key, value) {
     case "runner": return value === "default" ? i.runner === "default" : value === "joined" ? Boolean(i.runner_joined) : i.runner !== "default";
     case "pad": return (value === "hidraw") === (i.hidraw === true);
     case "extra": return (i.extras || []).includes(value === "keys" ? ".keys" : value);
+    case "inst": return value === "none" ? isWsq(i) && installedOn(imageFile(i)).length === 0 : installedOn(imageFile(i)).includes(value);
     case "special": return value === "noversion" ? !i.version : value === "old" ? Boolean(i.has_old)
       : value === "inuse" ? i.state === "in_use" : value === "noautorun" ? !i.cmd : value === "override" ? (i.override || []).length > 0 : true;
     default: return true;
@@ -450,7 +456,7 @@ function renderLibrary() {
   if (grid) {
     $("grid").replaceChildren(...visible.map((i) => {
       const card = el("div", { className: "gcard" },
-        el("div", { className: "gart" }, thumb(i, "gcover"), selectBox(i), stateBadge(i), profileBadges(i)),
+        el("div", { className: "gart" }, thumb(i, "gcover"), selectBox(i), stateBadge(i), profileBadges(i), instPins(i)),
         el("div", { className: "meta" }, el("div", { className: "n", textContent: i.name, title: i.name }),
           el("div", { className: "sub" }, versionLabel(i), el("span", { textContent: size(i.size) }))));
       card.dataset.id = i.id;
@@ -476,7 +482,7 @@ function renderLibrary() {
         selectBox(i),
         el("div", { className: "gname" }, thumb(i), el("div", { className: "t" },
           el("span", { className: "n", textContent: i.name, title: i.name }),
-          el("span", { className: "sub" }, versionLabel(i), el("span", { textContent: "·" }), el("span", { textContent: cap(i.system) || "—" }))),
+          el("span", { className: "sub" }, versionLabel(i), el("span", { textContent: "·" }), el("span", { textContent: cap(i.system) || "—" }), instPins(i))),
           sv.machines.length ? savesOpen(i, "sv-open-alt") : null),
         profileBadges(i),
         el("span", { className: "gsize", textContent: size(i.size) }),
@@ -605,6 +611,7 @@ function renderDetailHeader() {
   $("d-info").replaceChildren(...facts.map(([iconName, k, v, mono]) =>
     el("div", {}, icon(iconName), el("dt", { textContent: k }), el("dd", { className: mono ? "mono" : "", textContent: v }))));
   $("d-saves-reset").disabled = !i.saves_present;
+  renderInstBox();
   if ($("d-links-result").dataset.id !== i.id) {      // autre image : constat à refaire
     $("d-links-result").dataset.id = i.id;
     $("d-links-result").className = "msg";
@@ -1160,7 +1167,7 @@ async function renderHistory() {
 
 const TASK_KINDS = { autorun: ["hammer", "Reconstruction"], update: ["upload", "Montée de version"], files: ["file", "Fichiers et registre"],
   verify: ["shield", "Vérification"], pack: ["package", "Empaquetage"], runner: ["clip", "Runner joint"], trial: ["flask", "Lancement d'essai"],
-  saves: ["save", "Sauvegardes entre machines"] };
+  saves: ["save", "Sauvegardes entre machines"], install: ["drive", "Installation sur les machines"] };
 const TASK_STATES = { pending: ["clock", "en attente", "t-neutral"], running: ["refresh", "en cours", "t-accent"], done: ["check", "terminée", "t-sage"],
   failed: ["alert", "échec", "t-err"], cancelled: ["x", "annulée", "t-neutral"] };
 
@@ -1202,6 +1209,7 @@ function taskNode(t, opened = new Set()) {
   more.append(actions);
   const result = t.kind === "trial" ? t.params?.result : null;
   if (result) more.append(trialReport(t, result));
+  if (t.kind === "install" && t.params?.result) more.append(installResultNode(t.params.result));
   if ((t.log || []).length) more.append(el("pre", { className: "log", textContent: t.log.join("\n") }));
   node.append(more);
   node.onclick = (event) => { if (!event.target.closest(".more")) node.classList.toggle("open"); };
@@ -1231,6 +1239,7 @@ function trialReport(t, r) {
 
 let tasksTimer = null;
 let activeBefore = new Set();
+let installActive = new Set();     // tâches « install » en cours (leur fin recharge l'état des machines)
 async function refreshTasks() {
   clearTimeout(tasksTimer);
   try {
@@ -1257,6 +1266,10 @@ async function refreshTasks() {
   $("tasks-summary").textContent = active.length ? `${active.length} active(s)` : state.tasks.length ? "aucune active" : "";
   // Une tâche vient de se terminer : l'image a changé
   const nowActive = new Set(active.map((t) => t.id));
+  const installNow = new Set(active.filter((t) => t.kind === "install").map((t) => t.id));
+  const installEnded = [...installActive].some((id) => !nowActive.has(id));
+  installActive = installNow;
+  if (installEnded) loadInstall();
   if ([...activeBefore].some((id) => !nowActive.has(id))) {
     await loadLibrary();
     if (state.current) await loadAutorun();
@@ -1302,7 +1315,7 @@ function applyHost() {
 const HOST_HINTS = {
   off: "Pas de lancement d'essai, de diagnostic ni de maintenance du lanceur.",
   local: "Le lanceur est installé sur la machine du gestionnaire, avec un écran.",
-  agent: "Le lanceur tourne sur une autre machine : wsquashfs-launcher --pair y affiche le code et attend l'association, puis wsquashfs-launcher --agent y lance l'agent.",
+  agent: "Le lanceur tourne sur une autre machine : choisis-la parmi les machines associées (onglet Sauvegardes), ou associe-en une autre (wsquashfs-launcher --pair y affiche le code, puis wsquashfs-launcher --agent y lance l'agent).",
 };
 // Connexion établie : les paramètres de connexion se replient (résumé), sauf
 // si l'on demande à les modifier ; mode changé = champs visibles.
@@ -1310,15 +1323,36 @@ function paintConnection(mode = $("cfg-host").dataset.mode) {
   const saved = state.config?.game_host;
   const connected = state.hostStatus?.state === "ok" && mode === saved;
   const folded = connected && !state.hostEditing && mode === "agent";
-  $("cfg-agent").hidden = mode !== "agent" || folded;
+  // Agent : une machine déjà associée (onglet Sauvegardes) ou « Autre » (code wsq://)
+  const picked = hostPick();
+  $("cfg-agent-pick").hidden = mode !== "agent" || folded || !state.hostMachines.length;
+  $("cfg-agent").hidden = mode !== "agent" || folded || Boolean(picked);
   $("host-summary").hidden = !folded;
   if (folded) {
     const c = state.config;
-    $("host-summary-text").textContent = `Agent : ${c.agent_url}${c.agent_fingerprint ? " · empreinte vérifiée" : ""}`;
+    const m = state.hostMachines.find((x) => x.id === c.game_host_machine);
+    $("host-summary-text").textContent = `Agent : ${m ? `${m.name} (${c.agent_url})` : c.agent_url}${c.agent_fingerprint ? " · empreinte vérifiée" : ""}`;
   }
   paintTools();
 }
 $("host-edit").onclick = () => { state.hostEditing = true; paintConnection(); };
+// Machine associée choisie comme machine de jeu ("" : autre machine, par code wsq://)
+const hostPick = () => (state.hostMachines.length ? $("cfg-agent-machine").value : "");
+state.hostMachines = [];
+async function loadHostMachines(current) {
+  try {
+    const data = await api("/api/saves/machines");
+    state.hostMachines = data.machines.filter((m) => m.kind === "saved");
+  } catch { state.hostMachines = []; }
+  $("cfg-agent-machine").replaceChildren(...state.hostMachines.map((m) => new Option(m.url ? `${m.name} — ${m.url}` : m.name, m.id)),
+    new Option("Autre machine (code wsq://)", ""));
+  // Machine de jeu actuelle si elle est associée ; sans machine de jeu, la première ; sinon « Autre »
+  const cfg = state.config || {};
+  $("cfg-agent-machine").value = cfg.game_host_machine
+    || (cfg.game_host !== "agent" && state.hostMachines[0]?.id) || "";
+  paintConnection(current);
+}
+$("cfg-agent-machine").onchange = () => paintConnection();
 
 // Outils : toujours présents, utilisables quand la machine de jeu ENREGISTRÉE
 // répond (un mode choisi mais pas encore enregistré ne compte pas).
@@ -2289,6 +2323,7 @@ $("btn-config").onclick = async () => {
     ? `Associé. Empreinte enregistrée : ${cfg.agent_fingerprint}` : "Pas encore associé.";
   state.hostEditing = false;
   paintHostForm(cfg.game_host || "off");
+  loadHostMachines(cfg.game_host || "off");
   $("doc-title").textContent = `wsquashfs-launcher --doctor — ${cfg.game_host_name}`;
   $("maint-out").hidden = true;
   loadHostStatus();
@@ -2306,7 +2341,7 @@ $("cfg-save").onclick = async () => {
       showCfgPane("dirs");
       throw new Error("Bibliothèque : cocher au moins un système.");
     }
-    if ($("cfg-host").dataset.mode === "agent") {
+    if ($("cfg-host").dataset.mode === "agent" && !hostPick()) {
       const url = $("cfg-agent-url").value.trim();
       const reuse = url === state.config?.agent_url && state.config?.agent_fingerprint && !state.agentPem
         && !$("cfg-agent-token").value.trim();
@@ -2318,7 +2353,9 @@ $("cfg-save").onclick = async () => {
     state.config = await api("/api/config/night", { method: "PUT",
       body: { start: $("cfg-night-start").value, end: $("cfg-night-end").value } });
     const before = JSON.stringify([state.config.game_host, state.config.session_process]);
-    state.config = await api("/api/config/game_host", { method: "PUT", body: hostBody() });
+    state.config = $("cfg-host").dataset.mode === "agent" && hostPick()
+      ? await api("/api/config/game_host/machine", { method: "PUT", body: { id: hostPick() } })
+      : await api("/api/config/game_host", { method: "PUT", body: hostBody() });
     if (JSON.stringify([state.config.game_host, state.config.session_process]) !== before) state.doctor = null;
     fillWhen();
     applyHost();
@@ -3142,6 +3179,268 @@ document.addEventListener("click", (event) => {
     whenOf() === "night" ? "moon" : "zap");
 });
 
+// ------------------------------------------------------------------ installation sur les machines
+// Une image .wsquashfs est copiée dans le dossier des jeux d'une machine associée (les machines de
+// l'onglet Sauvegardes) : une tâche « install » par image, puis l'état des machines est relu à la fin.
+// Désinstaller retire l'image de la machine ; elle reste dans la bibliothèque.
+
+const inst = { machines: [], loaded: false, error: "", loading: false, seq: 0 };
+let instDlg = null;             // dialogue ouvert : { mode, images, skipped, picked, edit, busy }
+const GIB = 1024 ** 3;          // marge d'espace libre demandée au-delà de la taille à envoyer
+const LINK_RATE = 100e6;        // débit filaire supposé pour la durée estimée (octets/s)
+
+const isWsq = (i) => /\.wsquashfs$/i.test(i.path || i.id);
+const imageFile = (i) => (i.path || i.id).split("/").pop();
+const iconKey = (key) => OS_ICONS.includes(key) || key === "server" ? key : "linux";
+const machineIcon = (id) => iconKey(sv.machines.find((m) => m.id === id)?.icon);
+const machineOf = (id) => inst.machines.find((m) => m.id === id);
+const machineNameOf = (id) => machineOf(id)?.name ?? id;
+const gamesOf = (m) => m.games || [];
+const selectedImages = () => [...state.selected].map((id) => state.byId.get(id)).filter(Boolean);
+const etaText = (bytes) => `~ ${Math.max(1, Math.round(bytes / LINK_RATE / 60))} min`;
+// Identifiants des machines joignables où ce fichier est installé
+const installedOn = (file) => inst.machines.filter((m) => m.ok && gamesOf(m).includes(file)).map((m) => m.id);
+
+// Ce qui reste à envoyer sur une machine pour ces images (un envoi coupé est compté à sa reprise)
+function instPlan(m, images) {
+  const have = new Set(gamesOf(m));
+  const parts = new Map((m.parts || []).map((p) => [p.name, p.size]));
+  const todo = images.filter((i) => !have.has(imageFile(i)));
+  const bytes = todo.reduce((n, i) => n + Math.max(0, (i.size || 0) - (parts.get(imageFile(i)) || 0)), 0);
+  return { todo, bytes, done: images.length - todo.length, fits: (m.free || 0) >= bytes + GIB };
+}
+const canInstallOn = (m, plan) => m.ok && plan.todo.length > 0 && plan.fits;
+
+async function loadInstall() {
+  const seq = ++inst.seq;
+  inst.loading = true;
+  paintInstDialog();
+  try {
+    const status = await api("/api/install/status", { timeout: 60000 });
+    if (seq !== inst.seq) return;
+    inst.machines = status.machines;
+    inst.loaded = true;
+    inst.error = "";
+  } catch (error) {
+    if (seq !== inst.seq) return;
+    inst.error = error.message;
+  } finally {
+    if (seq === inst.seq) inst.loading = false;
+  }
+  paintInstall();
+}
+
+function paintInstall() {
+  if (state.items.length && !$("main").hidden) renderLibrary();   // filtre, pastilles
+  renderInstBox();
+  paintInstDialog();
+}
+
+// Pastilles discrètes : icône de chaque machine où l'image est installée (liste et jaquettes)
+function instPins(i) {
+  const ids = isWsq(i) ? installedOn(imageFile(i)) : [];
+  if (!ids.length) return null;
+  return el("span", { className: "inst-pins", title: `Installée sur : ${ids.map(machineNameOf).join(", ")}` },
+    ...ids.map((id) => icon(machineIcon(id), "sm")));
+}
+
+// Filtre « Installé sur… » : une entrée par machine joignable, et « nulle part »
+function instFilterOptions() {
+  if (!inst.loaded) return [];
+  return [...inst.machines.filter((m) => m.ok).map((m) => [m.id, machineIcon(m.id), "t-sage", `Installé sur ${m.name}`]),
+    ["none", null, "", "Installé nulle part"]];
+}
+
+// Fiche : état d'une image .wsquashfs sur les machines, et boutons
+function renderInstBox() {
+  const i = state.current, box = $("d-inst");
+  box.hidden = !i || !isWsq(i);
+  if (box.hidden) return;
+  const ids = installedOn(imageFile(i));
+  const down = inst.machines.filter((m) => !m.ok).length;
+  let text = ids.length ? `Installé sur : ${ids.map(machineNameOf).join(", ")}` : "Installé nulle part";
+  if (!inst.loaded) text = inst.error ? "État des machines indisponible" : "Lecture des machines…";
+  else if (down) text += ` · ${down} machine${down > 1 ? "s" : ""} injoignable${down > 1 ? "s" : ""} (non vérifiée${down > 1 ? "s" : ""})`;
+  $("d-inst-where").textContent = text;
+  $("d-inst-uninstall").hidden = !ids.length;
+}
+
+// ---- dialogues
+
+const DLG_INST = { install: "dlg-install", uninstall: "dlg-uninstall" };
+function openInstall(images) {
+  const todo = images.filter(isWsq);
+  if (!todo.length) { toast("Seules les images .wsquashfs s'installent", "alert", true); return; }
+  instDlg = { mode: "install", images: todo, skipped: images.length - todo.length, picked: null, edit: null, busy: false };
+  paintInstDialog();
+  $(DLG_INST.install).showModal();
+  loadInstall();                 // l'état affiché est relu à l'ouverture
+}
+function openUninstall(images) {
+  const todo = images.filter(isWsq);
+  if (!todo.length) { toast("Seules les images .wsquashfs se désinstallent", "alert", true); return; }
+  instDlg = { mode: "uninstall", images: todo, skipped: images.length - todo.length, picked: null, edit: null, busy: false };
+  paintInstDialog();
+  $(DLG_INST.uninstall).showModal();
+  loadInstall();
+}
+for (const id of Object.values(DLG_INST)) $(id).addEventListener("close", () => { instDlg = null; });
+
+// Une ligne par machine ; le dialogue entier est refait à chaque changement (peu d'éléments)
+function paintInstDialog() {
+  if (!instDlg) return;
+  const d = instDlg, install = d.mode === "install", p = install ? "in" : "un";
+  const dlg = $(DLG_INST[d.mode]);
+  const files = d.images.map(imageFile);
+  const n = d.images.length;
+  const label = (f) => f.replace(/\.wsquashfs$/i, "");      // nom affiché, sans l'extension
+  const shown = files.slice(0, 3).map((f) => `« ${label(f)} »`).join(", ") + (n > 3 ? ` et ${n - 3} autre${n - 3 > 1 ? "s" : ""}` : "");
+  const skipped = d.skipped ? ` · ${d.skipped} ignorée${d.skipped > 1 ? "s" : ""} (pas une .wsquashfs)` : "";
+  dlg.querySelector("h2").textContent = n === 1 ? `${install ? "Installer" : "Désinstaller"} « ${label(files[0])} » ${install ? "sur" : "de"}…`
+    : `${install ? "Installer" : "Désinstaller"} ${n} images ${install ? "sur" : "de"}…`;
+  const total = d.images.reduce((sum, i) => sum + (i.size || 0), 0);
+  $(`${p}-images`).textContent = `${n} image${n > 1 ? "s" : ""} : ${shown}${install ? ` · ${size(total)}` : ""}${skipped}`;
+
+  // Machines proposées : toutes (installer), ou celles qui ont au moins une de ces images
+  const rows = [];
+  const candidates = install ? inst.machines.map((m) => ({ m, plan: instPlan(m, d.images) }))
+    : inst.machines.filter((m) => m.ok && d.images.some((i) => gamesOf(m).includes(imageFile(i)))).map((m) => ({ m }));
+  const eligible = candidates.filter((c) => install ? canInstallOn(c.m, c.plan) : true).map((c) => c.m.id);
+  d.picked = new Set([...(d.picked ?? eligible)].filter((id) => eligible.includes(id)));
+
+  const status = [];
+  if (inst.error) status.push(notice("err", `États des machines indisponibles : ${inst.error}`));
+  else if (!inst.loaded) status.push(el("div", { className: "notice info" }, el("span", { className: "spinner" }), el("span", { textContent: "Lecture des machines…" })));
+  else if (!install) {
+    const absent = d.images.filter((i) => !installedOn(imageFile(i)).length).length;
+    if (absent) status.push(notice("info", `${absent} image${absent > 1 ? "s" : ""} installée${absent > 1 ? "s" : ""} nulle part : ${absent > 1 ? "elles sont" : "elle est"} ignorée${absent > 1 ? "s" : ""}.`));
+  }
+  $(`${p}-status`).replaceChildren(...status);
+  $(`${p}-refresh`).classList.toggle("spin", inst.loading);
+
+  for (const { m, plan } of candidates) {
+    const box = el("input", { type: "checkbox", id: `${p}-${m.id.replace(/\W/g, "_")}`, checked: d.picked.has(m.id), disabled: !eligible.includes(m.id) });
+    box.onchange = () => { box.checked ? d.picked.add(m.id) : d.picked.delete(m.id); paintInstDialog(); };
+    const chips = [];
+    let cls = "", meta = null, dirNode = null;
+    if (!m.ok) {
+      cls = " none";
+      chips.push(withTip(badge("injoignable", "err"), "Injoignable", [m.message || "pas de réponse"]));
+    } else if (install) {
+      if (!plan.todo.length) { cls = " none"; chips.push(badge("déjà installé", "ok")); }
+      else {
+        if (plan.done) chips.push(badge(`${plan.done} sur ${n} déjà là`, "info"));
+        if (!plan.fits) { cls = " short"; chips.push(badge("espace insuffisant", "err")); }
+        meta = el("div", { className: "in-meta" }, `libre ${size(m.free || 0)} · à envoyer ${size(plan.bytes)} (+ 1 Go de marge) · ${etaText(plan.bytes)}`);
+      }
+      dirNode = dirLine(m, d);
+    } else {
+      const mine = files.filter((f) => gamesOf(m).includes(f));
+      meta = el("div", { className: "in-meta mono", textContent: mine.join(", ") });
+    }
+    rows.push(el("div", { className: `in-row${cls}` }, box, icon(machineIcon(m.id), "sm"),
+      el("div", { className: "in-body" },
+        el("div", { className: "in-head" }, el("label", { htmlFor: box.id, className: "in-name", textContent: m.name }), ...chips),
+        meta, dirNode)));
+  }
+  if (!rows.length && inst.loaded && !inst.error) {
+    rows.push(el("p", { className: "muted", textContent: install ? "Aucune machine associée : onglet Sauvegardes, « Associer »."
+      : "Ces images ne sont installées sur aucune machine joignable." }));
+  }
+  $(`${p}-targets`).replaceChildren(...rows);
+  const run = $(`${p}-run`);
+  run.disabled = d.busy || d.picked.size === 0;
+  run.textContent = d.busy ? "Lancement…" : install ? "Installer" : "Désinstaller";
+}
+
+// Dossier d'installation : affichage, ou champ de saisie (« Modifier »)
+function dirLine(m, d) {
+  if (d.edit?.id === m.id) return dirEditor(m, d);
+  return el("div", { className: "in-dir" },
+    el("code", { textContent: m.dir || "dossier non défini" }),
+    m.set ? null : el("em", { textContent: "(deviné)" }),
+    el("button", { type: "button", className: "linklike", textContent: "Modifier",
+      onclick: () => { d.edit = { id: m.id, value: m.dir || "", error: "", busy: false }; paintInstDialog(); } }));
+}
+function dirEditor(m, d) {
+  const edit = d.edit;
+  const input = el("input", { type: "text", className: "code", value: edit.value, disabled: edit.busy,
+    placeholder: "/chemin/absolu, ex. /home/abc/games" });
+  input.oninput = () => { edit.value = input.value; };
+  input.onkeydown = (event) => { if (event.key === "Enter") { event.preventDefault(); saveDir(m, input.value.trim()); } };
+  const save = el("button", { type: "button", className: "btn primary sm", disabled: edit.busy, onclick: () => saveDir(m, input.value.trim()) },
+    icon("check", "sm"), "Enregistrer");
+  const guessed = el("button", { type: "button", className: "btn secondary sm", disabled: edit.busy, onclick: () => saveDir(m, "") },
+    icon("undo", "sm"), "Revenir au dossier deviné");
+  const cancel = el("button", { type: "button", className: "btn bare sm", onclick: () => { d.edit = null; paintInstDialog(); } }, "Annuler");
+  setTimeout(() => input.focus(), 0);
+  return el("div", { className: "in-edit" }, input, edit.error ? notice("err", edit.error) : null,
+    el("div", { className: "row" }, save, guessed, cancel));
+}
+async function saveDir(m, dir) {
+  const d = instDlg;
+  if (!d) return;
+  d.edit.busy = true;
+  d.edit.error = "";
+  paintInstDialog();
+  try {
+    await api(`/api/install/machines/${encodeURIComponent(m.id)}/dir`, { method: "POST", body: { dir } });
+    d.edit = null;
+    toast(dir ? "Dossier d'installation enregistré" : "Dossier deviné rétabli", "check");
+    await loadInstall();          // un autre dossier, c'est une autre liste de jeux : état relu
+  } catch (error) {
+    if (instDlg !== d || !d.edit) return;
+    d.edit.busy = false;
+    d.edit.error = error.message;
+    paintInstDialog();
+  }
+}
+
+// Envoi ou retrait : POST, puis le suivi passe par la file de tâches (refreshTasks relit l'état)
+async function runInstallDialog(install) {
+  const d = instDlg;
+  if (!d || !d.picked.size) return;
+  const machines = [...d.picked];
+  d.busy = true;
+  paintInstDialog();
+  try {
+    let data;
+    if (install) {
+      data = await api("/api/install", { method: "POST", body: { ids: d.images.map((i) => i.id), machines } });
+    } else {
+      const names = [...new Set(d.images.map(imageFile))].filter((f) => machines.some((id) => gamesOf(machineOf(id) || {}).includes(f)));
+      data = await api("/api/uninstall", { method: "POST", body: { names, machines } });
+    }
+    $(DLG_INST[d.mode]).close();
+    const count = `${data.tasks.length} tâche${data.tasks.length > 1 ? "s" : ""}`;
+    toast(install ? `Installation lancée (${count})` : `Désinstallation lancée (${count})`, install ? "drive" : "trash");
+    refreshTasks();
+  } catch (error) {
+    d.busy = false;
+    toast(error.message, "alert", true);
+    paintInstDialog();
+  }
+}
+
+// Résultat par machine d'une tâche install / uninstall (dans le détail de la tâche)
+function installResultNode(r) {
+  const items = r.results || [];
+  const failed = items.filter((x) => !x.ok).length;
+  return el("div", { className: `sync-res${failed ? " err" : ""}` },
+    el("strong", { textContent: failed ? `${failed} échec(s) sur ${items.length}` : `${items.length} machine(s) sans erreur` }),
+    el("ul", { className: "sync-list" }, ...items.map((x) => el("li", { className: x.ok ? "ok" : "err",
+      textContent: `${x.ok ? "✓" : "✗"} ${x.machine} : ${x.message}` }))));
+}
+
+$("in-run").onclick = () => runInstallDialog(true);
+$("un-run").onclick = () => runInstallDialog(false);
+$("in-refresh").onclick = () => loadInstall();
+$("un-refresh").onclick = () => loadInstall();
+$("d-inst-install").onclick = () => openInstall([state.current]);
+$("d-inst-uninstall").onclick = () => openUninstall([state.current]);
+$("btn-inst-install").onclick = () => openInstall(selectedImages());
+$("btn-inst-uninstall").onclick = () => openUninstall(selectedImages());
+
 // ------------------------------------------------------------------ démarrage
 
 (async () => {
@@ -3155,6 +3454,7 @@ document.addEventListener("click", (event) => {
   buildForm();
   await loadLibrary();
   loadSaves();                 // compteur de l'onglet et icônes de la liste (sans bloquer)
+  loadInstall();               // images installées par machine : filtre, pastilles, fiche
   refreshTasks();
   if (["folders", "saves", "help"].includes(storage.get("wsfs-view"))) showView(storage.get("wsfs-view"));
 })();

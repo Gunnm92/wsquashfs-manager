@@ -67,7 +67,10 @@ from .services.rebuild import (
     validate_backup,
 )
 from .services.runners import plan_runner, run_relink, run_runner, suggest
+from .services import install as install_svc
+from .services.install import run_install, valid_name
 from .services.saves import run_saves
+from .services.trial import AgentRejected, AgentUnreachable
 from .services.tasks import QueueLocked, TaskConflict, TaskQueue
 from .services.trial import (
     MAINTENANCE_COMMANDS,
@@ -108,6 +111,7 @@ queue = TaskQueue(
         "runner": lambda task, job: run_runner(_settings, task, job),
         "relink": lambda task, job: run_relink(_settings, task, job),
         "saves": lambda task, job: run_saves(_settings, task, job),
+        "install": lambda task, job: run_install(_settings, task, job),
     },
     concurrency=_settings.task_concurrency,
     night_now=lambda: in_night(_settings),
@@ -194,6 +198,7 @@ def get_config():
         "agent_url": _settings.agent_url,
         "agent_token_set": bool(_settings.agent_token),       # le jeton n'est jamais renvoyé
         "agent_fingerprint": _agent_fingerprint(),
+        "game_host_machine": saves_svc.game_host_machine(_settings),   # machine associée choisie, "" sinon
     }
 
 
@@ -239,6 +244,24 @@ def set_game_host(body: GameHostConfig):
         cert = agent_cert_path(_settings)
         cert.parent.mkdir(parents=True, exist_ok=True)
         write_atomic(cert, body.agent_pem.strip() + "\n")
+    _doctor_cache.clear()           # l'état du lanceur est celui de l'ancienne machine
+    return get_config()
+
+
+class GameHostMachine(BaseModel):
+    id: str = Field(min_length=1, max_length=64)
+
+
+@app.put("/api/config/game_host/machine")
+def set_game_host_machine(body: GameHostMachine):
+    """Machine de jeu = une machine déjà associée (onglet Sauvegardes) : son adresse, son
+    jeton et son certificat sont repris, sans nouveau code d'association."""
+    try:
+        saves_svc.use_as_game_host(_settings, body.id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"machine inconnue : {body.id}") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     _doctor_cache.clear()           # l'état du lanceur est celui de l'ancienne machine
     return get_config()
 
@@ -1535,6 +1558,91 @@ def saves_delete(body: SavesDelete):
     title = f"sauvegardes : suppression de {len(body.games)} jeu(x) sur {where}"
     task = queue.submit("saves", None, None, params, title)
     return {"task": task.id}
+
+
+# ------------------------------------------------------------- installation sur les machines
+# Images .wsquashfs envoyées aux machines associées (services/install.py, agent v6).
+# Les envois et désinstallations sont des tâches de la file (« install »), suivies par
+# /api/tasks/{id} ; le résultat par machine est dans task.params.result.
+
+class InstallIds(BaseModel):
+    ids: list[str] = Field(min_length=1, max_length=50)           # identifiants <système>/<nom>
+    machines: list[str] = Field(min_length=1, max_length=20)
+
+
+class UninstallNames(BaseModel):
+    names: list[str] = Field(min_length=1, max_length=50)         # « Jeu.wsquashfs »
+    machines: list[str] = Field(min_length=1, max_length=20)
+
+
+class InstallDir(BaseModel):
+    dir: str = Field(max_length=1024)                              # « » : dossier deviné
+
+
+@app.get("/api/install/status")
+def install_status():
+    """Par machine : joignable, dossier des jeux, espace libre, jeux et envois partiels."""
+    return install_svc.status(_settings)
+
+
+@app.post("/api/install")
+def install_submit(body: InstallIds):
+    """Une tâche « install » par image, vers les machines cochées. Une image déjà en
+    tâche active : 409 (rien n'est soumis)."""
+    if len(set(body.ids)) != len(body.ids):
+        raise HTTPException(status_code=422, detail="image en double")
+    if len(set(body.machines)) != len(body.machines):
+        raise HTTPException(status_code=422, detail="machine en double")
+    infos = [_find_image(image_id) for image_id in body.ids]
+    for info in infos:
+        if not valid_name(info.path.name):
+            raise HTTPException(status_code=422, detail="seules les images .wsquashfs s'installent")
+    targets = [_saves_machine(machine_id) for machine_id in body.machines]
+    for info in infos:
+        if queue.active_for(info.id):
+            raise HTTPException(status_code=409, detail=f"une tâche est déjà en attente ou en cours pour {info.id}")
+    where = f"{len(targets)} machine(s)"
+    tasks = []
+    for info in infos:
+        params = {"op": "install", "machines": body.machines}
+        try:
+            task = queue.submit("install", info.id, info.path, params, f"installer {info.path.name} sur {where}")
+        except TaskConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        tasks.append(task.id)
+    return {"tasks": tasks}
+
+
+@app.post("/api/uninstall")
+def uninstall_submit(body: UninstallNames):
+    """Une tâche « install » (op uninstall) par nom de jeu, sur les machines cochées."""
+    if len(set(body.names)) != len(body.names):
+        raise HTTPException(status_code=422, detail="jeu en double")
+    for name in body.names:
+        if not valid_name(name):
+            raise HTTPException(status_code=422, detail=f"nom d'image invalide : {name}")
+    if len(set(body.machines)) != len(body.machines):
+        raise HTTPException(status_code=422, detail="machine en double")
+    targets = [_saves_machine(machine_id) for machine_id in body.machines]
+    where = f"{len(targets)} machine(s)"
+    tasks = []
+    for name in body.names:
+        params = {"op": "uninstall", "name": name, "machines": body.machines}
+        tasks.append(queue.submit("install", None, None, params, f"désinstaller {name} de {where}").id)
+    return {"tasks": tasks}
+
+
+@app.post("/api/install/machines/{machine_id}/dir")
+def install_set_dir(machine_id: str, body: InstallDir):
+    """Dossier des jeux de la machine (« » : le dossier deviné). 400 : refusé par l'agent
+    (hors du HOME, inexistant), son message relayé ; 502 : machine injoignable."""
+    _saves_machine(machine_id)
+    try:
+        return install_svc.set_dir(_settings, machine_id, body.dir)
+    except AgentRejected as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (AgentUnreachable, RebuildError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 # ------------------------------------------------------------- frontend

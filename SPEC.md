@@ -280,6 +280,60 @@ explicite, la machine source étant choisie.
   annulables entre deux jeux, reprises en attente après un redémarrage). Les
   états restent synchrones (lecture seule, quelques secondes au plus).
 
+### 2.8 Installer un jeu sur une machine
+
+Une image `.wsquashfs` de la bibliothèque est envoyée aux machines associées
+(celles de l'onglet Sauvegardes, `services/saves.machine_rows`) par leur agent
+(`/v1/games/*`, agent v6). Le lanceur n'est pas modifié ; le raccourci reste à
+ajouter à la main sur la machine.
+
+- **Agent** (contrat v6) : `GET /v1/info` donne `games_dir` et `games_dir_set` ;
+  `GET /v1/games/list` → `{dir, set, free, games:[{name,size,mtime}], parts:[{name,size}]}` ;
+  `POST /v1/games/dir {dir}` → `{dir, set}` (400 hors du HOME ou inexistant, `detail`) ;
+  `GET /v1/games/part?name=` → `{part_size, installed, size}` ;
+  `PUT /v1/games/file?name=&offset=` (en-tête `X-Wsq-Total-Size`, corps à partir
+  de `offset`) → `{part_size}` (409 « déjà installé », « envoi en cours » ou
+  `{"detail":"décalage","part_size":n}` ; 507 espace ; 400 nom) ;
+  `POST /v1/games/commit {name,size,sha256}` → `{name,size}` (404 pas d'envoi,
+  409 taille, 422 empreinte : `.part` supprimé) ;
+  `DELETE /v1/games/file?name=` → `{removed}` (409 jeu monté ou en cours).
+  Un agent d'avant la v6 répond 404/405 texte, sans `detail` : le manager le dit.
+- **Règle HOME** : le dossier des jeux, deviné par l'agent, est modifiable par
+  `POST /api/install/machines/{id}/dir` ; l'agent refuse un dossier hors de son HOME
+  (400, message relayé tel quel).
+- **Envoi** (`services/install.py`) : par blocs de `BLOCK_SIZE` (256 Mio). Avant
+  tout envoi : espace libre ≥ reste à envoyer + 1 Gio, sinon échec « espace
+  insuffisant » sans PUT. Un envoi partiel plus grand que l'image est effacé. Le
+  SHA-256 local est calculé en relisant le préfixe déjà reçu, puis au fil des
+  blocs envoyés.
+- **Reprise** : `AgentUnreachable` ou décalage (`InstallOffset`) → pause
+  `RETRY_PAUSES` (1, 2, 4, 8, 16 s), puis nouvel essai qui relit `part_size`,
+  recalcule l'empreinte du préfixe et reprend ; si l'image est déjà installée à la
+  bonne taille (commit perdu), c'est une réussite. 5 reprises au plus. Commit 422
+  (`InstallChecksum`) : un seul nouvel envoi depuis 0.
+- **Annulation** : vérifiée entre deux blocs ; l'envoi partiel reste sur la machine
+  (repris à l'envoi suivant).
+- **Résultats** : install → `{name, size, results:[{machine, machine_id, ok,
+  message, sent, seconds}]}` ; uninstall → `{name, results:[{machine, machine_id,
+  ok, message}]}`. Messages : « installé sur X », « déjà installé sur X »,
+  « désinstallé de X », « pas installé sur X », « espace insuffisant sur X (libre
+  : …) », « jeu monté ou en cours : suppression refusée ». Une machine en échec
+  n'arrête pas les autres ; la tâche échoue si l'une d'elles échoue, le détail
+  restant dans `params.result`.
+- **États** (`status`) : un `GET /v1/games/list` par machine en parallèle (délai
+  15 s) ; une machine injoignable a `ok: false` et ses listes vides.
+- **Tâches** : `kind: "install"`. Une tâche par image (`image` = identifiant,
+  `image_path` = fichier) ; conflit avec une tâche active sur la même image : 409,
+  rien n'est soumis. Désinstallation : sans image, une tâche par nom.
+- **Routes** :
+
+| Méthode | Chemin | Corps / réponse |
+|---|---|---|
+| GET | `/api/install/status` | `{machines:[{id,name,ok,message,dir,set,free,games:[noms],parts:[{name,size}]}]}` |
+| POST | `/api/install` | `{ids:[…], machines:[…]}` → `{tasks:[id…]}` ; 422 : liste vide ou en double, image non `.wsquashfs` ; 404 : image ou machine inconnue ; 409 : tâche active sur une image |
+| POST | `/api/uninstall` | `{names:["Jeu.wsquashfs"…], machines:[…]}` → `{tasks:[id…]}` ; 422 : nom invalide ou en double |
+| POST | `/api/install/machines/{id}/dir` | `{dir: str \| ""}` → `{dir, set}` ; 400 relayé de l'agent ; 502 machine injoignable ; 404 machine inconnue |
+
 ## 3. Opérations sur une image
 
 ### 3.1 Principe commun : reconstruire sans extraire

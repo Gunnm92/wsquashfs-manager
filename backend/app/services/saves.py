@@ -28,6 +28,7 @@ from urllib.parse import urlsplit
 from ..config import (
     ICONS,
     Settings,
+    save_game_host,
     save_saves_game_host_icon,
     save_saves_machines,
     saves_client_id,
@@ -122,6 +123,36 @@ def machine_rows(settings: Settings) -> list[dict]:
                         "fingerprint": _fingerprint_or_empty(pem), "kind": "game_host", "removable": False,
                         "icon": _chosen_icon(settings.saves_game_host_icon)})
     return rows
+
+
+def game_host_machine(settings: Settings) -> str:
+    """Machine associée qui sert de machine de jeu (même adresse), "" sinon."""
+    if settings.game_host != "agent" or not settings.agent_url:
+        return ""
+    for machine in saves_machines(settings):
+        if _norm(machine["url"]) == _norm(settings.agent_url):
+            return machine["id"]
+    return ""
+
+
+def use_as_game_host(settings: Settings, machine_id: str) -> None:
+    """Fait d'une machine associée la machine de jeu (Réglages) : même adresse, même jeton,
+    même certificat épinglé, sans nouvelle association. KeyError si elle est inconnue. Le
+    processus de session vient de son /v1/info s'il répond, sinon le réglage actuel reste."""
+    machine = next((m for m in saves_machines(settings) if m["id"] == machine_id), None)
+    if machine is None:
+        raise KeyError(machine_id)
+    session = settings.session_process
+    try:
+        info = AgentHost(settings, 15, url=machine["url"], token=machine["token"], pem=machine["pem"]).info()
+        session = str(info.get("session_process") or session)
+    except RebuildError:
+        pass
+    cert = agent_cert_path(settings)
+    cert.parent.mkdir(parents=True, exist_ok=True)
+    write_atomic(cert, machine["pem"].strip() + "\n")
+    save_game_host(settings, {"game_host": "agent", "agent_url": machine["url"],
+                              "agent_token": machine["token"], "session_process": session})
 
 
 def find_machine(settings: Settings, machine_id: str) -> dict:
