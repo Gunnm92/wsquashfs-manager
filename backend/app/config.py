@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     saves_dir: Path = Path.home() / ".local/share/wsquashfs/saves"
     # Icône choisie à la main pour la machine de jeu (Sauvegardes) ; None = détection
     saves_game_host_icon: str | None = None
+    images_source: str = ""        # onglet Images : "" = bibliothèque du manager, sinon id d'une machine associée
 
     # Cache de wsquashfs-launcher (son WSQUASHFS_CACHE) : montages des jeux et
     # verrous par jeu (locks/<jeu>.lock), pour reconnaître un jeu en cours
@@ -233,6 +234,13 @@ def save_saves_game_host_icon(settings: Settings, icon: str | None) -> None:
     settings.saves_game_host_icon = icon
 
 
+def save_images_source(settings: Settings, machine_id: str) -> None:
+    """Source de l'onglet Images : "" (bibliothèque du manager) ou une machine associée."""
+    with _saves_lock:
+        _save_runtime(settings, images_source=machine_id)
+    settings.images_source = machine_id
+
+
 def saves_client_id(settings: Settings) -> str:
     """Identifiant de ce manager auprès des agents (en-tête X-Wsq-Machine) :
     tiré une fois, puis conservé dans config.json."""
@@ -266,4 +274,6 @@ def get_settings() -> Settings:
         settings.game_host = "off"
     if runtime.get("saves_game_host_icon") in ICONS:
         settings.saves_game_host_icon = runtime["saves_game_host_icon"]
+    if isinstance(runtime.get("images_source"), str):
+        settings.images_source = runtime["images_source"]
     return settings

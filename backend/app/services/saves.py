@@ -29,6 +29,7 @@ from ..config import (
     ICONS,
     Settings,
     save_game_host,
+    save_images_source,
     save_saves_game_host_icon,
     save_saves_machines,
     saves_client_id,
@@ -125,6 +126,14 @@ def machine_rows(settings: Settings) -> list[dict]:
     return rows
 
 
+def images_source_row(settings: Settings) -> dict | None:
+    """Machine associée source de l'onglet Images, None pour la bibliothèque du manager
+    (ou si la machine a été oubliée)."""
+    if not settings.images_source:
+        return None
+    return next((r for r in machine_rows(settings) if r["id"] == settings.images_source), None)
+
+
 def game_host_machine(settings: Settings) -> str:
     """Machine associée qui sert de machine de jeu (même adresse), "" sinon."""
     if settings.game_host != "agent" or not settings.agent_url:
@@ -153,6 +162,7 @@ def use_as_game_host(settings: Settings, machine_id: str) -> None:
     write_atomic(cert, machine["pem"].strip() + "\n")
     save_game_host(settings, {"game_host": "agent", "agent_url": machine["url"],
                               "agent_token": machine["token"], "session_process": session})
+    save_images_source(settings, machine_id)        # l'onglet Images montre cette machine
 
 
 def find_machine(settings: Settings, machine_id: str) -> dict:

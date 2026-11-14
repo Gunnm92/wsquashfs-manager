@@ -668,7 +668,7 @@ details.hq > div code { color: var(--text); }
   aside.panel { position: fixed; top: calc(var(--top-h) + 10px); right: 12px; width: min(460px, calc(100vw - 24px));
     max-height: calc(100vh - var(--top-h) - 30px); box-shadow: var(--shadow-lg); }
   .grow { grid-template-columns: 34px minmax(150px, 1fr) 136px 70px 20px; }
-  .grow .c-saves { display: none; }
+  .grow .c-saves, .grow.head .c-saves { display: none; }   /* l'en-tête a son propre « all: unset » : il faut la règle propre */
   .grow.item .state { font-size: 0; gap: 0; justify-self: center; }
   .grow.head .c-state { visibility: hidden; }
 }
@@ -1150,6 +1150,24 @@ button.mcard:hover .chev { color: var(--muted); }
 .in-row.none .in-name { cursor: default; }
 .in-meta { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .in-meta.mono { font-family: var(--mono); font-size: 11.5px; }
+
+/* Source de l'onglet Images (machine associée) : bandeau, images absentes de la bibliothèque */
+#src-banner { display: flex; flex-direction: column; }
+.src-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 12px 16px; border-radius: 22px; background: var(--s2); }
+.src-bar > .dot-ic { width: 34px; height: 34px; }
+.src-text { flex: 1 1 260px; min-width: 0; font-size: 13.5px; }
+.src-text strong { overflow-wrap: anywhere; }
+.src-text .muted { font-size: 12.5px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+#src-banner .notice { margin-top: 8px; }
+.src-absent { margin-top: 16px; padding: 16px 18px; border-radius: 28px; background: var(--surface); }
+.src-absent h3 { margin: 0; font-size: 15px; }
+.src-absent > p { margin: 4px 0 6px; font-size: 12.5px; }
+.src-rows { display: flex; flex-direction: column; }
+.src-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 2px; border-top: 1px solid var(--divider); }
+.src-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.src-name .n { overflow-wrap: anywhere; font-weight: 600; }
+.src-name .muted { font-size: 12px; font-variant-numeric: tabular-nums; }
+.host-pick-hint { margin: -4px 0 0; font-size: 12.5px; }
 .in-dir { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; min-width: 0; font-size: 12px; color: var(--muted); }
 .in-dir code { font-family: var(--mono); font-size: 11.5px; color: var(--text); overflow-wrap: anywhere; min-width: 0; }
 .in-dir em { font-style: normal; color: var(--faint); }
