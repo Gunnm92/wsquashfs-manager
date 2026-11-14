@@ -222,10 +222,16 @@ explicite, la machine source étant choisie.
 
 - **Machines** (config.json, `saves_machines` : `id`, `name`, `url`, `token`,
   `pem`) et identifiant du manager auprès des agents (`saves_client_id`, tiré
-  une fois, en-tête `X-Wsq-Machine` de chaque requête). Association par code
-  `wsq://` : même contrôle que l'agent (certificat contre l'empreinte du code,
-  jeton par `/v1/info`), nom = `host`. Même empreinte ou même adresse :
-  remplacement, identifiant conservé. Jeton et certificat jamais renvoyés.
+  une fois, en-tête `X-Wsq-Machine` de chaque requête, toutes les routes de
+  l'agent). Association par code `wsq://SECRET@HÔTE:PORT#EMPREINTE` (agent
+  version 7) : le certificat est contrôlé contre l'empreinte avant tout envoi ;
+  puis `POST /v1/pair` (secret en `Authorization`, `X-Wsq-Machine`, `{"name"}`)
+  rend le jeton durable, lié à cet identifiant ; nom = `host` renvoyé. Seul le
+  jeton est enregistré. Le secret ne vaut qu'une fois, pendant que `--pair`
+  attend : code déjà utilisé ou expiré → 422, rien d'enregistré ; agent sans
+  `/v1/pair` ou de version < 7 → 422 « agent trop ancien ». Même empreinte ou
+  même adresse : remplacement, identifiant conservé. Jeton et certificat jamais
+  renvoyés. Révocation côté machine : `--pair forget <machine>` ou `--pair reset`.
   La machine de jeu en mode agent est listée d'office (`game-host`), non
   supprimable, sauf si une machine enregistrée a la même adresse.
 - **Copie du manager** (« Manager » à l'écran) : `state_dir/saves-reserve/<jeu>/current.tar.gz` et `meta.json`

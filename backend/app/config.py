@@ -80,7 +80,7 @@ class Settings(BaseSettings):
     # Non renseigné : « off ». Modifiable dans Réglages.
     game_host: Literal["off", "local", "agent"] | None = None
     agent_url: str = ""                           # https://hôte:port (mode agent)
-    agent_token: str = ""                         # jeton de l'agent (config.json, jamais exposé)
+    agent_token: str = ""                         # jeton durable de la machine de jeu (config.json, jamais exposé)
     # Processus de la session graphique dont l'environnement (DISPLAY…) est
     # repris pour l'essai ; vide = environnement du gestionnaire
     session_process: str = "emulationstation"
@@ -194,11 +194,13 @@ def save_game_host(settings: Settings, values: dict) -> None:
     if clean.get("game_host") not in ("off", "local", "agent"):
         raise ValueError("mode de la machine de jeu : off, local ou agent")
     if clean["game_host"] == "agent":
+        # Pas de saisie d'adresse ni de jeton : la machine de jeu est une machine associée
+        # (code wsq://, puis choix) ; son adresse et son jeton durable viennent d'elle
         url = clean.get("agent_url", settings.agent_url)
         if not re.match(r"^https://[^\s/]+:\d+$", url or ""):
-            raise ValueError("adresse de l'agent : https://hôte:port (ex. https://192.168.1.20:8790)")
+            raise ValueError("machine de jeu : associer une machine d'abord (code wsq://)")
         if not clean.get("agent_token") and not settings.agent_token:
-            raise ValueError("jeton de l'agent requis (affiché par « wsquashfs-launcher --pair »)")
+            raise ValueError("machine de jeu : associer une machine d'abord (code wsq://)")
     _save_runtime(settings, **clean)
     for key, value in clean.items():
         setattr(settings, key, value)

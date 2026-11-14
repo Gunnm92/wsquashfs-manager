@@ -28,9 +28,10 @@ from app.models import Task
 from app.services import saves
 from app.services.rebuild import Job, RebuildError
 from app.services.tasks import TaskQueue
-from app.services.trial import AgentHost, SavesBusy, fingerprint_pem
+from app.services.trial import OLD_AGENT_MESSAGE, AgentHost, AgentProbeError, SavesBusy, fingerprint_pem
 
-TOKEN = "jeton-saves"
+TOKEN = "jeton-saves"                 # jeton durable de l'agent (rendu par /v1/pair, jamais dans un code)
+SECRET = "secret-du-code"             # secret d'un code d'association : usage unique
 
 
 def fp_of(data: bytes) -> str:
@@ -45,6 +46,28 @@ def make_cert(tmp: Path) -> tuple[Path, Path]:
                     "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1"],
                    check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return cert, key
+
+
+def pair_reply(st: dict, headers) -> tuple[int, dict | None]:
+    """Faux agent version 7, POST /v1/pair : le secret du code s'échange une seule fois
+    contre le jeton durable, lié à l'identifiant X-Wsq-Machine de l'association."""
+    st["pairs"].append({"auth": headers.get("Authorization"), "machine": headers.get("X-Wsq-Machine")})
+    if st["old_pair"]:
+        return 404, None                                   # agent version 6 : pas de route
+    if headers.get("Authorization") != f"Bearer {st['secret']}" or not st["pair_open"]:
+        return 401, {"detail": "code d'association expiré ou déjà utilisé : relancer --pair"}
+    if not headers.get("X-Wsq-Machine"):
+        return 400, {"detail": "identifiant de machine absent"}
+    st["pair_open"] = False
+    st["bound"] = headers.get("X-Wsq-Machine")
+    return 200, {"token": st["token"], "host": st["host"], "version": "7"}
+
+
+def auth_ok(st: dict, headers) -> bool:
+    """Jeton durable, et identifiant lié à l'association (agent version 7)."""
+    if headers.get("Authorization") != f"Bearer {st['token']}":
+        return False
+    return st["bound"] is None or headers.get("X-Wsq-Machine") == st["bound"]
 
 
 class SavesAgent(BaseHTTPRequestHandler):
@@ -70,7 +93,7 @@ class SavesAgent(BaseHTTPRequestHandler):
                                "machine": self.headers.get("X-Wsq-Machine"), **extra})
 
     def _auth(self) -> bool:
-        if self.headers.get("Authorization") != f"Bearer {self.st['token']}":
+        if not auth_ok(self.st, self.headers):
             self._send(401, b'{"detail":"jeton refuse"}')
             return False
         return True
@@ -151,6 +174,11 @@ class SavesAgent(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0"))
         body = json.loads(self.rfile.read(length) or b"{}")
         self._record("POST", url.path, body=body)
+        if url.path == "/v1/pair":
+            code, payload = pair_reply(self.st, self.headers)
+            if payload is None:
+                return self._send(code, b"404 page not found\n", "text/plain; charset=utf-8")
+            return self._send(code, json.dumps(payload).encode())
         if not self._auth():
             return
         if url.path == "/v1/saves/state":
@@ -172,17 +200,20 @@ def fake_game(spec: tuple) -> dict:
 def agents(tmp_path):
     """Fabrique de faux agents (un par machine) ; arrêtés à la fin du test.
     `os_name` : système renvoyé par /v1/info ; `info_fail` : /v1/info en erreur ;
-    `old_status` : code de réponse de DELETE /v1/saves/tar (agent plus ancien : 404 ou 405)."""
+    `old_status` : code de réponse de DELETE /v1/saves/tar (agent plus ancien : 404 ou 405) ;
+    `secret` : secret du code d'association ; `old_pair` : agent sans /v1/pair (version 6)."""
     if not shutil.which("openssl"):
         pytest.skip("openssl absent")
     servers = []
 
     def make(host: str, games=None, busy=(), conflict=(), now=1000, token=TOKEN, cert_dir=None,
-             os_name="linux", info_fail=False, old_status=None, no_saves_routes=False):
+             os_name="linux", info_fail=False, old_status=None, no_saves_routes=False,
+             secret=SECRET, old_pair=False):
         cert, key = make_cert(tmp_path / (cert_dir or host))
         st = {"host": host, "token": token, "busy": set(busy), "conflict": set(conflict),
               "now": now, "archived": [], "log": [], "os": os_name, "info_fail": info_fail,
               "old_status": old_status, "deleted": [], "no_saves_routes": no_saves_routes,
+              "secret": secret, "pair_open": True, "old_pair": old_pair, "pairs": [], "bound": None,
               "games": {name: fake_game(spec) for name, spec in (games or {}).items()}}
         handler = type("H", (SavesAgent,), {"st": st})
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
@@ -208,7 +239,16 @@ def make_settings(tmp: Path, **kw) -> Settings:
 
 
 def associate(settings: Settings, agent: dict) -> dict:
-    return saves.add_machine(settings, f"wsq://{TOKEN}@127.0.0.1:{agent['port']}#{agent['fp']}")
+    """Association avec un code neuf (`wsquashfs-launcher --pair` relancé sur la machine)."""
+    agent["st"]["pair_open"] = True
+    return saves.add_machine(settings, f"wsq://{SECRET}@127.0.0.1:{agent['port']}#{agent['fp']}")
+
+
+def refused(settings: Settings, code: str) -> AgentProbeError:
+    """Association refusée : l'exception (avec son code HTTP et son message)."""
+    with pytest.raises(AgentProbeError) as info:
+        saves.add_machine(settings, code)
+    return info.value
 
 
 def machine_ids(settings: Settings) -> dict[str, str]:
@@ -281,15 +321,57 @@ def test_same_fingerprint_or_same_url_replaces(agents, tmp_path):
     assert third["replaced"] is True and third["id"] == first["id"] and len(saves_machines(settings)) == 1
 
 
-def test_wrong_fingerprint_or_token_is_refused(agents, tmp_path):
+def test_wrong_fingerprint_or_secret_is_refused(agents, tmp_path):
     steambox = agents("steambox")
     settings = make_settings(tmp_path)
     with pytest.raises(RebuildError, match="ne correspond pas"):
-        saves.add_machine(settings, f"wsq://{TOKEN}@127.0.0.1:{steambox['port']}#{'AB' * 32}")
-    bad = agents("refusee", token="autre")
-    with pytest.raises(RebuildError, match="jeton"):
-        associate(settings, bad)
+        saves.add_machine(settings, f"wsq://{SECRET}@127.0.0.1:{steambox['port']}#{'AB' * 32}")
+    bad = agents("refusee", secret="autre-code")
+    assert refused(settings, f"wsq://{SECRET}@127.0.0.1:{bad['port']}#{bad['fp']}").status == 422
     assert saves_machines(settings) == []
+
+
+def test_wrong_fingerprint_is_refused_before_the_secret_is_sent(agents, tmp_path):
+    steambox = agents("steambox")
+    settings = make_settings(tmp_path)
+    with pytest.raises(RebuildError, match="ne correspond pas"):
+        saves.add_machine(settings, f"wsq://{SECRET}@127.0.0.1:{steambox['port']}#{'AB' * 32}")
+    assert steambox["st"]["pairs"] == [] and steambox["st"]["log"] == []      # rien n'est parti
+    assert saves_machines(settings) == []
+
+
+def test_association_stores_the_durable_token_never_the_secret(agents, tmp_path):
+    steambox = agents("steambox")
+    settings = make_settings(tmp_path)
+    associate(settings, steambox)
+    machine = saves_machines(settings)[0]
+    assert machine["token"] == TOKEN and SECRET not in json.dumps(machine)
+    assert SECRET not in (tmp_path / "config.json").read_text()
+    assert steambox["st"]["pairs"] == [{"auth": f"Bearer {SECRET}", "machine": saves_client_id(settings)}]
+
+
+def test_used_code_is_refused_and_nothing_changes(agents, tmp_path):
+    steambox = agents("steambox")
+    settings = make_settings(tmp_path)
+    associate(settings, steambox)
+    before = saves_machines(settings)
+    error = refused(settings, f"wsq://{SECRET}@127.0.0.1:{steambox['port']}#{steambox['fp']}")
+    assert error.status == 422 and "expiré ou déjà utilisé" in str(error) and "--pair" in str(error)
+    assert saves_machines(settings) == before                  # rien d'enregistré à la place
+
+
+def test_old_agent_gets_the_update_message(agents, tmp_path):
+    old = agents("vieux", old_pair=True)
+    settings = make_settings(tmp_path)
+    error = refused(settings, f"wsq://{SECRET}@127.0.0.1:{old['port']}#{old['fp']}")
+    assert error.status == 422 and str(error) == OLD_AGENT_MESSAGE
+    assert saves_machines(settings) == []
+
+
+def test_unreachable_agent_at_association(tmp_path):
+    settings = make_settings(tmp_path)
+    error = refused(settings, f"wsq://{SECRET}@127.0.0.1:1#{'AB' * 32}")
+    assert error.status == 502 and saves_machines(settings) == []
 
 
 def test_game_host_listed_first_unless_same_url(agents, tmp_path):
@@ -860,17 +942,63 @@ def api(tmp_path, monkeypatch):
 def test_api_machines_codes_and_secrets(agents, api):
     client, settings, _ = api
     steambox = agents("steambox")
-    code = f"wsq://{TOKEN}@127.0.0.1:{steambox['port']}#{steambox['fp']}"
+    code = f"wsq://{SECRET}@127.0.0.1:{steambox['port']}#{steambox['fp']}"
     response = client.post("/api/saves/machines", json={"code": code})
     assert response.status_code == 200 and response.json()["name"] == "steambox"
     listed = client.get("/api/saves/machines").json()
     assert [m["name"] for m in listed["machines"]] == ["steambox"]
-    assert TOKEN not in response.text and TOKEN not in client.get("/api/saves/machines").text
-    assert "BEGIN CERTIFICATE" not in client.get("/api/saves/machines").text
+    for text in (response.text, client.get("/api/saves/machines").text):
+        assert TOKEN not in text and SECRET not in text and "BEGIN CERTIFICATE" not in text
     assert client.post("/api/saves/machines", json={"code": "n'importe quoi"}).status_code == 422
     machine_id = listed["machines"][0]["id"]
     assert client.delete(f"/api/saves/machines/{machine_id}").status_code == 200
     assert client.delete(f"/api/saves/machines/{machine_id}").status_code == 404
+
+
+def test_api_used_code_gives_422_with_the_message(agents, api):
+    client, settings, _ = api
+    steambox = agents("steambox")
+    code = f"wsq://{SECRET}@127.0.0.1:{steambox['port']}#{steambox['fp']}"
+    assert client.post("/api/saves/machines", json={"code": code}).status_code == 200
+    again = client.post("/api/saves/machines", json={"code": code})
+    assert again.status_code == 422 and "expiré ou déjà utilisé" in again.json()["detail"]
+    assert len(client.get("/api/saves/machines").json()["machines"]) == 1
+
+
+def test_api_old_agent_is_422_not_401(agents, api):
+    client, settings, _ = api
+    old = agents("vieux", old_pair=True)
+    response = client.post("/api/saves/machines", json={"code": f"wsq://{SECRET}@127.0.0.1:{old['port']}#{old['fp']}"})
+    assert response.status_code == 422 and response.json()["detail"] == OLD_AGENT_MESSAGE
+
+
+def test_api_game_host_is_chosen_by_machine_id_from_a_code(agents, api):
+    """Réglages : le code s'associe (Sauvegardes), puis la machine est choisie par son identifiant ;
+    aucun jeton ne sort de l'API, et le mode agent sans machine associée est refusé."""
+    client, settings, _ = api
+    steambox = agents("steambox")
+    assert client.put("/api/config/game_host", json={"game_host": "agent"}).status_code == 422
+    added = client.post("/api/saves/machines",
+                        json={"code": f"wsq://{SECRET}@127.0.0.1:{steambox['port']}#{steambox['fp']}"}).json()
+    config = client.put("/api/config/game_host/machine", json={"id": added["id"]})
+    assert config.status_code == 200 and config.json()["game_host"] == "agent"
+    assert settings.agent_token == TOKEN and TOKEN not in config.text
+    assert "agent_token" not in config.json() and "agent_token_set" not in config.json()
+    assert client.get("/api/config").status_code == 200 and TOKEN not in client.get("/api/config").text
+    # Le mode agent se garde une fois associé ; l'ancienne sonde n'existe plus
+    assert client.put("/api/config/game_host", json={"game_host": "local"}).status_code == 200
+    assert client.put("/api/config/game_host", json={"game_host": "agent"}).status_code == 200
+    assert client.post("/api/config/agent/probe", json={"code": "wsq://x@h:1#AB"}).status_code == 404
+
+
+def test_api_requests_carry_the_pairing_identifier(agents, api):
+    client, settings, _ = api
+    steambox = agents("steambox", games={"Jeu": (gz("a"), "wine", 5)})
+    client.post("/api/saves/machines",
+                json={"code": f"wsq://{SECRET}@127.0.0.1:{steambox['port']}#{steambox['fp']}"})
+    assert client.get("/api/saves/status").status_code == 200
+    machines = {entry["machine"] for entry in steambox["st"]["log"]}
+    assert machines == {saves_client_id(settings)}           # association et suite : même identifiant
 
 
 def test_api_game_host_cannot_be_deleted(agents, api):

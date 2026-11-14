@@ -1468,7 +1468,7 @@ function applyHost() {
 const HOST_HINTS = {
   off: "Pas de lancement d'essai, de diagnostic ni de maintenance du lanceur.",
   local: "Le lanceur est installé sur la machine du gestionnaire, avec un écran.",
-  agent: "Le lanceur tourne sur une autre machine : choisis-la parmi les machines associées (onglet Sauvegardes), ou associe-en une autre (wsquashfs-launcher --pair y affiche le code, puis wsquashfs-launcher --agent y lance l'agent).",
+  agent: "Le lanceur tourne sur une autre machine : choisis-la parmi les machines associées (onglet Sauvegardes), ou associe-en une autre avec son code wsq:// (wsquashfs-launcher --pair l'affiche ; le code ne sert qu'une fois, pendant que --pair attend).",
 };
 // Connexion établie : les paramètres de connexion se replient (résumé), sauf
 // si l'on demande à les modifier ; mode changé = champs visibles.
@@ -1492,18 +1492,19 @@ $("host-edit").onclick = () => { state.hostEditing = true; paintConnection(); };
 // Machine associée choisie comme machine de jeu ("" : autre machine, par code wsq://)
 const hostPick = () => (state.hostMachines.length ? $("cfg-agent-machine").value : "");
 state.hostMachines = [];
-async function loadHostMachines(current) {
+async function loadHostMachines(pickId = "") {
   try {
     const data = await api("/api/saves/machines");
     state.hostMachines = data.machines.filter((m) => m.kind === "saved");
   } catch { state.hostMachines = []; }
   $("cfg-agent-machine").replaceChildren(...state.hostMachines.map((m) => new Option(m.url ? `${m.name} — ${m.url}` : m.name, m.id)),
     new Option("Autre machine (code wsq://)", ""));
-  // Machine de jeu actuelle si elle est associée ; sans machine de jeu, la première ; sinon « Autre »
+  // Machine qu'on vient d'associer, sinon machine de jeu actuelle si elle est associée ;
+  // sans machine de jeu, la première ; sinon « Autre »
   const cfg = state.config || {};
-  $("cfg-agent-machine").value = cfg.game_host_machine
+  $("cfg-agent-machine").value = pickId || cfg.game_host_machine
     || (cfg.game_host !== "agent" && state.hostMachines[0]?.id) || "";
-  paintConnection(current);
+  paintConnection();
 }
 $("cfg-agent-machine").onchange = () => paintConnection();
 
@@ -1620,58 +1621,32 @@ $("cfg-host").onclick = (event) => {
   if (b) paintHostForm(b.dataset.host);
 };
 const hostBody = () => ({ game_host: $("cfg-host").dataset.mode || "off",
-  session_process: $("cfg-session").value.trim(),
-  agent_url: $("cfg-agent-url").value.trim(), agent_token: $("cfg-agent-token").value.trim(),
-  agent_pem: state.agentPem || "" });
+  session_process: $("cfg-session").value.trim() });
 
-// Association d'un agent : certificat récupéré, empreinte à confirmer avant d'enregistrer
-function agentReset() {
-  state.agentPem = null;
-  $("cfg-agent-confirm").checked = false;
-  $("cfg-agent-confirm-row").hidden = true;
-}
-for (const id of ["cfg-agent-url", "cfg-agent-token"]) $(id).addEventListener("input", agentReset);
-// Code d'association « wsq://JETON@HÔTE:PORT#EMPREINTE » : remplit adresse et jeton.
-function readPairCode(code) {
-  const m = /^wsq:\/\/([^@\s]+)@([^:\s/]+):(\d+)#([0-9A-Fa-f]{64})$/.exec(code.trim());
-  return m ? { token: m[1], url: `https://${m[2]}:${m[3]}` } : null;
-}
+// Association par code wsq:// (Réglages) : même échange que l'onglet Sauvegardes, fait
+// côté serveur ; le code ne sert qu'une fois. La machine associée est ensuite choisie
+// comme machine de jeu par « Enregistrer ».
 $("cfg-agent-probe").onclick = async () => {
-  const result = $("cfg-agent-result");
-  agentReset();
-  result.className = "msg";
-  result.replaceChildren(el("span", { className: "row" }, el("span", { className: "spinner" }), "connexion à l'agent…"));
+  const result = $("cfg-agent-result"), button = $("cfg-agent-probe");
   const code = $("cfg-agent-code").value.trim();
-  const pair = code ? readPairCode(code) : null;
-  if (code && !pair) {
+  if (!code) {
     result.className = "notice err";
-    result.textContent = "Code d'association illisible : copier le wsq://… affiché par « wsquashfs-launcher --pair ».";
+    result.textContent = "Colle le code wsq:// affiché par « wsquashfs-launcher --pair ».";
     return;
   }
-  if (pair) {
-    $("cfg-agent-url").value = pair.url;
-    $("cfg-agent-token").value = pair.token;
-  }
+  button.disabled = true;
+  result.className = "msg";
+  result.replaceChildren(el("span", { className: "row" }, el("span", { className: "spinner" }), "association en cours…"));
   try {
-    const r = await api("/api/config/agent/probe", { method: "POST",
-      body: code ? { code } : { url: $("cfg-agent-url").value.trim(), token: $("cfg-agent-token").value.trim() } });
-    state.agentPem = r.pem;
-    if (r.paired) {
-      // Certificat vérifié contre le code : pas de contrôle manuel d'empreinte
-      $("cfg-agent-confirm").checked = true;
-      result.className = "msg";
-      result.textContent = `Associé. Empreinte vérifiée : ${r.fingerprint}`;
-      return;
-    }
-    const who = r.info ? `${r.info.host} · utilisateur ${r.info.user} · agent ${r.info.version}`
-      : "jeton non saisi : il ne peut pas être vérifié (il reste celui déjà enregistré, le cas échéant)";
-    result.replaceChildren(el("div", {}, el("strong", { textContent: "Empreinte du certificat" })),
-      el("div", { className: "mono", style: "font-size:12px;overflow-wrap:anywhere", textContent: r.fingerprint }),
-      el("div", { className: "muted", style: "margin-top:6px", textContent: who }));
-    $("cfg-agent-confirm-row").hidden = false;
+    const r = await api("/api/saves/machines", { method: "POST", body: { code } });
+    $("cfg-agent-code").value = "";
+    result.textContent = `Associée : ${r.name}. Empreinte vérifiée : ${r.fingerprint}. « Enregistrer » en fait la machine de jeu.`;
+    await loadHostMachines(r.id);
   } catch (error) {
     result.className = "notice err";
     result.textContent = error.message;
+  } finally {
+    button.disabled = false;
   }
 };
 
@@ -2467,16 +2442,12 @@ $("btn-config").onclick = async () => {
   ].flatMap(([k, v]) => [el("dt", { textContent: k }), el("dd", { textContent: v ?? "—" })]));
   $("cfg-session").value = cfg.session_process ?? "";
   $("cfg-agent-code").value = "";
-  $("cfg-agent-url").value = cfg.agent_url || "";
-  $("cfg-agent-token").value = "";
-  $("cfg-agent-token").placeholder = cfg.agent_token_set ? "jeton enregistré : laisser vide pour le garder" : "affiché par « wsquashfs-launcher --pair »";
-  agentReset();
   $("cfg-agent-result").className = "msg";
   $("cfg-agent-result").textContent = cfg.agent_fingerprint
     ? `Associé. Empreinte enregistrée : ${cfg.agent_fingerprint}` : "Pas encore associé.";
   state.hostEditing = false;
   paintHostForm(cfg.game_host || "off");
-  loadHostMachines(cfg.game_host || "off");
+  loadHostMachines();
   $("doc-title").textContent = `wsquashfs-launcher --doctor — ${cfg.game_host_name}`;
   $("maint-out").hidden = true;
   loadHostStatus();
@@ -2495,13 +2466,8 @@ $("cfg-save").onclick = async () => {
       throw new Error("Bibliothèque : cocher au moins un système.");
     }
     if ($("cfg-host").dataset.mode === "agent" && !hostPick()) {
-      const url = $("cfg-agent-url").value.trim();
-      const reuse = url === state.config?.agent_url && state.config?.agent_fingerprint && !state.agentPem
-        && !$("cfg-agent-token").value.trim();
-      if (!reuse && !(state.agentPem && $("cfg-agent-confirm").checked)) {
-        showCfgPane("host");
-        throw new Error("Machine de jeu : associer l'agent et confirmer son empreinte avant d'enregistrer.");
-      }
+      showCfgPane("host");
+      throw new Error("Machine de jeu : associer une machine avec son code wsq:// (Associer), ou en choisir une dans la liste.");
     }
     state.config = await api("/api/config/night", { method: "PUT",
       body: { start: $("cfg-night-start").value, end: $("cfg-night-end").value } });

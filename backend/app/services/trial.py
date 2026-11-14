@@ -26,6 +26,7 @@ import hashlib
 import json
 import os
 import re
+import socket
 import ssl
 import subprocess
 import tempfile
@@ -152,16 +153,20 @@ def agent_cert_path(settings: Settings) -> Path:
 
 
 PAIR_CODE_RE = re.compile(r"^wsq://([A-Za-z0-9_-]+)@([^\s/:@#]+):(\d+)#([0-9A-Fa-f]{64})$")
+PAIR_VERSION = 7                # premier agent qui échange le secret du code contre un jeton durable
+PAIR_EXPIRED = ("code d'association expiré ou déjà utilisé : relancer « wsquashfs-launcher --pair » "
+                "sur la machine, puis coller le nouveau code")
 
 
 def parse_pair_code(code: str) -> dict:
     """Code d'association de `wsquashfs-launcher --pair` :
-    wsq://JETON@HÔTE:PORT#EMPREINTE (SHA-256 du certificat, hexadécimal)."""
+    wsq://SECRET@HÔTE:PORT#EMPREINTE (SHA-256 du certificat, hexadécimal). Le secret ne
+    sert qu'une fois : il s'échange contre le jeton durable (pair_agent)."""
     m = PAIR_CODE_RE.match(code.strip())
     if not m:
         raise ValueError("code d'association illisible (wsq://… copié depuis « wsquashfs-launcher --pair »)")
-    token, host, port, fp = m.groups()
-    return {"url": f"https://{host}:{int(port)}", "token": token, "fingerprint": fp.upper()}
+    secret, host, port, fp = m.groups()
+    return {"url": f"https://{host}:{int(port)}", "secret": secret, "fingerprint": fp.upper()}
 
 
 def fingerprint_pem(pem: str) -> str:
@@ -186,11 +191,10 @@ class AgentProbeError(RebuildError):
         self.status = status
 
 
-def probe_agent(settings: Settings, url: str, token: str = "", expected: str | None = None,
-                timeout: float = 10) -> dict:
-    """Associer un agent : récupère son certificat et interroge /v1/info avec ce
-    certificat seul. Rien n'est enregistré. `expected` : empreinte du code
-    d'association (sans deux-points) ; le certificat doit correspondre."""
+def fetch_certificate(url: str, expected: str, timeout: float = 10) -> tuple[str, str]:
+    """Certificat de l'agent à `url`, contrôlé contre l'empreinte du code d'association
+    (sans deux-points). Renvoie (pem, empreinte). Aucune requête HTTP ici : un refus
+    arrive avant tout envoi du secret."""
     url = url.strip().rstrip("/")
     match = re.match(r"^https://([^\s/:]+):(\d+)$", url)
     if not match:
@@ -201,19 +205,53 @@ def probe_agent(settings: Settings, url: str, token: str = "", expected: str | N
     except OSError as exc:
         raise AgentProbeError(502, f"agent injoignable : {exc}") from exc
     fingerprint = fingerprint_pem(pem)
-    if expected is not None and fingerprint.replace(":", "") != expected:
-        # Autre machine, ou certificat régénéré depuis le code : refus, sans rien enregistrer
+    if fingerprint.replace(":", "") != expected:
+        # Autre machine, ou certificat régénéré depuis le code : refus, rien n'est envoyé
         raise AgentProbeError(422, "le certificat de l'agent ne correspond pas au code d'association : "
                               "relancer « wsquashfs-launcher --pair » et copier le nouveau code")
-    info = None
-    if token.strip():
+    return pem, fingerprint
+
+
+def pair_agent(url: str, secret: str, expected: str, machine_id: str, timeout: float = 15) -> dict:
+    """Échange le secret d'un code d'association contre le jeton durable de ce manager
+    (POST /v1/pair, protocole de l'agent version 7). Le certificat est contrôlé contre
+    l'empreinte du code avant l'envoi du secret. L'agent ne rend le jeton qu'une fois.
+    → {url, token, host, fingerprint, pem}. AgentProbeError (code HTTP) sinon."""
+    pem, fingerprint = fetch_certificate(url, expected)
+    url = url.strip().rstrip("/")
+    name = f"wsquashfs-manager ({socket.gethostname()})"[:64]
+    try:
+        with httpx.Client(base_url=url, verify=_pinned_context(pem),
+                          timeout=httpx.Timeout(timeout, connect=10)) as client:
+            response = client.post("/v1/pair", json={"name": name},
+                                   headers={"Authorization": f"Bearer {secret}", "X-Wsq-Machine": machine_id})
+    except httpx.HTTPError as exc:
+        raise AgentProbeError(502, f"agent injoignable : {exc}") from exc
+    if response.status_code in (404, 405):
+        raise AgentProbeError(422, OLD_AGENT_MESSAGE)           # agent trop ancien : pas de /v1/pair
+    if response.status_code == 401:
+        raise AgentProbeError(422, PAIR_EXPIRED)                 # déjà utilisé, expiré ou faux
+    if response.status_code >= 400:
         try:
-            info = AgentHost(settings, 15, pem=pem, url=url, token=token.strip()).info()
-        except RebuildError as exc:
-            # 422 et non 401 : le client prendrait un 401 pour une demande de connexion
-            raise AgentProbeError(422 if "jeton" in str(exc) else 502, str(exc)) from exc
-    return {"url": url, "fingerprint": fingerprint, "pem": pem, "info": info,
-            "paired": expected is not None}
+            detail = response.json().get("detail", response.text)
+        except (ValueError, AttributeError):
+            detail = response.text
+        # 400 : identifiant de machine absent ou invalide ; 422 pour le navigateur (pas 401)
+        raise AgentProbeError(422 if response.status_code == 400 else 502, f"agent : {detail}")
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise AgentProbeError(502, "réponse de l'agent illisible : relancer l'association") from exc
+    if not isinstance(data, dict):
+        raise AgentProbeError(502, "réponse de l'agent illisible : relancer l'association")
+    version = str(data.get("version", ""))
+    if not version.isdigit() or int(version) < PAIR_VERSION:
+        raise AgentProbeError(422, OLD_AGENT_MESSAGE)
+    token = data.get("token")
+    if not isinstance(token, str) or not token:
+        raise AgentProbeError(502, "réponse de l'agent sans jeton : relancer l'association")
+    return {"url": url, "token": token, "host": str(data.get("host") or "").strip(),
+            "fingerprint": fingerprint, "pem": pem}
 
 
 class SavesBusy(RebuildError):
@@ -264,12 +302,13 @@ class AgentHost:
                                    timeout=httpx.Timeout(timeout, connect=10))
 
     def _call(self, method: str, path: str, **kwargs) -> httpx.Response:
+        headers = {**self._head(), **kwargs.pop("headers", {})}
         try:
-            response = self.client.request(method, path, **kwargs)
+            response = self.client.request(method, path, headers=headers, **kwargs)
         except httpx.HTTPError as exc:
             raise AgentUnreachable(f"agent injoignable ({self.url}) : {exc}") from exc
         if response.status_code == 401:
-            raise RebuildError("jeton de l'agent refusé : copier le jeton affiché par « wsquashfs-launcher --pair »")
+            raise RebuildError("jeton refusé : refaire l'association (wsquashfs-launcher --pair)")
         if response.status_code >= 400:
             try:
                 detail = response.json().get("detail", response.text)
@@ -295,7 +334,8 @@ class AgentHost:
 
     def fetch(self, path: str, feed: Callable[[bytes], None]) -> tuple[int, bytes]:
         try:
-            with self.client.stream("GET", "/v1/runner/tar", params={"path": path}, timeout=3600) as response:
+            with self.client.stream("GET", "/v1/runner/tar", params={"path": path}, timeout=3600,
+                                    headers=self._head()) as response:
                 if response.status_code >= 400:
                     raise RebuildError(f"agent : copie refusée ({response.status_code})")
                 for chunk in response.iter_bytes():
@@ -324,6 +364,11 @@ class AgentHost:
         if self._client_id is None:
             self._client_id = saves_client_id(self.settings)
         return self._client_id
+
+    def _head(self) -> dict:
+        """En-tête X-Wsq-Machine de toute requête : le jeton est lié à cet identifiant
+        (agent version 7) ; l'agent refuse un autre identifiant."""
+        return {"X-Wsq-Machine": self.client_id}
 
     def _unreachable(self, exc: httpx.HTTPError) -> RebuildError:
         cause: BaseException | None = exc
@@ -436,8 +481,9 @@ class AgentHost:
 
     def _games(self, method: str, path: str, *, timeout: float, conflict: str | None = None,
                **kwargs) -> httpx.Response:
+        headers = {**self._head(), **kwargs.pop("headers", {})}
         try:
-            response = self.client.request(method, path, timeout=timeout, **kwargs)
+            response = self.client.request(method, path, timeout=timeout, headers=headers, **kwargs)
         except httpx.HTTPError as exc:
             raise self._unreachable(exc) from exc
         if response.status_code >= 400:

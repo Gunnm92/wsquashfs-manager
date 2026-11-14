@@ -975,10 +975,6 @@ aside.panel.editing { border-color: var(--edit); box-shadow: var(--shadow-md); }
 /* Machine de jeu : voyant en tête */
 .host-card { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 10px 14px; border-radius: 16px; background: var(--s2); }
 .host-card .host-status { max-width: none; flex: 1; }
-.agent-manual { margin-top: 2px; }
-.agent-manual > summary { cursor: pointer; font-size: 12.5px; color: var(--muted); }
-.agent-manual-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-top: 8px; }
-@media (max-width: 640px) { .agent-manual-fields { grid-template-columns: 1fr; } }
 .maint-out { margin-top: 10px; max-height: 220px; overflow: auto; padding: 10px 12px; border-radius: 14px;
   background: var(--bg); font: 11.5px/1.55 var(--mono); color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
 /* Couleurs du lanceur (16 couleurs de base, thème sombre) */

@@ -43,8 +43,8 @@ from .trial import (
     SavesBusy,
     agent_cert_path,
     fingerprint_pem,
+    pair_agent,
     parse_pair_code,
-    probe_agent,
 )
 
 GAME_HOST_ID = "game-host"          # machine de jeu en mode agent : toujours listée, non supprimable
@@ -195,20 +195,19 @@ def open_machine(settings: Settings, machine_id: str, timeout: float = 3600) -> 
 
 
 def add_machine(settings: Settings, code: str) -> dict:
-    """Associe une machine par son code wsq:// (même vérification que l'association
-    de l'agent : certificat contre l'empreinte du code, jeton vérifié par /v1/info).
-    Même empreinte ou même adresse qu'une machine enregistrée : remplacement.
+    """Associe une machine par son code wsq:// : le secret du code s'échange ici, une
+    seule fois, contre le jeton durable de ce manager (pair_agent) ; seul ce jeton est
+    enregistré. Même empreinte ou même adresse qu'une machine enregistrée : remplacement.
     ValueError si le code est illisible ; AgentProbeError (avec son code HTTP) sinon."""
     pair = parse_pair_code(code)
-    probe = probe_agent(settings, pair["url"], pair["token"], expected=pair["fingerprint"])
-    info = probe["info"] or {}
-    name = str(info.get("host") or "").strip() or _host_of(probe["url"])
+    paired = pair_agent(pair["url"], pair["secret"], pair["fingerprint"], saves_client_id(settings))
+    name = paired["host"] or _host_of(paired["url"])
     machines = saves_machines(settings)
     matches = [i for i, m in enumerate(machines)
-               if _norm(m["url"]) == _norm(probe["url"])
-               or _fingerprint_or_empty(m["pem"]).replace(":", "") == probe["fingerprint"].replace(":", "")]
-    entry = {"id": secrets.token_hex(4), "name": name, "url": probe["url"],
-             "token": pair["token"], "pem": probe["pem"]}
+               if _norm(m["url"]) == _norm(paired["url"])
+               or _fingerprint_or_empty(m["pem"]).replace(":", "") == paired["fingerprint"].replace(":", "")]
+    entry = {"id": secrets.token_hex(4), "name": name, "url": paired["url"],
+             "token": paired["token"], "pem": paired["pem"]}
     if matches:
         entry["id"] = machines[matches[0]]["id"]          # le remplacement garde l'identifiant
         if _chosen_icon(machines[matches[0]].get("icon")):
@@ -219,8 +218,8 @@ def add_machine(settings: Settings, code: str) -> dict:
     else:
         machines.append(entry)
     save_saves_machines(settings, machines)
-    return {"id": entry["id"], "name": name, "url": probe["url"],
-            "fingerprint": probe["fingerprint"], "replaced": bool(matches)}
+    return {"id": entry["id"], "name": name, "url": paired["url"],
+            "fingerprint": paired["fingerprint"], "replaced": bool(matches)}
 
 
 def remove_machine(settings: Settings, machine_id: str) -> None:

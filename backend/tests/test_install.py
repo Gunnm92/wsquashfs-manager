@@ -28,7 +28,7 @@ from app.services import install
 from app.services.rebuild import Job, RebuildCancelled, RebuildError
 from app.services.tasks import TaskQueue
 from app.services.trial import AgentRejected, AgentUnreachable, fingerprint_pem
-from test_saves import TOKEN, associate, make_cert, make_settings, machine_ids
+from test_saves import SECRET, TOKEN, associate, auth_ok, make_cert, make_settings, machine_ids, pair_reply
 
 BLOCK = 1 << 20
 GIB = 1 << 30
@@ -64,7 +64,7 @@ class GamesAgent(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _auth(self) -> bool:
-        if self.headers.get("Authorization") != f"Bearer {self.st['token']}":
+        if not auth_ok(self.st, self.headers):
             self._send(401, {"detail": "jeton refuse"})
             return False
         return True
@@ -139,6 +139,9 @@ class GamesAgent(BaseHTTPRequestHandler):
         url = urlsplit(self.path)
         length = int(self.headers.get("Content-Length", "0"))
         body = json.loads(self.rfile.read(length) or b"{}")
+        if url.path == "/v1/pair":
+            code, payload = pair_reply(self.st, self.headers)
+            return self._send(code, payload, text="404 page not found\n" if payload is None else None)
         if not self._auth() or self._old(url.path):
             return
         st = self.st
@@ -197,7 +200,8 @@ def games_agents(tmp_path):
         st = {"host": host, "token": TOKEN, "home": home, "dir": home + "/jeux", "dir_set": False,
               "capacity": capacity, "games": dict(games or {}), "parts": dict(parts or {}),
               "mounted": set(mounted), "old": old, "puts": 0, "log": [], "cut_at_put": cut_at_put,
-              "bad_commits": bad_commits, "rejected": 0, "committed": []}
+              "bad_commits": bad_commits, "rejected": 0, "committed": [],
+              "secret": SECRET, "pair_open": True, "old_pair": False, "pairs": [], "bound": None}
         handler = type("H", (GamesAgent,), {"st": st})
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)

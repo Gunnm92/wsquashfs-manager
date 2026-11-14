@@ -86,13 +86,14 @@ La fiche d'un jeu a « Copier les sauvegardes » et « Synchroniser » (ce jeu),
 « Sauvegardes entre machines », qui ouvre l'onglet Sauvegardes filtré sur le jeu.
 L'association d'une machine se fait une fois, en ligne de commande, sur les
 deux machines : `wsquashfs-launcher --pair` sur l'autre, puis
-`wsquashfs-launcher --sync wsq://…` sur celle-ci (le manager ne l'expose pas).
+`wsquashfs-launcher --sync wsq://…` sur celle-ci (le manager ne l'expose pas ;
+le code ne sert qu'une fois, voir ci-dessous).
 
 | Mode | Usage |
 |---|---|
 | Désactivée | défaut d'une installation neuve |
 | Cette machine | lanceur installé sur la machine du gestionnaire, avec un écran ; le service tourne sous l'utilisateur de la session graphique |
-| Agent réseau | **Une machine déjà associée** (onglet Sauvegardes : SteamBox, AIBox, Deck…) se choisit dans la liste « Machine associée » : son adresse, son jeton et son certificat sont repris, sans nouveau code (`PUT /api/config/game_host/machine {"id"}`). **Autre machine** : sur la machine de jeu, ou dans son conteneur (ex. SteamBox) : `wsquashfs-launcher --pair` affiche le code `wsq://…` et attend qu'il soit collé dans **Associer** (le certificat est vérifié contre le code) ; ensuite `wsquashfs-launcher --agent` lance l'agent en arrière-plan (`--agent stop` l'arrête ; rien ne le démarre tout seul, aucun port ouvert en dehors de `--agent`). Voir `docs/agent.md` du lanceur. |
+| Agent réseau | **Une machine déjà associée** (onglet Sauvegardes : SteamBox, AIBox, Deck…) se choisit dans la liste « Machine associée » : son adresse, son jeton et son certificat sont repris, sans nouveau code (`PUT /api/config/game_host/machine {"id"}`). **Autre machine** : sur la machine de jeu, ou dans son conteneur (ex. SteamBox) : `wsquashfs-launcher --pair` affiche le code `wsq://…` et attend qu'il soit collé dans **Associer** (le certificat est vérifié contre le code, puis le code est échangé contre un jeton propre à ce manager ; le code ne sert qu'une fois, pendant que `--pair` attend ; une machine se révoque côté machine par `wsquashfs-launcher --pair forget <machine>` ou `--pair reset`) ; ensuite `wsquashfs-launcher --agent` lance l'agent en arrière-plan (`--agent stop` l'arrête ; rien ne le démarre tout seul, aucun port ouvert en dehors de `--agent`). Voir `docs/agent.md` du lanceur. |
 
 Le mode Conteneur Docker (API Docker, `docker-socket-proxy`) a été retiré : un
 conteneur se joint par l'agent. Une configuration qui le mentionne repasse en
@@ -114,9 +115,11 @@ machine **source** (celle qui est la plus avancée) vers les autres machines.
 À l'écran, cette copie est la colonne et la carte **Manager**.
 
 - **Machines** : `POST /api/saves/machines {code}` associe une machine par son
-  code `wsq://…` (même vérification que l'association de l'agent ; le nom est
-  le `host` de `/v1/info`). Une même empreinte ou une même adresse remplace
-  l'entrée. Le jeton et le certificat ne sont jamais renvoyés. La machine de
+  code `wsq://…` : le certificat est contrôlé contre l'empreinte du code, puis
+  le secret du code est échangé une seule fois (`POST /v1/pair`, agent version 7)
+  contre le jeton durable de ce manager ; le nom est le `host` de l'agent. Une
+  même empreinte ou une même adresse remplace l'entrée. Le secret, le jeton et
+  le certificat ne sont jamais renvoyés. La machine de
   jeu en mode agent apparaît d'office (identifiant `game-host`, non
   supprimable) sauf si une machine de la liste a la même adresse.
 - **Icône** : `os` de `/v1/info` (ID de `/etc/os-release` : `steamos`,
@@ -179,7 +182,7 @@ Routes (toutes sous `/api/saves/`) :
 | Méthode | Chemin | Corps / réponse |
 |---|---|---|
 | GET | `machines` | `{"machines":[{id,name,url,fingerprint,kind,removable,icon}]}` |
-| POST | `machines` | `{"code":"wsq://…"}` → `{id,name,url,fingerprint,replaced}` ; 422 code, empreinte ou jeton ; 502 injoignable |
+| POST | `machines` | `{"code":"wsq://…"}` → `{id,name,url,fingerprint,replaced}` ; 422 code illisible, déjà utilisé ou expiré, empreinte différente, agent trop ancien (version < 7) ; 502 injoignable |
 | PATCH | `machines/{id}` | `{"icon":"linux"\|"steamos"\|"batocera"\|null}` → `{id,icon,icon_set}` ; 400 icône ; 404 inconnue |
 | DELETE | `machines/{id}` | `{"removed":id}` ; 404 inconnue ; 422 `game-host` |
 | GET | `status[?id=<image>]` | `{machines:[{…,os,icon,icon_set}], games:[{game, reserve, check, check_by, machines:[{id,name,state,fingerprint,newest,size,message}]}]}` |

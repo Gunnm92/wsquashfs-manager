@@ -41,7 +41,7 @@ from .services.autorun import (
     merge_override,
     override_path,
 )
-from .services.durable import restore, write_atomic
+from .services.durable import restore
 from .services.operations import (
     autorun_sha,
     commit_params,
@@ -83,8 +83,6 @@ from .services.trial import (
     host_status,
     maintenance,
     maintenance_game_rule,
-    parse_pair_code,
-    probe_agent,
     run_doctor,
     run_trial,
     trial_dir,
@@ -197,7 +195,6 @@ def get_config():
         "game_host_name": host_name(_settings),
         "session_process": _settings.session_process,
         "agent_url": _settings.agent_url,
-        "agent_token_set": bool(_settings.agent_token),       # le jeton n'est jamais renvoyé
         "agent_fingerprint": _agent_fingerprint(),
         "game_host_machine": saves_svc.game_host_machine(_settings),   # machine associée choisie, "" sinon
         # Source de l'onglet Images : "" = bibliothèque du manager, sinon une machine associée
@@ -217,37 +214,18 @@ def _agent_fingerprint() -> str:
 class GameHostConfig(BaseModel):
     game_host: Literal["off", "local", "agent"]
     session_process: str = ""
-    agent_url: str = ""
-    agent_token: str = ""           # vide : garder le jeton actuel
-    agent_pem: str = ""             # certificat confirmé à l'association
 
 
 @app.put("/api/config/game_host")
 def set_game_host(body: GameHostConfig):
-    """Machine de jeu : désactivée, cette machine ou un agent (réseau ou conteneur)."""
-    values = {k: v for k, v in body.model_dump().items() if k != "agent_pem" and (v != "" or k == "session_process")}
-    keep_cert = False
-    if body.game_host == "agent":
-        if body.agent_pem.strip():
-            try:
-                fingerprint_pem(body.agent_pem)
-            except ValueError as exc:
-                raise HTTPException(status_code=422, detail="certificat de l'agent illisible") from exc
-        else:
-            # Pas de nouvelle association : garder le certificat déjà confirmé, si
-            # l'adresse n'a pas changé et que le jeton n'a pas été modifié
-            same_agent = (not body.agent_url or body.agent_url.rstrip("/") == _settings.agent_url.rstrip("/"))
-            keep_cert = same_agent and not body.agent_token and agent_cert_path(_settings).exists()
-            if not keep_cert:
-                raise HTTPException(status_code=422, detail="associer l'agent avant d'enregistrer (Associer)")
+    """Machine de jeu : désactivée, cette machine, ou la machine associée déjà choisie (agent).
+    Le mode agent ne associe rien : l'adresse et le jeton viennent de la machine choisie
+    (PUT /api/config/game_host/machine), refusé tant qu'aucune machine n'est associée."""
+    values = {"game_host": body.game_host, "session_process": body.session_process}
     try:
         save_game_host(_settings, values)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    if body.game_host == "agent" and not keep_cert:
-        cert = agent_cert_path(_settings)
-        cert.parent.mkdir(parents=True, exist_ok=True)
-        write_atomic(cert, body.agent_pem.strip() + "\n")
     if not saves_svc.game_host_machine(_settings):
         save_images_source(_settings, "")       # machine non associée : l'onglet Images montre la bibliothèque
     _doctor_cache.clear()           # l'état du lanceur est celui de l'ancienne machine
@@ -307,30 +285,6 @@ def source_games():
               "image": by_file.get(str(g.get("name")).lower())}
              for g in listing.get("games") or [] if isinstance(g, dict) and g.get("name")]
     return {"source": source, "games": sorted(games, key=lambda g: g["name"].lower())}
-
-
-class AgentProbe(BaseModel):
-    url: str = ""
-    token: str = ""
-    code: str = ""                  # code d'association (wsq://…) : remplace adresse, jeton et contrôle manuel
-
-
-@app.post("/api/config/agent/probe")
-def agent_probe(body: AgentProbe):
-    """Associer un agent : récupère son certificat et interroge /v1/info avec
-    ce certificat seul. Rien n'est enregistré : l'empreinte doit être confirmée."""
-    expected = None
-    if body.code.strip():
-        try:
-            pair = parse_pair_code(body.code)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        expected = pair["fingerprint"]
-        body = body.model_copy(update={"url": pair["url"], "token": pair["token"]})
-    try:
-        return probe_agent(_settings, body.url, body.token, expected=expected)
-    except AgentProbeError as exc:
-        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
 
 
 _doctor_cache: dict = {}
