@@ -1159,8 +1159,7 @@ async function renderHistory() {
     return;
   }
   if (state.current?.id !== id) return;
-  const opened = new Set([...$("d-history").querySelectorAll(".task.open")].map((n) => n.dataset.id));
-  $("d-history").replaceChildren(...(tasks.length ? tasks.map((t) => taskNode(t, opened)) : [el("p", { className: "muted", textContent: "Aucune opération enregistrée." })]));
+  syncTaskList($("d-history"), tasks, el("p", { className: "muted", textContent: "Aucune opération enregistrée." }));
 }
 
 // ------------------------------------------------------------------ tâches
@@ -1182,10 +1181,12 @@ function taskNode(t, opened = new Set()) {
     el("div", { className: "mid" },
       el("div", { className: "line", title: `${t.image || ""} — ${t.title}` }, el("strong", { textContent: t.image || kindLabel }), " ", el("span", { textContent: t.title || kindLabel })),
       el("div", { className: "bar" }, el("div", { style: `width:${progress}%` })),
-      t.status === "running" && t.phase ? el("div", { className: "muted", style: "font-size:11.5px", textContent: t.phase }) : null,
+      el("div", { className: "muted phase", style: "font-size:11.5px", hidden: !(t.status === "running" && t.phase), textContent: t.phase || "" }),
       t.error ? el("div", { className: "err-line", textContent: t.error }) : null),
-    el("span", { className: "st", title: TASK_STATES[t.status]?.[1] || t.status }, icon(stIcon, `sm${t.status === "running" ? " spinning" : ""}`), stLabel));
+    el("span", { className: "st", title: TASK_STATES[t.status]?.[1] || t.status }, icon(stIcon, `sm${t.status === "running" ? " spinning" : ""}`),
+      el("span", { className: "st-label", textContent: stLabel })));
   node.dataset.id = t.id;
+  node.dataset.key = taskKey(t);
   const more = el("div", { className: "more" });
   const actions = el("div", { className: "row" }, el("span", { className: "when-at spacer", textContent: `créée le ${when(t.created_at)}` }));
   if (t.status === "pending" && t.night) {
@@ -1214,6 +1215,42 @@ function taskNode(t, opened = new Set()) {
   node.append(more);
   node.onclick = (event) => { if (!event.target.closest(".more")) node.classList.toggle("open"); };
   return node;
+}
+
+// Ce qui oblige à reconstruire le nœud d'une tâche ; le reste (progression, phase) est mis à
+// jour en place, sans recréer le nœud : sinon l'icône animée redémarre et la liste clignote
+// à chaque relecture (toutes les 1,5 s pendant un transfert).
+function taskKey(t) {
+  return JSON.stringify([t.status, t.night, t.image, t.title, t.error, (t.log || []).length,
+    Boolean(t.params?.result), state.config?.night_start]);
+}
+function updateTaskNode(node, t) {
+  const progress = t.status === "done" ? 100 : Math.round((t.progress || 0) * 100);
+  node.querySelector(".bar > div").style.width = `${progress}%`;
+  if (t.status === "running") node.querySelector(".st-label").textContent = `${progress} %`;
+  const phase = node.querySelector(".phase");
+  phase.hidden = !(t.status === "running" && t.phase);
+  if (phase.textContent !== (t.phase || "")) phase.textContent = t.phase || "";
+}
+// Liste de tâches réconciliée : nœuds gardés quand c'est la même tâche dans le même état ;
+// la liste n'est réordonnée que si l'ordre ou le contenu change.
+function syncTaskList(box, tasks, empty) {
+  if (!tasks.length) {
+    if (!box.querySelector(":scope > p.muted")) box.replaceChildren(empty);
+    return;
+  }
+  const opened = new Set([...box.querySelectorAll(".task.open")].map((n) => n.dataset.id));
+  const old = new Map([...box.querySelectorAll(":scope > .task")].map((n) => [n.dataset.id, n]));
+  const nodes = tasks.map((t) => {
+    const node = old.get(t.id);
+    if (node && node.dataset.key === taskKey(t)) {
+      updateTaskNode(node, t);
+      return node;
+    }
+    return taskNode(t, opened);
+  });
+  const same = nodes.length === box.children.length && nodes.every((n, i) => box.children[i] === n);
+  if (!same) box.replaceChildren(...nodes);
 }
 
 function trialReport(t, r) {
@@ -1249,9 +1286,8 @@ async function refreshTasks() {
     return;
   }
   const active = state.tasks.filter((t) => t.status === "pending" || t.status === "running");
-  const opened = new Set([...document.querySelectorAll("#tasks-list .task.open")].map((n) => n.dataset.id));
-  $("tasks-list").replaceChildren(...(state.tasks.length ? state.tasks.slice(0, 100).map((t) => taskNode(t, opened))
-    : [el("p", { className: "muted", style: "margin:4px", textContent: "Aucune tâche." })]));
+  syncTaskList($("tasks-list"), state.tasks.slice(0, 100),
+    el("p", { className: "muted", style: "margin:4px", textContent: "Aucune tâche." }));
   const running = active.some((t) => t.status === "running");
   const failed = state.tasks.filter((t) => t.status === "failed").length;
   const nightly = active.filter((t) => t.status === "pending" && t.night).length;
@@ -3187,7 +3223,7 @@ document.addEventListener("click", (event) => {
 const inst = { machines: [], loaded: false, error: "", loading: false, seq: 0 };
 let instDlg = null;             // dialogue ouvert : { mode, images, skipped, picked, edit, busy }
 const GIB = 1024 ** 3;          // marge d'espace libre demandée au-delà de la taille à envoyer
-const LINK_RATE = 100e6;        // débit filaire supposé pour la durée estimée (octets/s)
+const LINK_RATE = 100e6;        // débit supposé sans mesure (filaire), en octets/s
 
 const isWsq = (i) => /\.wsquashfs$/i.test(i.path || i.id);
 const imageFile = (i) => (i.path || i.id).split("/").pop();
@@ -3197,7 +3233,13 @@ const machineOf = (id) => inst.machines.find((m) => m.id === id);
 const machineNameOf = (id) => machineOf(id)?.name ?? id;
 const gamesOf = (m) => m.games || [];
 const selectedImages = () => [...state.selected].map((id) => state.byId.get(id)).filter(Boolean);
-const etaText = (bytes) => `~ ${Math.max(1, Math.round(bytes / LINK_RATE / 60))} min`;
+// Durée estimée : dernier débit réellement mesuré vers cette machine (m.rate), sinon le filaire supposé
+function etaText(bytes, rate) {
+  const min = Math.round(bytes / (rate || LINK_RATE) / 60);
+  const span = min < 1 ? "moins d'1 min" : min < 60 ? `~${min} min` : `~${Math.floor(min / 60)} h ${String(min % 60).padStart(2, "0")}`;
+  const mo = (rate || LINK_RATE) / 1e6;
+  return `${span} (${rate ? `débit mesuré ${mo < 10 ? mo.toFixed(1).replace(".", ",") : Math.round(mo)} Mo/s` : "débit supposé 100 Mo/s"})`;
+}
 // Identifiants des machines joignables où ce fichier est installé
 const installedOn = (file) => inst.machines.filter((m) => m.ok && gamesOf(m).includes(file)).map((m) => m.id);
 
@@ -3331,7 +3373,7 @@ function paintInstDialog() {
       else {
         if (plan.done) chips.push(badge(`${plan.done} sur ${n} déjà là`, "info"));
         if (!plan.fits) { cls = " short"; chips.push(badge("espace insuffisant", "err")); }
-        meta = el("div", { className: "in-meta" }, `libre ${size(m.free || 0)} · à envoyer ${size(plan.bytes)} (+ 1 Go de marge) · ${etaText(plan.bytes)}`);
+        meta = el("div", { className: "in-meta" }, `libre ${size(m.free || 0)} · à envoyer ${size(plan.bytes)} (+ 1 Go de marge) · ${etaText(plan.bytes, m.rate)}`);
       }
       dirNode = dirLine(m, d);
     } else {

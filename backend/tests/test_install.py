@@ -435,7 +435,7 @@ def test_status_lists_games_parts_and_unreachable_machines(games_agents, tmp_pat
     data = install.status(settings)
     by_name = {m["name"]: m for m in data["machines"]}
     up = by_name["steambox"]
-    assert set(up) == {"id", "name", "ok", "message", "dir", "set", "free", "games", "parts"}
+    assert set(up) == {"id", "name", "ok", "message", "dir", "set", "free", "games", "parts", "rate"}
     assert up["ok"] is True and up["message"] == "" and up["set"] is False
     assert up["dir"] == "/home/arcade/jeux" and up["games"] == [NAME]
     assert up["parts"] == [{"name": "Autre.wsquashfs", "size": 3}]
@@ -577,6 +577,36 @@ def test_api_status_shape(games_agents, api):
     data = client.get("/api/install/status").json()
     assert set(data) == {"machines"}
     machine = data["machines"][0]
-    assert set(machine) == {"id", "name", "ok", "message", "dir", "set", "free", "games", "parts"}
+    assert set(machine) == {"id", "name", "ok", "message", "dir", "set", "free", "games", "parts", "rate"}
     assert machine["games"] == [NAME] and machine["ok"] is True
 
+
+
+def test_duration_text_rounds_for_humans():
+    assert install._duration_text(20) == "moins d'1 min"
+    assert install._duration_text(11 * 60 + 10) == "~11 min"
+    assert install._duration_text(80 * 60) == "~1 h 20"
+
+
+def test_progress_shows_remaining_time_and_rate_is_remembered(games_agents, tmp_path, monkeypatch):
+    monkeypatch.setattr(install, "MIN_MEASURED", 1)
+    size = 3 * BLOCK + 1000
+    deck = games_agents("steamdeck")
+    settings, mid = one_machine(tmp_path, deck)
+    phases = []
+    job = Job(on_progress=lambda phase, value: phases.append(phase))
+    install.install(settings, make_image(tmp_path, size), [mid], job)
+    assert phases and all(" · reste " in p and "Mio/s" in p for p in phases)
+    assert phases[-1].endswith("reste validation")
+    # Débit retenu pour cette machine, renvoyé par le statut (estimation du dialogue)
+    rate = install.measured_rates(settings)[mid]
+    assert rate > 0
+    assert install.status(settings)["machines"][0]["rate"] == rate
+
+
+def test_short_or_failed_transfer_does_not_change_the_rate(games_agents, tmp_path):
+    deck = games_agents("steamdeck")
+    settings, mid = one_machine(tmp_path, deck)
+    install.install(settings, make_image(tmp_path, 1000), [mid])      # sous MIN_MEASURED
+    assert install.measured_rates(settings) == {}
+    assert install.status(settings)["machines"][0]["rate"] == 0

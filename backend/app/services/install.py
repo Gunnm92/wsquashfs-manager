@@ -17,6 +17,7 @@ valider par l'empreinte SHA-256 (commit).
 from __future__ import annotations
 
 import hashlib
+import json
 import time
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -24,6 +25,7 @@ from pathlib import Path
 
 from ..config import Settings
 from ..models import Task
+from .durable import write_atomic
 from .rebuild import Job, RebuildCancelled, RebuildError
 from .saves import find_machine, machine_rows, open_machine
 from .trial import AgentHost, AgentUnreachable, InstallChecksum, InstallOffset
@@ -60,6 +62,46 @@ def _label(settings: Settings, machine_id: str) -> str:
         return find_machine(settings, machine_id)["name"]
     except KeyError:
         return machine_id
+
+
+def _duration_text(seconds: float) -> str:
+    """Durée lisible et arrondie : « moins d'1 min », « ~12 min », « ~1 h 20 »."""
+    minutes = round(seconds / 60)
+    if minutes < 1:
+        return "moins d'1 min"
+    if minutes < 60:
+        return f"~{minutes} min"
+    return f"~{minutes // 60} h {minutes % 60:02d}"
+
+
+# Débit mesuré par machine (octets/s) : la durée estimée du dialogue « Installer sur… » part
+# du dernier envoi réel (le Wi-Fi d'un Deck est loin du filaire), pas d'une valeur fixe.
+RATES_FILE = "install-rates.json"
+MIN_MEASURED = 64 << 20             # en dessous, un envoi est trop court pour mesurer le débit
+
+
+def _rates_path(settings: Settings) -> Path:
+    return settings.state_dir / RATES_FILE
+
+
+def measured_rates(settings: Settings) -> dict[str, float]:
+    try:
+        data = json.loads(_rates_path(settings).read_text())
+    except (OSError, ValueError):
+        return {}
+    return {k: float(v) for k, v in data.items() if isinstance(v, (int, float)) and v > 0} \
+        if isinstance(data, dict) else {}
+
+
+def _note_rate(settings: Settings, machine_id: str, sent: int, seconds: float) -> None:
+    if sent < MIN_MEASURED or seconds <= 0:
+        return
+    rates = measured_rates(settings)
+    rates[machine_id] = round(sent / seconds)
+    try:
+        write_atomic(_rates_path(settings), json.dumps(rates, indent=2) + "\n")
+    except OSError:
+        pass                        # une estimation perdue n'empêche rien
 
 
 def _check(job: Job | None) -> None:
@@ -128,9 +170,10 @@ def _transfer(host: AgentHost, name: str, size: int, image: Path, job: Job | Non
             stats["sent"] += length
             part = new
             elapsed = max(time.monotonic() - stats["t0"], 1e-3)
-            rate = stats["sent"] / elapsed / (1 << 20)
+            rate = stats["sent"] / elapsed                    # octets/s, depuis le début de l'envoi
+            left = _duration_text((size - part) / rate) if part < size else "validation"
             _progress(job, f"envoi sur {label} : {_size_text(part)} / {_size_text(size)} "
-                           f"· {rate:.1f} Mio/s", part, size)
+                           f"· {rate / (1 << 20):.1f}".replace(".", ",") + f" Mio/s · reste {left}", part, size)
     host.games_commit(name, size, digest.hexdigest())
 
 
@@ -177,8 +220,11 @@ def _install_one(settings: Settings, machine_id: str, name: str, size: int, imag
         out["message"] = str(exc)
     except OSError as exc:
         out["message"] = f"image illisible : {exc}"
+    elapsed = time.monotonic() - stats["t0"]
     out["sent"] = stats["sent"]
-    out["seconds"] = round(time.monotonic() - stats["t0"], 1)
+    out["seconds"] = round(elapsed, 1)
+    if out["ok"]:
+        _note_rate(settings, machine_id, out["sent"], elapsed)
     return out
 
 
@@ -254,12 +300,14 @@ def uninstall(settings: Settings, name: str, machine_ids: list[str],
 
 def status(settings: Settings) -> dict:
     """Jeux installés par machine : {machines:[{id, name, ok, message, dir, set, free,
-    games:[noms], parts:[{name, size}]}]}. Une machine injoignable est signalée seule."""
+    games:[noms], parts:[{name, size}], rate}]} ; `rate` : dernier débit mesuré vers elle
+    (octets/s, 0 si aucun envoi encore). Une machine injoignable est signalée seule."""
     rows = machine_rows(settings)
+    rates = measured_rates(settings)
 
     def fetch(row: dict) -> dict:
         entry = {"id": row["id"], "name": row["name"], "ok": False, "message": "", "dir": "",
-                 "set": False, "free": 0, "games": [], "parts": []}
+                 "set": False, "free": 0, "games": [], "parts": [], "rate": rates.get(row["id"], 0)}
         try:
             games = open_machine(settings, row["id"], timeout=15).games_list(timeout=15)
         except RebuildError as exc:
