@@ -92,7 +92,7 @@ deux machines : `wsquashfs-launcher --pair` sur l'autre, puis
 |---|---|
 | Désactivée | défaut d'une installation neuve |
 | Cette machine | lanceur installé sur la machine du gestionnaire, avec un écran ; le service tourne sous l'utilisateur de la session graphique |
-| Agent réseau | **Une machine déjà associée** (onglet Sauvegardes : SteamBox, AIBox, Deck…) se choisit dans la liste « Machine associée » : son adresse, son jeton et son certificat sont repris, sans nouveau code (`PUT /api/config/game_host/machine {"id"}`). **Autre machine** : sur la machine de jeu, ou dans son conteneur (ex. SteamBox) : `wsquashfs-launcher --pair` affiche le code `wsq://…` et attend qu'il soit collé dans **Associer** (le certificat est vérifié contre le code) ; ensuite `wsquashfs-launcher --agent` lance l'agent en arrière-plan (`--agent stop` l'arrête, `--setup --agent` le démarre avec la session). Voir `docs/agent.md` du lanceur. |
+| Agent réseau | **Une machine déjà associée** (onglet Sauvegardes : SteamBox, AIBox, Deck…) se choisit dans la liste « Machine associée » : son adresse, son jeton et son certificat sont repris, sans nouveau code (`PUT /api/config/game_host/machine {"id"}`). **Autre machine** : sur la machine de jeu, ou dans son conteneur (ex. SteamBox) : `wsquashfs-launcher --pair` affiche le code `wsq://…` et attend qu'il soit collé dans **Associer** (le certificat est vérifié contre le code) ; ensuite `wsquashfs-launcher --agent` lance l'agent en arrière-plan (`--agent stop` l'arrête ; rien ne le démarre tout seul, aucun port ouvert en dehors de `--agent`). Voir `docs/agent.md` du lanceur. |
 
 Le mode Conteneur Docker (API Docker, `docker-socket-proxy`) a été retiré : un
 conteneur se joint par l'agent. Une configuration qui le mentionne repasse en

@@ -584,13 +584,13 @@ def host_name(settings: Settings) -> str:
 
 
 def run_doctor(settings: Settings) -> dict:
-    """`wsquashfs-launcher --doctor --json` sur la machine de jeu, sous l'utilisateur
+    """`wsquashfs-launcher --doctor json` sur la machine de jeu, sous l'utilisateur
     des jeux : l'état du lanceur tel qu'il lancera les jeux."""
     host = game_host(settings, 120)
     if isinstance(host, AgentHost):
         data = host.doctor()
     else:
-        code, out = host.exec(["bash", "-lc", 'wsquashfs-launcher "$@"', "wsfs-doctor", "--doctor", "--json"])
+        code, out = host.exec(["bash", "-lc", 'wsquashfs-launcher "$@"', "wsfs-doctor", "--doctor", "json"])
         if code == 127 or "command not found" in out.decode("utf-8", "replace"):
             raise RebuildError(f"wsquashfs-launcher introuvable sur {host.name}")
         try:
@@ -670,8 +670,8 @@ def run_trial(settings: Settings, task: Task, job: Job) -> str:
     if isinstance(host, AgentHost):
         data, shot = host.trial(target, duration)
     else:
-        args = ["--trial", target, str(duration), "--session", settings.session_process or "",
-                "--screenshot", "/tmp/wsfs-trial.png"]
+        args = ["--trial", target, str(duration), "session", settings.session_process or "",
+                "screenshot", "/tmp/wsfs-trial.png"]
         code, out = host.exec(["bash", "-lc", 'wsquashfs-launcher "$@"', "wsfs-trial", *args])
         try:
             data = json.loads(out)
