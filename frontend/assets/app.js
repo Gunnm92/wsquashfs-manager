@@ -1658,6 +1658,8 @@ $("cfg-agent-probe").onclick = async () => {
 const RESERVE = "__reserve__";          // source : le manager (copie des sauvegardes)
 const AUTO = "auto";                    // source : la machine suggérée (la plus lourde), jeu par jeu
 const PRESENT_STATES = new Set(["présente", "identique", "plus avancée", "en retard"]);
+// Nom affiché d'une ligne : nom lisible d'un dossier déclaré ou d'un jeu Switch, sinon le jeu
+const gameLabel = (g) => g.label || g.game;
 const SAVE_FILTERS = [["", "Tous"], ["diff", "Différences"], ["same", "Identiques"], ["reserve", "Sur le manager"]];
 const OS_ICONS = ["linux", "steamos", "batocera"];          // icônes choisissables d'une machine
 const OS_LABELS = { linux: "Linux", steamos: "SteamOS", batocera: "Batocera" };
@@ -1789,9 +1791,61 @@ function machineMenu(m) {
     choice(`Détectée (${({ linux: "Linux", steamos: "SteamOS", batocera: "Batocera" })[m.os] || m.os || "Linux"})`, m.icon || "linux", !m.icon_set, () => setMachineIcon(m, null)),
     ...OS_ICONS.map((key) => choice(OS_LABELS[key], key, m.icon_set && m.icon === key, () => setMachineIcon(m, key))),
   ];
+  if (m.ok) nodes.push(menuItem("Dossiers synchronisés…", "folder", () => openDirs(m)));
   if (m.removable) nodes.push(menuItem("Oublier cette machine", "trash", () => forgetMachine(m), { danger: true }));
   return nodes;
 }
+
+// Dossiers synchronisés d'une machine (#dlg-dirs, agent v8) : liste, déclaration, retrait.
+let dirsMachine = null;
+function paintDirs(data) {
+  const rows = data.dirs.map((d) => {
+    const del = el("button", { type: "button", className: "iconbtn bare sm", title: "Retirer la déclaration (les fichiers restent)",
+      "aria-label": `Retirer ${d.name}` }, icon("trash", "sm"));
+    del.onclick = () => dirsCall("DELETE", `?name=${encodeURIComponent(d.name)}`);
+    return el("div", { className: "dirs-row" }, el("b", { textContent: d.name }), el("code", { textContent: d.path }), del);
+  });
+  $("dirs-list").replaceChildren(...(rows.length ? rows : [el("p", { className: "muted", textContent: "Aucun dossier déclaré sur cette machine." })]));
+  $("dirs-eden").textContent = data.eden
+    ? `Switch : Eden est installé (${data.eden}) ; ses sauvegardes sont synchronisées jeu par jeu, sans rien déclarer.`
+    : "Switch : Eden n'est pas installé sur cette machine.";
+}
+async function dirsCall(method, query = "", body = undefined) {
+  $("dirs-err").hidden = true;
+  try {
+    paintDirs(await api(`/api/saves/machines/${encodeURIComponent(dirsMachine.id)}/dirs${query}`, { method, body }));
+    if (method !== "GET") loadSaves();
+    return true;
+  } catch (error) {
+    $("dirs-err").textContent = error.message;
+    $("dirs-err").hidden = false;
+    return false;
+  }
+}
+function openDirs(m) {
+  dirsMachine = m;
+  $("dirs-title").textContent = `Dossiers synchronisés · ${m.name}`;
+  $("dirs-list").replaceChildren(el("p", { className: "muted", textContent: "Lecture…" }));
+  $("dirs-eden").textContent = "";
+  $("dirs-name").value = "";
+  $("dirs-path").value = "";
+  $("dirs-err").hidden = true;
+  $("dlg-dirs").showModal();
+  dirsCall("GET");
+}
+$("dirs-add").onclick = async () => {
+  const name = $("dirs-name").value.trim(), path = $("dirs-path").value.trim();
+  if (!name || !path) {
+    $("dirs-err").textContent = "Nom et chemin requis.";
+    $("dirs-err").hidden = false;
+    return;
+  }
+  if (await dirsCall("PUT", "", { name, path })) {
+    $("dirs-name").value = "";
+    $("dirs-path").value = "";
+  }
+};
+$("dirs-path").addEventListener("keydown", (event) => { if (event.key === "Enter") $("dirs-add").click(); });
 
 // Entrée de menu : bouton (cochée, danger) avec icône optionnelle
 function menuItem(label, iconName, action, { checked = null, danger = false, role = "menuitem" } = {}) {
@@ -1863,7 +1917,7 @@ function visibleGames() {
     if (filteredMachine()) return onMachine(g, filteredMachine());
     return true;
   };
-  return sv.games.filter((g) => (!q || g.game.toLowerCase().includes(q)) && keep(g))
+  return sv.games.filter((g) => (!q || g.game.toLowerCase().includes(q) || gameLabel(g).toLowerCase().includes(q)) && keep(g))
     .sort((a, b) => a.game.localeCompare(b.game, "fr", { numeric: true, sensitivity: "base" }));
 }
 
@@ -1920,8 +1974,10 @@ function paintTable() {
     const box = el("input", { type: "checkbox", checked: sv.selected.has(g.game), title: "Sélectionner" });
     box.onchange = () => { box.checked ? sv.selected.add(g.game) : sv.selected.delete(g.game); paintTable(); paintSelection(); };
     const name = img
-      ? el("button", { type: "button", className: "sv-name", textContent: g.game, title: "Ouvrir la fiche de l'image" })
-      : el("span", { className: "sv-name", textContent: g.game, title: "Pas d'image dans la bibliothèque du manager" });
+      ? el("button", { type: "button", className: "sv-name", textContent: gameLabel(g), title: "Ouvrir la fiche de l'image" })
+      : el("span", { className: "sv-name", textContent: gameLabel(g),
+        title: g.kind === "dossier" ? `Dossier déclaré sur les machines (${g.game})`
+          : g.kind === "switch" ? `Sauvegarde Eden (${g.game.slice(7)})` : "Pas d'image dans la bibliothèque du manager" });
     if (img) name.onclick = () => { showView("images"); openDetail(img); };
     const top = suggestedOf(g), targets = differs(g) ? rowTargets(g) : [];
     const reserve = g.reserve
@@ -1938,7 +1994,7 @@ function paintTable() {
       actions.append(sync);
     }
     if (actionable) {
-      const wrap = el("div", { className: "dd end" }, el("button", { type: "button", className: "iconbtn bare sm", title: "Autres actions", "aria-label": `Autres actions pour ${g.game}`, "aria-haspopup": "menu" }, icon("chevd", "sm")));
+      const wrap = el("div", { className: "dd end" }, el("button", { type: "button", className: "iconbtn bare sm", title: "Autres actions", "aria-label": `Autres actions pour ${gameLabel(g)}`, "aria-haspopup": "menu" }, icon("chevd", "sm")));
       wrap.querySelector("button").onclick = () => toggleMenu(wrap, () => rowItems(g));
       actions.append(wrap);
     }
@@ -2072,7 +2128,7 @@ $("pair-code").addEventListener("keydown", (event) => { if (event.key === "Enter
 let sdGames = [];
 function openSaveDelete(games) {
   sdGames = games;
-  const gameNames = games.map((g) => g.game);
+  const gameNames = games.map(gameLabel);
   const total = gameNames.length;
   const shownNames = gameNames.slice(0, 3).map((n) => `« ${n} »`).join(", ");
   const rest = total - 3;
@@ -2192,18 +2248,18 @@ function pullGames(games, source) {
 function syncRow(g) {                       // la suggérée vers les autres machines joignables
   const from = suggestedOf(g), targets = rowTargets(g);
   if (!from || !targets.length) return;
-  if (!confirm(`Sync « ${g.game} » : ${from.name} → ${names(targets)}.\n\n${ARCHIVED}`)) return;
+  if (!confirm(`Sync « ${gameLabel(g)} » : ${from.name} → ${names(targets)}.\n\n${ARCHIVED}`)) return;
   runSaveOp("/api/saves/push", { source: AUTO, targets, games: [g.game] });
 }
 function pushFrom(g, sourceId, targets) {
   if (!targets.length) return;
-  if (!confirm(`Sync « ${g.game} » : ${machineName(sourceId)} → ${names(targets)}.\n\n${ARCHIVED}`)) return;
+  if (!confirm(`Sync « ${gameLabel(g)} » : ${machineName(sourceId)} → ${names(targets)}.\n\n${ARCHIVED}`)) return;
   runSaveOp("/api/saves/push", { source: sourceId, targets, games: [g.game] });
 }
 function pushReserve(g) {                   // copie du manager (sans source) vers les machines
   const targets = reachManagerTargets(g);
   if (!targets.length) return;
-  if (!confirm(`Sync « ${g.game} » : Manager → ${names(targets)}.\n\n${ARCHIVED}`)) return;
+  if (!confirm(`Sync « ${gameLabel(g)} » : Manager → ${names(targets)}.\n\n${ARCHIVED}`)) return;
   runSaveOp("/api/saves/push", { targets, games: [g.game] });
 }
 function pushSelection() {
@@ -2228,7 +2284,7 @@ function pushSelection() {
     }).filter((x) => x.to.length);
     if (!moves.length) { toast("Rien à synchroniser : aucune machine cochée n'a ces jeux dans une version en retard.", "info"); return; }
     body = { source: AUTO, targets, games: idsOf(games) };
-    lines = moves.map(({ g, from, to }) => `Sync « ${g.game} » : ${from.name} → ${names(to)}.`);
+    lines = moves.map(({ g, from, to }) => `Sync « ${gameLabel(g)} » : ${from.name} → ${names(to)}.`);
     if (moves.length < games.length) lines.push(`${games.length - moves.length} jeu(x) déjà à jour, ignoré(s).`);
     lines.push("Les machines qui n'ont pas le jeu ne sont pas touchées.");
   } else {

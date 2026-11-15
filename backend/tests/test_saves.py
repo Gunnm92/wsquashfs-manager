@@ -112,9 +112,14 @@ class SavesAgent(BaseHTTPRequestHandler):
             if self.st.get("no_saves_routes"):         # agent v2 : route inconnue du routeur Go
                 return self._send(404, b"404 page not found\n", ctype="text/plain; charset=utf-8")
             games = [{"name": name, "fingerprint": "" if g.get("gone") else fp_of(g["data"]),
-                      "newest": g["newest"], "size": g["size"], "state": ""}
+                      "newest": g["newest"], "size": g["size"], "state": "",
+                      **({"label": self.st["labels"][name]} if name in self.st["labels"] else {})}
                      for name, g in sorted(self.st["games"].items())]
             return self._send(200, json.dumps({"games": games}).encode())
+        if url.path == "/v1/saves/dirs":
+            if self.st["no_dirs"]:                      # agent v7 : route inconnue du routeur Go
+                return self._send(404, b"404 page not found\n", ctype="text/plain; charset=utf-8")
+            return self._send(200, json.dumps({"dirs": self.st["dirs"], "eden": ""}).encode())
         if url.path == "/v1/saves/tar":
             game = parse_qs(url.query).get("game", [""])[0]
             if game in self.st["busy"]:
@@ -130,6 +135,16 @@ class SavesAgent(BaseHTTPRequestHandler):
 
     def do_PUT(self):
         url = urlsplit(self.path)
+        if url.path == "/v1/saves/dirs":
+            self._record("PUT", url.path)
+            if not self._auth():
+                return
+            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))) or b"{}")
+            if not str(body.get("path", "")).startswith("/home/"):
+                return self._send(400, b'{"detail":"le dossier doit etre un sous-dossier de HOME"}')
+            self.st["dirs"] = [d for d in self.st["dirs"] if d["name"] != body["name"]] + [
+                {"name": body["name"], "path": body["path"]}]
+            return self._send(200, json.dumps({"dirs": self.st["dirs"], "eden": ""}).encode())
         game = parse_qs(url.query).get("game", [""])[0]
         profile = self.headers.get("X-Wsq-Profile")
         self._record("PUT", url.path, game=game, profile=profile)
@@ -156,6 +171,12 @@ class SavesAgent(BaseHTTPRequestHandler):
         self._record("DELETE", url.path, game=game)
         if not self._auth():
             return
+        if url.path == "/v1/saves/dirs":
+            name = parse_qs(url.query).get("name", [""])[0]
+            if all(d["name"] != name for d in self.st["dirs"]):
+                return self._send(404, b'{"detail":"dossier inconnu"}')
+            self.st["dirs"] = [d for d in self.st["dirs"] if d["name"] != name]
+            return self._send(200, json.dumps({"dirs": self.st["dirs"], "eden": ""}).encode())
         if url.path != "/v1/saves/tar":
             return self._send(404, b'{"detail":"route inconnue"}')
         if self.st["old_status"]:                       # agent plus ancien : route absente
@@ -208,12 +229,13 @@ def agents(tmp_path):
 
     def make(host: str, games=None, busy=(), conflict=(), now=1000, token=TOKEN, cert_dir=None,
              os_name="linux", info_fail=False, old_status=None, no_saves_routes=False,
-             secret=SECRET, old_pair=False):
+             secret=SECRET, old_pair=False, labels=None, dirs=None, no_dirs=False):
         cert, key = make_cert(tmp_path / (cert_dir or host))
         st = {"host": host, "token": token, "busy": set(busy), "conflict": set(conflict),
               "now": now, "archived": [], "log": [], "os": os_name, "info_fail": info_fail,
               "old_status": old_status, "deleted": [], "no_saves_routes": no_saves_routes,
               "secret": secret, "pair_open": True, "old_pair": old_pair, "pairs": [], "bound": None,
+              "labels": dict(labels or {}), "dirs": list(dirs or []), "no_dirs": no_dirs,
               "games": {name: fake_game(spec) for name, spec in (games or {}).items()}}
         handler = type("H", (SavesAgent,), {"st": st})
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
@@ -1331,6 +1353,57 @@ def test_forgetting_the_game_host_machine_leaves_no_ghost(agents, api):
     config = client.get("/api/config").json()
     assert config["game_host"] == "off" and config["images_source"] == ""
     assert settings.agent_url == "" and settings.agent_token == ""
+
+
+# ------------------------------------------------------------------ dossiers déclarés et Switch (agent v8)
+
+def test_status_names_folders_and_switch_games(agents, api):
+    """Un dossier déclaré et un jeu Switch arrivent comme des jeux, avec leur nom lisible (celui de
+    la machine, sinon déduit) et leur nature ; un jeu Windows garde son nom."""
+    client, settings, _ = api
+    aibox = agents("aibox", games={"dossier:hookshot": (b"GZh", "", 900), "switch:0100F2C0115B6000": (b"GZz", "", 900),
+                                   "Hollow Knight": (b"GZk", "deck", 900)},
+                   labels={"dossier:hookshot": "hookshot"})
+    deck = agents("deck", games={"switch:0100F2C0115B6000": (b"GZz2", "", 800)},
+                  labels={"switch:0100F2C0115B6000": "Switch · Zelda TOTK"})
+    associate(settings, aibox)
+    associate(settings, deck)
+    games = {g["game"]: g for g in client.get("/api/saves/status").json()["games"]}
+    assert (games["dossier:hookshot"]["label"], games["dossier:hookshot"]["kind"]) == ("hookshot", "dossier")
+    assert (games["switch:0100F2C0115B6000"]["label"], games["switch:0100F2C0115B6000"]["kind"]) == (
+        "Switch · Zelda TOTK", "switch")
+    assert (games["Hollow Knight"]["label"], games["Hollow Knight"]["kind"]) == ("Hollow Knight", "jeu")
+    # Sans nom donné par une machine : déduit du nom
+    assert saves.label_of("switch:0100000000010000", [None, {}]) == "Switch · 0100000000010000"
+    assert saves.label_of("dossier:retroarch", []) == "retroarch"
+
+
+def test_api_machine_dirs_are_declared_through_the_agent(agents, api):
+    """Le manager déclare, liste et retire les dossiers d'une machine par son agent ; le refus de
+    l'agent (chemin hors HOME) remonte en 422 avec son message ; machine inconnue : 404."""
+    client, settings, _ = api
+    aibox = agents("aibox")
+    associate(settings, aibox)
+    mid = machine_ids(settings)["aibox"]
+    assert client.get(f"/api/saves/machines/{mid}/dirs").json() == {"dirs": [], "eden": ""}
+    reply = client.put(f"/api/saves/machines/{mid}/dirs",
+                       json={"name": "hookshot", "path": "/home/arcade/.local/share/hookshot/save"})
+    assert reply.status_code == 200
+    assert reply.json()["dirs"] == [{"name": "hookshot", "path": "/home/arcade/.local/share/hookshot/save"}]
+    refused = client.put(f"/api/saves/machines/{mid}/dirs", json={"name": "etc", "path": "/etc"})
+    assert refused.status_code == 422 and "HOME" in refused.json()["detail"]
+    assert client.delete(f"/api/saves/machines/{mid}/dirs", params={"name": "hookshot"}).json()["dirs"] == []
+    assert client.delete(f"/api/saves/machines/{mid}/dirs", params={"name": "hookshot"}).status_code == 422
+    assert client.get("/api/saves/machines/inconnue/dirs").status_code == 404
+
+
+def test_api_machine_dirs_on_an_older_agent(agents, api):
+    """Agent v7 (route inconnue) : mise à jour demandée."""
+    client, settings, _ = api
+    old = agents("old", no_dirs=True)
+    associate(settings, old)
+    reply = client.get(f"/api/saves/machines/{machine_ids(settings)['old']}/dirs")
+    assert reply.status_code == 422 and "--update" in reply.json()["detail"]
 
 
 # ------------------------------------------------------------------ source de l'onglet Images

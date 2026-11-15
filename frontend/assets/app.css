@@ -870,6 +870,9 @@ dl.cdetail { margin: 0; display: flex; flex-direction: column; gap: 4px; }
 dl.cdetail dt { margin-top: 10px; color: var(--text); }
 dl.cdetail dt code { color: var(--accent2-200); }
 dl.cdetail dd { margin: 0; }
+.dirs-list { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 10px; }
+.dirs-row { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; padding: 6px 8px 6px 12px; border-radius: 12px; background: var(--s2); min-width: 0; }
+.dirs-row code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 details.more > h3 { margin: 18px 0 0; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .help-body .flash { animation: flash 1.6s ease-out; }
 @media (max-width: 900px) {

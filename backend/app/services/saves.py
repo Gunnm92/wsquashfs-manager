@@ -241,6 +241,26 @@ def remove_machine(settings: Settings, machine_id: str) -> None:
         save_images_source(settings, "")
 
 
+def machine_dirs(settings: Settings, machine_id: str, change: tuple[str, ...] = ()) -> dict:
+    """Dossiers déclarés d'une machine (agent v8) : {dirs: [{name, path}], eden}. `change` :
+    ("put", nom, chemin) ou ("delete", nom) avant la lecture. KeyError : machine inconnue ;
+    RebuildError (AgentUnreachable si injoignable) : refus de l'agent, avec son message."""
+    find_machine(settings, machine_id)
+    host = open_machine(settings, machine_id, timeout=30)
+    if change and change[0] == "put":
+        data = host.saves_dir_put(change[1], change[2])
+    elif change and change[0] == "delete":
+        data = host.saves_dir_delete(change[1])
+    else:
+        data = host.saves_dirs()
+    dirs = data.get("dirs") if isinstance(data, dict) else None
+    if not isinstance(dirs, list):
+        raise RebuildError("réponse illisible de la machine (dossiers)")
+    return {"dirs": [{"name": str(d.get("name", "")), "path": str(d.get("path", ""))}
+                     for d in dirs if isinstance(d, dict)],
+            "eden": str(data.get("eden") or "")}
+
+
 def set_icon(settings: Settings, machine_id: str, icon: str | None) -> dict:
     """Icône choisie à la main d'une machine (None : retour à la détection).
     KeyError si la machine est inconnue ; ValueError si l'icône n'est pas dans ICONS."""
@@ -725,6 +745,33 @@ def label_states(states: list[dict]) -> dict:
     return {"check": True, "check_by": newest["name"]}
 
 
+DIR_PREFIX = "dossier:"         # dossier déclaré sur les machines (agent v8)
+SWITCH_PREFIX = "switch:"       # sauvegarde Eden d'un jeu Switch, par TitleID (agent v8)
+
+
+def kind_of(game: str) -> str:
+    """Nature d'une ligne : « dossier », « switch » ou « jeu » (jeu Windows)."""
+    if game.startswith(DIR_PREFIX):
+        return "dossier"
+    if game.startswith(SWITCH_PREFIX):
+        return "switch"
+    return "jeu"
+
+
+def label_of(game: str, listings: list[dict | None]) -> str:
+    """Nom lisible : celui que donne une machine (nom du dossier, « Switch · <jeu> »), sinon déduit
+    du nom ; un jeu Windows garde son nom."""
+    for listing in listings:
+        label = str(((listing or {}).get(game) or {}).get("label") or "").strip()
+        if label:
+            return label[:160]
+    if game.startswith(DIR_PREFIX):
+        return game[len(DIR_PREFIX):]
+    if game.startswith(SWITCH_PREFIX):
+        return "Switch · " + game[len(SWITCH_PREFIX):]
+    return game
+
+
 def status(settings: Settings, games: list[str] | None = None) -> dict:
     """État de la synchronisation : par machine (une requête saves_list et une requête
     info, en parallèle) et par jeu (libellés, manager, suggestion à vérifier).
@@ -777,7 +824,8 @@ def status(settings: Settings, games: list[str] | None = None) -> dict:
                              newest=int(entry.get("newest") or 0), size=_size_of(entry))
             states.append(state)
         verdict = label_states(states)
-        out.append({"game": game, "reserve": _reserve_summary(settings, game), "machines": states,
+        out.append({"game": game, "label": label_of(game, [listing for listing, _, _ in fetched]),
+                    "kind": kind_of(game), "reserve": _reserve_summary(settings, game), "machines": states,
                     "check": verdict["check"], "check_by": verdict["check_by"]})
     return {"machines": machines, "games": out}
 

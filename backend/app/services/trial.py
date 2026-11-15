@@ -470,6 +470,22 @@ class AgentHost:
             raise self._saves_error(response)
         return response.json()
 
+    # ---------------------------------------------------------- dossiers déclarés (agent v8)
+    # Dossiers synchronisés comme des jeux (« dossier:<nom> »), déclarés sur la machine ; leur
+    # chemin est celui de la machine (sous son HOME, vérifié par l'agent).
+
+    def saves_dirs(self) -> dict:
+        """Dossiers déclarés : {dirs: [{name, path}], eden} (eden : dossier d'Eden, "" sinon)."""
+        return self._saves_request("GET", "/v1/saves/dirs", timeout=30).json()
+
+    def saves_dir_put(self, name: str, path: str) -> dict:
+        """Déclare (ou remplace) un dossier ; l'agent refuse un chemin hors de son HOME (400)."""
+        return self._saves_request("PUT", "/v1/saves/dirs", timeout=30, json={"name": name, "path": path}).json()
+
+    def saves_dir_delete(self, name: str) -> dict:
+        """Retire la déclaration (les fichiers restent sur la machine)."""
+        return self._saves_request("DELETE", "/v1/saves/dirs", timeout=30, params={"name": name}).json()
+
     def saves_ack(self, game: str, fingerprint: str) -> None:
         """Enregistre l'empreinte commune de ce jeu pour ce manager."""
         self._saves_request("POST", "/v1/saves/state", timeout=30,

@@ -148,6 +148,15 @@ machine **source** (celle qui est la plus avancée) vers les autres machines.
   le jeu n'est plus dans la copie. Une machine occupée (409), injoignable, ou
   un agent plus ancien (404/405 : `--update` demandé) échoue seule. Le jeu doit
   être arrêté. Rien à supprimer sur une machine : réussite sans effet.
+- **Dossiers déclarés et jeux Switch** (agent v8) : en plus des jeux, les agents
+  listent des dossiers déclarés (`dossier:<nom>`) et les sauvegardes Eden, jeu par
+  jeu (`switch:<TitleID>`) ; `status` leur donne `label` (nom lisible venu de la
+  machine, sinon déduit) et `kind` (`dossier`, `switch` ou `jeu`). Pull, push,
+  suppression et copie du manager les traitent comme des jeux. Les dossiers se
+  déclarent par machine (menu de la carte → « Dossiers synchronisés… ») :
+  `GET|PUT|DELETE /api/saves/machines/{id}/dirs` relaient `/v1/saves/dirs` de
+  l'agent (422 : son refus, ex. chemin hors de son HOME, ou agent trop ancien ;
+  502 : injoignable).
 - **Tâches** : pull, push et suppression passent par la file (tâche `saves`,
   sans image) ; le détail par jeu et par cible est dans `params.result` de la tâche.
 - **Écran** : l'onglet **Sauvegardes**, premier onglet, ouvert au démarrage
@@ -186,6 +195,9 @@ Routes (toutes sous `/api/saves/`) :
 |---|---|---|
 | GET | `machines` | `{"machines":[{id,name,url,fingerprint,kind,removable,icon}]}` |
 | POST | `machines` | `{"code":"wsq://…"}` → `{id,name,url,fingerprint,replaced}` ; 422 code illisible, déjà utilisé ou expiré, empreinte différente, agent trop ancien (version < 7) ; 502 injoignable |
+| GET | `machines/{id}/dirs` | `{dirs:[{name,path}], eden}` : dossiers déclarés sur la machine, dossier d'Eden (`""` sinon) |
+| PUT | `machines/{id}/dirs` | `{"name","path"}` → même réponse ; 422 refus de l'agent (chemin hors HOME, nom invalide, agent < 8) ; 502 injoignable |
+| DELETE | `machines/{id}/dirs?name=` | retire la déclaration (fichiers gardés) → même réponse ; 422 nom inconnu |
 | PATCH | `machines/{id}` | `{"icon":"linux"\|"steamos"\|"batocera"\|null}` → `{id,icon,icon_set}` ; 400 icône ; 404 inconnue |
 | DELETE | `machines/{id}` | `{"removed":id}` ; 404 inconnue ; 422 `game-host` |
 | GET | `status[?id=<image>]` | `{machines:[{…,os,icon,icon_set}], games:[{game, reserve, check, check_by, machines:[{id,name,state,fingerprint,newest,size,message}]}]}` |

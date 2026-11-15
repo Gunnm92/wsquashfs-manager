@@ -1421,6 +1421,42 @@ def saves_machine_remove(machine_id: str):
     return {"removed": machine_id}
 
 
+class SavesDir(BaseModel):
+    name: str = Field(min_length=1, max_length=48)
+    path: str = Field(min_length=1, max_length=1024)
+
+
+def _machine_dirs(machine_id: str, change: tuple[str, ...] = ()) -> dict:
+    """Dossiers déclarés d'une machine ; 404 machine inconnue, 502 injoignable, 422 refus de
+    l'agent (chemin hors HOME, nom invalide, agent trop ancien...)."""
+    try:
+        return saves_svc.machine_dirs(_settings, machine_id, change)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"machine inconnue : {machine_id}") from None
+    except AgentUnreachable as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except RebuildError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/saves/machines/{machine_id}/dirs")
+def saves_machine_dirs(machine_id: str):
+    """Dossiers synchronisés en plus des jeux, déclarés sur la machine (et dossier d'Eden)."""
+    return _machine_dirs(machine_id)
+
+
+@app.put("/api/saves/machines/{machine_id}/dirs")
+def saves_machine_dir_put(machine_id: str, body: SavesDir):
+    """Déclare (ou remplace) un dossier sur la machine : chemin de cette machine, sous son HOME."""
+    return _machine_dirs(machine_id, ("put", body.name.strip(), body.path.strip()))
+
+
+@app.delete("/api/saves/machines/{machine_id}/dirs")
+def saves_machine_dir_delete(machine_id: str, name: str):
+    """Retire la déclaration sur la machine ; ses fichiers restent."""
+    return _machine_dirs(machine_id, ("delete", name))
+
+
 class SavesMachineIcon(BaseModel):
     icon: str | None                    # linux, steamos, batocera ; null : retour à la détection
 
