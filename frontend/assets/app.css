@@ -872,6 +872,11 @@ dl.cdetail dt code { color: var(--accent2-200); }
 dl.cdetail dd { margin: 0; }
 .sv tr.sv-group td { padding: 16px 12px 6px; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); background: transparent; }
 .sv tr.sv-group .count { margin-left: 8px; font-weight: 600; color: var(--faint); }
+.sv-group-btn { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px 4px 4px; border: 0; border-radius: 8px; background: transparent;
+  color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
+.sv-group-btn:hover, .sv-group-btn:focus-visible { color: var(--text); background: var(--s2); }
+.sv-group-btn .ico { transition: transform .15s; }
+.sv-group-btn.folded .ico { transform: rotate(-90deg); }
 .dirs-list { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 10px; }
 .dirs-row { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; padding: 6px 8px 6px 12px; border-radius: 12px; background: var(--s2); min-width: 0; }
 .dirs-row code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }

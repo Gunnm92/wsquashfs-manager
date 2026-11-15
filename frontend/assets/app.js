@@ -1662,6 +1662,9 @@ const PRESENT_STATES = new Set(["présente", "identique", "plus avancée", "en r
 const gameLabel = (g) => g.label || g.game;
 // Sections du tableau, dans l'ordre : nature (kind du statut) et titre ; Switch trié par nom lisible
 const SAVE_SECTIONS = [["jeu", "Jeux PC"], ["switch", "Switch"], ["dossier", "Dossiers"]];
+// Sections repliées (clic sur leur titre), mémorisées dans le navigateur
+const savesCollapsed = new Set((() => { try { return JSON.parse(storage.get("wsfs-saves-collapsed") || "[]"); } catch { return []; } })());
+const kindOf = (g) => g.kind || "jeu";
 const SAVE_FILTERS = [["", "Tous"], ["diff", "Différences"], ["same", "Identiques"], ["reserve", "Sur le manager"]];
 const OS_ICONS = ["linux", "steamos", "batocera"];          // icônes choisissables d'une machine
 const OS_LABELS = { linux: "Linux", steamos: "SteamOS", batocera: "Batocera" };
@@ -1957,7 +1960,12 @@ function paintTable() {
   const first = filteredMachine();
   const cols = first ? [...sv.machines.filter((m) => m.id === first), ...sv.machines.filter((m) => m.id !== first)] : sv.machines;
   const ids = imageIds(), games = visibleGames();
-  const selectable = games;
+  // Une section par nature (jeux PC, Switch, dossiers) ; titres, repliables, s'il y en a plusieurs
+  const sections = SAVE_SECTIONS.map(([kind, title]) => [kind, title, games.filter((g) => kindOf(g) === kind)])
+    .filter(([, , list]) => list.length);
+  const multi = sections.length > 1;
+  const folded = (kind) => multi && savesCollapsed.has(kind);
+  const selectable = games.filter((g) => !folded(kindOf(g)));       // lignes visibles seulement
   const all = $("s-all");
   all.checked = selectable.length > 0 && selectable.every((g) => sv.selected.has(g.game));
   all.onchange = () => {
@@ -2005,13 +2013,20 @@ function paintTable() {
       el("td", { className: "sv-stick" }, box), el("td", { className: "sv-stick2" }, name),
       ...cols.map((m) => machineCell(g, m, targets.includes(m.id))), reserve, actions);
   };
-  // Une section par nature (jeux PC, Switch, dossiers), titre seulement s'il y en a plusieurs
-  const sections = SAVE_SECTIONS.map(([kind, title]) => [title, games.filter((g) => (g.kind || "jeu") === kind)])
-    .filter(([, list]) => list.length);
-  const rows = sections.flatMap(([title, list]) => [
-    ...(sections.length > 1 ? [el("tr", { className: "sv-group" }, el("td", { colSpan: cols.length + 4 },
-      el("span", { textContent: title }), el("span", { className: "count", textContent: list.length })))] : []),
-    ...list.map(rowOf)]);
+  const header = (kind, title, count) => {
+    const button = el("button", { type: "button", className: `sv-group-btn${folded(kind) ? " folded" : ""}`, "aria-expanded": String(!folded(kind)),
+      title: folded(kind) ? "Afficher cette section" : "Replier cette section" },
+      icon("chevd", "sm"), el("span", { textContent: title }), el("span", { className: "count", textContent: count }));
+    button.onclick = () => {
+      savesCollapsed.has(kind) ? savesCollapsed.delete(kind) : savesCollapsed.add(kind);
+      storage.set("wsfs-saves-collapsed", JSON.stringify([...savesCollapsed]));
+      paintTable();
+    };
+    return el("tr", { className: "sv-group" }, el("td", { colSpan: cols.length + 4 }, button));
+  };
+  const rows = sections.flatMap(([kind, title, list]) => [
+    ...(multi ? [header(kind, title, list.length)] : []),
+    ...(folded(kind) ? [] : list.map(rowOf))]);
   if (!games.length) {
     rows.push(el("tr", {}, el("td", { colSpan: sv.machines.length + 4 },
       sv.games.length ? emptyState("search", "Aucun jeu pour ces filtres", "Élargir la recherche ou choisir « Tous ».")
