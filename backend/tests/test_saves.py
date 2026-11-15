@@ -140,7 +140,7 @@ class SavesAgent(BaseHTTPRequestHandler):
             if not self._auth():
                 return
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))) or b"{}")
-            if not str(body.get("path", "")).startswith("/home/"):
+            if str(body.get("path", "")).startswith(("/", "..")):      # hors du HOME de la machine
                 return self._send(400, b'{"detail":"le dossier doit etre un sous-dossier de HOME"}')
             self.st["dirs"] = [d for d in self.st["dirs"] if d["name"] != body["name"]] + [
                 {"name": body["name"], "path": body["path"]}]
@@ -1387,9 +1387,9 @@ def test_api_machine_dirs_are_declared_through_the_agent(agents, api):
     mid = machine_ids(settings)["aibox"]
     assert client.get(f"/api/saves/machines/{mid}/dirs").json() == {"dirs": [], "eden": ""}
     reply = client.put(f"/api/saves/machines/{mid}/dirs",
-                       json={"name": "hookshot", "path": "/home/arcade/.local/share/hookshot/save"})
+                       json={"name": "hookshot", "path": ".local/share/hookshot/save"})
     assert reply.status_code == 200
-    assert reply.json()["dirs"] == [{"name": "hookshot", "path": "/home/arcade/.local/share/hookshot/save"}]
+    assert reply.json()["dirs"] == [{"name": "hookshot", "path": ".local/share/hookshot/save"}]
     refused = client.put(f"/api/saves/machines/{mid}/dirs", json={"name": "etc", "path": "/etc"})
     assert refused.status_code == 422 and "HOME" in refused.json()["detail"]
     assert client.delete(f"/api/saves/machines/{mid}/dirs", params={"name": "hookshot"}).json()["dirs"] == []

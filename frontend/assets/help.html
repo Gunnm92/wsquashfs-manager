@@ -148,7 +148,7 @@
 
     <h2>Autres sauvegardes : dossiers et Switch</h2>
     <ul data-f>
-      <li><b>Dossier déclaré</b> : un dossier quelconque (sauvegardes d'un autre émulateur, d'un jeu Linux…) synchronisé comme un jeu. Le déclarer sur chaque machine, avec le même nom : chevron de la carte → <b>Dossiers synchronisés…</b>, ou <code>wsquashfs-launcher --sync dir add &lt;nom&gt; &lt;chemin&gt;</code> sur la machine. Le chemin est celui de la machine, dans son dossier personnel. Il apparaît dans le tableau sous son nom ; une machine où il n'est pas déclaré n'est pas touchée.</li>
+      <li><b>Dossier déclaré</b> : un dossier quelconque (sauvegardes d'un autre émulateur, d'un jeu Linux…) synchronisé comme un jeu. Le déclarer sur chaque machine, avec le même nom : chevron de la carte → <b>Dossiers synchronisés…</b>, ou <code>wsquashfs-launcher --sync dir add &lt;nom&gt; &lt;chemin&gt;</code> sur la machine. Le chemin est celui de la machine, à partir de son dossier personnel (ex. <code>.local/share/hookshot/save</code>). Il apparaît dans le tableau sous son nom ; une machine où il n'est pas déclaré n'est pas touchée.</li>
       <li><b>Jeux Switch (Eden)</b> : rien à déclarer. Les sauvegardes d'Eden sont synchronisées jeu par jeu (« Switch · nom du jeu ») ; chaque machine les reçoit dans son propre profil Eden. Eden doit être fermé pendant la synchro. Sur une machine neuve, lancer Eden une fois avant de recevoir.</li>
     </ul>
 
@@ -458,7 +458,7 @@ VIRTUAL_DESKTOP=1920x1080</pre></div>
         <dt><code>--sync [jeu | status [jeu] | forget &lt;machine&gt; | wsq://…]</code></dt>
         <dd>Synchronise à la main les sauvegardes avec les machines associées du réseau local. Sans argument : les jeux présents des deux côtés ; <code>status</code> montre ce qui serait fait. Conflit : la plus lourde gagne (à taille égale, la plus récente), l'autre est archivée. Jeu arrêté des deux côtés.</dd>
         <dt><code>--sync dir</code> · <code>--sync dir add &lt;nom&gt; &lt;chemin&gt;</code> · <code>--sync dir forget &lt;nom&gt;</code></dt>
-        <dd>Dossiers synchronisés en plus des jeux (même nom sur chaque machine, chemin sous HOME) ; <code>--sync dir</code> les liste avec les jeux Switch d'Eden, synchronisés d'office jeu par jeu. Voir <a href="#h-saves">Sauvegardes</a>.</dd>
+        <dd>Dossiers synchronisés en plus des jeux (même nom sur chaque machine, chemin à partir du dossier personnel) ; <code>--sync dir</code> les liste avec les jeux Switch d'Eden, synchronisés d'office jeu par jeu. Voir <a href="#h-saves">Sauvegardes</a>.</dd>
         <dt><code>--save &lt;jeu&gt;</code> · <code>--saves</code></dt>
         <dd>Copie les sauvegardes de partie (Documents, Saved Games, AppData) d'un jeu, ou de tous, dans <code>saves/&lt;système&gt;/&lt;jeu&gt;</code> à côté de <code>roms/</code>. Sens unique, rien n'est supprimé. Restauration, jeu arrêté : <code>cp -a saves/&lt;système&gt;/&lt;jeu&gt;/drive_c ~/.local/share/wsquashfs/saves/&lt;jeu&gt;/</code></dd>
         <dt><code>--clean</code></dt>

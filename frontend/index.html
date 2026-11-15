@@ -423,11 +423,11 @@
 <dialog id="dlg-dirs" class="small">
   <div class="dlg-head"><h2 id="dirs-title">Dossiers synchronisés</h2><span class="spacer"></span>
     <button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
-  <p class="dlg-intro">Dossiers synchronisés comme des jeux (par exemple les sauvegardes d'un autre émulateur). Le déclarer sur chaque machine avec le même nom ; le chemin est celui de la machine, dans son dossier personnel. Retirer une déclaration ne supprime aucun fichier.</p>
+  <p class="dlg-intro">Dossiers synchronisés comme des jeux (par exemple les sauvegardes d'un autre émulateur). Le déclarer sur chaque machine avec le même nom ; le chemin est celui de la machine, à partir de son dossier personnel. Retirer une déclaration ne supprime aucun fichier.</p>
   <div class="dirs-list" id="dirs-list"></div>
   <p class="dlg-intro" id="dirs-eden"></p>
   <label class="field">Nom<input id="dirs-name" maxlength="48" autocomplete="off" placeholder="hookshot"></label>
-  <label class="field">Chemin sur la machine<input id="dirs-path" autocomplete="off" placeholder="/home/arcade/.local/share/hookshot/save"></label>
+  <label class="field">Chemin depuis le dossier personnel de la machine<input id="dirs-path" autocomplete="off" placeholder=".local/share/hookshot/save"></label>
   <p id="dirs-err" class="notice err" hidden></p>
   <div class="dlg-foot"><span class="spacer"></span>
     <button class="btn secondary" data-close>Fermer</button><button class="btn primary" id="dirs-add"><svg class="ico sm"><use href="#i-folder"/></svg>Déclarer</button></div>

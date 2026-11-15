@@ -1805,11 +1805,12 @@ function paintDirs(data) {
     const del = el("button", { type: "button", className: "iconbtn bare sm", title: "Retirer la déclaration (les fichiers restent)",
       "aria-label": `Retirer ${d.name}` }, icon("trash", "sm"));
     del.onclick = () => dirsCall("DELETE", `?name=${encodeURIComponent(d.name)}`);
-    return el("div", { className: "dirs-row" }, el("b", { textContent: d.name }), el("code", { textContent: d.path }), del);
+    return el("div", { className: "dirs-row" }, el("b", { textContent: d.name }),
+      el("code", { textContent: d.path.startsWith("/") ? d.path : `~/${d.path}` }), del);
   });
   $("dirs-list").replaceChildren(...(rows.length ? rows : [el("p", { className: "muted", textContent: "Aucun dossier déclaré sur cette machine." })]));
   $("dirs-eden").textContent = data.eden
-    ? `Switch : Eden est installé (${data.eden}) ; ses sauvegardes sont synchronisées jeu par jeu, sans rien déclarer.`
+    ? `Switch : Eden est installé (${data.eden.startsWith("/") ? data.eden : `~/${data.eden}`}) ; ses sauvegardes sont synchronisées jeu par jeu, sans rien déclarer.`
     : "Switch : Eden n'est pas installé sur cette machine.";
 }
 async function dirsCall(method, query = "", body = undefined) {

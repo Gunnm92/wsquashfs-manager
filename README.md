@@ -198,7 +198,7 @@ Routes (toutes sous `/api/saves/`) :
 | GET | `machines` | `{"machines":[{id,name,url,fingerprint,kind,removable,icon}]}` |
 | POST | `machines` | `{"code":"wsq://…"}` → `{id,name,url,fingerprint,replaced}` ; 422 code illisible, déjà utilisé ou expiré, empreinte différente, agent trop ancien (version < 7) ; 502 injoignable |
 | GET | `machines/{id}/dirs` | `{dirs:[{name,path}], eden}` : dossiers déclarés sur la machine, dossier d'Eden (`""` sinon) |
-| PUT | `machines/{id}/dirs` | `{"name","path"}` → même réponse ; 422 refus de l'agent (chemin hors HOME, nom invalide, agent < 8) ; 502 injoignable |
+| PUT | `machines/{id}/dirs` | `{"name","path"}` (chemin à partir du dossier personnel de la machine, ex. `.local/share/hookshot/save`) → même réponse ; 422 refus de l'agent (chemin hors HOME, nom invalide, agent < 8) ; 502 injoignable |
 | DELETE | `machines/{id}/dirs?name=` | retire la déclaration (fichiers gardés) → même réponse ; 422 nom inconnu |
 | PATCH | `machines/{id}` | `{"icon":"linux"\|"steamos"\|"batocera"\|null}` → `{id,icon,icon_set}` ; 400 icône ; 404 inconnue |
 | DELETE | `machines/{id}` | `{"removed":id}` ; 404 inconnue ; 422 `game-host` |
