@@ -150,20 +150,23 @@ machine **source** (celle qui est la plus avancée) vers les autres machines.
   être arrêté. Rien à supprimer sur une machine : réussite sans effet.
 - **Tâches** : pull, push et suppression passent par la file (tâche `saves`,
   sans image) ; le détail par jeu et par cible est dans `params.result` de la tâche.
-- **Écran** : l'onglet **Sauvegardes** (à côté d'Images et de Dossiers à
-  empaqueter).
+- **Écran** : l'onglet **Sauvegardes**, premier onglet, ouvert au démarrage
+  (Dossiers à empaqueter et Aide restent mémorisés). Aide intégrée : page
+  « Sauvegardes ».
   - Bandeau : une carte par machine (icône, pastille verte joignable ou rouge
-    injoignable, nombre de jeux) et une carte Manager ; un clic sur une machine
-    propose son icône et « Oublier » (pas pour la machine de jeu). « Associer
+    injoignable, nombre de jeux) et une carte Manager. Un clic sur une machine
+    n'affiche que ses sauvegardes, sa colonne en premier (second clic : tout) ;
+    le chevron à droite de la carte propose son icône et « Oublier » (pas pour
+    la machine de jeu). « Associer
     une machine » prend le code `wsq://` ; sur la machine :
     `wsquashfs-launcher --pair`, puis `wsquashfs-launcher --agent` pour
     qu'elle reste joignable. Sans machine, un encadré explique ces étapes.
   - Tableau jeux × machines : ★ plus avancée, identique, en retard, — absente,
     seule copie, ? injoignable, avec taille · date ; colonne Manager ;
-    ⚠ à vérifier. Filtres : Tous, Différences, Identiques, Sur le manager, puis
-    un par machine (jeux présents sur elle, sa colonne en premier).
+    ⚠ à vérifier. Filtres : Tous, Différences, Identiques, Sur le manager ; le
+    filtre par machine passe par le bandeau (ci-dessus).
   - Une ligne : « Sync X → Y » (la plus avancée vers les machines en retard)
-    et « … » : sync depuis une machine précise, « Installer sur Z » (machine
+    et son chevron : sync depuis une machine précise, « Installer sur Z » (machine
     qui n'a pas le jeu, choix explicite), copier vers le manager, sync depuis
     le manager (machines qui ont le jeu), et « Supprimer… ».
   - « Supprimer… » (menu de la ligne, ou bouton de la barre de sélection) ouvre
