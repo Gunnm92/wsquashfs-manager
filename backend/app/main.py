@@ -22,6 +22,7 @@ from .config import (
     Settings,
     get_settings,
     in_night,
+    save_auto_push_interval,
     save_game_host,
     save_images_source,
     save_machine_url,
@@ -156,9 +157,13 @@ async def lifespan(_app: FastAPI):
     queue.start()
     threading.Thread(target=_purge_old_backups, daemon=True).start()
     machine_server = _start_machine_server(_settings)
+    auto_push = threading.Thread(target=_auto_push_loop, name="synchro-auto-boucle", daemon=True)
+    auto_push.start()
     yield
+    _background_stop.set()
     if machine_server is not None:
         machine_server.should_exit = True
+    auto_push.join(timeout=10)
     queue.stop()
 
 
@@ -238,6 +243,7 @@ def get_config():
         "machine_url": _settings.machine_url,
         "machine_port": _settings.machine_port,
         "machine_fingerprint": saves_svc.manager_fingerprint(_settings, create=False),
+        "auto_push_interval": _settings.auto_push_interval,     # mise à jour automatique des machines en retard
         # Source de l'onglet Images : "" = bibliothèque du manager, sinon une machine associée
         "images_source": (row := saves_svc.images_source_row(_settings)) and row["id"] or "",
         "images_source_name": row["name"] if row else "",
@@ -305,6 +311,20 @@ def set_machine_url(body: MachineUrl):
     # Les machines déjà déclarées gardent l'ancienne adresse : redéclaration, en arrière-plan (une
     # machine éteinte ne bloque pas l'enregistrement ; elle sera déclarée à son prochain statut).
     threading.Thread(target=saves_svc.redeclare_manager, args=(_settings,), daemon=True).start()
+    return get_config()
+
+
+class AutoPushInterval(BaseModel):
+    seconds: int = Field(ge=0, le=86400)        # 0 : désactivée
+
+
+@app.put("/api/config/auto_push")
+def set_auto_push(body: AutoPushInterval):
+    """Intervalle de la mise à jour automatique des machines en retard (0 : désactivée)."""
+    try:
+        save_auto_push_interval(_settings, body.seconds)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return get_config()
 
 
@@ -858,6 +878,23 @@ def old_validate(id: str):
 def old_restore(id: str):
     """Revenir à l'ancienne image : la reconstruction est abandonnée."""
     return _old_action(id, restore_backup)
+
+
+_background_stop = threading.Event()     # arrêt des tâches de fond à l'extinction
+AUTO_PUSH_IDLE = 5                      # secondes entre deux tours quand la synchro auto est désactivée
+
+
+def _auto_push_loop() -> None:
+    """Mise à jour automatique des machines en retard (services/saves.py push_behind), toutes les
+    `auto_push_interval` secondes ; 0 : désactivée (tours vides). Relu à chaque tour : un réglage
+    prend effet tout de suite."""
+    while not _background_stop.wait(_settings.auto_push_interval or AUTO_PUSH_IDLE):
+        if not _settings.auto_push_interval:
+            continue
+        try:
+            saves_svc.push_behind(_settings)
+        except Exception:  # tâche de fond : une erreur ne tue pas la boucle
+            logger.exception("mise à jour automatique des machines impossible")
 
 
 def _purge_old_backups() -> None:

@@ -92,6 +92,12 @@ class Settings(BaseSettings):
     machine_host: str = "0.0.0.0"
     machine_port: int = 8790
     machine_url: str = ""
+    # Adresse de l'interface donnée aux machines (« Ouvrir le manager » de wsquashfs-launcher --tray) ;
+    # vide : http://<hôte de machine_url>:<port>. WSQUASHFS_MGR_UI_URL derrière un proxy.
+    ui_url: str = ""
+    # Mise à jour automatique des machines en retard (services/saves.py push_behind) : intervalle
+    # en secondes entre deux passages ; 0 : désactivée. Modifiable dans Réglages.
+    auto_push_interval: int = 120
 
     # Rétention des .old (None = suppression manuelle uniquement)
     old_retention_days: int | None = None
@@ -258,6 +264,17 @@ def save_machine_url(settings: Settings, url: str) -> None:
     settings.machine_url = value
 
 
+AUTO_PUSH_MAX = 86400               # un passage au moins par jour, au plus
+
+
+def save_auto_push_interval(settings: Settings, seconds: int) -> None:
+    """Intervalle de la mise à jour automatique (0 : désactivée). ValueError hors de 0..AUTO_PUSH_MAX."""
+    if not 0 <= seconds <= AUTO_PUSH_MAX:
+        raise ValueError(f"intervalle de mise à jour automatique : 0 (désactivée) à {AUTO_PUSH_MAX} secondes")
+    _save_runtime(settings, auto_push_interval=seconds)
+    settings.auto_push_interval = seconds
+
+
 def set_saves_machine_field(settings: Settings, machine_id: str, key: str, value: str) -> None:
     """Un champ d'une machine enregistrée (lecture-modification-écriture sous verrou) ;
     KeyError si la machine n'existe pas."""
@@ -314,4 +331,7 @@ def get_settings() -> Settings:
         settings.images_source = runtime["images_source"]
     if isinstance(runtime.get("machine_url"), str):
         settings.machine_url = runtime["machine_url"]
+    interval = runtime.get("auto_push_interval")
+    if type(interval) is int and 0 <= interval <= AUTO_PUSH_MAX:
+        settings.auto_push_interval = interval
     return settings

@@ -43,8 +43,8 @@ from ..config import (
     saves_machines,
     set_saves_machine_field,
 )
-from ..models import Task
-from .durable import fsync_dir, publish_new, swap_keep_old, write_atomic
+from ..models import Task, TaskStatus
+from .durable import append_line, fsync_dir, publish_new, swap_keep_old, write_atomic
 from .rebuild import Job, RebuildError
 from .trial import (
     AgentHost,
@@ -62,6 +62,7 @@ RESERVE_DIR = "saves-reserve"
 CURRENT = "current.tar.gz"
 META = "meta.json"
 MANAGER_PEER_VERSION = 9            # premier agent qui accepte la déclaration du manager (PUT /v1/saves/manager)
+STORE_LOCK = threading.Lock()       # meta.json de la réserve : un écrit à la fois (envoi d'une machine, synchro auto)
 
 _GAME_RE = re.compile(r"^[^./\\\x00][^/\\\x00]{0,199}$")
 
@@ -298,10 +299,21 @@ def declare_manager(settings: Settings, machine_id: str, info: dict | None = Non
     fingerprint = manager_fingerprint(settings).replace(":", "")
     token = secrets.token_urlsafe(32)
     name = f"wsquashfs-manager ({socket.gethostname()})"[:64]
-    host.saves_manager_put(name, settings.machine_url, token, fingerprint)
+    host.saves_manager_put(name, settings.machine_url, token, fingerprint, ui=manager_ui_url(settings))
     set_saves_machine_field(settings, machine_id, "manager_token_sha256",
                             hashlib.sha256(token.encode("utf-8")).hexdigest())
     return True
+
+
+def manager_ui_url(settings: Settings) -> str:
+    """Adresse de l'interface donnée aux machines : ui_url (Réglages, proxy), sinon l'hôte de
+    machine_url sur le port de l'interface, en http ; "" sans adresse du manager."""
+    if settings.ui_url:
+        return settings.ui_url
+    host = urlsplit(settings.machine_url).hostname if settings.machine_url else None
+    if not host:
+        return ""
+    return f"http://[{host}]:{settings.port}" if ":" in host else f"http://{host}:{settings.port}"
 
 
 def redeclare_manager(settings: Settings) -> list[str]:
@@ -633,7 +645,7 @@ def push(settings: Settings, target_ids: list[str], games: list[str] | None,
 def _push_one(settings: Settings, game: str, machine_id: str, label: str,
               host: AgentHost | None, error: str) -> dict:
     result = {"game": game, "machine": label, "machine_id": machine_id, "ok": False,
-              "message": "", "archived": None}
+              "message": "", "archived": None, "fingerprint": "", "busy": False}
     try:
         if host is None:
             raise RebuildError(error or "machine indisponible")
@@ -645,7 +657,7 @@ def _push_one(settings: Settings, game: str, machine_id: str, label: str,
         fingerprint = str(reply.get("fingerprint") or meta.get("fingerprint") or "")
         result["archived"] = bool(reply.get("archived"))
     except SavesBusy:
-        result["message"] = f"jeu en cours sur {label} : non envoyée"
+        result.update(message=f"jeu en cours sur {label} : non envoyée", busy=True)
         return result
     except RebuildError as exc:
         result["message"] = str(exc)
@@ -655,10 +667,10 @@ def _push_one(settings: Settings, game: str, machine_id: str, label: str,
         return result
     message = f"envoyée vers {label}"
     try:
-        host.saves_ack(game, fingerprint)
+        host.saves_ack(game, fingerprint)          # POST /v1/saves/state : la machine garde l'empreinte commune
     except RebuildError as exc:
         message += f" (état non enregistré : {exc})"
-    result.update(ok=True, message=message)
+    result.update(ok=True, message=message, fingerprint=fingerprint)
     return result
 
 
@@ -1029,6 +1041,7 @@ def status(settings: Settings, games: list[str] | None = None) -> dict:
                          "games": len(listing) if listing is not None else None,
                          "os": system, "icon": row["icon"] or (system if system in ICONS else "linux"),
                          "icon_set": row["icon"] is not None, "auto": bool(info.get("auto"))})
+    auto_of = {row["id"]: bool(info.get("auto")) for row, (_, _, _, info) in zip(rows, fetched)}
     out = []
     for game in wanted:
         states = []
@@ -1043,12 +1056,130 @@ def status(settings: Settings, games: list[str] | None = None) -> dict:
                              newest=int(entry.get("newest") or 0), size=_size_of(entry))
             states.append(state)
         verdict = label_states(states)
+        current = current_fingerprint(settings, game)
+        for state in states:        # « conflit » : synchro auto, modifiée sur la machine (push_behind n'y touche pas)
+            state["conflict"] = bool(current and auto_of.get(state["id"]) and state["fingerprint"]
+                                     and behind_action(current, state["fingerprint"],
+                                                       machine_state(settings, game, state["id"])) == "conflit")
         kind = kind_of(game)
         out.append({"game": game, "label": label_of(game, [listing for listing, _, _, _ in fetched]),
                     "kind": kind, "system": system_of(settings, game) if kind == "jeu" else "",
                     "reserve": _reserve_summary(settings, game), "machines": states,
-                    "check": verdict["check"], "check_by": verdict["check_by"]})
+                    "check": verdict["check"], "check_by": verdict["check_by"],
+                    "conflict": any(state["conflict"] for state in states)})
     return {"machines": machines, "games": out}
+
+
+# ------------------------------------------------------------------ mise à jour automatique
+
+BEHIND_LOCK = threading.Lock()      # un seul passage de push_behind à la fois
+HISTORY_FILE = "history.jsonl"      # même journal que la file de tâches (TaskQueue.history_file)
+
+
+def behind_action(current: str, machine_fp: str, recorded: str) -> str:
+    """Décision pour une machine en synchro auto, d'après l'empreinte du manager (`current`), celle
+    de la machine (`machine_fp`, "" si elle n'a pas le jeu) et l'état enregistré à son dernier
+    échange avec le manager (`recorded`, "" si inconnu) :
+    - « rien » : le manager n'a pas de version du jeu ;
+    - « absente » : la machine n'a pas le jeu ;
+    - « enregistrer » : la machine a déjà la version, à noter ;
+    - « pousser » : la machine n'a pas bougé depuis son dernier échange, elle est en retard ;
+    - « conflit » : modifiée sur la machine, ou état inconnu : on n'y touche pas."""
+    if not current:
+        return "rien"
+    if not machine_fp:
+        return "absente"
+    # Hexadécimal : la casse ne compte pas (le lanceur l'écrit en minuscules, un en-tête peut varier).
+    current, machine_fp, recorded = current.lower(), machine_fp.lower(), recorded.lower()
+    if machine_fp == current:
+        return "rien" if recorded == current else "enregistrer"
+    return "pousser" if machine_fp == recorded else "conflit"
+
+
+def push_behind(settings: Settings, games: list[str] | None = None,
+                exclude: set[str] | None = None) -> list[dict]:
+    """Mise à jour automatique : pousse la version du manager vers les machines en retard qui ont la
+    synchro auto activée (`auto` de /v1/info). `games` : None pour toute la réserve ; `exclude` :
+    machines à ne pas viser (celle qui vient d'envoyer). Une machine sans auto, injoignable ou sans le
+    jeu n'est pas touchée et n'a pas de résultat ; une machine modifiée depuis son dernier échange
+    est « conflit », sans être modifiée. Un seul passage à la fois : si un passage tourne, celui-ci
+    est sauté (liste vide). Résultats par (jeu, machine) : {game, machine, machine_id, ok, message,
+    archived, fingerprint, busy, action} ; poussées et échecs vont au journal des tâches."""
+    if not BEHIND_LOCK.acquire(blocking=False):
+        return []
+    try:
+        return _push_behind(settings, games, set(exclude or ()))
+    finally:
+        BEHIND_LOCK.release()
+
+
+def _push_behind(settings: Settings, games: list[str] | None, exclude: set[str]) -> list[dict]:
+    wanted = [g for g in (_dedupe(games) if games is not None else reserve_games(settings))
+              if current_fingerprint(settings, g)]
+    results: list[dict] = []
+    if not wanted:
+        return results
+    for row in machine_rows(settings):
+        if row["id"] in exclude:
+            continue
+        try:
+            host = open_machine(settings, row["id"], timeout=15)
+            info = host.info()
+        except RebuildError:
+            continue                # injoignable, ou sans certificat : ignorée sans bruit
+        if not isinstance(info, dict) or not info.get("auto"):
+            continue                # synchro auto désactivée sur la machine : jamais modifiée
+        try:
+            listing = _present_listing(host.saves_list(timeout=15))
+        except RebuildError:
+            continue
+        for game in wanted:
+            current = current_fingerprint(settings, game)
+            entry = listing.get(game)
+            machine_fp = str(entry.get("fingerprint") or "") if entry else ""
+            action = behind_action(current, machine_fp, machine_state(settings, game, row["id"]))
+            if action == "enregistrer":
+                with STORE_LOCK:
+                    record_state(settings, game, row["id"], current)
+            elif action == "conflit":
+                results.append({"game": game, "machine": row["name"], "machine_id": row["id"], "ok": False,
+                                "message": "conflit : à départager (modifiée sur la machine depuis son dernier échange)",
+                                "archived": None, "fingerprint": "", "busy": False, "action": "conflit"})
+            elif action == "pousser":
+                result = _push_one(settings, game, row["id"], row["name"], host, "")
+                if result["ok"]:
+                    # Empreinte du manager, pas celle que renvoie la machine : si elles différaient (fichier
+                    # hors du profil…), la machine paraîtrait encore en retard et recevrait la même version
+                    # à chaque passage ; elle apparaît « à départager » à la place.
+                    with STORE_LOCK:
+                        record_state(settings, game, row["id"], current)
+                    result.update(action="poussée", message=f"mise à jour auto : {result['message']}")
+                elif result["busy"]:
+                    result.update(action="jeu en cours", message=f"jeu en cours sur {row['name']} : "
+                                                                 "mise à jour retentée au prochain passage")
+                else:
+                    result.update(action="échec", message=f"mise à jour auto : {result['message']}")
+                if result["action"] != "jeu en cours":
+                    log.info("%s : %s", game, result["message"])
+                    _journal_behind(settings, result)
+                results.append(result)
+    return results
+
+
+def _journal_behind(settings: Settings, result: dict) -> None:
+    """Une entrée du journal des tâches pour une poussée (ou un échec) de la synchro auto."""
+    now = time.time()
+    ok = result["ok"]
+    task = Task(id=secrets.token_hex(6), kind="saves",
+                title=f"sauvegardes : mise à jour auto → {result['machine']}",
+                params={"op": "push_behind", "game": result["game"], "machine_id": result["machine_id"]},
+                status=TaskStatus.DONE if ok else TaskStatus.FAILED, error=None if ok else result["message"],
+                log=[result["message"]], progress=1.0 if ok else 0.0,
+                created_at=now, started_at=now, finished_at=now)
+    try:
+        append_line(settings.state_dir / HISTORY_FILE, task.model_dump_json())
+    except OSError as exc:
+        log.warning("journal des tâches non écrit : %s", exc)
 
 
 # ------------------------------------------------------------------ tâche

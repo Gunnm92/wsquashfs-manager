@@ -132,6 +132,7 @@
     <dl class="glossary">
       <div data-f><dt>★ plus avancée</dt><dd>La version la plus lourde (à taille égale, la plus récente) : c'est elle que <b>Sync</b> propose d'envoyer.</dd></div>
       <div data-f><dt>en retard</dt><dd>Une version plus ancienne, qui recevra la plus avancée.</dd></div>
+      <div data-f><dt>à départager</dt><dd>Synchro automatique : la machine a changé depuis son dernier échange avec le manager. Rien n'est envoyé ; c'est à toi de choisir la version (<b>Sync</b>, ou <code>--sync</code>).</dd></div>
       <div data-f><dt>identique</dt><dd>Les machines qui ont le jeu ont la même version : rien à faire.</dd></div>
       <div data-f><dt>— absente</dt><dd>La machine n'a pas ce jeu. Ce n'est pas une différence : elle n'est pas touchée.</dd></div>
       <div data-f><dt>? injoignable</dt><dd>La machine ne répond pas (éteinte, agent arrêté) : elle ne compte pas.</dd></div>
@@ -158,7 +159,8 @@
 
     <h2>Synchro automatique</h2>
     <p data-f>Quand le manager est joignable, une machine lui envoie sa partie <b>à la sortie d'un jeu</b> : rien n'est récupéré au lancement. Sur chaque machine, <code>wsquashfs-launcher --sync auto on</code> l'active (<code>--sync auto off</code> l'arrête) ; la carte de la machine porte alors la pastille <b>auto</b>. Le manager doit être atteignable à l'adresse réglée dans Réglages → Général (port 8790) ; s'il ne répond pas, la partie reste sur la machine et une ligne le dit.</p>
-    <div class="tip" data-f><svg class="ico"><use href="#i-shield"/></svg><span>Rien n'est perdu : la version que le manager remplace est archivée (il garde 3 versions). Rien ne revient automatiquement vers la machine : pour récupérer une partie du manager, c'est <b>Sync</b> ou <code>--sync</code>.</span></div>
+    <p data-f>Les machines dont la synchro auto est activée reçoivent aussi la version la plus récente du manager, si elles n'ont pas de partie non envoyée ; leur agent doit être lancé. Une machine modifiée depuis le dernier échange n'est pas écrasée : elle est marquée <b>à départager</b>.</p>
+    <div class="tip" data-f><svg class="ico"><use href="#i-shield"/></svg><span>Rien n'est perdu : la version que le manager remplace est archivée (il garde 3 versions). Hors synchro automatique, rien ne revient vers la machine : pour récupérer une partie du manager, c'est <b>Sync</b> ou <code>--sync</code>.</span></div>
 
     <h2>En ligne de commande</h2>
     <p data-f>Sans le manager, <code>wsquashfs-launcher --sync</code> synchronise à la main avec les autres machines du réseau local (<code>--sync status</code> montre ce qui serait fait). Même règle : la plus lourde gagne, l'autre est archivée.</p>

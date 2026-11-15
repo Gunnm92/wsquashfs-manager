@@ -11,6 +11,8 @@ Chaque requête porte :
 
 Routes : GET /v1/info, GET /v1/saves/list, GET et PUT /v1/saves/tar?game=,
 POST /v1/saves/state. Les états par machine sont dans meta.json de la réserve du jeu.
+Après un envoi réussi, les autres machines en retard (synchro auto) reçoivent la version du
+manager (saves.push_behind, en arrière-plan).
 """
 
 import hashlib
@@ -37,7 +39,11 @@ MAX_ARCHIVE = 2 << 30               # 2 Gio, comme les envois vers l'agent
 GZIP_MAGIC = b"\x1f\x8b"
 _MACHINE_HEADER = re.compile(r"[A-Za-z0-9_-]{1,64}")
 _FINGERPRINT = re.compile(r"[0-9A-Fa-f]{64}")
-_store_lock = threading.Lock()      # un envoi à la fois dans la réserve (pas d'entrelacement)
+
+
+def _background(target, *args, **kwargs) -> None:
+    """Lance `target` dans un thread démoniaque : la réponse à la machine n'attend pas."""
+    threading.Thread(target=target, args=args, kwargs=kwargs, name="synchro-auto", daemon=True).start()
 
 
 class StateBody(BaseModel):
@@ -145,7 +151,7 @@ def build_router(settings_of: Callable[[], Settings]) -> APIRouter:
             files_size = _header_int(request, "x-wsq-size", size)
             dir_path = unquote(request.headers.get("x-wsq-dir", "")) or None
             newest = _header_int(request, "x-wsq-newest", int(time.time()))
-            with _store_lock:
+            with saves_svc.STORE_LOCK:      # un envoi à la fois dans la réserve (pas d'entrelacement)
                 _, archived = saves_svc.store_archived(settings, game, part, fingerprint=fingerprint,
                                                        newest=newest, size=files_size, profile=profile,
                                                        source=machine["name"], dir_path=dir_path)
@@ -154,6 +160,9 @@ def build_router(settings_of: Callable[[], Settings]) -> APIRouter:
             raise HTTPException(status_code=500, detail=f"écriture dans le manager impossible : {exc}") from exc
         finally:
             part.unlink(missing_ok=True)
+        # Les autres machines en retard (synchro auto) reçoivent cette version, sans retarder la réponse
+        if settings.auto_push_interval:
+            _background(saves_svc.push_behind, settings, [game], exclude={machine["id"]})
         return {"fingerprint": fingerprint, "archived": archived}
 
     @router.post("/v1/saves/state")

@@ -1942,10 +1942,13 @@ function visibleGames() {
 // « ⚠ à vérifier » si la suggérée n'est pas la plus récente, « ← » si elle reçoit la version,
 // puis « taille · date »
 function machineCell(g, m, target) {
-  const s = stateOf(g, m.id), st = s?.state ?? "absente";
-  const [label, tone] = { "plus avancée": ["★ plus avancée", "t-accent"], identique: ["identique", "t-sage"],
-    "en retard": ["en retard", "t-neutral"], présente: ["seule copie", "t-neutral"], injoignable: ["?", "t-err"] }[st] ?? ["—", ""];
-  const detail = [`${m.name} : ${st}`, s?.newest ? when(s.newest) : "", st === "injoignable" ? (s?.message || m.message || "") : ""]
+  const s = stateOf(g, m.id), st = s?.state ?? "absente", conflict = Boolean(s?.conflict);
+  // « à départager » : synchro auto, la machine a changé depuis son dernier échange (rien n'est envoyé)
+  const [label, tone] = conflict ? ["à départager", "t-err"]
+    : { "plus avancée": ["★ plus avancée", "t-accent"], identique: ["identique", "t-sage"],
+      "en retard": ["en retard", "t-neutral"], présente: ["seule copie", "t-neutral"], injoignable: ["?", "t-err"] }[st] ?? ["—", ""];
+  const detail = [`${m.name} : ${st}`, s?.newest ? when(s.newest) : "", st === "injoignable" ? (s?.message || m.message || "") : "",
+    conflict ? "à départager : modifiée sur la machine depuis le dernier échange avec le manager" : ""]
     .filter(Boolean).join(" · ");
   const cls = { "plus avancée": "sv-best", "en retard": "sv-old", absente: "sv-none" }[st] ?? "";
   const top = suggestedOf(g);
@@ -2596,6 +2599,8 @@ $("btn-config").onclick = async () => {
   // Adresse du manager pour les machines : suggérée à partir de l'adresse de cette page
   $("cfg-machine-url").dataset.saved = cfg.machine_url || "";
   $("cfg-machine-url").value = cfg.machine_url || (cfg.machine_port ? `https://${location.hostname}:${cfg.machine_port}` : "");
+  $("cfg-auto-push").value = cfg.auto_push_interval ?? 120;
+  $("cfg-auto-push").dataset.saved = String(cfg.auto_push_interval ?? 120);
   $("cfg-machine-fp").textContent = !cfg.machine_port ? "Port des machines désactivé (WSQUASHFS_MGR_MACHINE_PORT=0)."
     : cfg.machine_fingerprint ? `Empreinte du certificat du manager : ${cfg.machine_fingerprint}` : "Certificat du manager créé au prochain démarrage.";
   $("cfg-err").textContent = systemsError || "";
@@ -2623,6 +2628,16 @@ $("cfg-save").onclick = async () => {
         throw error;
       }
       $("cfg-machine-url").dataset.saved = state.config.machine_url;
+    }
+    const autoPush = $("cfg-auto-push");
+    if (autoPush.value !== autoPush.dataset.saved) {
+      const seconds = autoPush.value.trim() === "" ? NaN : Number(autoPush.value);
+      if (!Number.isInteger(seconds) || seconds < 0 || seconds > 86400) {
+        showCfgPane("general");
+        throw new Error("Mise à jour automatique : nombre de secondes entre 0 (désactivée) et 86400.");
+      }
+      state.config = await api("/api/config/auto_push", { method: "PUT", body: { seconds } });
+      autoPush.dataset.saved = String(state.config.auto_push_interval);
     }
     state.config = await api("/api/config/night", { method: "PUT",
       body: { start: $("cfg-night-start").value, end: $("cfg-night-end").value } });

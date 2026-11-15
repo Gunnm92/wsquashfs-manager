@@ -254,9 +254,19 @@ gêne pas le jeu (une ligne d'information sur la machine).
   par machine) ; `--sync auto off` l'arrête. La carte de la machine porte alors la
   pastille « auto ».
 - **Ce que reçoit le manager** : la partie, archivée comme une version
-  précédente (3 gardées). Le manager ne renvoie jamais rien à la machine
-  pendant cette synchro ; l'état de chaque machine (dernière empreinte
-  échangée) est dans `meta.json` de la réserve du jeu (`states`).
+  précédente (3 gardées). Pendant cet envoi, le manager ne renvoie rien à la
+  machine ; l'état de chaque machine (dernière empreinte échangée) est dans
+  `meta.json` de la réserve du jeu (`states`).
+- **Mise à jour automatique** : toutes les `auto_push_interval` secondes (Réglages
+  → Général, 120 par défaut, 0 : désactivée ; `config.json`), et juste après un
+  envoi, le manager pousse sa version vers les machines dont la synchro auto est
+  activée (`auto` de `GET /v1/info`) et qui sont en retard : celles dont l'état
+  enregistré correspond encore à leur empreinte actuelle. Une machine modifiée
+  depuis son dernier échange est « à départager » et n'est pas touchée ; une
+  machine occupée (jeu en cours) est retentée au passage suivant. Chaque
+  poussée va au journal des tâches (« mise à jour auto »). Les machines dont la
+  synchro auto est activée reçoivent donc aussi la version la plus récente du
+  manager ; leur agent doit être lancé.
 - **Routes de la machine** (port 8790 seulement, jamais l'interface) : `GET /v1/info`,
   `GET /v1/saves/list`, `GET|PUT /v1/saves/tar?game=`, `POST /v1/saves/state`.
   Authentification : `Authorization: Bearer <jeton>` (sinon 401) et en-tête
@@ -310,6 +320,7 @@ Variables `WSQUASHFS_MGR_*` (ou fichier `backend/.env`) :
 | `MACHINE_PORT` | `8790` | HTTPS où les machines envoient leurs sauvegardes (`0` : désactivé) ; certificat auto-signé dans `STATE_DIR/tls/` |
 | `MACHINE_HOST` | `0.0.0.0` | adresse d'écoute de ce port (les machines doivent l'atteindre) |
 | `MACHINE_URL` | — | adresse du manager vue par les machines, ex. `https://192.168.1.10:8790` ; réglée aussi dans Réglages → Général |
+| `UI_URL` | `http://<hôte de MACHINE_URL>:<PORT>` | adresse de l'interface donnée aux machines (« Ouvrir le manager » de `wsquashfs-launcher --tray`) ; à régler derrière un proxy |
 
 ## Création : dossiers → images
 

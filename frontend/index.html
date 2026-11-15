@@ -549,6 +549,8 @@
     <label class="field">Adresse du manager pour les machines<input id="cfg-machine-url" autocomplete="off" placeholder="https://192.168.1.10:8790"></label>
     <p class="dlg-intro">Adresse par laquelle les machines joignent ce manager (HTTPS, port 8790). Elle est déclarée à chaque machine associée (agent version 9 ou plus) ; vide : pas de synchro automatique.</p>
     <p class="muted" id="cfg-machine-fp" style="font-size:12.5px"></p>
+    <label class="field">Mise à jour automatique des machines (secondes ; 0 : désactivée)<input id="cfg-auto-push" type="number" min="0" max="86400" step="1" inputmode="numeric"></label>
+    <p class="dlg-intro">Les machines dont la synchro auto est activée et qui sont en retard reçoivent la version du manager, à cet intervalle.</p>
     <div class="section-label">Serveur <span class="ro-tag">lecture seule</span></div>
     <dl id="cfg-info" class="cfg-info"></dl>
     <p class="dlg-intro" style="margin-top:8px">Fixé au démarrage par les variables <code>WSQUASHFS_MGR_*</code> (voir le README).</p>

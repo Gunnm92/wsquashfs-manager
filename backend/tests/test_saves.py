@@ -14,6 +14,7 @@ import shutil
 import ssl
 import subprocess
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,9 +24,17 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import main
-from app.config import Settings, save_machine_url, save_saves_machines, saves_client_id, saves_machines
+from app.config import (
+    Settings,
+    get_settings,
+    save_machine_url,
+    save_saves_machines,
+    saves_client_id,
+    saves_machines,
+    set_saves_machine_field,
+)
 from app.models import Task
-from app.services import saves
+from app.services import machine_api, saves
 from app.services.rebuild import Job, RebuildError
 from app.services.tasks import TaskQueue
 from app.services.trial import OLD_AGENT_MESSAGE, AgentHost, AgentProbeError, SavesBusy, fingerprint_pem
@@ -1538,6 +1547,7 @@ def test_association_declares_the_manager_when_its_address_is_set(agents, tmp_pa
     assert declared["fingerprint"] == saves.manager_fingerprint(settings).replace(":", "")
     assert len(declared["fingerprint"]) == 64 and declared["fingerprint"] == declared["fingerprint"].upper()
     assert declared["name"].startswith("wsquashfs-manager (")
+    assert declared["ui"] == f"http://192.168.1.10:{settings.port}"     # interface, pour --tray
     machine = saves.saves_machines(settings)[0]
     assert machine["manager_token_sha256"] == hashlib.sha256(declared["token"].encode()).hexdigest()
     assert declared["token"] not in json.dumps(saves.machine_rows(settings))
@@ -1647,3 +1657,250 @@ def test_declared_dir_path_travels_with_the_save(agents, api):
     sent = [e for e in aibox["st"]["log"] if e["method"] == "PUT" and e["path"] == "/v1/saves/tar"]
     assert sent and unquote(sent[0]["dir"]) == ".local/share/hookshot/save é"
     assert sent[0]["dir"].isascii()                 # en-tête HTTP : encodé en pourcentage
+
+
+# ------------------------------------------------------------------ mise à jour automatique
+
+def store_manager_version(settings: Settings, game: str, data: bytes) -> str:
+    """Version courante du manager (réserve), empreinte au format des faux agents."""
+    saves.store(settings, game, part_with(settings, game, data), fingerprint=fp_of(data), newest=900,
+                size=len(data), profile=None, source="manager")
+    return fp_of(data)
+
+
+def writes(agent: dict) -> list[dict]:
+    """Requêtes qui modifient la machine (envoi, état, suppression) depuis le dernier nettoyage du journal."""
+    return [e for e in agent["st"]["log"] if e["method"] in ("PUT", "POST", "DELETE")]
+
+
+def test_behind_pushes_the_manager_version_to_an_auto_machine_that_is_behind(agents, tmp_path):
+    b = agents("b-machine", games={"Jeu": (gz("v1"), None, 100)}, auto=True)
+    settings = make_settings(tmp_path)
+    associate(settings, b)
+    bid = machine_ids(settings)["b-machine"]
+    b["st"]["log"].clear()
+    saves.record_state(settings, "Jeu", bid, fp_of(gz("v1")))
+    current = store_manager_version(settings, "Jeu", gz("v2"))
+    results = saves.push_behind(settings)
+    assert [(r["action"], r["machine"], r["ok"]) for r in results] == [("poussée", "b-machine", True)]
+    assert b["st"]["games"]["Jeu"]["data"] == gz("v2")
+    assert saves.machine_state(settings, "Jeu", bid) == current
+    put = next(e for e in b["st"]["log"] if e["method"] == "PUT")
+    assert put["machine"] == saves_client_id(settings) and put["game"] == "Jeu"
+    # l'agent est informé de l'empreinte commune (POST /v1/saves/state, faite par l'envoi)
+    assert [e["body"] for e in b["st"]["log"] if e["path"] == "/v1/saves/state"] == [
+        {"game": "Jeu", "fingerprint": current}]
+    journal = (settings.state_dir / "history.jsonl").read_text(encoding="utf-8")
+    assert "mise à jour auto" in journal and '"status":"done"' in journal
+
+
+@pytest.mark.parametrize("recorded", ["", "autre"], ids=["état inconnu", "état d'une autre version"])
+def test_behind_never_overwrites_a_machine_changed_locally(agents, tmp_path, recorded):
+    b = agents("b-machine", games={"Jeu": (gz("local"), None, 500)}, auto=True)
+    settings = make_settings(tmp_path)
+    associate(settings, b)
+    bid = machine_ids(settings)["b-machine"]
+    b["st"]["log"].clear()
+    saves.record_state(settings, "Jeu", bid, recorded and fp_of(gz(recorded)))
+    store_manager_version(settings, "Jeu", gz("v2"))
+    results = saves.push_behind(settings)
+    assert [r["action"] for r in results] == ["conflit"]
+    assert not writes(b) and b["st"]["games"]["Jeu"]["data"] == gz("local")
+    assert saves.machine_state(settings, "Jeu", bid) == (recorded and fp_of(gz(recorded)))
+    status = saves.status(settings, ["Jeu"])
+    assert status["games"][0]["conflict"] is True
+    assert next(s for s in status["games"][0]["machines"] if s["id"] == bid)["conflict"] is True
+
+
+def test_behind_never_touches_a_machine_without_auto(agents, tmp_path):
+    b = agents("b-machine", games={"Jeu": (gz("v1"), None, 100)}, auto=False)
+    settings = make_settings(tmp_path)
+    associate(settings, b)
+    bid = machine_ids(settings)["b-machine"]
+    b["st"]["log"].clear()
+    saves.record_state(settings, "Jeu", bid, fp_of(gz("v1")))
+    store_manager_version(settings, "Jeu", gz("v2"))
+    assert saves.push_behind(settings) == []
+    assert not writes(b) and b["st"]["games"]["Jeu"]["data"] == gz("v1")
+    status = saves.status(settings, ["Jeu"])
+    assert status["games"][0]["conflict"] is False
+
+
+def test_behind_reports_a_busy_machine_and_retries_it_later(agents, tmp_path):
+    b = agents("b-machine", games={"Jeu": (gz("v1"), None, 100)}, auto=True, busy={"Jeu"})
+    settings = make_settings(tmp_path)
+    associate(settings, b)
+    bid = machine_ids(settings)["b-machine"]
+    saves.record_state(settings, "Jeu", bid, fp_of(gz("v1")))
+    current = store_manager_version(settings, "Jeu", gz("v2"))
+    results = saves.push_behind(settings)                       # pas d'exception
+    assert [(r["action"], r["ok"]) for r in results] == [("jeu en cours", False)]
+    assert saves.machine_state(settings, "Jeu", bid) == fp_of(gz("v1"))
+    b["st"]["busy"].clear()                                     # le jeu est fermé : au passage suivant
+    assert [r["action"] for r in saves.push_behind(settings)] == ["poussée"]
+    assert saves.machine_state(settings, "Jeu", bid) == current
+
+
+def test_behind_does_not_push_again_when_the_machine_reports_another_fingerprint(agents, tmp_path):
+    """Après un envoi, la machine donne une empreinte différente de celle du manager : pas de nouvel
+    envoi au passage suivant (pas de boucle), la machine est « à départager »."""
+    b = agents("b-machine", games={"Jeu": (gz("v1"), None, 100)}, auto=True)
+    settings = make_settings(tmp_path)
+    associate(settings, b)
+    bid = machine_ids(settings)["b-machine"]
+    saves.record_state(settings, "Jeu", bid, fp_of(gz("v1")))
+    data = gz("v2")
+    saves.store(settings, "Jeu", part_with(settings, "Jeu", data), fingerprint="A" * 64, newest=900,
+                size=len(data), profile=None, source="manager")
+    assert [r["action"] for r in saves.push_behind(settings)] == ["poussée"]
+    b["st"]["log"].clear()
+    assert [r["action"] for r in saves.push_behind(settings)] == ["conflit"]
+    assert not writes(b)
+
+
+def test_behind_ignores_a_machine_without_the_game(agents, tmp_path):
+    b = agents("b-machine", games={}, auto=True)
+    settings = make_settings(tmp_path)
+    associate(settings, b)
+    bid = machine_ids(settings)["b-machine"]
+    b["st"]["log"].clear()
+    store_manager_version(settings, "Jeu", gz("v2"))
+    assert saves.push_behind(settings) == []
+    assert not writes(b) and saves.machine_state(settings, "Jeu", bid) == ""
+
+
+def test_behind_records_a_machine_that_already_has_the_version(agents, tmp_path):
+    b = agents("b-machine", games={"Jeu": (gz("v2"), None, 100)}, auto=True)
+    settings = make_settings(tmp_path)
+    associate(settings, b)
+    bid = machine_ids(settings)["b-machine"]
+    b["st"]["log"].clear()
+    current = store_manager_version(settings, "Jeu", gz("v2"))
+    assert saves.push_behind(settings) == []
+    assert not writes(b) and saves.machine_state(settings, "Jeu", bid) == current
+
+
+def test_behind_skips_a_pass_while_another_one_runs(agents, tmp_path):
+    b = agents("b-machine", games={"Jeu": (gz("v1"), None, 100)}, auto=True)
+    settings = make_settings(tmp_path)
+    associate(settings, b)
+    b["st"]["log"].clear()
+    store_manager_version(settings, "Jeu", gz("v2"))
+    saves.BEHIND_LOCK.acquire()
+    try:
+        assert saves.push_behind(settings) == []
+    finally:
+        saves.BEHIND_LOCK.release()
+    assert not writes(b)
+
+
+def test_put_from_a_pushes_to_b_but_not_back_to_a(agents, tmp_path, monkeypatch):
+    a = agents("a-machine", games={"Jeu": (gz("a-old"), None, 100)}, auto=True)
+    b = agents("b-machine", games={"Jeu": (gz("b-old"), None, 100)}, auto=True)
+    settings = make_settings(tmp_path)
+    monkeypatch.setattr(main, "_settings", settings)
+    monkeypatch.setattr(machine_api, "_background", lambda target, *args, **kwargs: target(*args, **kwargs))
+    monkeypatch.setattr(machine_api, "GZIP_MAGIC", b"GZ")          # les faux agents ne connaissent que « GZ »
+    associate(settings, a)
+    associate(settings, b)
+    ids = machine_ids(settings)
+    # A se déclare au manager avec son jeton (seule son empreinte est gardée)
+    set_saves_machine_field(settings, ids["a-machine"], "manager_token_sha256",
+                            hashlib.sha256(b"jeton-a").hexdigest())
+    saves.record_state(settings, "Jeu", ids["b-machine"], fp_of(gz("b-old")))
+    a["st"]["log"].clear()
+    b["st"]["log"].clear()
+    data = gz("a-new")
+    response = TestClient(main.machine_app).put(
+        "/v1/saves/tar", params={"game": "Jeu"}, content=data,
+        headers={"Authorization": "Bearer jeton-a", "X-Wsq-Machine": "a-sync", "Content-Type": "application/gzip",
+                 "X-Wsq-Fingerprint": hashlib.sha256(data).hexdigest()})
+    assert response.status_code == 200
+    assert b["st"]["games"]["Jeu"]["data"] == data                  # poussée vers B
+    # état de B : l'empreinte du manager (celle envoyée par A)
+    assert saves.machine_state(settings, "Jeu", ids["b-machine"]) == hashlib.sha256(data).hexdigest()
+    assert not [e for e in a["st"]["log"] if e["path"] == "/v1/saves/list" or e["method"] == "PUT"]
+
+
+def test_auto_push_interval_is_checked_saved_and_read_back(tmp_path, monkeypatch):
+    settings = make_settings(tmp_path)
+    monkeypatch.setattr(main, "_settings", settings)
+    client = TestClient(main.app)
+    assert client.get("/api/config").json()["auto_push_interval"] == 120
+    for bad in (-1, 86401):
+        assert client.put("/api/config/auto_push", json={"seconds": bad}).status_code == 422
+    assert client.put("/api/config/auto_push", json={"seconds": 0}).json()["auto_push_interval"] == 0
+    assert json.loads(settings.runtime_config_file.read_text())["auto_push_interval"] == 0
+    monkeypatch.setenv("WSQUASHFS_MGR_RUNTIME_CONFIG_FILE", str(settings.runtime_config_file))
+    assert get_settings().auto_push_interval == 0
+
+
+def test_auto_push_loop_runs_each_interval_until_shutdown(tmp_path, monkeypatch):
+    settings = make_settings(tmp_path)
+    settings.auto_push_interval = 1
+    monkeypatch.setattr(main, "_settings", settings)
+    monkeypatch.setattr(main, "_background_stop", threading.Event())
+    calls = []
+    monkeypatch.setattr(saves, "push_behind", lambda s, *a, **k: calls.append(s) or [])
+    thread = threading.Thread(target=main._auto_push_loop, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 10
+    while not calls and time.monotonic() < deadline:
+        time.sleep(0.05)
+    main._background_stop.set()
+    thread.join(timeout=5)
+    assert calls == [settings] and not thread.is_alive()
+
+
+def test_auto_push_loop_does_nothing_when_disabled(tmp_path, monkeypatch):
+    settings = make_settings(tmp_path)
+    settings.auto_push_interval = 0
+    monkeypatch.setattr(main, "_settings", settings)
+    monkeypatch.setattr(main, "_background_stop", threading.Event())
+    monkeypatch.setattr(main, "AUTO_PUSH_IDLE", 0.02)
+    calls = []
+    monkeypatch.setattr(saves, "push_behind", lambda s, *a, **k: calls.append(s) or [])
+    thread = threading.Thread(target=main._auto_push_loop, daemon=True)
+    thread.start()
+    time.sleep(0.3)
+    main._background_stop.set()
+    thread.join(timeout=5)
+    assert calls == [] and not thread.is_alive()
+
+
+def test_put_does_not_push_when_auto_push_is_off(agents, tmp_path, monkeypatch):
+    a = agents("a-machine", auto=True)
+    b = agents("b-machine", games={"Jeu": (gz("b-old"), None, 100)}, auto=True)
+    settings = make_settings(tmp_path, auto_push_interval=0)
+    monkeypatch.setattr(main, "_settings", settings)
+    monkeypatch.setattr(machine_api, "_background", lambda target, *args, **kwargs: target(*args, **kwargs))
+    monkeypatch.setattr(machine_api, "GZIP_MAGIC", b"GZ")
+    associate(settings, a)
+    associate(settings, b)
+    ids = machine_ids(settings)
+    set_saves_machine_field(settings, ids["a-machine"], "manager_token_sha256", hashlib.sha256(b"jeton-a").hexdigest())
+    saves.record_state(settings, "Jeu", ids["b-machine"], fp_of(gz("b-old")))   # B est en retard
+    data = gz("a-new")
+    response = TestClient(main.machine_app).put(
+        "/v1/saves/tar", params={"game": "Jeu"}, content=data,
+        headers={"Authorization": "Bearer jeton-a", "X-Wsq-Machine": "a-sync", "Content-Type": "application/gzip",
+                 "X-Wsq-Fingerprint": hashlib.sha256(data).hexdigest()})
+    assert response.status_code == 200
+    assert not [e for e in b["st"]["log"] if e["method"] == "PUT"] and b["st"]["games"]["Jeu"]["data"] == gz("b-old")
+
+
+def test_manager_ui_url_given_to_the_machines(tmp_path):
+    """Adresse de l'interface déclarée aux machines : ui_url si réglée (proxy), sinon l'hôte de
+    machine_url sur le port de l'interface ; rien sans adresse du manager."""
+    assert saves.manager_ui_url(make_settings(tmp_path)) == ""
+    settings = make_settings(tmp_path, machine_url="https://10.1.1.1:8790")
+    assert saves.manager_ui_url(settings) == f"http://10.1.1.1:{settings.port}"
+    settings.ui_url = "https://wsq.example.lan/"
+    assert saves.manager_ui_url(settings) == "https://wsq.example.lan/"
+
+
+@pytest.mark.parametrize(("current", "machine", "recorded", "action"), [
+    ("AB", "ab", "", "enregistrer"), ("AB", "ab", "ab", "rien"), ("AB", "cd", "CD", "pousser"),
+    ("AB", "cd", "ef", "conflit"), ("AB", "", "", "absente"), ("", "cd", "cd", "rien")])
+def test_behind_action_ignores_the_case_of_fingerprints(current, machine, recorded, action):
+    assert saves.behind_action(current, machine, recorded) == action
