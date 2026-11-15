@@ -1750,6 +1750,7 @@ function paintSaves() {
 // Bandeau : une carte par machine (icône du système, nom, état) ; clic : menu (icône, oubli).
 // Le manager est une carte de plus, sans menu ; « Associer » est la dernière carte.
 function paintChips() {
+  if (filteredMachine() && !sv.machines.some((m) => m.id === filteredMachine())) sv.filter = "";
   const kept = sv.games.filter((g) => g.reserve).length;
   const manager = el("div", { className: "mcard mgr", title: "Copie des sauvegardes sur le manager : elle reste même si une machine est éteinte" },
     el("span", { className: "mcard-ico" }, icon("server", "lg")),
@@ -1762,17 +1763,21 @@ function paintChips() {
 function machineCard(m) {
   const isHost = m.kind === "game_host";
   const title = m.ok ? `${m.url} : joignable` : `Injoignable : ${m.message || "pas de réponse"}`;
-  const card = el("button", { type: "button", className: `mcard${m.ok ? "" : " off"}`, "aria-haspopup": "menu",
-    title: isHost ? `${title} · configurée dans Réglages › Machine de jeu` : title },
+  const active = filteredMachine() === m.id;
+  // Clic sur la carte : n'affiche que les sauvegardes de cette machine ; le chevron à droite ouvre le menu
+  const card = el("button", { type: "button", className: `mcard${m.ok ? "" : " off"}${active ? " on" : ""}`, "aria-pressed": String(active),
+    title: `${isHost ? `${title} · configurée dans Réglages › Machine de jeu` : title} · cliquer : ses sauvegardes seulement` },
     el("span", { className: "mcard-ico" }, osIcon(m.icon, "lg")),
     el("span", { className: "mcard-txt" },
       el("span", { className: "mcard-name" }, el("b", { textContent: m.name }),
         isHost ? el("span", { className: "chip plain t-accent", textContent: "machine de jeu" }) : null),
       el("span", { className: "mcard-sub" }, el("span", { className: "led" }),
-        el("span", { textContent: m.ok ? `${m.games} jeu${m.games > 1 ? "x" : ""}` : "injoignable" }))),
-    icon("chevd", "sm chev"));
-  const wrap = el("div", { className: "dd" }, card);
-  card.onclick = () => openMenuNode(wrap, machineMenu(m));
+        el("span", { textContent: m.ok ? `${m.games} jeu${m.games > 1 ? "x" : ""}` : "injoignable" }))));
+  card.onclick = () => { sv.filter = active ? "" : `m:${m.id}`; paintSaves(); };
+  const menu = el("button", { type: "button", className: "mcard-menu", title: "Actions sur cette machine", "aria-label": `Actions sur ${m.name}`, "aria-haspopup": "menu" },
+    icon("chevd", "sm"));
+  const wrap = el("div", { className: "dd mcard-wrap" }, card, menu);
+  menu.onclick = () => openMenuNode(wrap, machineMenu(m));
   return wrap;
 }
 
@@ -1832,25 +1837,21 @@ function toggleMenu(wrap, items) {
   }));
 }
 
-// Filtres d'état, puis un filtre par machine (jeux présents sur elle)
+// Présence d'un jeu sur une machine (utilisée par le bandeau et les cibles)
 const onMachine = (g, id) => PRESENT_STATES.has(stateOf(g, id)?.state);
+// Filtre par machine : sv.filter = « m:<id> », réglé par un clic sur sa carte du bandeau « Machines »
 const filteredMachine = () => (sv.filter.startsWith("m:") ? sv.filter.slice(2) : "");
+// Filtres d'état, et le filtre machine (les pastilles machines sont dans le bandeau)
 function paintFilters() {
-  if (filteredMachine() && !sv.machines.some((m) => m.id === filteredMachine())) sv.filter = "";
   const counts = { "": sv.games.length, diff: sv.games.filter(differs).length,
     same: sv.games.filter(identical).length, reserve: sv.games.filter((g) => g.reserve).length };
-  const pill = (key, label, count, extra) => {
-    const b = el("button", { type: "button", className: sv.filter === key ? "on" : "", title: extra || "" },
-      ...(label instanceof Node ? [label] : [el("span", { textContent: label })]), el("span", { className: "count", textContent: count }));
+  const pill = (key, label, count) => {
+    const b = el("button", { type: "button", className: sv.filter === key ? "on" : "" },
+      el("span", { textContent: label }), el("span", { className: "count", textContent: count }));
     b.onclick = () => { sv.filter = key; paintSaves(); };
     return b;
   };
-  const machines = sv.machines.map((m) => pill(`m:${m.id}`,
-    el("span", { className: "sv-th" }, osIcon(m.icon, "sm"), el("span", { textContent: m.name })),
-    m.ok ? sv.games.filter((g) => onMachine(g, m.id)).length : "?",
-    m.ok ? `Jeux qui ont des sauvegardes sur ${m.name}` : `${m.name} : injoignable`));
-  $("s-filter").replaceChildren(...SAVE_FILTERS.map(([key, label]) => pill(key, label, counts[key])),
-    ...(machines.length ? [el("span", { className: "sv-sep", "aria-hidden": "true" }), ...machines] : []));
+  $("s-filter").replaceChildren(...SAVE_FILTERS.map(([key, label]) => pill(key, label, counts[key])));
 }
 
 function visibleGames() {
