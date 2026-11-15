@@ -437,15 +437,16 @@ def _write_part(path: Path, text: str) -> None:
 
 
 def store(settings: Settings, game: str, part: Path, *, fingerprint: str, newest: int,
-          size: int, profile: str | None, source: str) -> dict:
+          size: int, profile: str | None, source: str, dir_path: str | None = None) -> dict:
     """Range une archive reçue (`part`, écrite entièrement) dans le manager ; renvoie les
     informations enregistrées (meta). Voir store_archived."""
     return store_archived(settings, game, part, fingerprint=fingerprint, newest=newest,
-                          size=size, profile=profile, source=source)[0]
+                          size=size, profile=profile, source=source, dir_path=dir_path)[0]
 
 
 def store_archived(settings: Settings, game: str, part: Path, *, fingerprint: str, newest: int,
-                   size: int, profile: str | None, source: str) -> tuple[dict, str]:
+                   size: int, profile: str | None, source: str,
+                   dir_path: str | None = None) -> tuple[dict, str]:
     """Range une archive reçue (`part`, écrite entièrement) dans le manager. Renvoie (meta,
     nom de la version archivée ou "").
 
@@ -463,6 +464,11 @@ def store_archived(settings: Settings, game: str, part: Path, *, fingerprint: st
     states = prior.get("states") if isinstance(prior.get("states"), dict) else {}
     meta = {"fingerprint": fingerprint, "newest": int(newest), "size": int(size), "profile": profile,
             "source": source, "fetched_at": datetime.now(UTC).isoformat(timespec="seconds"), "states": states}
+    # Dossier déclaré : son chemin à partir du HOME de la machine, transmis à une machine qui ne l'a
+    # pas déclaré (elle le déclare à la réception). Gardé d'une version à l'autre.
+    dir_kept = dir_path or prior.get("dir")
+    if game.startswith(DIR_PREFIX) and isinstance(dir_kept, str) and dir_kept:
+        meta["dir"] = dir_kept
     text = json.dumps(meta, indent=2, ensure_ascii=False) + "\n"
     if old is not None and old.get("fingerprint") == fingerprint:
         part.unlink(missing_ok=True)
@@ -580,7 +586,8 @@ def _pull_one(settings: Settings, host: AgentHost, source: str, game: str,
         fingerprint, profile = host.saves_get(game, part)
         newest = int(entry.get("newest") or 0)
         store(settings, game, part, fingerprint=fingerprint, newest=newest,
-              size=_size_of(entry), profile=profile, source=source)
+              size=_size_of(entry), profile=profile, source=source,
+              dir_path=str(entry.get("dir") or "") or None)
     except SavesBusy:
         result["message"] = f"jeu en cours sur {source} : non récupéré"
         return result
@@ -634,7 +641,7 @@ def _push_one(settings: Settings, game: str, machine_id: str, label: str,
         archive = reserve_dir(settings, game) / CURRENT
         if meta is None or not archive.is_file():
             raise RebuildError("absent du manager")
-        reply = host.saves_put(game, archive, meta.get("profile"))
+        reply = host.saves_put(game, archive, meta.get("profile"), meta.get("dir"))
         fingerprint = str(reply.get("fingerprint") or meta.get("fingerprint") or "")
         result["archived"] = bool(reply.get("archived"))
     except SavesBusy:

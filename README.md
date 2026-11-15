@@ -155,6 +155,9 @@ machine **source** (celle qui est la plus avancée) vers les autres machines.
   machine, sinon déduit) et `kind` (`dossier`, `switch` ou `jeu`). Pull, push,
   suppression et copie du manager les traitent comme des jeux. Les dossiers se
   déclarent par machine (menu de la carte → « Dossiers synchronisés… ») :
+  Un dossier se propage comme une sauvegarde : le manager garde son chemin (champ
+  `dir` de la liste de l'agent, ou en-tête `X-Wsq-Dir` d'un envoi) et le transmet
+  en l'envoyant ; une machine qui ne l'a pas le déclare à la réception.
   `GET|PUT|DELETE /api/saves/machines/{id}/dirs` relaient `/v1/saves/dirs` de
   l'agent (422 : son refus, ex. chemin hors de son HOME, ou agent trop ancien ;
   502 : injoignable).

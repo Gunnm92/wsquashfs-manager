@@ -24,6 +24,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import unquote
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
@@ -83,7 +84,8 @@ def build_router(settings_of: Callable[[], Settings]) -> APIRouter:
             meta = saves_svc.reserve_meta(settings, name) or {}
             games.append({"name": name, "fingerprint": str(meta.get("fingerprint") or ""),
                           "newest": int(meta.get("newest") or 0), "size": int(meta.get("size") or 0),
-                          "state": saves_svc.machine_state(settings, name, machine["id"])})
+                          "state": saves_svc.machine_state(settings, name, machine["id"]),
+                          **({"dir": meta["dir"]} if meta.get("dir") else {})})
         return {"games": games}
 
     @router.get("/v1/saves/tar")
@@ -141,11 +143,12 @@ def build_router(settings_of: Callable[[], Settings]) -> APIRouter:
             # les donne la liste d'un agent : elles départagent les conflits) ; à défaut, l'archive
             # et l'heure de réception.
             files_size = _header_int(request, "x-wsq-size", size)
+            dir_path = unquote(request.headers.get("x-wsq-dir", "")) or None
             newest = _header_int(request, "x-wsq-newest", int(time.time()))
             with _store_lock:
                 _, archived = saves_svc.store_archived(settings, game, part, fingerprint=fingerprint,
                                                        newest=newest, size=files_size, profile=profile,
-                                                       source=machine["name"])
+                                                       source=machine["name"], dir_path=dir_path)
                 saves_svc.record_state(settings, game, machine["id"], fingerprint)
         except OSError as exc:
             raise HTTPException(status_code=500, detail=f"écriture dans le manager impossible : {exc}") from exc

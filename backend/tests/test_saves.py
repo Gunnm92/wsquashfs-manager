@@ -17,7 +17,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlsplit, unquote
 
 import pytest
 from fastapi.testclient import TestClient
@@ -114,7 +114,8 @@ class SavesAgent(BaseHTTPRequestHandler):
                 return self._send(404, b"404 page not found\n", ctype="text/plain; charset=utf-8")
             games = [{"name": name, "fingerprint": "" if g.get("gone") else fp_of(g["data"]),
                       "newest": g["newest"], "size": g["size"], "state": "",
-                      **({"label": self.st["labels"][name]} if name in self.st["labels"] else {})}
+                      **({"label": self.st["labels"][name]} if name in self.st["labels"] else {}),
+                      **({"dir": self.st["dirpaths"][name]} if name in self.st["dirpaths"] else {})}
                      for name, g in sorted(self.st["games"].items())]
             return self._send(200, json.dumps({"games": games}).encode())
         if url.path == "/v1/saves/dirs":
@@ -158,7 +159,7 @@ class SavesAgent(BaseHTTPRequestHandler):
             return self._send(200, json.dumps({"dirs": self.st["dirs"], "eden": ""}).encode())
         game = parse_qs(url.query).get("game", [""])[0]
         profile = self.headers.get("X-Wsq-Profile")
-        self._record("PUT", url.path, game=game, profile=profile)
+        self._record("PUT", url.path, game=game, profile=profile, dir=self.headers.get("X-Wsq-Dir"))
         if not self._auth():
             return
         length = int(self.headers.get("Content-Length", "0"))
@@ -242,7 +243,7 @@ def agents(tmp_path):
 
     def make(host: str, games=None, busy=(), conflict=(), now=1000, token=TOKEN, cert_dir=None,
              os_name="linux", info_fail=False, old_status=None, no_saves_routes=False,
-             secret=SECRET, old_pair=False, labels=None, dirs=None, no_dirs=False,
+             secret=SECRET, old_pair=False, labels=None, dirs=None, no_dirs=False, dirpaths=None,
              version="4", auto=False, no_manager=False):
         cert, key = make_cert(tmp_path / (cert_dir or host))
         st = {"host": host, "token": token, "busy": set(busy), "conflict": set(conflict),
@@ -250,6 +251,7 @@ def agents(tmp_path):
               "old_status": old_status, "deleted": [], "no_saves_routes": no_saves_routes,
               "secret": secret, "pair_open": True, "old_pair": old_pair, "pairs": [], "bound": None,
               "labels": dict(labels or {}), "dirs": list(dirs or []), "no_dirs": no_dirs,
+              "dirpaths": dict(dirpaths or {}),
               "version": version, "auto": auto, "no_manager": no_manager, "manager": None, "manager_fp": "",
               "games": {name: fake_game(spec) for name, spec in (games or {}).items()}}
         handler = type("H", (SavesAgent,), {"st": st})
@@ -1625,3 +1627,23 @@ def test_new_manager_address_is_declared_again(agents, tmp_path):
     settings.machine_url = "https://10.0.0.9:8790"
     assert saves.redeclare_manager(settings) == [machine_ids(settings)["steambox"]]
     assert steambox["st"]["manager"]["url"] == "https://10.0.0.9:8790"
+
+
+
+def test_declared_dir_path_travels_with_the_save(agents, api):
+    """Un dossier déclaré sur une machine se propage comme une sauvegarde : le manager garde son
+    chemin (liste de l'agent) et le transmet en l'envoyant à une machine qui ne l'a pas (X-Wsq-Dir,
+    encodé), qui le déclarera à la réception."""
+    client, settings, _ = api
+    name = "dossier:Zelda Ocarina Of Time"
+    steambox = agents("steambox", games={name: (b"GZz", "", 900)}, dirpaths={name: ".local/share/hookshot/save é"})
+    aibox = agents("aibox")
+    associate(settings, steambox)
+    associate(settings, aibox)
+    ids = machine_ids(settings)
+    result = saves.push_from(settings, ids["steambox"], [ids["aibox"]], [name])
+    assert result["push"]["results"][0]["ok"], result
+    assert saves.reserve_meta(settings, name)["dir"] == ".local/share/hookshot/save é"
+    sent = [e for e in aibox["st"]["log"] if e["method"] == "PUT" and e["path"] == "/v1/saves/tar"]
+    assert sent and unquote(sent[0]["dir"]) == ".local/share/hookshot/save é"
+    assert sent[0]["dir"].isascii()                 # en-tête HTTP : encodé en pourcentage

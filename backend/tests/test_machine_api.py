@@ -301,3 +301,14 @@ def test_put_keeps_the_size_and_date_of_the_save_files(mapi):
     other = gz("autre partie")
     assert put_tar(client, {**headers_a, "X-Wsq-Size": "abc"}, other).status_code == 200
     assert client.get("/v1/saves/list", headers=headers_a).json()["games"][0]["size"] == len(other)
+
+
+def test_put_keeps_the_path_of_a_declared_dir(mapi):
+    """Dossier déclaré envoyé par une machine : son chemin (X-Wsq-Dir, encodé) est gardé et rendu
+    par la liste, pour qu'une autre machine le déclare à la réception."""
+    client, settings, headers_a, _ = mapi
+    name = "dossier:Zelda Ocarina Of Time"
+    data = gz("zelda")
+    assert put_tar(client, {**headers_a, "X-Wsq-Dir": ".local%2Fshare%2Fhookshot%2Fsave"}, data, game=name).status_code == 200
+    listed = client.get("/v1/saves/list", headers=headers_a).json()["games"]
+    assert listed[0]["dir"] == ".local/share/hookshot/save"

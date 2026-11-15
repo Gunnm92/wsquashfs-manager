@@ -34,6 +34,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from urllib.parse import quote
+
 import httpx
 
 from ..config import Settings, saves_client_id
@@ -439,10 +441,14 @@ class AgentHost:
             raise self._unreachable(exc) from exc
         return fingerprint, profile
 
-    def saves_put(self, game: str, archive: Path, profile: str | None) -> dict:
+    def saves_put(self, game: str, archive: Path, profile: str | None, dir_path: str | None = None) -> dict:
         """Envoie une archive ; la machine archive sa version si elle a changé
-        depuis le dernier échange avec ce manager. → {fingerprint, archived}."""
+        depuis le dernier échange avec ce manager. `dir_path` : chemin d'un dossier déclaré (à
+        partir du HOME de la machine) : une machine qui ne l'a pas le déclare (X-Wsq-Dir, encodé
+        en pourcentage). → {fingerprint, archived}."""
         headers = {"Content-Type": "application/gzip", "Content-Length": str(archive.stat().st_size)}
+        if dir_path:
+            headers["X-Wsq-Dir"] = quote(dir_path, safe="")
         if profile:
             try:
                 profile.encode("ascii")
