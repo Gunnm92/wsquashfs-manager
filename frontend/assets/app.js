@@ -1790,7 +1790,7 @@ function machineCard(m) {
         m.auto ? el("span", { className: "chip plain t-sage", title: "Synchro automatique : envoie ses sauvegardes au manager à la sortie d'un jeu (--sync auto on)" },
           icon("refresh", "xs"), el("span", { textContent: "auto" })) : null),
       el("span", { className: "mcard-sub" }, el("span", { className: "led" }),
-        el("span", { textContent: m.ok ? `${m.games} jeu${m.games > 1 ? "x" : ""}${m.auto ? " · envoi auto à la sortie d'un jeu" : ""}` : "injoignable" }))));
+        el("span", { textContent: m.ok ? `${m.games} jeu${m.games > 1 ? "x" : ""}` : "injoignable" }))));
   card.onclick = () => { sv.filter = active ? "" : `m:${m.id}`; paintSaves(); };
   const menu = el("button", { type: "button", className: "mcard-menu", title: "Actions sur cette machine", "aria-label": `Actions sur ${m.name}`, "aria-haspopup": "menu" },
     icon("chevd", "sm"));
