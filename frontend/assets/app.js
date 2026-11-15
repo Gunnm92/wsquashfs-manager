@@ -2017,6 +2017,20 @@ $("s-targets").onclick = () => {
 $("s-source").onchange = () => { sv.source = $("s-source").value; paintSelection(); };
 $("s-search").addEventListener("input", paintTable);
 $("s-refresh").onclick = () => loadSaves();
+
+// Rafraîchissement automatique de l'onglet Sauvegardes : une machine qui lance son agent (ou
+// l'arrête) change d'état sans recharger la page. Seulement onglet affiché et page visible, sans
+// opération en cours, menu ni dialogue ouvert, et jamais deux lectures à la fois.
+const SAVES_POLL_MS = 20000;
+let savesPolling = false;
+async function pollSaves() {
+  if (savesPolling || document.hidden || document.body.dataset.view !== "saves" || !sv.loaded
+    || busy() || openMenu || document.querySelector("dialog[open]")) return;
+  savesPolling = true;
+  try { await loadSaves(); } finally { savesPolling = false; }
+}
+setInterval(pollSaves, SAVES_POLL_MS);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) pollSaves(); });
 $("s-clear").onclick = () => { sv.selected.clear(); paintTable(); paintSelection(); };
 $("s-push").onclick = () => pushSelection();
 $("s-pull").onclick = () => pullGames(sv.games.filter((g) => sv.selected.has(g.game)), sv.source);
