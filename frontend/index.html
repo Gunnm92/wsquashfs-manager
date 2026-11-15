@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="assets/app.css">
 <script src="assets/app.js" defer></script>
 </head>
-<body data-view="images">
+<body data-view="saves">
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
 <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"></path><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"></path><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"></path></symbol>
 <symbol id="i-package" viewBox="0 0 24 24"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"></path><path d="M12 22V12"></path><path d="m3.3 7 8.7 5 8.7-5"></path></symbol>
@@ -81,8 +81,8 @@
     <div class="name">wsquashfs</div>
   </div>
   <nav class="views" id="views">
-    <button data-view="saves" title="Sauvegardes entre machines"><svg class="ico"><use href="#i-save"/></svg><span>Sauvegardes</span><span class="count" id="count-saves"></span></button>
-    <button data-view="images" class="active" title="Images"><svg class="ico"><use href="#i-layers"/></svg><span>Images</span><span class="count" id="count-images"></span></button>
+    <button data-view="saves" class="active" title="Sauvegardes entre machines"><svg class="ico"><use href="#i-save"/></svg><span>Sauvegardes</span><span class="count" id="count-saves"></span></button>
+    <button data-view="images" title="Images"><svg class="ico"><use href="#i-layers"/></svg><span>Images</span><span class="count" id="count-images"></span></button>
     <button data-view="folders" title="Dossiers à empaqueter"><svg class="ico"><use href="#i-package"/></svg><span>Dossiers à empaqueter</span><span class="count" id="count-folders"></span></button>
   </nav>
   <span id="status"></span>
@@ -105,7 +105,7 @@
 </section>
 
 <!-- ================================================================ Images -->
-<main id="main" class="images">
+<main id="main" class="images" hidden>
   <section class="lib">
     <div id="recovery"></div>
     <div class="notice info lib-loading" id="lib-loading" role="status" hidden></div>
@@ -307,7 +307,7 @@
 </main>
 
 <!-- ================================================================ Sauvegardes -->
-<main id="saves-main" class="folders" hidden>
+<main id="saves-main" class="folders">
   <div class="page-head">
     <h1>Sauvegardes</h1>
     <p>Sauvegardes de partie de tes machines. <b>Sync</b> copie la version suggérée (la plus lourde) vers les machines qui ont le jeu dans une version en retard ; la version écrasée est archivée. Une machine qui n'a pas le jeu n'est pas touchée (menu « … » pour l'y installer). Le manager garde une copie, même machine éteinte.</p>

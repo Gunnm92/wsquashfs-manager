@@ -3584,5 +3584,6 @@ $("btn-inst-uninstall").onclick = () => openUninstall(selectedImages());
   loadSaves();                 // compteur de l'onglet et icônes de la liste (sans bloquer)
   loadInstall();               // images installées par machine : filtre, pastilles, fiche
   refreshTasks();
-  if (["folders", "saves", "help"].includes(storage.get("wsfs-view"))) showView(storage.get("wsfs-view"));
+  // Démarrage sur Sauvegardes (usage le plus courant) ; folders et help restent mémorisés
+  showView(["folders", "help"].includes(storage.get("wsfs-view")) ? storage.get("wsfs-view") : "saves");
 })();

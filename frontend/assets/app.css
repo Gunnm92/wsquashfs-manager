@@ -1040,7 +1040,8 @@ body:not([data-view=saves]) #s-selection { display: none; }
 .sv-bar .glabel { width: auto; margin: 0; }
 /* Cartes des machines : grille qui remplit la largeur ; sur mobile, une rangée défilante */
 .sv-chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; min-width: 0; }
-.sv-chips > .dd { display: block; min-width: 0; }
+.sv-chips > .dd:not(.mcard-wrap) { display: block; min-width: 0; }
+.sv-chips > .mcard-wrap { display: flex; align-items: stretch; min-width: 0; }
 .mcard { display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0; height: 100%; padding: 10px 10px 10px 10px; border: 1.5px solid transparent;
   border-radius: 20px; background: var(--s2); color: var(--text); font: inherit; font-size: 13px; text-align: left; }
 button.mcard { cursor: pointer; }
