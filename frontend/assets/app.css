@@ -1058,6 +1058,12 @@ button.mcard:hover, button.mcard:focus-visible { background: var(--s3); }
 .mcard.off .mcard-sub { color: var(--err-200); }
 .mcard.off .led { background: var(--err); box-shadow: 0 0 0 3px rgba(255, 130, 130, .18); }
 .mcard .chev { color: var(--faint); flex: none; align-self: center; }
+.mcard-wrap { display: flex; align-items: stretch; }
+.mcard-wrap > .mcard { flex: 1; min-width: 0; }
+button.mcard.on { border-color: var(--accent); background: var(--accent-900); }
+.mcard-menu { flex: none; width: 34px; border: 0; background: transparent; color: var(--faint); cursor: pointer;
+  display: grid; place-items: center; border-radius: 0 12px 12px 0; }
+.mcard-menu:hover, .mcard-menu:focus-visible { color: var(--text); background: var(--s3); }
 button.mcard:hover .chev { color: var(--muted); }
 /* Carte « Associer » : pointillés, en fin de bandeau */
 .mcard.add { justify-content: center; gap: 8px; background: transparent; border: 1.5px dashed var(--line2); color: var(--muted); font-weight: 600; }

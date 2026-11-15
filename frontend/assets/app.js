@@ -1686,10 +1686,6 @@ const names = (ids) => ids.map(machineName).join(", ");
 const reachableIds = () => sv.machines.filter((m) => m.ok).map((m) => m.id);
 const targetIds = () => reachableIds().filter((id) => !sv.unchecked.has(id));
 const pushTargets = () => targetIds().filter((id) => id !== sv.source);
-// Filtre par machine : une cible décochée dans le menu « Cibles » (la source reste visible) masque
-// les jeux absents de toutes les autres machines joignables.
-const excludedIds = () => reachableIds().filter((id) => id !== sv.source && sv.unchecked.has(id));
-const machineFilterOn = () => excludedIds().length > 0;
 const stateOf = (g, id) => g.machines.find((s) => s.id === id);
 const suggestedOf = (g) => g.machines.find((s) => s.state === "plus avancée");   // la suggérée (la plus lourde)
 const presentIn = (g) => g.machines.filter((s) => PRESENT_STATES.has(s.state));
@@ -1754,6 +1750,7 @@ function paintSaves() {
 // Bandeau : une carte par machine (icône du système, nom, état) ; clic : menu (icône, oubli).
 // Le manager est une carte de plus, sans menu ; « Associer » est la dernière carte.
 function paintChips() {
+  if (filteredMachine() && !sv.machines.some((m) => m.id === filteredMachine())) sv.filter = "";
   const kept = sv.games.filter((g) => g.reserve).length;
   const manager = el("div", { className: "mcard mgr", title: "Copie des sauvegardes sur le manager : elle reste même si une machine est éteinte" },
     el("span", { className: "mcard-ico" }, icon("server", "lg")),
@@ -1766,17 +1763,21 @@ function paintChips() {
 function machineCard(m) {
   const isHost = m.kind === "game_host";
   const title = m.ok ? `${m.url} : joignable` : `Injoignable : ${m.message || "pas de réponse"}`;
-  const card = el("button", { type: "button", className: `mcard${m.ok ? "" : " off"}`, "aria-haspopup": "menu",
-    title: isHost ? `${title} · configurée dans Réglages › Machine de jeu` : title },
+  const active = filteredMachine() === m.id;
+  // Clic sur la carte : n'affiche que les sauvegardes de cette machine ; le chevron à droite ouvre le menu
+  const card = el("button", { type: "button", className: `mcard${m.ok ? "" : " off"}${active ? " on" : ""}`, "aria-pressed": String(active),
+    title: `${isHost ? `${title} · configurée dans Réglages › Machine de jeu` : title} · cliquer : ses sauvegardes seulement` },
     el("span", { className: "mcard-ico" }, osIcon(m.icon, "lg")),
     el("span", { className: "mcard-txt" },
       el("span", { className: "mcard-name" }, el("b", { textContent: m.name }),
         isHost ? el("span", { className: "chip plain t-accent", textContent: "machine de jeu" }) : null),
       el("span", { className: "mcard-sub" }, el("span", { className: "led" }),
-        el("span", { textContent: m.ok ? `${m.games} jeu${m.games > 1 ? "x" : ""}` : "injoignable" }))),
-    icon("chevd", "sm chev"));
-  const wrap = el("div", { className: "dd" }, card);
-  card.onclick = () => openMenuNode(wrap, machineMenu(m));
+        el("span", { textContent: m.ok ? `${m.games} jeu${m.games > 1 ? "x" : ""}` : "injoignable" }))));
+  card.onclick = () => { sv.filter = active ? "" : `m:${m.id}`; paintSaves(); };
+  const menu = el("button", { type: "button", className: "mcard-menu", title: "Actions sur cette machine", "aria-label": `Actions sur ${m.name}`, "aria-haspopup": "menu" },
+    icon("chevd", "sm"));
+  const wrap = el("div", { className: "dd mcard-wrap" }, card, menu);
+  menu.onclick = () => openMenuNode(wrap, machineMenu(m));
   return wrap;
 }
 
@@ -1836,9 +1837,11 @@ function toggleMenu(wrap, items) {
   }));
 }
 
-// Présence d'un jeu sur une machine (filtre par machine, cibles)
+// Présence d'un jeu sur une machine (utilisée par le bandeau et les cibles)
 const onMachine = (g, id) => PRESENT_STATES.has(stateOf(g, id)?.state);
-// Filtres d'état seulement ; le filtre par machine se règle dans le bandeau (menu « Cibles »)
+// Filtre par machine : sv.filter = « m:<id> », réglé par un clic sur sa carte du bandeau « Machines »
+const filteredMachine = () => (sv.filter.startsWith("m:") ? sv.filter.slice(2) : "");
+// Filtres d'état, et le filtre machine (les pastilles machines sont dans le bandeau)
 function paintFilters() {
   const counts = { "": sv.games.length, diff: sv.games.filter(differs).length,
     same: sv.games.filter(identical).length, reserve: sv.games.filter((g) => g.reserve).length };
@@ -1857,10 +1860,7 @@ function visibleGames() {
     if (sv.filter === "diff") return differs(g);
     if (sv.filter === "same") return identical(g);
     if (sv.filter === "reserve") return Boolean(g.reserve);
-    if (machineFilterOn()) {
-      const excluded = excludedIds();
-      return reachableIds().some((id) => !excluded.includes(id) && onMachine(g, id));
-    }
+    if (filteredMachine()) return onMachine(g, filteredMachine());
     return true;
   };
   return sv.games.filter((g) => (!q || g.game.toLowerCase().includes(q)) && keep(g))
@@ -1897,7 +1897,8 @@ function checkMarker(g) {
 
 function paintTable() {
   closeMenu();
-  const cols = sv.machines;
+  const first = filteredMachine();
+  const cols = first ? [...sv.machines.filter((m) => m.id === first), ...sv.machines.filter((m) => m.id !== first)] : sv.machines;
   const ids = imageIds(), games = visibleGames();
   const selectable = games;
   const all = $("s-all");
@@ -1979,13 +1980,10 @@ function paintStatus() {
 
 // Barre de sélection : source → cibles (cases dans un menu), Sync, Copier vers le manager
 function paintSelection() {
-  const bar = $("s-selection"), n = sv.selected.size, excluded = excludedIds();
-  // Le bandeau reste visible tant qu'un filtre machine est actif : c'est là qu'on le retire
-  bar.hidden = (n === 0 && excluded.length === 0) || !sv.loaded;
+  const bar = $("s-selection"), n = sv.selected.size;
+  bar.hidden = n === 0 || !sv.loaded;
   if (bar.hidden) return;
-  $("s-count").textContent = n === 0
-    ? `Filtre : ${excluded.length} machine${excluded.length > 1 ? "s" : ""} masquée${excluded.length > 1 ? "s" : ""}`
-    : n > 1 ? `${n} jeux` : "1 jeu";
+  $("s-count").textContent = n > 1 ? `${n} jeux` : "1 jeu";
   const options = [[AUTO, "La plus avancée (par jeu)"], ...sv.machines.filter((m) => m.ok).map((m) => [m.id, m.name]),
     [RESERVE, "Manager"]];
   if (!options.some(([value]) => value === sv.source)) sv.source = AUTO;
@@ -2010,7 +2008,7 @@ $("s-targets").onclick = () => {
   if (open) return;
   const boxes = sv.machines.filter((m) => m.ok).map((m) => {
     const box = el("input", { type: "checkbox", checked: !sv.unchecked.has(m.id) && m.id !== sv.source, disabled: m.id === sv.source });
-    box.onchange = () => { box.checked ? sv.unchecked.delete(m.id) : sv.unchecked.add(m.id); paintSaves(); };
+    box.onchange = () => { box.checked ? sv.unchecked.delete(m.id) : sv.unchecked.add(m.id); paintSelection(); };
     return el("label", { className: "dd-check" }, box, el("span", { textContent: m.name }));
   });
   openMenu = el("div", { className: "dd-menu", role: "group" }, ...(boxes.length ? boxes : [el("span", { className: "muted dd-check", textContent: "Aucune machine joignable" })]));
