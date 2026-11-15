@@ -404,38 +404,77 @@ VIRTUAL_DESKTOP=1920x1080</pre></div>
     <p class="lead"><code>wsquashfs-launcher</code> monte l'image et lance le jeu, sans aucun privilège. Le gestionnaire s'en sert ; tu peux aussi l'utiliser en ligne de commande.</p>
 
     <h2>Commandes</h2>
+    <p data-f><code>wsquashfs-launcher --help</code> affiche l'essentiel et la version du lanceur ; tout le détail est ci-dessous.</p>
     <div class="clist">
       <div data-f><code>wsquashfs-launcher &lt;jeu.wsquashfs&gt;</code><span>Lancer le jeu.</span></div>
-      <div data-f><code>--info &lt;jeu.wsquashfs&gt;</code><span>Version, type, runner, commande et taille, sans monter l'image.</span></div>
-      <div data-f><code>--pack &lt;Jeu.wine&gt;</code><span>Créer une image à partir d'un dossier.</span></div>
       <div data-f><code>--exec &lt;jeu&gt; &lt;programme&gt;</code><span>Lancer un autre programme dans le prefix du jeu (<code>winecfg</code>, <code>regedit</code>, l'outil de config du jeu…).</span></div>
+      <div data-f><code>--info &lt;jeu&gt;</code><span>Version, type, runner, commande et taille, sans monter l'image.</span></div>
       <div data-f><code>--list</code><span>Les jeux connus et leur état.</span></div>
+      <div data-f><code>--sync</code><span>Synchroniser les sauvegardes avec les autres machines (voir <a href="#h-saves">Sauvegardes</a>).</span></div>
       <div data-f><code>--doctor</code><span>Vérifier l'installation (aussi dans Réglages → Outils).</span></div>
+      <div data-f><code>--update</code><span>Mettre à jour le lanceur.</span></div>
     </div>
     <details class="more" data-f><summary>Toutes les commandes</summary>
+      <h3>Jouer</h3>
       <dl class="cdetail">
-        <dt><code>wsquashfs-launcher [--wine &lt;version&gt;] &lt;jeu.wsquashfs | dossier&gt;</code></dt>
+        <dt><code>wsquashfs-launcher [--wine &lt;runner&gt;] [--set CLÉ=valeur]… &lt;jeu.wsquashfs | dossier&gt;</code></dt>
         <dd>Lance le jeu. Un dossier <code>.pc</code> contenant <code>autorun.cmd</code> est essayé en overlay, comme son image, sans être modifié ; un autre dossier (<code>.wine</code>, jeu installé) est lancé sur place, sans montage.</dd>
+        <dt><code>--wine &lt;runner&gt;</code></dt>
+        <dd>Impose un runner (nom ou partie du nom, chemin d'un binaire wine, ou <code>system</code>), avant tout autre choix.</dd>
+        <dt><code>--set CLÉ=valeur</code></dt>
+        <dd>Réglage pour ce lancement seulement, plus fort que tous les fichiers ; répétable : <code>--set NVAPI=0 --set ENV=DXVK_HUD=fps</code>.</dd>
         <dt><code>--exec &lt;jeu.wsquashfs&gt; &lt;programme&gt; [arguments…]</code></dt>
         <dd>Exécutable du jeu (chemin relatif au prefix ou au <code>DIR</code>, casse ignorée) ou outil Wine (<code>winecfg</code>, <code>regedit</code>, <code>cmd</code>, <code>explorer</code>, <code>control joy.cpl</code>…). <code>PRE</code>/<code>ATTACH</code> ne sont pas lancés.</dd>
+        <dt><code>--prepare &lt;jeu&gt;</code></dt>
+        <dd>Prépare le prefix (création ou mise à jour, DXVK, VKD3D, NVAPI, registre) sans lancer le jeu.</dd>
+        <dt><code>--headless &lt;jeu&gt;</code></dt>
+        <dd>Lance le jeu dans gamescope sans écran (essai en arrière-plan).</dd>
+        <dt><code>--trial &lt;jeu&gt; [durée] [session NOM] [screenshot FICHIER]</code></dt>
+        <dd>Essai chronométré, utilisé par le lancement d'essai du gestionnaire : lance le jeu (60 s par défaut), observe ses processus et fenêtres, l'arrête et écrit un rapport JSON.</dd>
+        <dt>MangoHud, gamemode…</dt>
+        <dd>Se placent devant la commande : <code>mangohud wsquashfs-launcher MonJeu.wsquashfs</code>.</dd>
+      </dl>
+      <h3>Images</h3>
+      <dl class="cdetail">
+        <dt><code>--info &lt;jeu&gt;</code> · <code>--show &lt;jeu&gt; [--set CLÉ=valeur]…</code></dt>
+        <dd>Version, type de prefix, commande et taille ; réglages finaux et la couche d'où vient chacun (défauts, fichiers, autorun, surcharge, <code>--set</code>), emplacement des sauvegardes. Sans monter l'image.</dd>
         <dt><code>--mount &lt;jeu&gt;</code> · <code>--umount [&lt;jeu&gt;]</code></dt>
         <dd>Monter le jeu pour le modifier à la main (les changements vont dans ses sauvegardes) ; démonter un jeu ou tous.</dd>
-        <dt><code>--pack &lt;Jeu.wine&gt; [sortie.wsquashfs]</code></dt>
+        <dt><code>--pack &lt;Jeu.wine | Jeu.pc&gt; [sortie.wsquashfs]</code></dt>
         <dd>Crée une image (zstd). Une image existante n'est remplacée qu'une fois la nouvelle construite, après confirmation au terminal.</dd>
         <dt><code>--install &lt;jeu.wsquashfs&gt; [dossier]</code></dt>
         <dd>L'inverse de <code>--pack</code> : extrait le jeu pour jouer sans FUSE. L'image est conservée, un dossier existant n'est jamais écrasé.</dd>
+        <dt><code>--list</code></dt>
+        <dd>Jeux connus : état (en cours, monté), version, taille des sauvegardes et image.</dd>
+      </dl>
+      <h3>Sauvegardes</h3>
+      <dl class="cdetail">
+        <dt><code>--sync [jeu | status [jeu] | forget &lt;machine&gt; | wsq://…]</code></dt>
+        <dd>Synchronise à la main les sauvegardes avec les machines associées du réseau local. Sans argument : les jeux présents des deux côtés ; <code>status</code> montre ce qui serait fait. Conflit : la plus lourde gagne (à taille égale, la plus récente), l'autre est archivée. Jeu arrêté des deux côtés.</dd>
+        <dt><code>--save &lt;jeu&gt;</code> · <code>--saves</code></dt>
+        <dd>Copie les sauvegardes de partie (Documents, Saved Games, AppData) d'un jeu, ou de tous, dans <code>saves/&lt;système&gt;/&lt;jeu&gt;</code> à côté de <code>roms/</code>. Sens unique, rien n'est supprimé. Restauration, jeu arrêté : <code>cp -a saves/&lt;système&gt;/&lt;jeu&gt;/drive_c ~/.local/share/wsquashfs/saves/&lt;jeu&gt;/</code></dd>
         <dt><code>--clean</code></dt>
         <dd>Ménage sans risque : supprime le cache et les doublons des sauvegardes (fichiers recopiés sans modification). Ce que le jeu a écrit est gardé. Ne garde que les 3 dernières archives de <code>--erase</code> par jeu.</dd>
         <dt><code>--clear [jeu]</code></dt>
         <dd>Plus profond : ne garde que <code>drive_c/users</code> des sauvegardes, sans archive. Scores et réglages écrits ailleurs sont perdus.</dd>
         <dt><code>--erase [jeu]</code></dt>
         <dd>Efface toutes les sauvegardes : le jeu repart de son image. <code>drive_c/users</code> est archivé avant dans <code>~/.local/share/wsquashfs/backups/</code>. Restauration : <code>tar -xf &lt;archive&gt; -C ~/.local/share/wsquashfs/saves/&lt;jeu&gt;/</code></dd>
-        <dt><code>--saves [jeu]</code></dt>
-        <dd>Copie les sauvegardes de partie (Documents, Saved Games, AppData) de tous les jeux, ou d'un seul, dans <code>saves/&lt;système&gt;/&lt;jeu&gt;</code> à côté de <code>roms/</code>. Sens unique, rien n'est supprimé. Restauration, jeu arrêté : <code>cp -a saves/&lt;système&gt;/&lt;jeu&gt;/drive_c ~/.local/share/wsquashfs/saves/&lt;jeu&gt;/</code></dd>
-        <dt><code>--wine &lt;version&gt;</code></dt>
-        <dd>Impose un runner (nom ou partie du nom, chemin d'un binaire wine, ou <code>system</code>), avant tout autre choix.</dd>
-        <dt>MangoHud, gamemode…</dt>
-        <dd>Se placent devant la commande : <code>mangohud wsquashfs-launcher MonJeu.wsquashfs</code>.</dd>
+      </dl>
+      <h3>Machines et gestionnaire</h3>
+      <dl class="cdetail">
+        <dt><code>--pair [roms DIR]… [port N]</code></dt>
+        <dd>Affiche le code d'association <code>wsq://…</code> (une seule fois, 10 min) à coller dans le gestionnaire (<a href="#g-pair">Associer une machine</a>, ou Réglages → Machine de jeu) ou dans <code>--sync wsq://…</code> sur l'autre machine, puis attend l'association.</dd>
+        <dt><code>--pair forget &lt;machine&gt;</code> · <code>--pair reset</code></dt>
+        <dd>Retire une machine associée (son accès est coupé tout de suite) ; les retire toutes puis attend une nouvelle association.</dd>
+        <dt><code>--agent</code> · <code>--agent stop</code> · <code>--agent status</code></dt>
+        <dd>Lance l'agent en arrière-plan pour que la machine reste joignable ; l'arrête ; dit s'il tourne et liste les machines associées. Rien ne le démarre tout seul. <code>--agent run [log]</code> : au premier plan, pour le débogage.</dd>
+      </dl>
+      <h3>Installation</h3>
+      <dl class="cdetail">
+        <dt><code>--doctor [json]</code></dt>
+        <dd>Vérifie FUSE, Wine/Proton et runners, umu, DXVK, VKD3D, d7vk, manettes, dossiers, et dit ce qui manque.</dd>
+        <dt><code>--update</code></dt>
+        <dd>Met à jour le lanceur depuis GitHub : affiche la version installée et la version distribuée ; le binaire est vérifié par sa somme SHA-256 avant remplacement.</dd>
       </dl>
     </details>
 
