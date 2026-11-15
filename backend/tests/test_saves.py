@@ -1452,3 +1452,27 @@ def test_unreachable_source_is_reported(api, monkeypatch):
     monkeypatch.setattr(saves, "open_machine", down)
     data = client.get("/api/source/games").json()
     assert data["source"]["ok"] is False and "injoignable" in data["source"]["message"] and data["games"] == []
+
+
+def test_api_switch_artwork_from_batocera_gamelist(api, tmp_path):
+    """Jaquette d'un jeu Switch : fiche du gamelist.xml de roms/switch dont le chemin porte le
+    TitleID (ou celui de sa mise à jour …800) ; un média qui sort du dossier est ignoré ; un
+    dossier déclaré ou un TitleID inconnu n'a pas d'illustration (404)."""
+    client, settings, _ = api
+    roms = tmp_path / "roms"
+    (roms / "switch" / "covers").mkdir(parents=True)
+    (roms / "switch" / "covers" / "Zelda.png").write_bytes(b"\x89PNG\r\n\x1a\nzelda")
+    (roms / "switch" / "covers" / "Crash.png").write_bytes(b"\x89PNG\r\n\x1a\ncrash")
+    (tmp_path / "secret.png").write_bytes(b"\x89PNG\r\n\x1a\nsecret")
+    (roms / "switch" / "gamelist.xml").write_text(
+        "<gameList>"
+        "<game><path>./Zelda TOTK [0100F2C0115B6000][v0].xci</path><thumbnail>./covers/Zelda.png</thumbnail></game>"
+        "<game><path>./Crash [0100F9F00C696800][v196608].nsp</path><boxart>./covers/Crash.png</boxart></game>"
+        "<game><path>./Evasion [0100000000AAA000].nsp</path><image>../../secret.png</image></game>"
+        "</gameList>")
+    settings.roms_roots = [str(roms)]
+    reply = client.get("/api/saves/art", params={"game": "switch:0100F2C0115B6000"})
+    assert reply.status_code == 200 and reply.content.endswith(b"zelda") and reply.headers["x-art-kind"] == "es"
+    assert client.get("/api/saves/art", params={"game": "switch:0100F9F00C696000"}).content.endswith(b"crash")
+    for game in ("switch:0100000000AAA000", "switch:0100000000BBB000", "dossier:hookshot", "switch:../x"):
+        assert client.get("/api/saves/art", params={"game": game}).status_code == 404, game

@@ -2010,7 +2010,7 @@ function paintTable() {
       actions.append(wrap);
     }
     return el("tr", { className: differs(g) ? "sv-diff" : "" },
-      el("td", { className: "sv-stick" }, box), el("td", { className: "sv-stick2" }, name),
+      el("td", { className: "sv-stick" }, box), el("td", { className: "sv-stick2" }, el("span", { className: "sv-namecell" }, saveThumb(g, img), name)),
       ...cols.map((m) => machineCell(g, m, targets.includes(m.id))), reserve, actions);
   };
   const header = (kind, title, count) => {
@@ -2033,6 +2033,35 @@ function paintTable() {
         : emptyState("save", "Aucune sauvegarde", "Les machines associées n'ont aucune sauvegarde de partie."))));
   }
   $("s-table").replaceChildren(el("thead", {}, head), el("tbody", {}, ...rows));
+}
+
+// Vignette d'une ligne : illustration de l'image (jeu PC de la bibliothèque, comme la vue Images),
+// jaquette du gamelist.xml de Batocera (jeu Switch, /api/saves/art), sinon initiales.
+const svArt = { cache: new Map(), done: new Map() };
+function saveThumb(g, imgId) {
+  const node = el("span", { className: "thumb sv-thumb", "aria-hidden": "true" });
+  const item = imgId ? state.byId.get(imgId) : null;
+  if (item) {
+    node.dataset.id = item.id;          // showArt vérifie que la vignette est toujours celle de l'image
+    showArt(node, item);
+    return node;
+  }
+  if (g.kind === "switch" && svArt.done.has(g.game)) {
+    const a = svArt.done.get(g.game);
+    a ? putArt(node, a, false) : paintInitials(node, gameLabel(g));
+    return node;
+  }
+  paintInitials(node, gameLabel(g));
+  if (g.kind === "switch") {
+    if (!svArt.cache.has(g.game)) {
+      svArt.cache.set(g.game, fetch(`/api/saves/art?game=${encodeURIComponent(g.game)}`, { headers: { "x-wsfs-token": storage.get("wsfs-token") || "" } })
+        .then(async (r) => r.ok ? { url: URL.createObjectURL(await r.blob()), kind: r.headers.get("X-Art-Kind") || "es" } : null)
+        .catch(() => null)
+        .then((a) => { svArt.done.set(g.game, a); return a; }));
+    }
+    svArt.cache.get(g.game).then((a) => { if (a) putArt(node, a, true); });
+  }
+  return node;
 }
 
 // Menu « … » d'une ligne

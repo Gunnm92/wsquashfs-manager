@@ -31,7 +31,7 @@ from .services import analyze as analyze_mod
 from .services import saves as saves_svc
 from .services import scan
 from .services.analyze import FolderAnalysis, add_local_game, analyze_folder, analyze_image, report
-from .services.artwork import artwork
+from .services.artwork import artwork, switch_artwork
 from .services.autorun import (
     KEY_HELP,
     KEY_NAME_RE,
@@ -490,6 +490,20 @@ def image_art(id: str):
     L'en-tête X-Art-Kind dit laquelle (« es » ou « icon »)."""
     info = _find_image(id)
     art = artwork(_settings, info.path, info.cmd, info.dir)
+    if art is None:
+        raise HTTPException(status_code=404, detail="aucune illustration")
+    return FileResponse(art.path, media_type=art.media_type,
+                        headers={"X-Art-Kind": art.kind, "Cache-Control": "private, max-age=3600"})
+
+
+@app.get("/api/saves/art")
+def saves_art(game: str):
+    """Jaquette d'un jeu Switch de l'onglet Sauvegardes (« switch:<TitleID> »), d'après les
+    gamelist.xml de switch/ et switch2/ des dossiers roms/. Les jeux PC prennent celle de leur image
+    (/api/image/art) ; un dossier déclaré n'en a pas : 404."""
+    if not game.startswith(saves_svc.SWITCH_PREFIX):
+        raise HTTPException(status_code=404, detail="aucune illustration")
+    art = switch_artwork(_settings.roms_roots or _settings.roms_dirs, game[len(saves_svc.SWITCH_PREFIX):])
     if art is None:
         raise HTTPException(status_code=404, detail="aucune illustration")
     return FileResponse(art.path, media_type=art.media_type,

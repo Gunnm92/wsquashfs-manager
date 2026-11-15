@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import struct
 import subprocess
 import tempfile
@@ -48,15 +49,20 @@ class Artwork:
 
 # ------------------------------------------------------------------ ES
 
+def _es_media(system_dir: Path, rel: str) -> Artwork | None:
+    """Média d'ES (chemin relatif au dossier du système, qu'il ne doit pas quitter)."""
+    cand = (system_dir / rel).resolve()
+    media = _IMAGE_EXT.get(cand.suffix.lower())
+    if media and cand.is_relative_to(system_dir) and cand.is_file():
+        return Artwork(cand, media, "es")
+    return None
+
+
 def es_artwork(image: Path) -> Artwork | None:
     system_dir = image.parent.resolve()
 
     def usable(rel: str) -> Artwork | None:
-        cand = (system_dir / rel).resolve()
-        media = _IMAGE_EXT.get(cand.suffix.lower())
-        if media and cand.is_relative_to(system_dir) and cand.is_file():
-            return Artwork(cand, media, "es")
-        return None
+        return _es_media(system_dir, rel)
 
     gamelist = system_dir / "gamelist.xml"
     if gamelist.is_file():
@@ -77,6 +83,43 @@ def es_artwork(image: Path) -> Artwork | None:
         for ext in _IMAGE_EXT:
             if art := usable(f"images/{image.stem}{suffix}{ext}"):
                 return art
+    return None
+
+
+# ------------------------------------------------------------------ jeux Switch (onglet Sauvegardes)
+
+_TITLE_IN_PATH = re.compile(r"\[([0-9A-Fa-f]{16})\]")
+SWITCH_SYSTEMS = ("switch", "switch2")
+
+
+def switch_artwork(roots: list[str], title_id: str) -> Artwork | None:
+    """Jaquette d'un jeu Switch d'après son TitleID (celui des sauvegardes Eden, jeu de base) :
+    fiche des gamelist.xml de switch/ et switch2/ sous chaque dossier roms/ dont le chemin porte
+    [TitleID] (ou celui d'une mise à jour, …800), mêmes médias que la fiche d'une image."""
+    want = title_id.upper()
+    if not re.fullmatch(r"[0-9A-F]{16}", want):
+        return None
+    for root in roots:
+        for system in SWITCH_SYSTEMS:
+            system_dir = Path(root) / system
+            if root.rstrip("/").endswith("/" + system):
+                system_dir = Path(root)
+            gamelist = system_dir / "gamelist.xml"
+            if not gamelist.is_file():
+                continue
+            try:
+                games = ET.parse(gamelist).getroot().iter("game")
+            except (ET.ParseError, OSError):
+                continue
+            system_dir = system_dir.resolve()
+            for game in games:
+                ids = [m.upper() for m in _TITLE_IN_PATH.findall(game.findtext("path") or "")]
+                if not any(i == want or i[:13] + "000" == want for i in ids):
+                    continue
+                for tag in _ES_TAGS:
+                    rel = (game.findtext(tag) or "").strip()
+                    if rel and (art := _es_media(system_dir, rel)):
+                        return art
     return None
 
 

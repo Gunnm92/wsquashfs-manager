@@ -173,7 +173,10 @@ machine **source** (celle qui est la plus avancée) vers les autres machines.
   - Tableau en sections (Jeux PC, Switch, Dossiers ; titres seulement s'il y en
     a plusieurs), lignes triées par nom lisible. Un clic sur le titre replie ou
     rouvre la section (mémorisé dans le navigateur) ; « Tout sélectionner » ne
-    prend que les lignes visibles.
+    prend que les lignes visibles. Vignette de chaque ligne : celle de l'image
+    pour un jeu PC de la bibliothèque ; pour un jeu Switch, la jaquette de la
+    fiche du `gamelist.xml` de `roms/switch` ou `roms/switch2` qui porte son
+    TitleID (`GET /api/saves/art?game=switch:<TitleID>`) ; sinon les initiales.
   - Tableau jeux × machines : ★ plus avancée, identique, en retard, — absente,
     seule copie, ? injoignable, avec taille · date ; colonne Manager ;
     ⚠ à vérifier. Filtres : Tous, Différences, Identiques, Sur le manager ; le
