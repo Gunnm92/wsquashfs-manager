@@ -3579,11 +3579,14 @@ $("btn-inst-uninstall").onclick = () => openUninstall(selectedImages());
   applyHost();
   $("known-keys").replaceChildren(...state.keys.map((k) => new Option(k.key, k.key)));
   buildForm();
+  // La vue par défaut s'affiche tout de suite (Sauvegardes ne dépend pas de la bibliothèque) ;
+  // folders et help restent mémorisés
+  const view = ["folders", "help"].includes(storage.get("wsfs-view")) ? storage.get("wsfs-view") : "saves";
+  showView(view);              // charge aussi les sauvegardes si c'est la vue
+  if (view !== "saves") loadSaves();   // compteur de l'onglet
   await loadLibrary();
+  paintSaves();                // les liens vers les images attendent la bibliothèque
   loadSource();                // source de l'onglet Images (machine associée, sinon la bibliothèque)
-  loadSaves();                 // compteur de l'onglet et icônes de la liste (sans bloquer)
   loadInstall();               // images installées par machine : filtre, pastilles, fiche
   refreshTasks();
-  // Démarrage sur Sauvegardes (usage le plus courant) ; folders et help restent mémorisés
-  showView(["folders", "help"].includes(storage.get("wsfs-view")) ? storage.get("wsfs-view") : "saves");
 })();
