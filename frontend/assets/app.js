@@ -1832,19 +1832,25 @@ function toggleMenu(wrap, items) {
   }));
 }
 
-// Présence d'un jeu sur une machine (utilisée par le bandeau et les cibles)
+// Filtres d'état, puis un filtre par machine (jeux présents sur elle)
 const onMachine = (g, id) => PRESENT_STATES.has(stateOf(g, id)?.state);
-// Filtres d'état seulement : le choix des machines se fait dans le bandeau (menu « Cibles »)
+const filteredMachine = () => (sv.filter.startsWith("m:") ? sv.filter.slice(2) : "");
 function paintFilters() {
+  if (filteredMachine() && !sv.machines.some((m) => m.id === filteredMachine())) sv.filter = "";
   const counts = { "": sv.games.length, diff: sv.games.filter(differs).length,
     same: sv.games.filter(identical).length, reserve: sv.games.filter((g) => g.reserve).length };
-  const pill = (key, label, count) => {
-    const b = el("button", { type: "button", className: sv.filter === key ? "on" : "" },
-      el("span", { textContent: label }), el("span", { className: "count", textContent: count }));
+  const pill = (key, label, count, extra) => {
+    const b = el("button", { type: "button", className: sv.filter === key ? "on" : "", title: extra || "" },
+      ...(label instanceof Node ? [label] : [el("span", { textContent: label })]), el("span", { className: "count", textContent: count }));
     b.onclick = () => { sv.filter = key; paintSaves(); };
     return b;
   };
-  $("s-filter").replaceChildren(...SAVE_FILTERS.map(([key, label]) => pill(key, label, counts[key])));
+  const machines = sv.machines.map((m) => pill(`m:${m.id}`,
+    el("span", { className: "sv-th" }, osIcon(m.icon, "sm"), el("span", { textContent: m.name })),
+    m.ok ? sv.games.filter((g) => onMachine(g, m.id)).length : "?",
+    m.ok ? `Jeux qui ont des sauvegardes sur ${m.name}` : `${m.name} : injoignable`));
+  $("s-filter").replaceChildren(...SAVE_FILTERS.map(([key, label]) => pill(key, label, counts[key])),
+    ...(machines.length ? [el("span", { className: "sv-sep", "aria-hidden": "true" }), ...machines] : []));
 }
 
 function visibleGames() {
@@ -1853,6 +1859,7 @@ function visibleGames() {
     if (sv.filter === "diff") return differs(g);
     if (sv.filter === "same") return identical(g);
     if (sv.filter === "reserve") return Boolean(g.reserve);
+    if (filteredMachine()) return onMachine(g, filteredMachine());
     return true;
   };
   return sv.games.filter((g) => (!q || g.game.toLowerCase().includes(q)) && keep(g))
@@ -1889,7 +1896,8 @@ function checkMarker(g) {
 
 function paintTable() {
   closeMenu();
-  const cols = sv.machines;
+  const first = filteredMachine();
+  const cols = first ? [...sv.machines.filter((m) => m.id === first), ...sv.machines.filter((m) => m.id !== first)] : sv.machines;
   const ids = imageIds(), games = visibleGames();
   const selectable = games;
   const all = $("s-all");
