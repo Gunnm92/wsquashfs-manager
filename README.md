@@ -182,6 +182,8 @@ machine **source** (celle qui est la plus avancée) vers les autres machines.
     pour un jeu PC de la bibliothèque ; pour un jeu Switch, la jaquette de la
     fiche du `gamelist.xml` de `roms/switch` ou `roms/switch2` qui porte son
     TitleID (`GET /api/saves/art?game=switch:<TitleID>`) ; sinon les initiales.
+  - Une machine injoignable (éteinte, en veille) n'a pas de colonne ; sa carte
+    reste dans le bandeau, en rouge.
   - Tableau jeux × machines : ★ plus avancée, identique, en retard, — absente,
     seule copie, ? injoignable, avec taille · date ; colonne Manager ;
     ⚠ à vérifier. Filtres : Tous, Différences, Identiques, Sur le manager ; le

@@ -1967,7 +1967,10 @@ function checkMarker(g) {
 function paintTable() {
   closeMenu();
   const first = filteredMachine();
-  const cols = first ? [...sv.machines.filter((m) => m.id === first), ...sv.machines.filter((m) => m.id !== first)] : sv.machines;
+  // Colonnes : machines joignables seulement (un Steam Deck en veille n'a que des « ? ») ; sa carte
+  // reste dans le bandeau, en rouge. La machine filtrée passe en premier.
+  const shown = sv.machines.filter((m) => m.ok || m.id === first);
+  const cols = first ? [...shown.filter((m) => m.id === first), ...shown.filter((m) => m.id !== first)] : shown;
   const ids = imageIds(), games = visibleGames();
   // Une section par plateforme (voir sectionOf) ; titres, repliables, s'il y en a plusieurs
   const sections = [...new Set(games.map(sectionOf))]
@@ -2038,7 +2041,7 @@ function paintTable() {
     ...(multi ? [header(kind, title, list.length)] : []),
     ...(folded(kind) ? [] : list.map(rowOf))]);
   if (!games.length) {
-    rows.push(el("tr", {}, el("td", { colSpan: sv.machines.length + 4 },
+    rows.push(el("tr", {}, el("td", { colSpan: cols.length + 4 },
       sv.games.length ? emptyState("search", "Aucun jeu pour ces filtres", "Élargir la recherche ou choisir « Tous ».")
         : emptyState("save", "Aucune sauvegarde", "Les machines associées n'ont aucune sauvegarde de partie."))));
   }
