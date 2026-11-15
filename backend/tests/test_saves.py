@@ -1476,3 +1476,27 @@ def test_api_switch_artwork_from_batocera_gamelist(api, tmp_path):
     assert client.get("/api/saves/art", params={"game": "switch:0100F9F00C696000"}).content.endswith(b"crash")
     for game in ("switch:0100000000AAA000", "switch:0100000000BBB000", "dossier:hookshot", "switch:../x"):
         assert client.get("/api/saves/art", params={"game": game}).status_code == 404, game
+
+
+def test_status_gives_the_batocera_system_of_each_game(agents, api, tmp_path):
+    """Chaque jeu porte le système (dossier sous roms/) de son image .wsquashfs ou .squashfs, pour
+    ranger l'onglet par plateforme ; « win » d'abord si le nom est dans plusieurs systèmes ; sans
+    image trouvée : "" ; un jeu Switch ou un dossier n'en a pas."""
+    client, settings, _ = api
+    roms = tmp_path / "roms"
+    for rel in ("win/Tekken 8.wsquashfs", "type-x2/Chase H.Q. 2.squashfs", "arcadepc/DCOP (demul).wsquashfs",
+                "arcadepc/Tekken 8.wsquashfs", "snes/Mario.sfc", "unis/After Dark (demul).wsquashfs",
+                "nesicax/Battle Fantasia (NESiCAxLive).squashfs", "type-x2/Battle Fantasia Offline Edition.squashfs",
+                "unis/Doublon (demul).wsquashfs", "segaer/Doublon [v2].wsquashfs"):
+        (roms / rel).parent.mkdir(parents=True, exist_ok=True)
+        (roms / rel).write_bytes(b"x")
+    settings.roms_roots = [str(roms)]
+    aibox = agents("aibox", games={name: (b"GZ" + name.encode(), "", 900) for name in
+                                   ("Tekken 8", "Chase H.Q. 2", "DCOP (demul)", "Inconnu", "Mario", "switch:0100F2C0115B6000",
+                                    "After Dark", "Battle Fantasia", "Doublon")})
+    associate(settings, aibox)
+    systems = {g["game"]: g["system"] for g in client.get("/api/saves/status").json()["games"]}
+    # Nom rapproché (suffixe entre parenthèses) s'il ne désigne qu'un système ; deux systèmes : ""
+    assert systems == {"Tekken 8": "win", "Chase H.Q. 2": "type-x2", "DCOP (demul)": "arcadepc",
+                       "Inconnu": "", "Mario": "", "switch:0100F2C0115B6000": "", "After Dark": "unis",
+                       "Battle Fantasia": "nesicax", "Doublon": ""}

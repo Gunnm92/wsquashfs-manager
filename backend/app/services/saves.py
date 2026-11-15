@@ -20,6 +20,8 @@ import json
 import os
 import re
 import secrets
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
@@ -778,6 +780,67 @@ def label_of(game: str, listings: list[dict | None]) -> str:
     return game
 
 
+_SYSTEM_EXTS = (".wsquashfs", ".squashfs")
+_systems_cache: dict = {"at": 0.0, "roots": None, "map": {}, "loose": {}}
+_systems_lock = threading.Lock()
+
+
+def _loose_name(name: str) -> str:
+    """Nom rapproché : sans casse, ponctuation ni passages entre parenthèses ou crochets
+    (« After Dark (demul) » → « afterdark »)."""
+    return re.sub(r"[^0-9a-z]+", "", re.sub(r"\([^)]*\)|\[[^\]]*\]", "", name.lower()))
+
+
+def game_systems(settings: Settings, ttl: float = 300) -> dict[str, str]:
+    """Jeu → système Batocera (dossier sous roms/) de son image .wsquashfs ou .squashfs, pour ranger
+    l'onglet Sauvegardes par plateforme (arcadepc, type-x2…). Un même nom dans plusieurs systèmes :
+    « win » d'abord. Gardé `ttl` secondes (un parcours de roms/ : quelques dixièmes de seconde)."""
+    return _systems_scan(settings, ttl)["map"]
+
+
+def system_of(settings: Settings, game: str) -> str:
+    """Système de l'image d'un jeu : nom exact, sinon nom rapproché (« After Dark » pour
+    « After Dark (demul) ») s'il ne désigne qu'un seul système ; "" sinon."""
+    scan_ = _systems_scan(settings)
+    if game in scan_["map"]:
+        return scan_["map"][game]
+    systems = scan_["loose"].get(_loose_name(game), set())
+    return next(iter(systems)) if len(systems) == 1 else ""
+
+
+def _systems_scan(settings: Settings, ttl: float = 300) -> dict:
+    roots = tuple(settings.roms_roots or settings.roms_dirs)
+    with _systems_lock:
+        cache = _systems_cache
+        if cache["roots"] == roots and time.monotonic() - cache["at"] < ttl:
+            return cache
+        found: dict[str, str] = {}
+        loose: dict[str, set[str]] = {}
+
+        def scan_dir(path: str, system: str) -> None:
+            try:
+                entries = list(os.scandir(path))
+            except OSError:
+                return
+            for entry in entries:
+                for ext in _SYSTEM_EXTS:
+                    if entry.name.endswith(ext):
+                        name = entry.name[: -len(ext)]
+                        if name not in found or (system == "win" and found[name] != "win"):
+                            found[name] = system
+                        loose.setdefault(_loose_name(name), set()).add(system)
+        for root in roots:
+            scan_dir(root, Path(root).name)          # un dossier de système donné directement
+            try:
+                systems = [e for e in os.scandir(root) if e.is_dir()]
+            except OSError:
+                continue
+            for system_dir in systems:
+                scan_dir(system_dir.path, system_dir.name)
+        cache.update(at=time.monotonic(), roots=roots, map=found, loose=loose)
+        return cache
+
+
 def status(settings: Settings, games: list[str] | None = None) -> dict:
     """État de la synchronisation : par machine (une requête saves_list et une requête
     info, en parallèle) et par jeu (libellés, manager, suggestion à vérifier).
@@ -830,8 +893,10 @@ def status(settings: Settings, games: list[str] | None = None) -> dict:
                              newest=int(entry.get("newest") or 0), size=_size_of(entry))
             states.append(state)
         verdict = label_states(states)
+        kind = kind_of(game)
         out.append({"game": game, "label": label_of(game, [listing for listing, _, _ in fetched]),
-                    "kind": kind_of(game), "reserve": _reserve_summary(settings, game), "machines": states,
+                    "kind": kind, "system": system_of(settings, game) if kind == "jeu" else "",
+                    "reserve": _reserve_summary(settings, game), "machines": states,
                     "check": verdict["check"], "check_by": verdict["check_by"]})
     return {"machines": machines, "games": out}
 

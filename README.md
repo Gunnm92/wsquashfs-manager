@@ -170,8 +170,13 @@ machine **source** (celle qui est la plus avancée) vers les autres machines.
     une machine » prend le code `wsq://` ; sur la machine :
     `wsquashfs-launcher --pair`, puis `wsquashfs-launcher --agent` pour
     qu'elle reste joignable. Sans machine, un encadré explique ces étapes.
-  - Tableau en sections (Jeux PC, Switch, Dossiers ; titres seulement s'il y en
-    a plusieurs), lignes triées par nom lisible. Un clic sur le titre replie ou
+  - Tableau en sections par plateforme : système Batocera de l'image du jeu
+    (dossier sous `roms/` qui contient `<jeu>.wsquashfs` ou `.squashfs` ; à
+    défaut un nom rapproché, sans casse ni suffixe entre parenthèses, s'il ne
+    désigne qu'un système) — Jeux PC (`win`) d'abord, puis Arcade PC, Taito
+    Type X²…, Switch, Dossiers, et « Autres (image introuvable) ». Champ
+    `system` du statut ; parcours de `roms/` gardé 5 min. Titres seulement s'il
+    y a plusieurs sections ; lignes triées par nom lisible. Un clic sur le titre replie ou
     rouvre la section (mémorisé dans le navigateur) ; « Tout sélectionner » ne
     prend que les lignes visibles. Vignette de chaque ligne : celle de l'image
     pour un jeu PC de la bibliothèque ; pour un jeu Switch, la jaquette de la

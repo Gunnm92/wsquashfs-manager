@@ -1660,11 +1660,20 @@ const AUTO = "auto";                    // source : la machine suggérée (la pl
 const PRESENT_STATES = new Set(["présente", "identique", "plus avancée", "en retard"]);
 // Nom affiché d'une ligne : nom lisible d'un dossier déclaré ou d'un jeu Switch, sinon le jeu
 const gameLabel = (g) => g.label || g.game;
-// Sections du tableau, dans l'ordre : nature (kind du statut) et titre ; Switch trié par nom lisible
-const SAVE_SECTIONS = [["jeu", "Jeux PC"], ["switch", "Switch"], ["dossier", "Dossiers"]];
+// Sections du tableau : une par système Batocera de l'image du jeu (dossier sous roms/), puis Switch,
+// Dossiers, et « Autres » (aucune image trouvée). Ordre : Jeux PC, autres systèmes, Switch, Dossiers, Autres.
+const SYSTEM_LABELS = { win: "Jeux PC", arcadepc: "Arcade PC", "type-x": "Taito Type X", "type-x2": "Taito Type X²",
+  nesicax: "NESiCAxLive", nesicax2: "NESiCAxLive 2", exaarcadia: "exA-Arcadia", adrenaline: "Adrenaline", unis: "UNIS",
+  segaalls: "Sega ALLS", segaer: "Sega Europa-R", seganu: "Sega Nu", segare: "Sega RingEdge", segarw: "Sega RingWide",
+  konamipc: "Konami PC", rawthrills: "Raw Thrills", globalvr: "Global VR", namcoes3: "Namco ES3", namco2x6: "Namco System 2x6",
+  ps3: "PlayStation 3" };
+const sectionOf = (g) => g.kind === "switch" ? "switch" : g.kind === "dossier" ? "dossier" : `sys:${g.system || ""}`;
+const sectionTitle = (key) => key === "switch" ? "Switch" : key === "dossier" ? "Dossiers" : key === "sys:" ? "Autres (image introuvable)"
+  : SYSTEM_LABELS[key.slice(4)] || key.slice(4);
+const sectionRank = (key) => key === "sys:win" ? 0 : key === "switch" ? 2 : key === "dossier" ? 3 : key === "sys:" ? 4 : 1;
 // Sections repliées (clic sur leur titre), mémorisées dans le navigateur
 const savesCollapsed = new Set((() => { try { return JSON.parse(storage.get("wsfs-saves-collapsed") || "[]"); } catch { return []; } })());
-const kindOf = (g) => g.kind || "jeu";
+
 const SAVE_FILTERS = [["", "Tous"], ["diff", "Différences"], ["same", "Identiques"], ["reserve", "Sur le manager"]];
 const OS_ICONS = ["linux", "steamos", "batocera"];          // icônes choisissables d'une machine
 const OS_LABELS = { linux: "Linux", steamos: "SteamOS", batocera: "Batocera" };
@@ -1960,12 +1969,13 @@ function paintTable() {
   const first = filteredMachine();
   const cols = first ? [...sv.machines.filter((m) => m.id === first), ...sv.machines.filter((m) => m.id !== first)] : sv.machines;
   const ids = imageIds(), games = visibleGames();
-  // Une section par nature (jeux PC, Switch, dossiers) ; titres, repliables, s'il y en a plusieurs
-  const sections = SAVE_SECTIONS.map(([kind, title]) => [kind, title, games.filter((g) => kindOf(g) === kind)])
-    .filter(([, , list]) => list.length);
+  // Une section par plateforme (voir sectionOf) ; titres, repliables, s'il y en a plusieurs
+  const sections = [...new Set(games.map(sectionOf))]
+    .sort((a, b) => sectionRank(a) - sectionRank(b) || sectionTitle(a).localeCompare(sectionTitle(b), "fr"))
+    .map((key) => [key, sectionTitle(key), games.filter((g) => sectionOf(g) === key)]);
   const multi = sections.length > 1;
-  const folded = (kind) => multi && savesCollapsed.has(kind);
-  const selectable = games.filter((g) => !folded(kindOf(g)));       // lignes visibles seulement
+  const folded = (key) => multi && savesCollapsed.has(key);
+  const selectable = games.filter((g) => !folded(sectionOf(g)));       // lignes visibles seulement
   const all = $("s-all");
   all.checked = selectable.length > 0 && selectable.every((g) => sv.selected.has(g.game));
   all.onchange = () => {
