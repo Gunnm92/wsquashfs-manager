@@ -1371,10 +1371,10 @@ def test_status_names_folders_and_switch_games(agents, api):
     games = {g["game"]: g for g in client.get("/api/saves/status").json()["games"]}
     assert (games["dossier:hookshot"]["label"], games["dossier:hookshot"]["kind"]) == ("hookshot", "dossier")
     assert (games["switch:0100F2C0115B6000"]["label"], games["switch:0100F2C0115B6000"]["kind"]) == (
-        "Switch · Zelda TOTK", "switch")
+        "Zelda TOTK", "switch")                 # sans « Switch · » : le tableau a sa section
     assert (games["Hollow Knight"]["label"], games["Hollow Knight"]["kind"]) == ("Hollow Knight", "jeu")
     # Sans nom donné par une machine : déduit du nom
-    assert saves.label_of("switch:0100000000010000", [None, {}]) == "Switch · 0100000000010000"
+    assert saves.label_of("switch:0100000000010000", [None, {}]) == "0100000000010000"
     assert saves.label_of("dossier:retroarch", []) == "retroarch"
 
 

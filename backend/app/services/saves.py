@@ -758,17 +758,23 @@ def kind_of(game: str) -> str:
     return "jeu"
 
 
+SWITCH_LABEL = "Switch · "      # préfixe du nom donné par l'agent : inutile ici (section Switch)
+
+
 def label_of(game: str, listings: list[dict | None]) -> str:
-    """Nom lisible : celui que donne une machine (nom du dossier, « Switch · <jeu> »), sinon déduit
-    du nom ; un jeu Windows garde son nom."""
+    """Nom lisible : celui que donne une machine (nom du dossier, nom du jeu Switch, sans le préfixe
+    « Switch · » puisque le tableau a sa section Switch), sinon déduit du nom (TitleID d'un jeu
+    Switch) ; un jeu Windows garde son nom."""
     for listing in listings:
         label = str(((listing or {}).get(game) or {}).get("label") or "").strip()
+        if label.startswith(SWITCH_LABEL):
+            label = label[len(SWITCH_LABEL):].strip()
         if label:
             return label[:160]
     if game.startswith(DIR_PREFIX):
         return game[len(DIR_PREFIX):]
     if game.startswith(SWITCH_PREFIX):
-        return "Switch · " + game[len(SWITCH_PREFIX):]
+        return game[len(SWITCH_PREFIX):]
     return game
 
 
