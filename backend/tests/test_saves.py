@@ -23,7 +23,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import main
-from app.config import Settings, save_saves_machines, saves_client_id, saves_machines
+from app.config import Settings, save_machine_url, save_saves_machines, saves_client_id, saves_machines
 from app.models import Task
 from app.services import saves
 from app.services.rebuild import Job, RebuildError
@@ -106,8 +106,9 @@ class SavesAgent(BaseHTTPRequestHandler):
         if url.path == "/v1/info":
             if self.st["info_fail"]:
                 return self._send(500, b'{"detail":"info indisponible"}')
-            return self._send(200, json.dumps({"version": "4", "host": self.st["host"], "user": "arcade",
-                                               "os": self.st["os"]}).encode())
+            return self._send(200, json.dumps({"version": self.st["version"], "host": self.st["host"],
+                                               "user": "arcade", "os": self.st["os"], "auto": self.st["auto"],
+                                               "manager": self.st["manager_fp"]}).encode())
         if url.path == "/v1/saves/list":
             if self.st.get("no_saves_routes"):         # agent v2 : route inconnue du routeur Go
                 return self._send(404, b"404 page not found\n", ctype="text/plain; charset=utf-8")
@@ -135,6 +136,16 @@ class SavesAgent(BaseHTTPRequestHandler):
 
     def do_PUT(self):
         url = urlsplit(self.path)
+        if url.path == "/v1/saves/manager":
+            self._record("PUT", url.path)
+            if not self._auth():
+                return
+            if self.st["no_manager"]:                   # agent sans la déclaration du manager
+                return self._send(404, b"404 page not found\n", ctype="text/plain; charset=utf-8")
+            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))) or b"{}")
+            self.st["manager"] = body
+            self.st["manager_fp"] = body.get("fingerprint", "")
+            return self._send(200, b'{"ok":true}')
         if url.path == "/v1/saves/dirs":
             self._record("PUT", url.path)
             if not self._auth():
@@ -222,20 +233,24 @@ def agents(tmp_path):
     """Fabrique de faux agents (un par machine) ; arrêtés à la fin du test.
     `os_name` : système renvoyé par /v1/info ; `info_fail` : /v1/info en erreur ;
     `old_status` : code de réponse de DELETE /v1/saves/tar (agent plus ancien : 404 ou 405) ;
-    `secret` : secret du code d'association ; `old_pair` : agent sans /v1/pair (version 6)."""
+    `secret` : secret du code d'association ; `old_pair` : agent sans /v1/pair (version 6) ;
+    `version` : version annoncée par /v1/info ; `auto` : synchro automatique activée ;
+    `no_manager` : agent sans PUT /v1/saves/manager (avant la version 9)."""
     if not shutil.which("openssl"):
         pytest.skip("openssl absent")
     servers = []
 
     def make(host: str, games=None, busy=(), conflict=(), now=1000, token=TOKEN, cert_dir=None,
              os_name="linux", info_fail=False, old_status=None, no_saves_routes=False,
-             secret=SECRET, old_pair=False, labels=None, dirs=None, no_dirs=False):
+             secret=SECRET, old_pair=False, labels=None, dirs=None, no_dirs=False,
+             version="4", auto=False, no_manager=False):
         cert, key = make_cert(tmp_path / (cert_dir or host))
         st = {"host": host, "token": token, "busy": set(busy), "conflict": set(conflict),
               "now": now, "archived": [], "log": [], "os": os_name, "info_fail": info_fail,
               "old_status": old_status, "deleted": [], "no_saves_routes": no_saves_routes,
               "secret": secret, "pair_open": True, "old_pair": old_pair, "pairs": [], "bound": None,
               "labels": dict(labels or {}), "dirs": list(dirs or []), "no_dirs": no_dirs,
+              "version": version, "auto": auto, "no_manager": no_manager, "manager": None, "manager_fp": "",
               "games": {name: fake_game(spec) for name, spec in (games or {}).items()}}
         handler = type("H", (SavesAgent,), {"st": st})
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
@@ -255,6 +270,8 @@ def agents(tmp_path):
 
 
 def make_settings(tmp: Path, **kw) -> Settings:
+    # Pas de serveur pour les machines dans les tests (machine_port 0)
+    kw.setdefault("machine_port", 0)
     settings = Settings(state_dir=tmp / "state", runtime_config_file=tmp / "config.json", **kw)
     settings.state_dir.mkdir(parents=True, exist_ok=True)
     return settings
@@ -1500,3 +1517,111 @@ def test_status_gives_the_batocera_system_of_each_game(agents, api, tmp_path):
     assert systems == {"Tekken 8": "win", "Chase H.Q. 2": "type-x2", "DCOP (demul)": "arcadepc",
                        "Inconnu": "", "Mario": "", "switch:0100F2C0115B6000": "", "After Dark": "unis",
                        "Battle Fantasia": "nesicax", "Doublon": ""}
+
+
+# ------------------------------------------------------------------ déclaration du manager (agent v9)
+
+MANAGER_URL = "https://192.168.1.10:8790"
+
+
+def test_association_declares_the_manager_when_its_address_is_set(agents, tmp_path):
+    """Agent version 9 et adresse du manager réglée : déclaration à l'association. L'agent reçoit
+    un jeton neuf, l'empreinte du certificat du manager (sans « : ») et son adresse ; le manager
+    ne garde que l'empreinte SHA-256 du jeton."""
+    settings = make_settings(tmp_path, machine_url=MANAGER_URL)
+    steambox = agents("steambox", version="9")
+    associate(settings, steambox)
+    declared = steambox["st"]["manager"]
+    assert declared["url"] == MANAGER_URL
+    assert declared["fingerprint"] == saves.manager_fingerprint(settings).replace(":", "")
+    assert len(declared["fingerprint"]) == 64 and declared["fingerprint"] == declared["fingerprint"].upper()
+    assert declared["name"].startswith("wsquashfs-manager (")
+    machine = saves.saves_machines(settings)[0]
+    assert machine["manager_token_sha256"] == hashlib.sha256(declared["token"].encode()).hexdigest()
+    assert declared["token"] not in json.dumps(saves.machine_rows(settings))
+    assert declared["token"] not in (tmp_path / "config.json").read_text()    # seule l'empreinte est écrite
+    assert ("PUT", "/v1/saves/manager") in [(e["method"], e["path"]) for e in steambox["st"]["log"]]
+
+
+def test_no_declaration_without_manager_address(agents, tmp_path):
+    settings = make_settings(tmp_path)
+    steambox = agents("steambox", version="9")
+    associate(settings, steambox)
+    assert steambox["st"]["manager"] is None
+    assert "manager_token_sha256" not in saves.saves_machines(settings)[0]
+
+
+def test_older_agent_is_not_declared_and_association_holds(agents, tmp_path):
+    settings = make_settings(tmp_path, machine_url=MANAGER_URL)
+    steambox = agents("steambox", version="8")
+    machine = associate(settings, steambox)
+    assert steambox["st"]["manager"] is None
+    assert machine["name"] == "steambox"
+    assert saves.saves_machines(settings)[0].get("manager_token_sha256") is None
+
+
+def test_failed_declaration_keeps_the_association(agents, tmp_path, caplog):
+    settings = make_settings(tmp_path, machine_url=MANAGER_URL)
+    steambox = agents("steambox", version="9", no_manager=True)
+    machine = associate(settings, steambox)
+    assert machine["name"] == "steambox" and len(saves.machine_rows(settings)) == 1
+    assert saves.saves_machines(settings)[0].get("manager_token_sha256") is None
+    assert "n'a pas pu s'y déclarer" in caplog.text
+
+
+def test_status_declares_the_manager_once_and_reports_auto(agents, tmp_path):
+    """Machine associée avant l'adresse du manager : le premier état la déclare, les suivants
+    non (l'agent annonce l'empreinte déclarée). La pastille « auto » vient de /v1/info."""
+    settings = make_settings(tmp_path)
+    steambox = agents("steambox", version="9", auto=True)
+    associate(settings, steambox)
+    settings.machine_url = MANAGER_URL
+    machine = saves.status(settings)["machines"][0]
+    assert machine["auto"] is True
+    assert steambox["st"]["manager"]["url"] == MANAGER_URL
+    saves.status(settings)
+    puts = [e for e in steambox["st"]["log"] if e["path"] == "/v1/saves/manager"]
+    assert len(puts) == 1
+
+
+def test_status_leaves_older_agents_alone(agents, tmp_path):
+    settings = make_settings(tmp_path, machine_url=MANAGER_URL)
+    steambox = agents("steambox", version="8")
+    associate(settings, steambox)
+    machine = saves.status(settings)["machines"][0]
+    assert machine["ok"] is True and machine["auto"] is False
+    assert steambox["st"]["manager"] is None
+
+
+def test_manager_url_is_checked(tmp_path):
+    settings = make_settings(tmp_path)
+    for bad in ("http://192.168.1.10:8790", "https://192.168.1.10", "https://hôte:0", "192.168.1.10:8790"):
+        with pytest.raises(ValueError):
+            save_machine_url(settings, bad)
+    save_machine_url(settings, f"{MANAGER_URL}/")
+    assert settings.machine_url == MANAGER_URL
+    save_machine_url(settings, "")
+    assert settings.machine_url == ""
+
+
+def test_status_survives_a_missing_certificate(agents, tmp_path, monkeypatch):
+    """Sans openssl, pas de certificat du manager : pas de déclaration, mais l'état reste affiché."""
+    settings = make_settings(tmp_path)
+    steambox = agents("steambox", version="9")
+    associate(settings, steambox)
+    settings.machine_url = MANAGER_URL
+    monkeypatch.setattr(saves.shutil, "which", lambda name: None)
+    machine = saves.status(settings)["machines"][0]
+    assert machine["ok"] is True
+    assert steambox["st"]["manager"] is None
+
+
+def test_new_manager_address_is_declared_again(agents, tmp_path):
+    """Adresse du manager changée : redéclarée aux machines associées joignables (une machine
+    injoignable est ignorée)."""
+    settings = make_settings(tmp_path, machine_url=MANAGER_URL)
+    steambox = agents("steambox", version="9")
+    associate(settings, steambox)
+    settings.machine_url = "https://10.0.0.9:8790"
+    assert saves.redeclare_manager(settings) == [machine_ids(settings)["steambox"]]
+    assert steambox["st"]["manager"]["url"] == "https://10.0.0.9:8790"

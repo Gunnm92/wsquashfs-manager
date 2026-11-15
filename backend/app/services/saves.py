@@ -16,10 +16,15 @@ Les écritures du manager passent par durable.py (fichier .part, fsync,
 
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
 import os
 import re
 import secrets
+import shutil
+import socket
+import subprocess
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -36,6 +41,7 @@ from ..config import (
     save_saves_machines,
     saves_client_id,
     saves_machines,
+    set_saves_machine_field,
 )
 from ..models import Task
 from .durable import fsync_dir, publish_new, swap_keep_old, write_atomic
@@ -49,11 +55,13 @@ from .trial import (
     parse_pair_code,
 )
 
+log = logging.getLogger("wsquashfs-manager")
 GAME_HOST_ID = "game-host"          # machine de jeu en mode agent : toujours listée, non supprimable
 KEEP_ARCHIVES = 3                   # versions datées gardées par jeu
 RESERVE_DIR = "saves-reserve"
 CURRENT = "current.tar.gz"
 META = "meta.json"
+MANAGER_PEER_VERSION = 9            # premier agent qui accepte la déclaration du manager (PUT /v1/saves/manager)
 
 _GAME_RE = re.compile(r"^[^./\\\x00][^/\\\x00]{0,199}$")
 
@@ -220,8 +228,93 @@ def add_machine(settings: Settings, code: str) -> dict:
     else:
         machines.append(entry)
     save_saves_machines(settings, machines)
+    try:
+        declare_manager(settings, entry["id"])
+    except (RebuildError, OSError) as exc:
+        log.warning("machine %s associée, mais le manager n'a pas pu s'y déclarer : %s", name, exc)
     return {"id": entry["id"], "name": name, "url": paired["url"],
             "fingerprint": paired["fingerprint"], "replaced": bool(matches)}
+
+
+def machine_tls(settings: Settings, create: bool = True) -> tuple[Path, Path]:
+    """Certificat auto-signé du manager pour les machines (state_dir/tls/cert.pem et key.pem),
+    créé une fois avec openssl. create faux : pas de création (le fichier doit exister).
+    RebuildError si openssl manque ou échoue."""
+    folder = settings.state_dir / "tls"
+    cert, key = folder / "cert.pem", folder / "key.pem"
+    if (cert.is_file() and key.is_file()) or not create:
+        return cert, key
+    if not shutil.which("openssl"):
+        raise RebuildError("openssl absent : certificat du manager pour les machines impossible")
+    folder.mkdir(parents=True, exist_ok=True)
+    cert_part, key_part = folder / "cert.pem.part", folder / "key.pem.part"
+    try:
+        subprocess.run(["openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1",
+                        "-nodes", "-keyout", str(key_part), "-out", str(cert_part), "-days", "3650",
+                        "-subj", "/CN=wsquashfs-manager",
+                        "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1"],
+                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except (OSError, subprocess.CalledProcessError) as exc:
+        key_part.unlink(missing_ok=True)
+        cert_part.unlink(missing_ok=True)
+        raise RebuildError(f"certificat du manager pour les machines impossible : {exc}") from exc
+    os.chmod(key_part, 0o600)
+    os.replace(key_part, key)
+    os.replace(cert_part, cert)
+    fsync_dir(folder)
+    return cert, key
+
+
+def manager_fingerprint(settings: Settings, create: bool = True) -> str:
+    """Empreinte du certificat du manager, au format affiché (« AA:BB… ») ; "" si absent et
+    create faux, ou illisible."""
+    cert, _ = machine_tls(settings, create)
+    try:
+        return fingerprint_pem(cert.read_text()) if cert.is_file() else ""
+    except (OSError, ValueError):
+        return ""
+
+
+def _version_at_least(info: dict | None, minimum: int) -> bool:
+    version = str((info or {}).get("version") or "")
+    return version.isdigit() and int(version) >= minimum
+
+
+def declare_manager(settings: Settings, machine_id: str, info: dict | None = None) -> bool:
+    """Déclare le manager à une machine associée (agent version 9) : un jeton neuf est envoyé
+    avec l'adresse (Réglages) et l'empreinte du certificat du manager. Seule l'empreinte
+    SHA-256 du jeton est gardée, et seulement après l'accord de l'agent. False, sans rien
+    faire, si l'adresse du manager n'est pas réglée ou si l'agent est plus ancien.
+    KeyError : machine inconnue ; RebuildError : refus ou machine injoignable."""
+    if not settings.machine_url:
+        return False
+    if not any(m["id"] == machine_id for m in saves_machines(settings)):
+        raise KeyError(machine_id)
+    host = open_machine(settings, machine_id, timeout=15)
+    if info is None:
+        info = host.info()
+    if not _version_at_least(info, MANAGER_PEER_VERSION):
+        return False
+    fingerprint = manager_fingerprint(settings).replace(":", "")
+    token = secrets.token_urlsafe(32)
+    name = f"wsquashfs-manager ({socket.gethostname()})"[:64]
+    host.saves_manager_put(name, settings.machine_url, token, fingerprint)
+    set_saves_machine_field(settings, machine_id, "manager_token_sha256",
+                            hashlib.sha256(token.encode("utf-8")).hexdigest())
+    return True
+
+
+def redeclare_manager(settings: Settings) -> list[str]:
+    """Déclare le manager (nouvelle adresse) à chaque machine associée joignable ; erreurs
+    ignorées (machine éteinte, agent ancien). Retourne les machines déclarées."""
+    done = []
+    for machine in saves_machines(settings):
+        try:
+            if declare_manager(settings, machine["id"]):
+                done.append(machine["id"])
+        except (KeyError, RebuildError):
+            continue
+    return done
 
 
 def remove_machine(settings: Settings, machine_id: str) -> None:
@@ -345,27 +438,41 @@ def _write_part(path: Path, text: str) -> None:
 
 def store(settings: Settings, game: str, part: Path, *, fingerprint: str, newest: int,
           size: int, profile: str | None, source: str) -> dict:
-    """Range une archive reçue (`part`, écrite entièrement) dans le manager.
+    """Range une archive reçue (`part`, écrite entièrement) dans le manager ; renvoie les
+    informations enregistrées (meta). Voir store_archived."""
+    return store_archived(settings, game, part, fingerprint=fingerprint, newest=newest,
+                          size=size, profile=profile, source=source)[0]
+
+
+def store_archived(settings: Settings, game: str, part: Path, *, fingerprint: str, newest: int,
+                   size: int, profile: str | None, source: str) -> tuple[dict, str]:
+    """Range une archive reçue (`part`, écrite entièrement) dans le manager. Renvoie (meta,
+    nom de la version archivée ou "").
 
     Même empreinte que la version courante : rien n'est archivé, seules les
     informations sont rafraîchies. Sinon l'ancienne version devient
     `<AAAAMMJJ-HHMMSS>.tar.gz` (+ `.json`) et `part` prend sa place ; les
     versions datées au-delà de KEEP_ARCHIVES sont supprimées. `size` : octets
-    des fichiers de sauvegarde, tels que la machine les a comptés."""
+    des fichiers de sauvegarde, tels que la machine les a comptés. Les états par
+    machine (meta « states ») sont gardés."""
     d = reserve_dir(settings, game)
     d.mkdir(parents=True, exist_ok=True)
     current, meta_path = d / CURRENT, d / META
-    old = reserve_meta(settings, game) if current.exists() else None
+    prior = reserve_meta(settings, game) or {}
+    old = prior if current.exists() else None
+    states = prior.get("states") if isinstance(prior.get("states"), dict) else {}
     meta = {"fingerprint": fingerprint, "newest": int(newest), "size": int(size), "profile": profile,
-            "source": source, "fetched_at": datetime.now(UTC).isoformat(timespec="seconds")}
+            "source": source, "fetched_at": datetime.now(UTC).isoformat(timespec="seconds"), "states": states}
     text = json.dumps(meta, indent=2, ensure_ascii=False) + "\n"
     if old is not None and old.get("fingerprint") == fingerprint:
         part.unlink(missing_ok=True)
         write_atomic(meta_path, text)
-        return meta
+        return meta, ""
     stamp = _stamp(d)
+    archived = ""
     if current.exists():
         swap_keep_old(current, part, d / f"{stamp}.tar.gz")
+        archived = f"{stamp}.tar.gz"
     else:
         publish_new(part, current)
     if old is not None:
@@ -375,7 +482,30 @@ def store(settings: Settings, game: str, part: Path, *, fingerprint: str, newest
     else:
         write_atomic(meta_path, text)
     _prune(d)
-    return meta
+    return meta, archived
+
+
+def current_fingerprint(settings: Settings, game: str) -> str:
+    """Empreinte de la version courante du manager ; "" s'il n'en a pas."""
+    if not (reserve_dir(settings, game) / CURRENT).is_file():
+        return ""
+    return str((reserve_meta(settings, game) or {}).get("fingerprint") or "")
+
+
+def machine_state(settings: Settings, game: str, machine_id: str) -> str:
+    """Empreinte enregistrée pour une machine (synchro automatique) ; "" sinon."""
+    states = (reserve_meta(settings, game) or {}).get("states")
+    value = states.get(machine_id) if isinstance(states, dict) else None
+    return str(value or "")
+
+
+def record_state(settings: Settings, game: str, machine_id: str, fingerprint: str) -> None:
+    """Enregistre que la machine a cette empreinte pour ce jeu (meta.json, écriture atomique)."""
+    meta = reserve_meta(settings, game) or {}
+    states = dict(meta["states"]) if isinstance(meta.get("states"), dict) else {}
+    states[machine_id] = fingerprint
+    meta["states"] = states
+    write_atomic(reserve_dir(settings, game) / META, json.dumps(meta, indent=2, ensure_ascii=False) + "\n")
 
 
 def remove_from_manager(settings: Settings, game: str) -> dict:
@@ -847,42 +977,55 @@ def status(settings: Settings, games: list[str] | None = None) -> dict:
     `games` None : tous les jeux connus."""
     rows = machine_rows(settings)
 
-    def fetch(row: dict) -> tuple[dict | None, str, str]:
-        """(jeux, erreur, système) : un échec de info laisse le système vide, sans
-        rendre la machine injoignable si saves_list a répondu."""
+    try:
+        manager_fp = manager_fingerprint(settings).replace(":", "") if settings.machine_url else ""
+    except RebuildError as exc:             # pas de certificat (openssl absent) : pas de déclaration, l'état reste
+        log.warning("%s", exc)
+        manager_fp = ""
+
+    def fetch(row: dict) -> tuple[dict | None, str, str, dict]:
+        """(jeux, erreur, système, info) : un échec de info laisse le système vide, sans
+        rendre la machine injoignable si saves_list a répondu. Une machine (version 9 ou plus)
+        qui ne déclare pas ce manager reçoit la déclaration ; erreurs ignorées."""
         try:
             host = open_machine(settings, row["id"], timeout=15)
             listing = _present_listing(host.saves_list(timeout=15))
         except RebuildError as exc:
-            return None, str(exc), ""
+            return None, str(exc), "", {}
         try:
             info = host.info()
-            system = str(info.get("os") or "") if isinstance(info, dict) else ""
         except RebuildError:
-            system = ""
-        return listing, "", system
+            info = {}
+        info = info if isinstance(info, dict) else {}
+        if (manager_fp and row["kind"] == "saved" and _version_at_least(info, MANAGER_PEER_VERSION)
+                and str(info.get("manager") or "").replace(":", "").upper() != manager_fp.upper()):
+            try:
+                declare_manager(settings, row["id"], info)
+            except (RebuildError, OSError, KeyError) as exc:
+                log.warning("déclaration du manager à %s impossible : %s", row["name"], exc)
+        return listing, "", str(info.get("os") or ""), info
 
     with ThreadPoolExecutor(max_workers=max(1, min(8, len(rows)))) as pool:
         fetched = list(pool.map(fetch, rows))
     if games is None:
         names = set(reserve_games(settings))
-        for listing, _, _ in fetched:
+        for listing, _, _, _ in fetched:
             if listing:
                 names.update(n for n in listing if valid_game(n))
         wanted = sorted(names)
     else:
         wanted = _dedupe(g for g in games if valid_game(g))
     machines = []
-    for row, (listing, error, system) in zip(rows, fetched):
+    for row, (listing, error, system, info) in zip(rows, fetched):
         machines.append({"id": row["id"], "name": row["name"], "url": row["url"],
                          "ok": listing is not None, "message": error,
                          "games": len(listing) if listing is not None else None,
                          "os": system, "icon": row["icon"] or (system if system in ICONS else "linux"),
-                         "icon_set": row["icon"] is not None})
+                         "icon_set": row["icon"] is not None, "auto": bool(info.get("auto"))})
     out = []
     for game in wanted:
         states = []
-        for row, (listing, error, _) in zip(rows, fetched):
+        for row, (listing, error, _, _) in zip(rows, fetched):
             state = {"id": row["id"], "name": row["name"], "state": "absente",
                      "fingerprint": "", "newest": 0, "size": 0, "message": ""}
             if listing is None:
@@ -894,7 +1037,7 @@ def status(settings: Settings, games: list[str] | None = None) -> dict:
             states.append(state)
         verdict = label_states(states)
         kind = kind_of(game)
-        out.append({"game": game, "label": label_of(game, [listing for listing, _, _ in fetched]),
+        out.append({"game": game, "label": label_of(game, [listing for listing, _, _, _ in fetched]),
                     "kind": kind, "system": system_of(settings, game) if kind == "jeu" else "",
                     "reserve": _reserve_summary(settings, game), "machines": states,
                     "check": verdict["check"], "check_by": verdict["check_by"]})

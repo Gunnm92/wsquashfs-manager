@@ -1786,7 +1786,8 @@ function machineCard(m) {
     el("span", { className: "mcard-ico" }, osIcon(m.icon, "lg")),
     el("span", { className: "mcard-txt" },
       el("span", { className: "mcard-name" }, el("b", { textContent: m.name }),
-        isHost ? el("span", { className: "chip plain t-accent", textContent: "machine de jeu" }) : null),
+        isHost ? el("span", { className: "chip plain t-accent", textContent: "machine de jeu" }) : null,
+        m.auto ? el("span", { className: "chip plain", textContent: "auto", title: "Envoie ses sauvegardes au manager à la sortie d'un jeu (--sync auto on)" }) : null),
       el("span", { className: "mcard-sub" }, el("span", { className: "led" }),
         el("span", { textContent: m.ok ? `${m.games} jeu${m.games > 1 ? "x" : ""}` : "injoignable" }))));
   card.onclick = () => { sv.filter = active ? "" : `m:${m.id}`; paintSaves(); };
@@ -2591,6 +2592,11 @@ $("btn-config").onclick = async () => {
   loadHostStatus();
   $("cfg-night-start").value = cfg.night_start || "01:00";
   $("cfg-night-end").value = cfg.night_end || "07:00";
+  // Adresse du manager pour les machines : suggérée à partir de l'adresse de cette page
+  $("cfg-machine-url").dataset.saved = cfg.machine_url || "";
+  $("cfg-machine-url").value = cfg.machine_url || (cfg.machine_port ? `https://${location.hostname}:${cfg.machine_port}` : "");
+  $("cfg-machine-fp").textContent = !cfg.machine_port ? "Port des machines désactivé (WSQUASHFS_MGR_MACHINE_PORT=0)."
+    : cfg.machine_fingerprint ? `Empreinte du certificat du manager : ${cfg.machine_fingerprint}` : "Certificat du manager créé au prochain démarrage.";
   $("cfg-err").textContent = systemsError || "";
   $("cfg-err").hidden = !systemsError;
   showCfgPane("dirs");
@@ -2606,6 +2612,16 @@ $("cfg-save").onclick = async () => {
     if ($("cfg-host").dataset.mode === "agent" && !hostPick()) {
       showCfgPane("host");
       throw new Error("Machine de jeu : associer une machine avec son code wsq:// (Associer), ou en choisir une dans la liste.");
+    }
+    const machineUrl = $("cfg-machine-url").value.trim();
+    if (machineUrl !== $("cfg-machine-url").dataset.saved) {
+      try {
+        state.config = await api("/api/config/machine_url", { method: "PUT", body: { url: machineUrl } });
+      } catch (error) {
+        showCfgPane("general");
+        throw error;
+      }
+      $("cfg-machine-url").dataset.saved = state.config.machine_url;
     }
     state.config = await api("/api/config/night", { method: "PUT",
       body: { start: $("cfg-night-start").value, end: $("cfg-night-end").value } });

@@ -156,6 +156,10 @@
     <h2>Supprimer</h2>
     <p data-f><b>Supprimer…</b> ouvre une case par machine joignable et une pour le manager. Sur une machine, la sauvegarde est archivée dans son dossier des backups avant d'être effacée ; sur le manager, la version courante devient une version datée.</p>
 
+    <h2>Synchro automatique</h2>
+    <p data-f>Quand le manager est joignable, une machine lui envoie sa partie <b>à la sortie d'un jeu</b> : rien n'est récupéré au lancement. Sur chaque machine, <code>wsquashfs-launcher --sync auto on</code> l'active (<code>--sync auto off</code> l'arrête) ; la carte de la machine porte alors la pastille <b>auto</b>. Le manager doit être atteignable à l'adresse réglée dans Réglages → Général (port 8790) ; s'il ne répond pas, la partie reste sur la machine et une ligne le dit.</p>
+    <div class="tip" data-f><svg class="ico"><use href="#i-shield"/></svg><span>Rien n'est perdu : la version que le manager remplace est archivée (il garde 3 versions). Rien ne revient automatiquement vers la machine : pour récupérer une partie du manager, c'est <b>Sync</b> ou <code>--sync</code>.</span></div>
+
     <h2>En ligne de commande</h2>
     <p data-f>Sans le manager, <code>wsquashfs-launcher --sync</code> synchronise à la main avec les autres machines du réseau local (<code>--sync status</code> montre ce qui serait fait). Même règle : la plus lourde gagne, l'autre est archivée.</p>
   </section>

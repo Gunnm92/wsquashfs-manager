@@ -66,6 +66,7 @@ puis Docker → Add Container → Template : `wsquashfs-manager`. Champs :
 | Champ | Conteneur | Rôle |
 |---|---|---|
 | Port de l'interface | 8765 | interface web |
+| Port des machines | 8790 | HTTPS : sauvegardes envoyées par les machines (synchro automatique) |
 | Roms | `/roms` | dossier des roms Batocera ; les systèmes se cochent dans Réglages |
 | Sauvegardes du lanceur | `/saves` | sauvegardes de wsquashfs-launcher dans SteamBox |
 | Appdata | `/data` | file de tâches, caches, réglages |
@@ -229,6 +230,36 @@ identique, ou seulement sur le manager, n'est pas transféré.
 source parmi les cibles, cible en double, jeu absent du manager ou manager
 vide : 422. Le jeu d'une image est son nom sans `.wsquashfs` ni `.pc`.
 
+### Synchro automatique à la sortie d'un jeu
+
+Le manager écoute en HTTPS sur le port 8790 (`MACHINE_PORT`) et parle le même
+protocole que l'agent de wsquashfs-launcher : une machine qui le connaît lui
+envoie sa partie **à la sortie d'un jeu**, quand il est joignable. Rien n'est
+récupéré automatiquement au lancement ; un manager absent ou injoignable ne
+gêne pas le jeu (une ligne d'information sur la machine).
+
+- **Réglage** : Réglages → Général → « Adresse du manager pour les machines »
+  (`PUT /api/config/machine_url {"url"}`, `https://hôte:port` ou vide). Pré-remplie
+  avec l'adresse de cette page et le port 8790 ; l'empreinte du certificat du
+  manager est affichée à côté (`machine_fingerprint` dans `GET /api/config`).
+- **Déclaration** : à l'association d'une machine (agent version 9 ou plus), puis
+  à chaque état de la synchro si la machine ne connaît pas encore ce manager
+  (`PUT /v1/saves/manager` sur l'agent). Le manager crée un jeton par machine et
+  n'en garde que l'empreinte SHA-256 (`manager_token_sha256` dans `config.json`).
+  Une machine plus ancienne n'est pas déclarée.
+- **Machine** : `wsquashfs-launcher --sync auto on` (persistant, à faire une fois
+  par machine) ; `--sync auto off` l'arrête. La carte de la machine porte alors la
+  pastille « auto ».
+- **Ce que reçoit le manager** : la partie, archivée comme une version
+  précédente (3 gardées). Le manager ne renvoie jamais rien à la machine
+  pendant cette synchro ; l'état de chaque machine (dernière empreinte
+  échangée) est dans `meta.json` de la réserve du jeu (`states`).
+- **Routes de la machine** (port 8790 seulement, jamais l'interface) : `GET /v1/info`,
+  `GET /v1/saves/list`, `GET|PUT /v1/saves/tar?game=`, `POST /v1/saves/state`.
+  Authentification : `Authorization: Bearer <jeton>` (sinon 401) et en-tête
+  `X-Wsq-Machine` (sinon 400). Les réponses d'erreur ont la même forme que
+  celles de l'agent (`{"detail": …}`).
+
 ## Installer un jeu sur une machine
 
 Une image `.wsquashfs` de la bibliothèque s'envoie sur les machines associées
@@ -273,6 +304,9 @@ Variables `WSQUASHFS_MGR_*` (ou fichier `backend/.env`) :
 | `TASK_CONCURRENCY` | `1` | reconstructions simultanées |
 | `OLD_RETENTION_DAYS` | — (manuelle) | suppression automatique des `.old` |
 | `HOST`, `PORT`, `PASSWORD` | `127.0.0.1`, `8765`, — | accès (voir ci-dessous) |
+| `MACHINE_PORT` | `8790` | HTTPS où les machines envoient leurs sauvegardes (`0` : désactivé) ; certificat auto-signé dans `STATE_DIR/tls/` |
+| `MACHINE_HOST` | `0.0.0.0` | adresse d'écoute de ce port (les machines doivent l'atteindre) |
+| `MACHINE_URL` | — | adresse du manager vue par les machines, ex. `https://192.168.1.10:8790` ; réglée aussi dans Réglages → Général |
 
 ## Création : dossiers → images
 

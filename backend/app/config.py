@@ -86,6 +86,13 @@ class Settings(BaseSettings):
     session_process: str = "emulationstation"
     trial_duration: int = 60
 
+    # Manager vu par les machines (synchro automatique à la sortie d'un jeu) : écoute HTTPS
+    # sur machine_port (0 = désactivé), services/machine_api.py. machine_url : adresse du
+    # manager telle que les machines la joignent (https://hôte:port), déclarée à chaque machine.
+    machine_host: str = "0.0.0.0"
+    machine_port: int = 8790
+    machine_url: str = ""
+
     # Rétention des .old (None = suppression manuelle uniquement)
     old_retention_days: int | None = None
 
@@ -236,6 +243,33 @@ def save_saves_game_host_icon(settings: Settings, icon: str | None) -> None:
     settings.saves_game_host_icon = icon
 
 
+_MACHINE_URL = re.compile(r"https://[^\s/]+:(\d{1,5})")
+
+
+def save_machine_url(settings: Settings, url: str) -> None:
+    """Adresse du manager vue par les machines (https://hôte:port), ou "" pour aucune.
+    ValueError si elle n'a pas cette forme ou si le port est hors plage."""
+    value = (url or "").strip().rstrip("/")
+    if value:
+        match = _MACHINE_URL.fullmatch(value)
+        if not match or not 1 <= int(match.group(1)) <= 65535:
+            raise ValueError("adresse du manager : https://hôte:port (ex. https://192.168.1.10:8790), ou vide")
+    _save_runtime(settings, machine_url=value)
+    settings.machine_url = value
+
+
+def set_saves_machine_field(settings: Settings, machine_id: str, key: str, value: str) -> None:
+    """Un champ d'une machine enregistrée (lecture-modification-écriture sous verrou) ;
+    KeyError si la machine n'existe pas."""
+    with _saves_lock:
+        machines = saves_machines(settings)
+        machine = next((m for m in machines if m["id"] == machine_id), None)
+        if machine is None:
+            raise KeyError(machine_id)
+        machine[key] = value
+        _save_runtime(settings, saves_machines=machines)
+
+
 def save_images_source(settings: Settings, machine_id: str) -> None:
     """Source de l'onglet Images : "" (bibliothèque du manager) ou une machine associée."""
     with _saves_lock:
@@ -278,4 +312,6 @@ def get_settings() -> Settings:
         settings.saves_game_host_icon = runtime["saves_game_host_icon"]
     if isinstance(runtime.get("images_source"), str):
         settings.images_source = runtime["images_source"]
+    if isinstance(runtime.get("machine_url"), str):
+        settings.machine_url = runtime["machine_url"]
     return settings

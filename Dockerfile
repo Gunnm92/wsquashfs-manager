@@ -2,11 +2,12 @@
 #
 # Debian trixie : squashfs-tools 4.6 (mksquashfs/unsquashfs -percentage,
 # utilisés pour la progression), squashfuse et fuse-overlayfs pour la
-# reconstruction sans extraction (mode overlay, /dev/fuse requis).
+# reconstruction sans extraction (mode overlay, /dev/fuse requis), openssl
+# pour le certificat du port des machines (8790).
 FROM python:3.12-slim-trixie
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends squashfs-tools squashfuse fuse-overlayfs fuse3 \
+ && apt-get install -y --no-install-recommends squashfs-tools squashfuse fuse-overlayfs fuse3 openssl \
  && rm -rf /var/lib/apt/lists/*
 
 # Utilisateur des images et sauvegardes : PUID/PGID (99:100 par défaut,
@@ -36,7 +37,7 @@ ENV HOME=/data \
     PYTHONUNBUFFERED=1
 
 WORKDIR /app/backend
-EXPOSE 8765
+EXPOSE 8765 8790
 VOLUME ["/data"]
 HEALTHCHECK --interval=60s --timeout=5s \
   CMD python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/healthz', timeout=4)"

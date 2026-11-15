@@ -470,6 +470,13 @@ class AgentHost:
             raise self._saves_error(response)
         return response.json()
 
+    def saves_manager_put(self, name: str, url: str, token: str, fingerprint: str) -> dict:
+        """Déclare le manager à l'agent (version 9) : adresse, jeton propre à ce manager et
+        empreinte SHA-256 (hexadécimal, sans « : ») de son certificat. Remplace la déclaration."""
+        return self._saves_request("PUT", "/v1/saves/manager", timeout=30,
+                                   json={"name": name, "url": url, "token": token,
+                                         "fingerprint": fingerprint}).json()
+
     # ---------------------------------------------------------- dossiers déclarés (agent v8)
     # Dossiers synchronisés comme des jeux (« dossier:<nom> »), déclarés sur la machine ; leur
     # chemin est celui de la machine (sous son HOME, vérifié par l'agent).

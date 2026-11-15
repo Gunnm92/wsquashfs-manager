@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 
+import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -23,11 +24,13 @@ from .config import (
     in_night,
     save_game_host,
     save_images_source,
+    save_machine_url,
     save_night,
     save_roms_dirs,
 )
 from .models import ImageInfo, ImageState, Task
 from .services import analyze as analyze_mod
+from .services import machine_api
 from .services import saves as saves_svc
 from .services import scan
 from .services.analyze import FolderAnalysis, add_local_game, analyze_folder, analyze_image, report
@@ -117,6 +120,32 @@ queue = TaskQueue(
 )
 
 
+def _serve_machines(server: uvicorn.Server) -> None:
+    try:
+        server.run()
+    except (SystemExit, OSError) as exc:        # port occupé, par exemple : l'interface reste
+        logger.error("machines : écoute impossible (%s)", exc)
+
+
+def _start_machine_server(settings: Settings) -> uvicorn.Server | None:
+    """Écoute HTTPS des machines (machine_port, certificat du manager) dans un thread démoniaque ;
+    seulement l'API des machines (machine_app), jamais l'interface. None si désactivée."""
+    if settings.machine_port <= 0:
+        return None
+    try:
+        cert, key = saves_svc.machine_tls(settings)
+    except RebuildError as exc:
+        logger.error("machines : %s", exc)
+        return None
+    config = uvicorn.Config(machine_app, host=settings.machine_host, port=settings.machine_port,
+                            ssl_certfile=str(cert), ssl_keyfile=str(key), log_level="warning",
+                            access_log=False)
+    server = uvicorn.Server(config)
+    threading.Thread(target=_serve_machines, args=(server,), name="machines", daemon=True).start()
+    logger.info("machines : écoute HTTPS sur le port %s", settings.machine_port)
+    return server
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     try:
@@ -126,11 +155,19 @@ async def lifespan(_app: FastAPI):
     queue.load()
     queue.start()
     threading.Thread(target=_purge_old_backups, daemon=True).start()
+    machine_server = _start_machine_server(_settings)
     yield
+    if machine_server is not None:
+        machine_server.should_exit = True
     queue.stop()
 
 
 app = FastAPI(title="wsquashfs-manager", version="0.2.0", lifespan=lifespan)
+# API des machines (synchro automatique) : application distincte, sur machine_port seulement,
+# sans l'interface, sans documentation, avec son propre contrôle (jeton par machine)
+machine_app = FastAPI(title="wsquashfs-manager (machines)", version="0.2.0",
+                      docs_url=None, redoc_url=None, openapi_url=None)
+machine_app.include_router(machine_api.build_router(lambda: _settings))
 
 
 # ------------------------------------------------------------------- auth
@@ -197,6 +234,10 @@ def get_config():
         "agent_url": _settings.agent_url,
         "agent_fingerprint": _agent_fingerprint(),
         "game_host_machine": saves_svc.game_host_machine(_settings),   # machine associée choisie, "" sinon
+        # Manager vu par les machines (synchro automatique) : adresse réglée, port d'écoute, empreinte
+        "machine_url": _settings.machine_url,
+        "machine_port": _settings.machine_port,
+        "machine_fingerprint": saves_svc.manager_fingerprint(_settings, create=False),
         # Source de l'onglet Images : "" = bibliothèque du manager, sinon une machine associée
         "images_source": (row := saves_svc.images_source_row(_settings)) and row["id"] or "",
         "images_source_name": row["name"] if row else "",
@@ -247,6 +288,23 @@ def set_game_host_machine(body: GameHostMachine):
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     _doctor_cache.clear()           # l'état du lanceur est celui de l'ancienne machine
+    return get_config()
+
+
+class MachineUrl(BaseModel):
+    url: str = Field(default="", max_length=200)    # https://hôte:port ; "" : aucune
+
+
+@app.put("/api/config/machine_url")
+def set_machine_url(body: MachineUrl):
+    """Adresse du manager vue par les machines : déclarée à chaque machine associée (agent v9)."""
+    try:
+        save_machine_url(_settings, body.url)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    # Les machines déjà déclarées gardent l'ancienne adresse : redéclaration, en arrière-plan (une
+    # machine éteinte ne bloque pas l'enregistrement ; elle sera déclarée à son prochain statut).
+    threading.Thread(target=saves_svc.redeclare_manager, args=(_settings,), daemon=True).start()
     return get_config()
 
 
@@ -1741,8 +1799,6 @@ def check_access(settings: Settings) -> None:
 
 
 def run() -> None:
-    import uvicorn
-
     check_access(_settings)
     uvicorn.run(app, host=_settings.host, port=_settings.port)
 
