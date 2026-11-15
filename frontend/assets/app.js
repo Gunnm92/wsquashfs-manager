@@ -1686,6 +1686,10 @@ const names = (ids) => ids.map(machineName).join(", ");
 const reachableIds = () => sv.machines.filter((m) => m.ok).map((m) => m.id);
 const targetIds = () => reachableIds().filter((id) => !sv.unchecked.has(id));
 const pushTargets = () => targetIds().filter((id) => id !== sv.source);
+// Filtre par machine : une cible décochée dans le menu « Cibles » (la source reste visible) masque
+// les jeux absents de toutes les autres machines joignables.
+const excludedIds = () => reachableIds().filter((id) => id !== sv.source && sv.unchecked.has(id));
+const machineFilterOn = () => excludedIds().length > 0;
 const stateOf = (g, id) => g.machines.find((s) => s.id === id);
 const suggestedOf = (g) => g.machines.find((s) => s.state === "plus avancée");   // la suggérée (la plus lourde)
 const presentIn = (g) => g.machines.filter((s) => PRESENT_STATES.has(s.state));
@@ -1832,25 +1836,19 @@ function toggleMenu(wrap, items) {
   }));
 }
 
-// Filtres d'état, puis un filtre par machine (jeux présents sur elle)
+// Présence d'un jeu sur une machine (filtre par machine, cibles)
 const onMachine = (g, id) => PRESENT_STATES.has(stateOf(g, id)?.state);
-const filteredMachine = () => (sv.filter.startsWith("m:") ? sv.filter.slice(2) : "");
+// Filtres d'état seulement ; le filtre par machine se règle dans le bandeau (menu « Cibles »)
 function paintFilters() {
-  if (filteredMachine() && !sv.machines.some((m) => m.id === filteredMachine())) sv.filter = "";
   const counts = { "": sv.games.length, diff: sv.games.filter(differs).length,
     same: sv.games.filter(identical).length, reserve: sv.games.filter((g) => g.reserve).length };
-  const pill = (key, label, count, extra) => {
-    const b = el("button", { type: "button", className: sv.filter === key ? "on" : "", title: extra || "" },
-      ...(label instanceof Node ? [label] : [el("span", { textContent: label })]), el("span", { className: "count", textContent: count }));
+  const pill = (key, label, count) => {
+    const b = el("button", { type: "button", className: sv.filter === key ? "on" : "" },
+      el("span", { textContent: label }), el("span", { className: "count", textContent: count }));
     b.onclick = () => { sv.filter = key; paintSaves(); };
     return b;
   };
-  const machines = sv.machines.map((m) => pill(`m:${m.id}`,
-    el("span", { className: "sv-th" }, osIcon(m.icon, "sm"), el("span", { textContent: m.name })),
-    m.ok ? sv.games.filter((g) => onMachine(g, m.id)).length : "?",
-    m.ok ? `Jeux qui ont des sauvegardes sur ${m.name}` : `${m.name} : injoignable`));
-  $("s-filter").replaceChildren(...SAVE_FILTERS.map(([key, label]) => pill(key, label, counts[key])),
-    ...(machines.length ? [el("span", { className: "sv-sep", "aria-hidden": "true" }), ...machines] : []));
+  $("s-filter").replaceChildren(...SAVE_FILTERS.map(([key, label]) => pill(key, label, counts[key])));
 }
 
 function visibleGames() {
@@ -1859,7 +1857,10 @@ function visibleGames() {
     if (sv.filter === "diff") return differs(g);
     if (sv.filter === "same") return identical(g);
     if (sv.filter === "reserve") return Boolean(g.reserve);
-    if (filteredMachine()) return onMachine(g, filteredMachine());
+    if (machineFilterOn()) {
+      const excluded = excludedIds();
+      return reachableIds().some((id) => !excluded.includes(id) && onMachine(g, id));
+    }
     return true;
   };
   return sv.games.filter((g) => (!q || g.game.toLowerCase().includes(q)) && keep(g))
@@ -1896,8 +1897,7 @@ function checkMarker(g) {
 
 function paintTable() {
   closeMenu();
-  const first = filteredMachine();
-  const cols = first ? [...sv.machines.filter((m) => m.id === first), ...sv.machines.filter((m) => m.id !== first)] : sv.machines;
+  const cols = sv.machines;
   const ids = imageIds(), games = visibleGames();
   const selectable = games;
   const all = $("s-all");
@@ -1979,10 +1979,13 @@ function paintStatus() {
 
 // Barre de sélection : source → cibles (cases dans un menu), Sync, Copier vers le manager
 function paintSelection() {
-  const bar = $("s-selection"), n = sv.selected.size;
-  bar.hidden = n === 0 || !sv.loaded;
+  const bar = $("s-selection"), n = sv.selected.size, excluded = excludedIds();
+  // Le bandeau reste visible tant qu'un filtre machine est actif : c'est là qu'on le retire
+  bar.hidden = (n === 0 && excluded.length === 0) || !sv.loaded;
   if (bar.hidden) return;
-  $("s-count").textContent = n > 1 ? `${n} jeux` : "1 jeu";
+  $("s-count").textContent = n === 0
+    ? `Filtre : ${excluded.length} machine${excluded.length > 1 ? "s" : ""} masquée${excluded.length > 1 ? "s" : ""}`
+    : n > 1 ? `${n} jeux` : "1 jeu";
   const options = [[AUTO, "La plus avancée (par jeu)"], ...sv.machines.filter((m) => m.ok).map((m) => [m.id, m.name]),
     [RESERVE, "Manager"]];
   if (!options.some(([value]) => value === sv.source)) sv.source = AUTO;
@@ -2007,7 +2010,7 @@ $("s-targets").onclick = () => {
   if (open) return;
   const boxes = sv.machines.filter((m) => m.ok).map((m) => {
     const box = el("input", { type: "checkbox", checked: !sv.unchecked.has(m.id) && m.id !== sv.source, disabled: m.id === sv.source });
-    box.onchange = () => { box.checked ? sv.unchecked.delete(m.id) : sv.unchecked.add(m.id); paintSelection(); };
+    box.onchange = () => { box.checked ? sv.unchecked.delete(m.id) : sv.unchecked.add(m.id); paintSaves(); };
     return el("label", { className: "dd-check" }, box, el("span", { textContent: m.name }));
   });
   openMenu = el("div", { className: "dd-menu", role: "group" }, ...(boxes.length ? boxes : [el("span", { className: "muted dd-check", textContent: "Aucune machine joignable" })]));
