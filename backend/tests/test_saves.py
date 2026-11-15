@@ -1313,6 +1313,26 @@ def test_associated_machine_becomes_the_game_host(agents, api):
     assert client.put("/api/config/game_host/machine", json={"id": saves.GAME_HOST_ID}).status_code == 404
 
 
+def test_forgetting_the_game_host_machine_leaves_no_ghost(agents, api):
+    """Oublier la machine choisie comme machine de jeu : plus de « machine de jeu (adresse) »
+    injoignable dans la liste ; la machine de jeu est désactivée, l'onglet Images revient à
+    la bibliothèque. Une autre machine oubliée ne touche pas à la machine de jeu."""
+    client, settings, _ = api
+    aibox, deck = agents("aibox"), agents("deck")
+    associate(settings, aibox)
+    associate(settings, deck)
+    ids = machine_ids(settings)
+    client.put("/api/config/game_host/machine", json={"id": ids["aibox"]})
+    assert client.delete(f"/api/saves/machines/{ids['deck']}").status_code == 200
+    config = client.get("/api/config").json()
+    assert config["game_host"] == "agent" and config["game_host_machine"] == ids["aibox"]
+    assert client.delete(f"/api/saves/machines/{ids['aibox']}").status_code == 200
+    assert client.get("/api/saves/machines").json()["machines"] == []
+    config = client.get("/api/config").json()
+    assert config["game_host"] == "off" and config["images_source"] == ""
+    assert settings.agent_url == "" and settings.agent_token == ""
+
+
 # ------------------------------------------------------------------ source de l'onglet Images
 
 def test_game_host_machine_becomes_the_images_source(agents, api, monkeypatch):

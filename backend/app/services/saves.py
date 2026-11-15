@@ -223,14 +223,22 @@ def add_machine(settings: Settings, code: str) -> dict:
 
 
 def remove_machine(settings: Settings, machine_id: str) -> None:
-    """KeyError si la machine n'est pas enregistrée ; la machine de jeu ne se retire pas."""
+    """KeyError si la machine n'est pas enregistrée ; la machine de jeu ne se retire pas.
+    Si la machine oubliée était la machine de jeu (Réglages), la machine de jeu est
+    désactivée : sinon son adresse resterait listée comme « machine de jeu », injoignable.
+    Elle cesse aussi d'être la source de l'onglet Images."""
     if machine_id == GAME_HOST_ID:
         raise ValueError("machine de jeu : non supprimable (la désactiver dans Réglages)")
     machines = saves_machines(settings)
     kept = [m for m in machines if m["id"] != machine_id]
     if len(kept) == len(machines):
         raise KeyError(machine_id)
+    was_game_host = game_host_machine(settings) == machine_id
     save_saves_machines(settings, kept)
+    if was_game_host:
+        save_game_host(settings, {"game_host": "off", "agent_url": "", "agent_token": ""})
+    if settings.images_source == machine_id:
+        save_images_source(settings, "")
 
 
 def set_icon(settings: Settings, machine_id: str, icon: str | None) -> dict:

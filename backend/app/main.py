@@ -1417,6 +1417,7 @@ def saves_machine_remove(machine_id: str):
         raise HTTPException(status_code=404, detail=f"machine inconnue : {machine_id}") from None
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    _doctor_cache.clear()           # la machine de jeu a pu être désactivée avec elle
     return {"removed": machine_id}
 
 
