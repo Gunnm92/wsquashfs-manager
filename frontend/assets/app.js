@@ -1660,6 +1660,8 @@ const AUTO = "auto";                    // source : la machine suggérée (la pl
 const PRESENT_STATES = new Set(["présente", "identique", "plus avancée", "en retard"]);
 // Nom affiché d'une ligne : nom lisible d'un dossier déclaré ou d'un jeu Switch, sinon le jeu
 const gameLabel = (g) => g.label || g.game;
+// Sections du tableau, dans l'ordre : nature (kind du statut) et titre ; Switch trié par nom lisible
+const SAVE_SECTIONS = [["jeu", "Jeux PC"], ["switch", "Switch"], ["dossier", "Dossiers"]];
 const SAVE_FILTERS = [["", "Tous"], ["diff", "Différences"], ["same", "Identiques"], ["reserve", "Sur le manager"]];
 const OS_ICONS = ["linux", "steamos", "batocera"];          // icônes choisissables d'une machine
 const OS_LABELS = { linux: "Linux", steamos: "SteamOS", batocera: "Batocera" };
@@ -1918,7 +1920,7 @@ function visibleGames() {
     return true;
   };
   return sv.games.filter((g) => (!q || g.game.toLowerCase().includes(q) || gameLabel(g).toLowerCase().includes(q)) && keep(g))
-    .sort((a, b) => a.game.localeCompare(b.game, "fr", { numeric: true, sensitivity: "base" }));
+    .sort((a, b) => gameLabel(a).localeCompare(gameLabel(b), "fr", { numeric: true, sensitivity: "base" }));
 }
 
 // Cellule d'une machine : badge (★ plus avancée, identique, en retard, — absente, ? injoignable),
@@ -1967,7 +1969,7 @@ function paintTable() {
       el("span", { className: "sv-th" }, osIcon(m.icon, "sm"), el("span", { textContent: m.name })))),
     el("th", { title: "Copie des sauvegardes sur le manager" }, el("span", { className: "sv-th" }, icon("server", "sm"), el("span", { textContent: "Manager" }))),
     el("th", {}));
-  const rows = games.map((g) => {
+  const rowOf = (g) => {
     // Toutes les lignes sont actionnables (les routes prennent le nom du jeu) ; seule la fiche
     // demande une image dans la bibliothèque (un jeu installé sur une seule machine n'en a pas)
     const img = ids.get(g.game), actionable = true;
@@ -2001,7 +2003,14 @@ function paintTable() {
     return el("tr", { className: differs(g) ? "sv-diff" : "" },
       el("td", { className: "sv-stick" }, box), el("td", { className: "sv-stick2" }, name),
       ...cols.map((m) => machineCell(g, m, targets.includes(m.id))), reserve, actions);
-  });
+  };
+  // Une section par nature (jeux PC, Switch, dossiers), titre seulement s'il y en a plusieurs
+  const sections = SAVE_SECTIONS.map(([kind, title]) => [title, games.filter((g) => (g.kind || "jeu") === kind)])
+    .filter(([, list]) => list.length);
+  const rows = sections.flatMap(([title, list]) => [
+    ...(sections.length > 1 ? [el("tr", { className: "sv-group" }, el("td", { colSpan: cols.length + 4 },
+      el("span", { textContent: title }), el("span", { className: "count", textContent: list.length })))] : []),
+    ...list.map(rowOf)]);
   if (!games.length) {
     rows.push(el("tr", {}, el("td", { colSpan: sv.machines.length + 4 },
       sv.games.length ? emptyState("search", "Aucun jeu pour ces filtres", "Élargir la recherche ou choisir « Tous ».")

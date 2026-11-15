@@ -170,6 +170,8 @@ machine **source** (celle qui est la plus avancée) vers les autres machines.
     une machine » prend le code `wsq://` ; sur la machine :
     `wsquashfs-launcher --pair`, puis `wsquashfs-launcher --agent` pour
     qu'elle reste joignable. Sans machine, un encadré explique ces étapes.
+  - Tableau en sections (Jeux PC, Switch, Dossiers ; titres seulement s'il y en
+    a plusieurs), lignes triées par nom lisible.
   - Tableau jeux × machines : ★ plus avancée, identique, en retard, — absente,
     seule copie, ? injoignable, avec taille · date ; colonne Manager ;
     ⚠ à vérifier. Filtres : Tous, Différences, Identiques, Sur le manager ; le
