@@ -221,6 +221,15 @@ def test_mass_verify_is_not_blocked_by_old(client, queue):
     assert len(result["tasks"]) == 1 and queue.get(result["tasks"][0]).kind == "verify"
 
 
+def test_mass_cover_queues_one_task_per_image(client, queue):
+    """Illustration sans reconstruction : pas bloquée par un .old, une tâche
+    « cover » par image, image inconnue signalée."""
+    main._find_image("arcade/jeu").path.with_suffix(".wsquashfs.old").write_bytes(b"")
+    result = client.post("/api/mass/cover", json={"ids": ["arcade/jeu", "arcade/absent"]}).json()
+    assert len(result["tasks"]) == 1 and queue.get(result["tasks"][0]).kind == "cover"
+    assert [s["id"] for s in result["skipped"]] == ["arcade/absent"]
+
+
 def test_saves_reset(client, monkeypatch, tmp_path):
     monkeypatch.setattr(main._settings, "saves_dir", tmp_path / "saves")
     assert client.post("/api/image/saves/reset", params={"id": "arcade/jeu"}).status_code == 409

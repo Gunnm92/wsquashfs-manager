@@ -19,6 +19,7 @@ import hashlib
 import os
 import shutil
 import stat
+import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -367,6 +368,65 @@ def run_verify(settings: Settings, task: Task, job: Job) -> str:
         job.log(f"{'Erreur' if issue['level'] == 'error' else 'Attention'} : {issue['message']}")
     return f"Image intègre ; autorun : {len(issues)} remarque(s)" if issues else \
         "Image intègre, autorun cohérent"
+
+
+# ------------------------------------------------------------------ illustration
+
+COVER_DIR = ".wsquashfs"
+
+
+def run_cover(settings: Settings, task: Task, job: Job) -> str:
+    """Ajoute l'illustration (.wsquashfs/cover : jaquette d'EmulationStation,
+    sinon icône de l'exécutable) à une image qui n'en a pas, SANS la
+    reconstruire : mksquashfs en mode ajout écrit le fichier à la suite et ne
+    réécrit que les tables (instantané, contenu et attributs existants
+    intacts). L'image est modifiée en place, sans .old : jamais pendant une
+    partie (vérifié juste avant) ; mksquashfs garde un fichier de reprise
+    jusqu'à la fin de l'ajout."""
+    from .artwork import artwork
+    from .rebuild import COVER
+
+    image, _ = _task_image(task)
+    job.progress("lecture", 0.05)
+    files = scan._list_files_uncached(settings, image)
+    if files is None:
+        raise RebuildError("arborescence illisible (unsquashfs -l)")
+    if COVER in files:
+        return "Illustration déjà présente : rien à faire"
+    if COVER_DIR in files:
+        # mksquashfs renommerait le nouveau dossier (.wsquashfs_1) : passer
+        # par une reconstruction, qui la dépose (add_cover)
+        raise RebuildError(f"{COVER_DIR}/ existe sans illustration : reconstruire l'image")
+    data = scan.read_autorun_bytes(settings, image)
+    a = Autorun.parse(decode_autorun(data)[0]) if data is not None else None
+    art = artwork(settings, image, a.get("CMD") if a else None, a.get("DIR") if a else None)
+    if art is None:
+        return "Aucune illustration trouvée (ni jaquette d'EmulationStation ni icône d'exécutable)"
+    job.log(f"Illustration : {art.path.name} ({'jaquette' if art.kind == 'es' else 'icône'})")
+    if scan.image_in_use(image):
+        raise RebuildError("jeu en cours d'utilisation")
+    cover = art.path.read_bytes()
+    with work_area(settings, image, "cover-") as tmp:
+        folder = tmp / "src" / COVER_DIR
+        folder.mkdir(parents=True)
+        (folder / "cover").write_bytes(cover)
+        for p in (tmp / "src", folder):
+            p.chmod(0o755)
+        (folder / "cover").chmod(0o644)
+        job.check()
+        run_progress([*priority_prefix(settings), settings.mksquashfs, str(tmp / "src"), str(image),
+                      "-force-uid", str(os.getuid()), "-force-gid", str(os.getgid()),
+                      *USER_XATTRS, "-percentage"],
+                     job, "ajout", 0.2, 0.9)
+    job.progress("vérification", 0.92)
+    after = scan._list_files_uncached(settings, image)
+    if after is None or set(after) != set(files) | {COVER_DIR, COVER}:
+        raise RebuildError("vérification : arborescence inattendue après l'ajout")
+    verify_out = subprocess.run([settings.unsquashfs, "-cat", str(image), COVER],
+                                capture_output=True, timeout=60, check=False).stdout
+    if verify_out != cover:
+        raise RebuildError("vérification : illustration relue différente")
+    return f"Illustration ajoutée ({'jaquette' if art.kind == 'es' else 'icône'}, {len(cover) // 1024} Kio)"
 
 
 # ------------------------------------------------------------------ sauvegardes

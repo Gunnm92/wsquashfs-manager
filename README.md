@@ -380,6 +380,21 @@ Les reconstructions passent par une file persistante (`STATE_DIR/tasks.json`) :
 une tâche par image à la fois, priorité basse (`nice`/`ionice`), progression,
 annulation ; une tâche interrompue par un redémarrage est remise en attente.
 
+### Illustration (miniature des .wsquashfs)
+
+Chaque reconstruction dépose l'illustration du jeu à la racine de l'image,
+`.wsquashfs/cover` : jaquette d'EmulationStation (`gamelist.xml`), sinon
+icône de l'exécutable de `CMD=`. Le fichier `.thumbnailer` installé par
+`wsquashfs-launcher --setup` la montre dans Thunar, Nautilus, Nemo, Caja.
+
+Pour une image existante, **Illustration** (fiche) ou **Ajouter
+l'illustration** (sélection) l'ajoute sans reconstruire : `mksquashfs` en
+mode ajout écrit le fichier à la suite et ne réécrit que les tables
+(Nosferatu, 180 Mo : 0,07 s), contenu et attributs étendus intacts. L'image
+est modifiée en place, sans `.old` : refusé pendant une partie, et quand
+`.wsquashfs/` existe déjà sans illustration (reconstruire alors). Une image
+qui a déjà son illustration n'est pas touchée.
+
 ### Fichiers et registre
 
 « Fichiers / registre… » ajoute, remplace ou supprime des fichiers et pose des
@@ -429,7 +444,7 @@ Les images sont désignées par leur identifiant `<système>/<nom>` en paramètr
 | POST | `/api/image/saves/reset?id=` | sauvegardes → `<jeu>.avant-<date>` |
 | POST | `/api/game_host/maintenance` | lanceur sur la machine de jeu : corps `{"action", "id"?}` ; `list`, `umount`, `clean`, `saves` (sans jeu) ; `save` (jeu requis) ; `sync` (jeu facultatif) ; `sync-status` (sans jeu) |
 | POST | `/api/mass/autorun[/preview]` · `/api/mass/files[/preview]` | masse : autorun, fichiers/registre |
-| POST | `/api/mass/verify` · `/api/mass/old/validate` · `/api/mass/saves/reset` | masse : intégrité, `.old`, sauvegardes |
+| POST | `/api/mass/verify` · `/api/mass/cover` · `/api/mass/old/validate` · `/api/mass/saves/reset` | masse : intégrité, illustration, `.old`, sauvegardes |
 | GET | `/api/folders` · `/api/folders/analyze?id=&exe=` | dossiers à empaqueter, analyse |
 | POST | `/api/folders/pack` · `/api/folders/delete` | empaquetage en batch, suppression des dossiers empaquetés |
 | GET/POST | `/api/tasks[?image=]` · `/api/tasks/{id}` · `/api/tasks/{id}/cancel` | file |
@@ -446,7 +461,7 @@ backend/app/
 └── services/
     ├── scan.py          # scan + cache, lecture sans montage (unsquashfs)
     ├── autorun.py       # lecture/écriture ligne à ligne, validations, opérations
-    ├── rebuild.py       # reconstruction overlay / extraction, vérification, .old
+    ├── rebuild.py       # reconstruction en flux / extraction, vérification, .old
     ├── tasks.py         # file de tâches persistante
     ├── operations.py    # tâches : autorun, fichiers/registre, vérification (aperçu = exécution)
     ├── registry.py      # édition des .reg Wine (user.reg, system.reg)

@@ -1282,7 +1282,7 @@ async function renderHistory() {
 // ------------------------------------------------------------------ tâches
 
 const TASK_KINDS = { autorun: ["hammer", "Reconstruction"], update: ["upload", "Montée de version"], files: ["file", "Fichiers et registre"],
-  verify: ["shield", "Vérification"], pack: ["package", "Empaquetage"], runner: ["clip", "Runner joint"], trial: ["flask", "Lancement d'essai"],
+  verify: ["shield", "Vérification"], cover: ["image", "Illustration"], pack: ["package", "Empaquetage"], runner: ["clip", "Runner joint"], trial: ["flask", "Lancement d'essai"],
   saves: ["save", "Sauvegardes entre machines"], install: ["drive", "Installation sur les machines"] };
 const TASK_STATES = { pending: ["clock", "en attente", "t-neutral"], running: ["refresh", "en cours", "t-accent"], done: ["check", "terminée", "t-sage"],
   failed: ["alert", "échec", "t-err"], cancelled: ["x", "annulée", "t-neutral"] };
@@ -2925,6 +2925,12 @@ async function verify(ids) {
   queued("Vérification ajoutée à la file");
 }
 
+async function addCover(ids) {
+  const data = await api("/api/mass/cover", { method: "POST", body: { ids } });
+  reportSkipped(data.skipped);
+  queued("Ajout de l'illustration ajouté à la file");
+}
+
 async function resetSaves(ids) {
   const names = ids.filter((id) => state.byId.get(id)?.saves_present);
   if (!names.length) { alert("Aucune image sélectionnée n'a de sauvegardes."); return; }
@@ -2944,6 +2950,7 @@ $("d-trial").onclick = async () => {
   } catch (error) { alert(error.message); }
 };
 $("d-verify").onclick = () => verify([state.current.id]).catch((error) => alert(error.message));
+$("d-cover").onclick = () => addCover([state.current.id]).catch((error) => alert(error.message));
 $("d-saves-reset").onclick = () => resetSaves([state.current.id]).catch((error) => alert(error.message));
 // Action sur un jeu de la fiche (save, sync) : résultat par jeu dans un toast.
 async function gameSaveAction(button, body, label, doneText) {
@@ -2965,6 +2972,7 @@ $("d-saves-sync").onclick = () => {
   gameSaveAction($("d-saves-sync"), { action: "sync", id: state.current.id }, "Synchronisation", "Sauvegardes synchronisées");
 };
 $("btn-verify").onclick = () => verify([...state.selected]).catch((error) => alert(error.message));
+$("btn-cover").onclick = () => addCover([...state.selected]).catch((error) => alert(error.message));
 $("btn-saves-reset").onclick = () => resetSaves([...state.selected]).catch((error) => alert(error.message));
 
 // Info-bulle : délégation sur tout élément [data-tip], positionnée sous lui

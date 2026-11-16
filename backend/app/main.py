@@ -59,6 +59,7 @@ from .services.operations import (
     remove_tree,
     reset_saves,
     run_autorun,
+    run_cover,
     run_files,
     run_pack,
     run_verify,
@@ -108,6 +109,7 @@ queue = TaskQueue(
         "autorun": lambda task, job: run_autorun(_settings, task, job),
         "files": lambda task, job: run_files(_settings, task, job),
         "verify": lambda task, job: run_verify(_settings, task, job),
+        "cover": lambda task, job: run_cover(_settings, task, job),
         "pack": lambda task, job: run_pack(_settings, task, job),
         "update": lambda task, job: run_update(_settings, task, job),
         "trial": lambda task, job: run_trial(_settings, task, job),
@@ -1152,6 +1154,21 @@ def mass_verify(body: MassIds):
         try:
             info = _find_image(image_id)
             created.append(_submit(info, "verify", {}, "vérification", rebuild=False,
+                                   night=body.when == "night").id)
+        except HTTPException as exc:
+            skipped.append({"id": image_id, "reason": exc.detail})
+    return {"tasks": created, "skipped": skipped}
+
+
+@app.post("/api/mass/cover")
+def mass_cover(body: MassIds):
+    """Illustration ajoutée aux images qui n'en ont pas, sans reconstruction
+    (mksquashfs en ajout), une tâche par image."""
+    created, skipped = [], []
+    for image_id in body.ids:
+        try:
+            info = _find_image(image_id)
+            created.append(_submit(info, "cover", {}, "illustration", rebuild=False,
                                    night=body.when == "night").id)
         except HTTPException as exc:
             skipped.append({"id": image_id, "reason": exc.detail})
