@@ -1715,6 +1715,14 @@ const identical = (g) => g.machines.some((s) => s.state === "identique");
 const differs = (g) => lateIn(g).length > 0;
 // Source par défaut d'un jeu : la suggérée, sinon une machine qui l'a (seule ou identique)
 const sourceOf = (g) => suggestedOf(g) || presentIn(g).find((s) => reachableIds().includes(s.id));
+// Le manager a déjà la version de la machine `s` (même empreinte, casse ignorée) : rien à copier
+const inManager = (g, s) => Boolean(g.reserve?.fingerprint && s?.fingerprint
+  && g.reserve.fingerprint.toLowerCase() === s.fingerprint.toLowerCase());
+// Jeu à copier vers le manager depuis `source` (une machine ou AUTO) : une version qu'il n'a pas encore
+const pullNeeded = (g, source) => {
+  const from = source === AUTO ? sourceOf(g) : stateOf(g, source);
+  return Boolean(from && from.fingerprint && !inManager(g, from));
+};
 const shortDate = (t) => {
   if (!t) return "";
   const d = new Date(t * 1000), p = (n) => String(n).padStart(2, "0");
@@ -2093,7 +2101,8 @@ function rowItems(g) {
       .map((s) => [`Sync ${s.name} → ${names(others(s))}`, "arrow", !idle, () => pushFrom(g, s.id, others(s))]),
     // Installer sur une machine qui n'a pas le jeu : choix explicite, jamais par défaut
     ...(top ? absentIn(g).map((id) => [`Installer sur ${machineName(id)} (depuis ${top.name})`, "arrow", !idle, () => pushFrom(g, top.id, [id])]) : []),
-    [top ? `Copier vers le manager (${top.name} → Manager)` : "Copier vers le manager", "save", !idle || !top, () => pullGames([g], AUTO)],
+    [!top ? "Copier vers le manager" : inManager(g, top) ? "Copier vers le manager (déjà identique)"
+      : `Copier vers le manager (${top.name} → Manager)`, "save", !idle || !top || inManager(g, top), () => pullGames([g], AUTO)],
     ["Sync depuis le manager (Manager → machines)", "server", !idle || !g.reserve || !reachManagerTargets(g).length, () => pushReserve(g)],
     ["Supprimer…", "trash", !idle, () => openSaveDelete([g]), true],
   ];
@@ -2124,8 +2133,10 @@ function paintSelection() {
   const pushable = !busy() && games.length && targets.length && (sv.source !== RESERVE || games.some((g) => g.reserve));
   $("s-push").disabled = !pushable;
   $("s-push").title = targets.length ? "" : "Aucune cible : coche au moins une autre machine joignable";
-  $("s-pull").disabled = busy() || !games.length || sv.source === RESERVE;
-  $("s-pull").title = sv.source === RESERVE ? "Choisis une machine, ou « La plus avancée », comme source" : "Copier les sauvegardes sélectionnées sur le manager";
+  const toPull = sv.source === RESERVE ? [] : games.filter((g) => pullNeeded(g, sv.source));
+  $("s-pull").disabled = busy() || !toPull.length;
+  $("s-pull").title = sv.source === RESERVE ? "Choisis une machine, ou « La plus avancée », comme source"
+    : games.length && !toPull.length ? "Le manager a déjà ces versions" : "Copier les sauvegardes sélectionnées sur le manager";
   $("s-delete").disabled = busy();
 }
 
@@ -2161,7 +2172,7 @@ setInterval(pollSaves, SAVES_POLL_MS);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) pollSaves(); });
 $("s-clear").onclick = () => { sv.selected.clear(); paintTable(); paintSelection(); };
 $("s-push").onclick = () => pushSelection();
-$("s-pull").onclick = () => pullGames(sv.games.filter((g) => sv.selected.has(g.game)), sv.source);
+$("s-pull").onclick = () => pullGames(sv.games.filter((g) => sv.selected.has(g.game) && pullNeeded(g, sv.source)), sv.source);
 $("s-delete").onclick = () => openSaveDelete(sv.games.filter((g) => sv.selected.has(g.game)));
 
 // Appairage : même code wsq:// que l'agent ; l'erreur reste dans le dialogue
