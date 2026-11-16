@@ -104,6 +104,8 @@ def test_rebuild_replaces_autorun_and_keeps_old(image: Path, settings: Settings)
 @needs_tools
 @pytest.mark.parametrize("mode", ["stream", "extract"])
 def test_rebuild_adds_and_deletes_files(image: Path, tmp_path: Path, mode: str):
+    if mode == "stream" and not _squashfs_47():
+        pytest.skip("mode flux : squashfs-tools 4.7 requis")
     settings = Settings(tmp_dir=tmp_path / "tmp", rebuild_mode=mode)
     patch = image.parent / "patch.dll"
     patch.write_bytes(b"P" * 1000)
@@ -327,17 +329,72 @@ def test_stream_adds_tree_and_links(tmp_path: Path):
     assert expected_listing(existing, changes) == _listing(out)
 
 
+@needs_tools
+def test_stream_keeps_binary_xattr(tmp_path: Path):
+    if not _squashfs_47():
+        pytest.skip("squashfs-tools 4.7 requis (4.6 plante sur une valeur binaire)")
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "f").write_bytes(b"f")
+    try:
+        os.setxattr(src / "f", "user.DosStream.Zone.Identifier:$DATA", b"\x00\xff\x10 0x")
+    except OSError:
+        pytest.skip("attributs user.* non pris en charge ici")
+    out = _stream_build(src, tmp_path, Changes())
+    assert _xattrs_after(out, tmp_path, "f") == {"user.DosStream.Zone.Identifier:$DATA": b"\x00\xff\x10 0x"}
+
+
+@needs_tools
+def test_extract_keeps_user_xattrs(image: Path, tmp_path: Path):
+    src = tmp_path / "xsrc"
+    (src / "Game Dir").mkdir(parents=True)
+    (src / "Game Dir/game.exe").write_bytes(b"MZ")
+    try:
+        os.setxattr(src / "Game Dir/game.exe", "user.DOSATTRIB", b"0x20")
+    except OSError:
+        pytest.skip("attributs user.* non pris en charge ici")
+    img = tmp_path / "roms" / "X.wsquashfs"
+    img.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["mksquashfs", str(src), str(img), "-noappend", "-quiet", "-no-progress"],
+                   check=True, capture_output=True)
+    rebuild.rebuild(Settings(tmp_dir=tmp_path / "tmp", rebuild_mode="extract"), img,
+                    Changes(write={"autorun.cmd": b"CMD=game.exe\r\n"}))
+    assert _xattrs_after(img, tmp_path, "Game Dir/game.exe") == {"user.DOSATTRIB": b"0x20"}
+
+
+def test_stream_xattr_line_reencodes_ambiguous_values():
+    b64 = rebuild.base64.b64encode
+    assert rebuild.stream_xattr_line(b"a x user.v=0x20\n") == b"a x user.v=0s" + b64(b"0x20") + b"\n"
+    assert rebuild.stream_xattr_line(b"G\\ Dir/a x user.v=0s1\n") == b"G\\ Dir/a x user.v=0s" + b64(b"0s1") + b"\n"
+    for keep in (b"a x user.v=bonjour\n", b"a x user.v=0t\\000\\377\n", b"a R 1 644 0 0 6 0 0\n",
+                 b"a\\ x\\ b R 1 644 0 0 6 0 0\n", b"/ D 1 755 0 0\n"):
+        assert rebuild.stream_xattr_line(keep) == keep
+
+
 def test_stream_name_unescapes():
     assert rebuild.stream_name(b"Game\\ Dir/a\\ b.txt R 1 644 0 0 6 0 0\n") == "Game Dir/a b.txt"
     assert rebuild.stream_name(b"quo'te\\\"s\\\\x R 1 644 0 0 1 0 0\n") == "quo'te\"s\\x"
     assert rebuild.stream_name(b"/ D 1 755 0 0\n") == "/"
 
 
+def _xattrs_after(image: Path, tmp_path: Path, rel: str) -> dict[str, bytes]:
+    dest = tmp_path / "xattrs-out"
+    shutil.rmtree(dest, ignore_errors=True)
+    subprocess.run(["unsquashfs", "-q", "-xattrs-include", r"^user\.", "-d", str(dest), str(image)],
+                   capture_output=True, check=True)
+    return {k: os.getxattr(dest / rel, k) for k in os.listxattr(dest / rel)}
+
+
+def _squashfs_47() -> bool:
+    v = rebuild.squashfs_version(Settings())
+    return v is not None and v >= (4, 7)
+
+
 @needs_tools
-def test_stream_keeps_odd_names_and_drops_xattrs(tmp_path: Path):
+def test_stream_keeps_odd_names_and_xattrs(tmp_path: Path):
     """Noms à espaces, guillemets et barres obliques inverses ; supprimer un
-    fichier n'abîme pas les données des suivants ; attribut étendu (comme
-    user.DOSATTRIB de Windows) retiré au lieu de faire échouer mksquashfs."""
+    fichier n'abîme pas les données des suivants ; user.DOSATTRIB de Wine
+    (« 0x20 », lu comme hexadécimal par mksquashfs sans réencodage) gardé."""
     src = tmp_path / "src"
     (src / "d d").mkdir(parents=True)
     names = ["d d/a b.txt", "d d/quo'te\"s\\x", "d d/z.bin"]
@@ -345,10 +402,15 @@ def test_stream_keeps_odd_names_and_drops_xattrs(tmp_path: Path):
         (src / n).write_bytes(bytes([65 + i]) * (70000 * (i + 1)))
     (src / "d d/gone.bin").write_bytes(b"G" * 50000)
     try:
-        os.setxattr(src / "d d/a b.txt", "user.DOSATTRIB", b"0x0")
+        os.setxattr(src / "d d/a b.txt", "user.DOSATTRIB", b"0x20")
+        os.setxattr(src / "d d/z.bin", "user.DOSATTRIB", b"0x0")
+        os.setxattr(src / "d d/z.bin", "user.texte", b"bonjour")
     except OSError:
-        pass                                   # système de fichiers sans xattr user
+        pytest.skip("attributs user.* non pris en charge ici")
     out = _stream_build(src, tmp_path, Changes(delete=["d d/gone.bin"]))
+    assert _xattrs_after(out, tmp_path, "d d/a b.txt") == {"user.DOSATTRIB": b"0x20"}
+    assert _xattrs_after(out, tmp_path, "d d/z.bin") == {"user.DOSATTRIB": b"0x0",
+                                                         "user.texte": b"bonjour"}
     listing = _listing(out)
     assert "d d/gone.bin" not in listing
     for n in names:

@@ -308,15 +308,16 @@ def test_remove_tree_retries_transient_errors(tmp_path, monkeypatch):
 
 
 @needs_tools
-def test_pack_drops_xattrs(pack_env):
-    """Attributs Windows/macOS laissés par une copie (user.DOSATTRIB…) : jamais
-    repris, squashfuse 0.5 plante en les lisant."""
+def test_pack_keeps_user_xattrs(pack_env, tmp_path):
+    """user.DOSATTRIB (attributs Windows rangés par Wine) repris dans l'image :
+    le lanceur les expose au jeu (16/11)."""
     settings, folder, task = pack_env
     try:
         os.setxattr(folder / "bin/game.exe", "user.DOSATTRIB", b"0x20")
     except OSError:
         pytest.skip("attributs user.* non pris en charge ici")
     run_pack(settings, task(), Job())
-    out = subprocess.run(["unsquashfs", "-s", str(folder.with_name("Mon Jeu.wsquashfs"))],
-                         capture_output=True, text=True, check=True).stdout
-    assert "Xattrs are not stored" in out or "Number of xattr ids 0" in out
+    dest = tmp_path / "x"
+    subprocess.run(["unsquashfs", "-q", "-xattrs-include", r"^user\.", "-d", str(dest),
+                    str(folder.with_name("Mon Jeu.wsquashfs"))], capture_output=True, check=True)
+    assert os.getxattr(dest / "bin/game.exe", "user.DOSATTRIB") == b"0x20"

@@ -2,7 +2,7 @@
 
 Une image squashfs ne se modifie pas en place. Deux façons de la reconstruire :
 
-- **flux** (« stream », squashfs-tools 4.6 et plus) : `unsquashfs -pf -`
+- **flux** (« stream », squashfs-tools 4.7 et plus) : `unsquashfs -pf -`
   décrit toute l'image, données comprises, sur sa sortie ; le manager retire
   de cette description les chemins supprimés ou remplacés, ajoute les
   nouveaux (définitions « pseudo ») et `mksquashfs - … -pf -` reconstruit.
@@ -20,6 +20,7 @@ que sur validation explicite ou après le délai de rétention.
 
 from __future__ import annotations
 
+import base64
 import os
 import re
 import shutil
@@ -153,11 +154,13 @@ def expected_listing(old: list[str], changes: Changes) -> set[str]:
 
 # ------------------------------------------------------------------ processus
 
-# Attributs étendus jamais repris dans une image : les jeux n'en ont pas besoin,
-# et ceux qu'une copie Windows/Samba/macOS laisse (user.DOSATTRIB,
-# user.DosStream.*) font planter squashfuse 0.5 à la lecture (01/11 : vue
-# overlay morte en pleine reconstruction). L'extraction les ignore déjà.
-NO_XATTRS = ["-no-xattrs"]
+# Attributs étendus gardés, espace user.* seulement : user.DOSATTRIB, où Wine
+# range les attributs Windows (caché, système, archive), porté par 115 images
+# sur 318 (16/11) et relu par le lanceur. Les autres espaces (security.*,
+# trusted.*) ne servent pas aux jeux et un utilisateur non root ne peut pas
+# les restaurer. (Retirés jusqu'au 16/11 : squashfuse 0.5 plantait en les
+# lisant ; ni le lanceur ni le manager n'utilisent plus squashfuse.)
+USER_XATTRS = ["-xattrs-include", r"^user\."]
 
 # Lecture impossible signalée par mksquashfs, qui continue alors avec un
 # fichier vide ou sans l'entrée : l'image serait incomplète
@@ -304,15 +307,26 @@ def _human(n: float) -> str:
 
 # ------------------------------------------------------------------ montages
 
-def stream_missing(settings: Settings) -> str | None:
-    """Ce qui manque au mode flux, ou None s'il est possible."""
+def squashfs_version(settings: Settings) -> tuple[int, int] | None:
+    """Version de unsquashfs (« unsquashfs version 4.7.5 (…) »), None si absent."""
     try:
-        r = subprocess.run([settings.unsquashfs, "-help"], capture_output=True, timeout=10,
+        r = subprocess.run([settings.unsquashfs, "-version"], capture_output=True, timeout=10,
                            check=False)
     except (OSError, subprocess.TimeoutExpired):
+        return None
+    m = re.search(rb"version (\d+)\.(\d+)", r.stdout + r.stderr)
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def stream_missing(settings: Settings) -> str | None:
+    """Ce qui manque au mode flux, ou None s'il est possible. squashfs-tools
+    4.7 : unsquashfs 4.6 plante (« buffer overflow ») sur une valeur
+    d'attribut binaire en écrivant la description."""
+    version = squashfs_version(settings)
+    if version is None:
         return f"{settings.unsquashfs} introuvable"
-    if b"-pf" not in r.stdout + r.stderr:
-        return "unsquashfs sans -pf (squashfs-tools 4.6 ou plus récent requis)"
+    if version < (4, 7):
+        return f"unsquashfs {version[0]}.{version[1]} (squashfs-tools 4.7 ou plus récent requis)"
     return None
 
 
@@ -473,6 +487,28 @@ def stream_name(line: bytes) -> str:
 _STREAM_DATA = b"# START OF DATA"
 
 
+def stream_xattr_line(line: bytes) -> bytes:
+    """Ligne d'attribut (« chemin x nom=valeur ») de `unsquashfs -pf`, rendue
+    sûre pour mksquashfs : unsquashfs écrit une valeur texte telle quelle,
+    et mksquashfs lit « 0x… » en hexadécimal et « 0s… » en base64 — la valeur
+    « 0x20 » de Wine deviendrait l'octet 0x20 (ou « 0x0 » serait refusée).
+    unsquashfs n'écrit lui-même que « 0t… » (binaire) : une valeur en 0x/0s
+    est donc du texte, réencodée en base64. Les autres lignes sont rendues
+    telles quelles."""
+    name = stream_name(line)
+    # Fin du chemin échappé : premier espace non précédé d'une barre oblique
+    i = 0
+    while i < len(line) and line[i] != 0x20:
+        i += 2 if line[i] == 0x5C else 1
+    rest = line[i:]
+    if not name or not rest.startswith(b" x "):
+        return line
+    attr, eq, value = rest[3:].rstrip(b"\n").partition(b"=")
+    if not eq or value[:2] not in (b"0x", b"0s"):
+        return line
+    return line[:i] + b" x " + attr + b"=0s" + base64.b64encode(value) + b"\n"
+
+
 def filter_stream(src, dst, gone: set[str], extra: bytes) -> None:
     """Recopie la description de `unsquashfs -pf` en retirant les chemins de
     `gone` (et leur contenu), et ajoute `extra` (définitions pseudo) avant les
@@ -491,23 +527,24 @@ def filter_stream(src, dst, gone: set[str], extra: bytes) -> None:
             dst.write(line)
             shutil.copyfileobj(src, dst, 1 << 20)
             return
-        if line.startswith(b"#") or not gone or not removed(stream_name(line)):
+        if line.startswith(b"#"):
             dst.write(line)
+        elif not gone or not removed(stream_name(line)):
+            dst.write(stream_xattr_line(line))
     dst.write(extra)  # image sans données (aucun fichier)
 
 
 def _build_stream(settings: Settings, image: Path, part: Path, work: Path,
                   changes: Changes, job: Job, owner_opts: list[str],
                   existing: set[str] | None = None) -> None:
-    """Mode flux : unsquashfs -pf - | filtre | mksquashfs - -pf -. Les
-    attributs étendus sont retirés (-no-xattrs des deux côtés : mksquashfs
-    4.6.1 refuse « x user.DOSATTRIB=0x0 », et les images n'en ont pas besoin)."""
+    """Mode flux : unsquashfs -pf - | filtre | mksquashfs - -pf -. Attributs
+    user.* gardés (valeurs réencodées par stream_xattr_line)."""
     gone, pseudo = pseudo_plan(changes, existing or set(), work, os.getuid(), os.getgid())
     extra = "".join(line + "\n" for line in pseudo).encode("utf-8", errors="surrogateescape")
     log = work / "unsquashfs.log"
     with open(log, "wb") as err:
         try:
-            src = subprocess.Popen([settings.unsquashfs, "-no-xattrs", "-pf", "-", str(image)],
+            src = subprocess.Popen([settings.unsquashfs, *USER_XATTRS, "-pf", "-", str(image)],
                                    stdout=subprocess.PIPE, stderr=err, stdin=subprocess.DEVNULL)
         except OSError as exc:
             raise RebuildError(f"commande impossible : {settings.unsquashfs} ({exc})") from exc
@@ -522,7 +559,7 @@ def _build_stream(settings: Settings, image: Path, part: Path, work: Path,
 
     try:
         run_progress([*priority_prefix(settings), settings.mksquashfs, "-", str(part),
-                      *settings.mksquashfs_opts, *owner_opts, *NO_XATTRS, "-noappend",
+                      *settings.mksquashfs_opts, *owner_opts, *USER_XATTRS, "-noappend",
                       "-percentage", "-pf", "-"],
                      job, "mksquashfs", 0.02, 0.92, feed=feed)
     finally:
@@ -539,15 +576,15 @@ def _build_extract(settings: Settings, image: Path, part: Path, work: Path,
                    changes: Changes, job: Job, owner_opts: list[str],
                    existing: set[str] | None = None) -> None:
     root = work / "root"
-    # -no-xattrs : un utilisateur non root ne peut pas les restaurer ; les
-    # images de jeux n'en ont pas besoin.
-    run_progress([*priority_prefix(settings), settings.unsquashfs, "-no-xattrs",
+    # Attributs user.* seulement : un utilisateur non root ne peut pas
+    # restaurer les autres (security.*, trusted.*).
+    run_progress([*priority_prefix(settings), settings.unsquashfs, *USER_XATTRS,
                    "-percentage", "-d", str(root), str(image)],
                   job, "extraction", 0.0, 0.45)
     apply_changes(root, changes)
     job.check()
     run_progress([*priority_prefix(settings), settings.mksquashfs, str(root), str(part),
-                   *settings.mksquashfs_opts, *owner_opts, *NO_XATTRS, "-noappend", "-percentage"],
+                   *settings.mksquashfs_opts, *owner_opts, *USER_XATTRS, "-noappend", "-percentage"],
                   job, "mksquashfs", 0.45, 0.92)
 
 

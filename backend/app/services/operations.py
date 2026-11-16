@@ -40,7 +40,7 @@ from .autorun import (
 from .durable import fsync_dir, publish_new, write_atomic
 from .links import classify, folder_links, image_links, relink_options
 from .rebuild import (
-    NO_XATTRS,
+    USER_XATTRS,
     Changes,
     Job,
     RebuildError,
@@ -538,7 +538,7 @@ def run_pack(settings: Settings, task: Task, job: Job) -> str:
             relink = relink_options(links.fixable, tmp, os.getuid(), os.getgid())
             run_progress([*priority_prefix(settings), settings.mksquashfs, *sources, str(part),
                            *settings.mksquashfs_opts, "-force-uid", str(os.getuid()),
-                           "-force-gid", str(os.getgid()), *NO_XATTRS, "-noappend", "-percentage", *relink],
+                           "-force-gid", str(os.getgid()), *USER_XATTRS, "-noappend", "-percentage", *relink],
                           job, "mksquashfs", 0.02, 0.92)
         job.check()
         job.progress("vérification", 0.93)

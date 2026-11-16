@@ -50,8 +50,8 @@ chemins peuvent s'ajouter : le système est déduit comme le fait le lanceur. Un
 ## Docker (déploiement)
 
 Conteneur séparé de SteamBox (SPEC § 7, point 2), image
-`registry.elfenn.eu/wsquashfs-manager` (Debian trixie : squashfs-tools 4.6 ;
-ni FUSE ni privilège), déployé par un **template Unraid** :
+`registry.elfenn.eu/wsquashfs-manager` (Debian trixie, squashfs-tools 4.7
+compilé ; ni FUSE ni privilège), déployé par un **template Unraid** :
 [`unraid/wsquashfs-manager.xml`](unraid/wsquashfs-manager.xml).
 
 ```sh
@@ -312,7 +312,7 @@ Variables `WSQUASHFS_MGR_*` (ou fichier `backend/.env`) :
 | `LAUNCHER_CACHE` | `$WSQUASHFS_CACHE`, sinon `~/.cache/wsquashfs` | cache du lanceur : verrous par jeu (`locks/`) et montages, pour reconnaître un jeu en cours, même en préparation |
 | `TMP_DIR` | — (à côté de l'image) | dossier de travail imposé ; par défaut `.wsquashfs-manager/` à côté de chaque image, même disque |
 | `STATE_DIR` | `~/.local/state/wsquashfs-manager` | état de la file de tâches |
-| `REBUILD_MODE` | `auto` | `stream` (sans montage ni extraction, squashfs-tools 4.6+), `extract` (repli) ou `auto` |
+| `REBUILD_MODE` | `auto` | `stream` (sans montage ni extraction, squashfs-tools 4.7+), `extract` (repli) ou `auto` |
 | `TASK_CONCURRENCY` | `1` | reconstructions simultanées |
 | `OLD_RETENTION_DAYS` | — (manuelle) | suppression automatique des `.old` |
 | `HOST`, `PORT`, `PASSWORD` | `127.0.0.1`, `8765`, — | accès (voir ci-dessous) |
@@ -357,7 +357,7 @@ PAC-MAN, `-Shipping` de Horizon Chase), pour la future base de connaissances.
 
 Une image squashfs ne se modifie pas en place (SPEC § 3.1) :
 
-1. **flux** (squashfs-tools 4.6 et plus) : `unsquashfs -pf -` décrit toute
+1. **flux** (squashfs-tools 4.7 et plus) : `unsquashfs -pf -` décrit toute
    l'image, données comprises ; le manager en retire les chemins supprimés ou
    remplacés, ajoute les nouveaux (définitions « pseudo ») et
    `mksquashfs - … -pf -` reconstruit — ni montage FUSE ni extraction
@@ -467,6 +467,6 @@ frontend/index.html      # interface (sans build)
 
 ## Dépendances système
 
-`squashfs-tools` 4.6 ou plus récent (mksquashfs/unsquashfs).
+`squashfs-tools` 4.7 ou plus récent (mksquashfs/unsquashfs ; compilé dans l'image).
 Wine n'est pas nécessaire : l'analyse des exécutables (`pefile`) et du
 registre se fait en Python.
