@@ -32,7 +32,7 @@ from pathlib import Path, PurePosixPath
 from ..config import Settings, work_area
 from .durable import fsync_dir, restore, swap_keep_old
 from .links import _pseudo_quote, _wildcard_escape
-from .scan import _list_files_uncached
+from .scan import _list_files_uncached, read_autorun_bytes
 
 # Marge sur la taille de la nouvelle image (≈ l'ancienne) : la compression
 # d'un fichier remplacé peut différer.
@@ -629,6 +629,38 @@ def file_sizes(settings: Settings, image: Path) -> dict[str, int]:
 
 # ------------------------------------------------------------------ reconstruction
 
+# Illustration du jeu dans l'image : miniature des .wsquashfs dans le
+# gestionnaire de fichiers (fichier .thumbnailer installé par
+# `wsquashfs-launcher --setup`, qui la lit par `unsquashfs -cat`). Tout format
+# lu par gdk-pixbuf : la jaquette ou l'icône est copiée telle quelle.
+COVER = ".wsquashfs/cover"
+
+
+def add_cover(settings: Settings, image: Path, changes: Changes, job: Job) -> None:
+    """Ajoute (ou met à jour) l'illustration de l'image aux changements :
+    jaquette d'EmulationStation, sinon icône de l'exécutable de CMD (celui de
+    l'autorun écrit par cette reconstruction s'il change). Jamais bloquant :
+    sans illustration, ou si les changements touchent déjà `.wsquashfs/`, rien."""
+    from .artwork import artwork
+    from .autorun import Autorun, decode_autorun
+
+    touched = [*changes.write, *changes.copy, *changes.delete, *changes.trees, *changes.links]
+    if any(rel == ".wsquashfs" or rel.startswith(".wsquashfs/") for rel in touched):
+        return
+    try:
+        data = changes.write.get("autorun.cmd")
+        if data is None:
+            data = read_autorun_bytes(settings, image)
+        a = Autorun.parse(decode_autorun(data)[0]) if data is not None else None
+        art = artwork(settings, image, a.get("CMD") if a else None, a.get("DIR") if a else None)
+    except Exception as exc:  # noqa: BLE001 — l'illustration ne fait jamais échouer
+        job.log(f"Illustration ignorée : {exc}")
+        return
+    if art is not None:
+        changes.copy[COVER] = art.path
+        job.log(f"Illustration : {art.path.name} ({'jaquette' if art.kind == 'es' else 'icône'})")
+
+
 def rebuild(settings: Settings, image: Path, changes: Changes, job: Job | None = None,
             in_use: Callable[[Path], bool] | None = None) -> RebuildResult:
     """Applique `changes` à l'image ; l'original est gardé en ``.old``.
@@ -651,6 +683,7 @@ def rebuild(settings: Settings, image: Path, changes: Changes, job: Job | None =
             raise RebuildError(f"outil requis introuvable : {tool}")
     if in_use and in_use(image):
         raise RebuildError("jeu en cours d'utilisation")
+    add_cover(settings, image, changes, job)
 
     mode = choose_mode(settings)
     if mode == "overlay":

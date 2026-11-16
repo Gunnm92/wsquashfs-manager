@@ -383,3 +383,42 @@ def test_pseudo_options_equivalent_to_apply_changes(tmp_path: Path):
         if kind == "-":
             assert _cat(out, rel) == _cat(ref, rel), rel
     assert expected_listing(sorted(existing), changes) == _listing(out)
+
+
+# ------------------------------------------------------------------ illustration (.wsquashfs/cover)
+
+def _es_cover(system_dir: Path, stem: str) -> Path:
+    cover = system_dir / "covers" / f"{stem}.png"
+    cover.parent.mkdir(parents=True, exist_ok=True)
+    cover.write_bytes(b"\x89PNG\r\n\x1a\n" + b"jaquette")
+    (system_dir / "gamelist.xml").write_text(
+        f"<gameList><game><path>./{stem}.wsquashfs</path>"
+        f"<thumbnail>./covers/{stem}.png</thumbnail></game></gameList>", encoding="utf-8")
+    return cover
+
+
+def test_add_cover_takes_es_artwork(tmp_path: Path, settings: Settings):
+    img = tmp_path / "roms" / "win" / "Jeu.wsquashfs"
+    img.parent.mkdir(parents=True)
+    img.write_bytes(b"")
+    cover = _es_cover(img.parent, "Jeu")
+    changes = Changes(write={"autorun.cmd": b"CMD=game.exe\r\n"})
+    rebuild.add_cover(settings, img, changes, Job())
+    assert changes.copy[rebuild.COVER] == cover
+
+
+def test_add_cover_leaves_explicit_wsquashfs_changes(tmp_path: Path, settings: Settings):
+    img = tmp_path / "roms" / "win" / "Jeu.wsquashfs"
+    img.parent.mkdir(parents=True)
+    img.write_bytes(b"")
+    _es_cover(img.parent, "Jeu")
+    changes = Changes(delete=[".wsquashfs"])
+    rebuild.add_cover(settings, img, changes, Job())
+    assert rebuild.COVER not in changes.copy
+
+
+@needs_tools
+def test_rebuild_embeds_cover(image: Path, settings: Settings):
+    cover = _es_cover(image.parent, "Jeu")
+    rebuild.rebuild(settings, image, Changes(write={"autorun.cmd": b"CMD=game.exe\r\n"}))
+    assert _cat(image, rebuild.COVER) == cover.read_bytes()
