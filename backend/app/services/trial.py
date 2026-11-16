@@ -33,7 +33,6 @@ import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-
 from urllib.parse import quote
 
 import httpx

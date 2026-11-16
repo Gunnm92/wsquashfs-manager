@@ -31,9 +31,9 @@ from .config import (
 )
 from .models import ImageInfo, ImageState, Task
 from .services import analyze as analyze_mod
-from .services import machine_api
+from .services import install as install_svc
+from .services import machine_api, scan
 from .services import saves as saves_svc
-from .services import scan
 from .services.analyze import FolderAnalysis, add_local_game, analyze_folder, analyze_image, report
 from .services.artwork import artwork, switch_artwork
 from .services.autorun import (
@@ -46,6 +46,7 @@ from .services.autorun import (
     override_path,
 )
 from .services.durable import restore
+from .services.install import run_install, valid_name
 from .services.operations import (
     autorun_sha,
     commit_params,
@@ -72,14 +73,13 @@ from .services.rebuild import (
     validate_backup,
 )
 from .services.runners import plan_runner, run_relink, run_runner, suggest
-from .services import install as install_svc
-from .services.install import run_install, valid_name
 from .services.saves import run_saves
-from .services.trial import AgentRejected, AgentUnreachable
 from .services.tasks import QueueLocked, TaskConflict, TaskQueue
 from .services.trial import (
     MAINTENANCE_COMMANDS,
     AgentProbeError,
+    AgentRejected,
+    AgentUnreachable,
     agent_cert_path,
     fingerprint_pem,
     game_host,
