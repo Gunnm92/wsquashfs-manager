@@ -255,8 +255,8 @@ explicite, la machine source étant choisie.
   (en parallèle, délai 15 s ; l'échec de `/v1/info` laisse `os` vide). Libellés
   par jeu : « absente » (pas le jeu : ce n'est pas une différence) ; « présente »
   (une seule machine l'a) ; « identique » (celles qui l'ont, deux au moins, ont
-  la même version) ; sinon « plus avancée » pour les machines qui ont la version au couple
-  (`size`, `newest`) maximal (`best` : la source à proposer, aussi celle de
+  la même version) ; sinon « plus avancée » pour les machines qui ont la version
+  la plus récente parmi celles de taille proche de la plus lourde (écart ≤ 10 %) (`best` : la source à proposer, aussi celle de
   `source:"auto"`), « en retard » pour les autres ; « absente » ;
   « injoignable » (machine non jointe ou erreur de la requête). `check` vrai
   quand la plus avancée n'a pas la date la plus récente (`check_by`).

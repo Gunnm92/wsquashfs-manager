@@ -138,8 +138,8 @@ machine **source** (celle qui est la plus avancée) vers les autres machines.
   n'est pas une différence (AIBox ou le Deck n'ont qu'une partie des jeux).
   « présente » : une seule machine l'a. « identique » : les machines qui l'ont
   (deux au moins) ont la même version. Sinon : « plus avancée » (la plus
-  lourde, puis la plus récente : la source suggérée) ou « en retard ». Les
-  machines non jointes sont « injoignable » (elles ne comptent pas). `check` : la plus lourde n'est
+  récente parmi les tailles proches de la plus lourde, écart ≤ 10 % : la source suggérée) ou « en retard ». Les
+  machines non jointes sont « injoignable » (elles ne comptent pas). `check` : la suggérée n'est
   pas la plus récente (`check_by` = la plus récente), à vérifier avant de
   synchroniser. Chaque machine n'est interrogée qu'une fois.
 - **Suppression** (`POST /api/saves/delete {games, machines, manager}`) : sur

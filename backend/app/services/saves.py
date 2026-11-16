@@ -7,8 +7,8 @@
 - Opérations : pull (machine → manager), push (manager → machines),
   push_from (pull puis push des jeux récupérés), status (états par machine),
   delete (suppression sur des machines et/ou le manager ; archivée d'abord).
-- Source suggérée : la machine « la plus avancée » (`best`) : la plus lourde,
-  puis la plus récente à taille égale.
+- Source suggérée : la machine « la plus avancée » (`best`) : la plus récente
+  parmi celles de taille proche de la plus lourde (écart ≤ SIZE_TOLERANCE).
 
 Les écritures du manager passent par durable.py (fichier .part, fsync,
 échange par lien physique : l'ancienne version reste sous son nom daté).
@@ -769,11 +769,20 @@ def _size_of(entry: dict | None) -> int:
         return 0
 
 
+SIZE_TOLERANCE = 0.10    # tailles à moins de 10 % de la plus lourde : comptées comme égales
+
+
 def best(states: list[dict]) -> dict | None:
-    """Machine suggérée parmi les états présents : la plus lourde, puis la plus
-    récente (couple (size, newest) le plus grand). None si aucune ne l'a."""
+    """Machine suggérée parmi les états présents : la plus récente parmi celles dont la
+    taille est proche de la plus lourde (écart ≤ SIZE_TOLERANCE), pour qu'une version plus
+    ancienne mais plus lourde de quelques octets ne l'emporte pas ; une version nettement
+    plus petite (partie recommencée) ne gagne pas. None si aucune ne l'a."""
     candidates = [s for s in states if s["state"] in PRESENT_STATES]
-    return max(candidates, key=lambda s: (s["size"], s["newest"])) if candidates else None
+    if not candidates:
+        return None
+    floor = max(s["size"] for s in candidates) * (1 - SIZE_TOLERANCE)
+    close = [s for s in candidates if s["size"] >= floor]
+    return max(close, key=lambda s: (s["newest"], s["size"]))
 
 
 def _pull_sources(settings: Settings, games: list[str] | None) -> tuple[dict, list[str]]:

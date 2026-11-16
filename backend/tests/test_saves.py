@@ -1150,7 +1150,7 @@ def test_api_pull_auto_queues_a_pull_task(agents, api):
     assert task["params"]["op"] == "pull_auto" and task["params"]["games"] == ["Jeu"]
 
 
-# ------------------------------------------------------------------ suggestion : taille, puis date
+# ------------------------------------------------------------------ suggestion : taille proche, puis date
 
 def test_best_orders_by_size_then_date():
     states = [{"state": "présente", "name": "a", "size": 10, "newest": 900},
@@ -1159,6 +1159,18 @@ def test_best_orders_by_size_then_date():
               {"state": "injoignable", "name": "d", "size": 99, "newest": 99}]
     assert saves.best(states)["name"] == "b"
     assert saves.best([s for s in states if s["state"] in ("absente", "injoignable")]) is None
+
+
+def test_best_prefers_the_newest_when_sizes_are_close():
+    # aibox plus lourde de quelques octets mais plus ancienne : SteamBox (plus récente) gagne
+    states = [{"state": "présente", "name": "aibox", "size": 1_048_900, "newest": 100},
+              {"state": "présente", "name": "SteamBox", "size": 1_048_576, "newest": 200}]
+    assert saves.best(states)["name"] == "SteamBox"
+    # à la limite de la tolérance (10 %) : encore proche ; au-delà : la plus lourde
+    states[1]["size"] = 944_010
+    assert saves.best(states)["name"] == "SteamBox"
+    states[1]["size"] = 900_000
+    assert saves.best(states)["name"] == "aibox"
 
 
 def test_suggestion_prefers_the_heavier_even_when_older(agents, tmp_path):
