@@ -50,8 +50,8 @@ chemins peuvent s'ajouter : le système est déduit comme le fait le lanceur. Un
 ## Docker (déploiement)
 
 Conteneur séparé de SteamBox (SPEC § 7, point 2), image
-`registry.elfenn.eu/wsquashfs-manager` (Debian trixie : squashfs-tools 4.6,
-squashfuse, fuse-overlayfs), déployé par un **template Unraid** :
+`registry.elfenn.eu/wsquashfs-manager` (Debian trixie : squashfs-tools 4.6 ;
+ni FUSE ni privilège), déployé par un **template Unraid** :
 [`unraid/wsquashfs-manager.xml`](unraid/wsquashfs-manager.xml).
 
 ```sh
@@ -71,7 +71,6 @@ puis Docker → Add Container → Template : `wsquashfs-manager`. Champs :
 | Sauvegardes du lanceur | `/saves` | sauvegardes de wsquashfs-launcher dans SteamBox |
 | Appdata | `/data` | file de tâches, caches, réglages |
 | Mot de passe | `WSQUASHFS_MGR_PASSWORD` | obligatoire : sans lui, le conteneur refuse de démarrer |
-| FUSE (avancé) | `/dev/fuse` | reconstruction sans extraction (mode overlay) |
 | PUID / PGID (avancé) | 99 / 100 | propriétaire des images créées (nobody:users = `arcade` de SteamBox) |
 
 **Machine de jeu** (Réglages → Machine de jeu) : là où tourne
@@ -313,7 +312,7 @@ Variables `WSQUASHFS_MGR_*` (ou fichier `backend/.env`) :
 | `LAUNCHER_CACHE` | `$WSQUASHFS_CACHE`, sinon `~/.cache/wsquashfs` | cache du lanceur : verrous par jeu (`locks/`) et montages, pour reconnaître un jeu en cours, même en préparation |
 | `TMP_DIR` | — (à côté de l'image) | dossier de travail imposé ; par défaut `.wsquashfs-manager/` à côté de chaque image, même disque |
 | `STATE_DIR` | `~/.local/state/wsquashfs-manager` | état de la file de tâches |
-| `REBUILD_MODE` | `auto` | `overlay` (FUSE), `extract` (repli) ou `auto` |
+| `REBUILD_MODE` | `auto` | `stream` (sans montage ni extraction, squashfs-tools 4.6+), `extract` (repli) ou `auto` |
 | `TASK_CONCURRENCY` | `1` | reconstructions simultanées |
 | `OLD_RETENTION_DAYS` | — (manuelle) | suppression automatique des `.old` |
 | `HOST`, `PORT`, `PASSWORD` | `127.0.0.1`, `8765`, — | accès (voir ci-dessous) |
@@ -358,12 +357,14 @@ PAC-MAN, `-Shipping` de Horizon Chase), pour la future base de connaissances.
 
 Une image squashfs ne se modifie pas en place (SPEC § 3.1) :
 
-1. **overlay** si `/dev/fuse`, `squashfuse` et `fuse-overlayfs` sont là : l'image
-   est montée en lecture seule, les changements vont dans une couche
-   `fuse-overlayfs`, `mksquashfs` relit la vue fusionnée — rien n'est extrait ;
-   sinon **extraction** complète (≈ 2 × la taille décompressée) ; le dossier
-   de travail est `.wsquashfs-manager/` à côté de l'image (même disque),
-   supprimé ensuite ;
+1. **flux** (squashfs-tools 4.6 et plus) : `unsquashfs -pf -` décrit toute
+   l'image, données comprises ; le manager en retire les chemins supprimés ou
+   remplacés, ajoute les nouveaux (définitions « pseudo ») et
+   `mksquashfs - … -pf -` reconstruit — ni montage FUSE ni extraction
+   (Luigi's Mansion, 2,5 Go : 34 s contre 38 à 40 s avec l'ancien montage
+   squashfuse) ; sinon **extraction** complète (≈ 2 × la taille décompressée).
+   Le dossier de travail est `.wsquashfs-manager/` à côté de l'image (même
+   disque), supprimé ensuite ;
 2. la nouvelle image est construite en `<jeu>.wsquashfs.part` à côté de
    l'original, après contrôle de l'espace disque ;
 3. vérification : table lisible, arborescence identique à celle attendue,
@@ -459,13 +460,13 @@ frontend/index.html      # interface (sans build)
 
 1. Web ou bureau — **web** retenu de fait.
 2. Où elle tourne — **conteneur Docker séparé** retenu (voir « Docker »),
-   avec `/dev/fuse` : mode overlay.
+   sans FUSE ni privilège (reconstruction en flux).
 3. Rétention des `.old` : manuelle par défaut, `OLD_RETENTION_DAYS` sinon.
 4. (Plus tard) fichier `<jeu>.wsquashfs.autorun` à côté de l'image, lu par le
    lanceur, ignoré par Batocera.
 
 ## Dépendances système
 
-`squashfs-tools` (mksquashfs/unsquashfs), `squashfuse`, `fuse-overlayfs`.
+`squashfs-tools` 4.6 ou plus récent (mksquashfs/unsquashfs).
 Wine n'est pas nécessaire : l'analyse des exécutables (`pefile`) et du
 registre se fait en Python.

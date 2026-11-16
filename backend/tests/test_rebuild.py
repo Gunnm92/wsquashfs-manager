@@ -102,11 +102,13 @@ def test_rebuild_replaces_autorun_and_keeps_old(image: Path, settings: Settings)
 
 
 @needs_tools
-def test_rebuild_adds_and_deletes_files(image: Path, settings: Settings):
+@pytest.mark.parametrize("mode", ["stream", "extract"])
+def test_rebuild_adds_and_deletes_files(image: Path, tmp_path: Path, mode: str):
+    settings = Settings(tmp_dir=tmp_path / "tmp", rebuild_mode=mode)
     patch = image.parent / "patch.dll"
     patch.write_bytes(b"P" * 1000)
     changes = Changes(copy={"Game Dir/plugins/new.dll": patch}, delete=["Game Dir/old.dll"])
-    rebuild.rebuild(settings, image, changes)
+    assert rebuild.rebuild(settings, image, changes).mode == mode
 
     files = _listing(image)
     assert "Game Dir/plugins/new.dll" in files
@@ -179,10 +181,10 @@ def test_space_check_blocks_before_work(image: Path, settings: Settings, monkeyp
         rebuild.rebuild(settings, image, Changes(write={"autorun.cmd": b"CMD=x\r\n"}))
 
 
-def test_overlay_mode_requires_fuse(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(rebuild, "fuse_available", lambda settings: False)
-    with pytest.raises(RebuildError, match="overlay"):
-        rebuild.choose_mode(Settings(rebuild_mode="overlay"))
+def test_stream_mode_requires_pf(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(rebuild, "stream_missing", lambda settings: "unsquashfs sans -pf")
+    with pytest.raises(RebuildError, match="stream"):
+        rebuild.choose_mode(Settings(rebuild_mode="stream"))
     assert rebuild.choose_mode(Settings(rebuild_mode="auto")) == "extract"
 
 
@@ -260,9 +262,8 @@ def test_default_work_dir_is_next_to_image_and_removed(image: Path, tmp_path: Pa
     assert not (image.parent / ".wsquashfs-manager").exists()
 
 
-def test_fallback_reason_is_explained(monkeypatch, tmp_path):
-    monkeypatch.setattr(rebuild.Path, "exists", lambda self: str(self) != "/dev/fuse")
-    assert "/dev/fuse absent" in rebuild.fuse_missing(Settings())
+def test_fallback_reason_is_explained(tmp_path):
+    assert "introuvable" in rebuild.stream_missing(Settings(unsquashfs=str(tmp_path / "absent")))
 
 
 @needs_tools
@@ -285,11 +286,25 @@ def test_rebuilt_image_belongs_to_service_user(tmp_path: Path):
     assert any(line.startswith("Propriétaire : 0:0 →") for line in log)
 
 
+def _stream_build(src: Path, tmp_path: Path, changes: Changes, name: str = "out") -> Path:
+    """Image de `src`, puis reconstruite en mode flux avec `changes`."""
+    from app.services.rebuild import tree_entries
+    image = tmp_path / f"{name}.in.sqfs"
+    subprocess.run(["mksquashfs", str(src), str(image), "-noappend", "-quiet", "-no-progress"],
+                   check=True, capture_output=True)
+    work = tmp_path / f"{name}.work"
+    work.mkdir()
+    out = tmp_path / f"{name}.sqfs"
+    existing = {rel for rel, _ in tree_entries(src)}
+    rebuild._build_stream(Settings(), image, out, work, changes, Job(), [], existing)
+    return out
+
+
 @needs_tools
-def test_pseudo_options_add_tree_and_links_without_writing_source(tmp_path: Path):
-    """Mode overlay : arborescence et liens ajoutés par mksquashfs (pseudo),
-    la vue fuse-overlayfs n'est pas modifiée. Simulé ici sur un dossier."""
-    from app.services.rebuild import Changes, pseudo_options, tree_entries
+def test_stream_adds_tree_and_links(tmp_path: Path):
+    """Mode flux : arborescence et liens ajoutés, fichier remplacé, sans rien
+    écrire dans l'image d'origine."""
+    from app.services.rebuild import tree_entries
     src = tmp_path / "src"
     (src / "runners/D/files/lib").mkdir(parents=True)
     (src / "runners/D/files/lib/old.dll").write_bytes(b"old")
@@ -302,18 +317,44 @@ def test_pseudo_options_add_tree_and_links_without_writing_source(tmp_path: Path
     (tree / "old.dll").write_bytes(b"new")                     # remplace un fichier existant
     changes = Changes(trees={"runners/D/files/lib": tree},
                       links={"sys/a b.dll": "../runners/D/files/lib/icu/x64/ic u.dll"})
-    existing = {rel for rel, _ in tree_entries(src)}
-    opts = pseudo_options(changes, existing, tmp_path, os.getuid(), os.getgid())
-    out = tmp_path / "out.sqfs"
-    subprocess.run(["mksquashfs", str(src), str(out), "-noappend", "-quiet", "-no-progress", *opts],
-                   check=True, capture_output=True)
+    out = _stream_build(src, tmp_path, changes)
     assert _cat(out, "runners/D/files/lib/icu/x64/ic u.dll") == b"icu" * 1000
     assert _cat(out, "runners/D/files/lib/old.dll") == b"new"
     lls = subprocess.run(["unsquashfs", "-lls", str(out)], capture_output=True, check=True).stdout.decode()
     assert "squashfs-root/sys/a b.dll -> ../runners/D/files/lib/icu/x64/ic u.dll" in lls
     assert "squashfs-root/runners/D/files/lib/icu/x64/lien.dll -> ic u.dll" in lls
-    assert (src / "sys/a b.dll").readlink().as_posix() == "/ailleurs/a b.dll"    # source intacte
-    assert expected_listing(sorted(existing), changes) == _listing(out)
+    existing = sorted(rel for rel, _ in tree_entries(src))
+    assert expected_listing(existing, changes) == _listing(out)
+
+
+def test_stream_name_unescapes():
+    assert rebuild.stream_name(b"Game\\ Dir/a\\ b.txt R 1 644 0 0 6 0 0\n") == "Game Dir/a b.txt"
+    assert rebuild.stream_name(b"quo'te\\\"s\\\\x R 1 644 0 0 1 0 0\n") == "quo'te\"s\\x"
+    assert rebuild.stream_name(b"/ D 1 755 0 0\n") == "/"
+
+
+@needs_tools
+def test_stream_keeps_odd_names_and_drops_xattrs(tmp_path: Path):
+    """Noms à espaces, guillemets et barres obliques inverses ; supprimer un
+    fichier n'abîme pas les données des suivants ; attribut étendu (comme
+    user.DOSATTRIB de Windows) retiré au lieu de faire échouer mksquashfs."""
+    src = tmp_path / "src"
+    (src / "d d").mkdir(parents=True)
+    names = ["d d/a b.txt", "d d/quo'te\"s\\x", "d d/z.bin"]
+    for i, n in enumerate(names):
+        (src / n).write_bytes(bytes([65 + i]) * (70000 * (i + 1)))
+    (src / "d d/gone.bin").write_bytes(b"G" * 50000)
+    try:
+        os.setxattr(src / "d d/a b.txt", "user.DOSATTRIB", b"0x0")
+    except OSError:
+        pass                                   # système de fichiers sans xattr user
+    out = _stream_build(src, tmp_path, Changes(delete=["d d/gone.bin"]))
+    listing = _listing(out)
+    assert "d d/gone.bin" not in listing
+    for n in names:
+        assert n in listing
+    assert _cat(out, "d d/z.bin") == b"C" * 210000
+    assert _cat(out, "d d/a b.txt") == b"A" * 70000
 
 
 def test_run_progress_refuses_unreadable_files(tmp_path: Path):
@@ -330,10 +371,10 @@ def test_run_progress_refuses_unreadable_files(tmp_path: Path):
 
 
 @needs_tools
-def test_pseudo_options_equivalent_to_apply_changes(tmp_path: Path):
-    """Mode sans extraction : mksquashfs (exclusions + pseudo) doit produire
-    exactement ce que donnent les changements appliqués sur une copie."""
-    from app.services.rebuild import Changes, apply_changes, pseudo_options, tree_entries
+def test_stream_equivalent_to_apply_changes(tmp_path: Path):
+    """Mode flux : la description filtrée doit produire exactement ce que
+    donnent les changements appliqués sur une copie (mode extraction)."""
+    from app.services.rebuild import Changes, apply_changes, tree_entries
     src = tmp_path / "src"
     (src / "Game Dir/sub").mkdir(parents=True)
     (src / "Game Dir/game.exe").write_bytes(b"MZ" * 100)
@@ -362,12 +403,7 @@ def test_pseudo_options_equivalent_to_apply_changes(tmp_path: Path):
     ref = tmp_path / "ref.sqfs"
     subprocess.run(["mksquashfs", str(ref_root), str(ref), "-noappend", "-quiet", "-no-progress"],
                    check=True, capture_output=True)
-    work = tmp_path / "work"
-    work.mkdir()
-    out = tmp_path / "out.sqfs"
-    subprocess.run(["mksquashfs", str(src), str(out), "-noappend", "-quiet", "-no-progress",
-                    *pseudo_options(changes, existing, work, os.getuid(), os.getgid())],
-                   check=True, capture_output=True)
+    out = _stream_build(src, tmp_path, changes)
 
     def entries(image: Path) -> dict[str, str]:
         lls = subprocess.run(["unsquashfs", "-lls", str(image)], capture_output=True, text=True,

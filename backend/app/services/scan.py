@@ -5,8 +5,7 @@ images non modifiées (SPEC § 2.1) : autorun, liste des fichiers, type de
 prefix. L'état qui change sans que l'image change — sauvegardes, `.old`,
 `.keys`, jeu en cours — est recalculé à chaque scan.
 
-La lecture se fait SANS monter l'image (`unsquashfs -cat`, `unsquashfs -l`),
-avec repli squashfuse pour l'autorun si unsquashfs est absent.
+La lecture se fait SANS monter l'image (`unsquashfs -cat`, `unsquashfs -l`).
 """
 
 from __future__ import annotations
@@ -17,7 +16,6 @@ import os
 import re
 import shutil
 import subprocess
-import tempfile
 from pathlib import Path
 
 from ..config import Settings
@@ -121,38 +119,9 @@ def _unsquashfs_ok(settings: Settings, image: Path) -> bool:
 
 
 def read_autorun_bytes(settings: Settings, image: Path) -> bytes | None:
-    """Lit l'autorun sans montage complet, octets bruts (l'encodage est
-    conservé à la réécriture).
-
-    1) `unsquashfs -cat <image> autorun.cmd` (sans montage) ;
-    2) repli : squashfuse + lecture du fichier.
-    Retourne None s'il n'y a pas d'autorun."""
-    data = _unsquashfs_cat(settings, image, "autorun.cmd")
-    if data is not None:
-        return data
-    if shutil.which(settings.unsquashfs) or not shutil.which(settings.squashfuse):
-        return None             # unsquashfs a répondu : pas d'autorun dans l'image
-    _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    mnt = Path(tempfile.mkdtemp(prefix="autorun-", dir=_CACHE_DIR))
-    try:
-        subprocess.run([settings.squashfuse, "-o", "ro", str(image), str(mnt)],
-                       check=True, timeout=30, capture_output=True)
-        p = mnt / "autorun.cmd"
-        return p.read_bytes() if p.exists() else None
-    except (subprocess.SubprocessError, OSError):
-        return None
-    finally:
-        for tool in ("fusermount3", "fusermount"):
-            try:
-                if subprocess.run([tool, "-u", str(mnt)], capture_output=True,
-                                  timeout=10, check=False).returncode == 0:
-                    break
-            except OSError:
-                continue
-        try:
-            mnt.rmdir()
-        except OSError:
-            pass
+    """Lit l'autorun sans monter l'image (`unsquashfs -cat`), octets bruts
+    (l'encodage est conservé à la réécriture). None s'il n'y en a pas."""
+    return _unsquashfs_cat(settings, image, "autorun.cmd")
 
 
 def _read_autorun_from_image(settings: Settings, image: Path) -> str | None:

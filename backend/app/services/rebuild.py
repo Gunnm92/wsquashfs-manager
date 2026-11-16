@@ -2,9 +2,12 @@
 
 Une image squashfs ne se modifie pas en place. Deux façons de la reconstruire :
 
-- **overlay** (si FUSE est disponible) : l'image est montée en lecture seule
-  (squashfuse), une couche fuse-overlayfs reçoit uniquement les changements,
-  et mksquashfs relit la vue fusionnée. Rien n'est extrait sur disque ;
+- **flux** (« stream », squashfs-tools 4.6 et plus) : `unsquashfs -pf -`
+  décrit toute l'image, données comprises, sur sa sortie ; le manager retire
+  de cette description les chemins supprimés ou remplacés, ajoute les
+  nouveaux (définitions « pseudo ») et `mksquashfs - … -pf -` reconstruit.
+  Ni montage FUSE ni extraction sur disque (16/11 : ~25 % plus rapide que
+  l'ancien mode squashfuse + mksquashfs, sans /dev/fuse) ;
 - **extraction** (repli) : unsquashfs complet dans le dossier temporaire,
   changements appliqués, puis mksquashfs (≈ 2 × la taille décompressée).
 
@@ -28,10 +31,11 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 from ..config import Settings, work_area
 from .durable import fsync_dir, restore, swap_keep_old
-from .links import _pseudo_quote, _wildcard_escape
+from .links import _pseudo_quote
 from .scan import _list_files_uncached, read_autorun_bytes
 
 # Marge sur la taille de la nouvelle image (≈ l'ancienne) : la compression
@@ -107,7 +111,7 @@ class Job:
 
 @dataclass
 class RebuildResult:
-    mode: str                 # "overlay" | "extract"
+    mode: str                 # "stream" | "extract"
     size_before: int
     size_after: int
     backup: Path
@@ -183,14 +187,31 @@ def _run(command: list[str], *, timeout: int) -> subprocess.CompletedProcess[byt
     return result
 
 
-def run_progress(command: list[str], job: Job, phase: str, start: float, end: float) -> None:
+def run_progress(command: list[str], job: Job, phase: str, start: float, end: float,
+                 feed: Callable[[Any], None] | None = None) -> None:
     """Commande longue (unsquashfs/mksquashfs -percentage) : chaque ligne
-    numérique est un pourcentage, ramené dans [start, end] ; annulable."""
+    numérique est un pourcentage, ramené dans [start, end] ; annulable.
+    `feed(stdin)` alimente l'entrée de la commande dans un fil à part (mode
+    flux), l'entrée étant fermée ensuite."""
     try:
         proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                stdin=subprocess.DEVNULL)
+                                stdin=subprocess.PIPE if feed else subprocess.DEVNULL)
     except OSError as exc:
         raise RebuildError(f"commande impossible : {command[0]} ({exc})") from exc
+    if feed is not None:
+        assert proc.stdin is not None
+        stdin = proc.stdin
+
+        def pump() -> None:
+            try:
+                feed(stdin)
+            finally:
+                try:
+                    stdin.close()
+                except OSError:
+                    pass
+
+        threading.Thread(target=pump, daemon=True).start()
 
     def watch() -> None:
         while proc.poll() is None:
@@ -283,53 +304,26 @@ def _human(n: float) -> str:
 
 # ------------------------------------------------------------------ montages
 
-def fuse_missing(settings: Settings) -> str | None:
-    """Ce qui manque au mode overlay, ou None s'il est possible."""
-    if not Path("/dev/fuse").exists():
-        return "/dev/fuse absent (conteneur sans le périphérique FUSE)"
-    if shutil.which(settings.squashfuse) is None:
-        return f"{settings.squashfuse} introuvable"
+def stream_missing(settings: Settings) -> str | None:
+    """Ce qui manque au mode flux, ou None s'il est possible."""
+    try:
+        r = subprocess.run([settings.unsquashfs, "-help"], capture_output=True, timeout=10,
+                           check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return f"{settings.unsquashfs} introuvable"
+    if b"-pf" not in r.stdout + r.stderr:
+        return "unsquashfs sans -pf (squashfs-tools 4.6 ou plus récent requis)"
     return None
 
 
-def fuse_available(settings: Settings) -> bool:
-    return fuse_missing(settings) is None
-
-
 def choose_mode(settings: Settings) -> str:
-    if settings.rebuild_mode == "overlay":
-        if not fuse_available(settings):
-            raise RebuildError("mode overlay demandé mais FUSE ou squashfuse est indisponible")
-        return "overlay"
+    if settings.rebuild_mode == "stream":
+        if (reason := stream_missing(settings)) is not None:
+            raise RebuildError(f"mode stream demandé mais impossible : {reason}")
+        return "stream"
     if settings.rebuild_mode == "extract":
         return "extract"
-    return "overlay" if fuse_available(settings) else "extract"
-
-
-def _mounted(mountpoint: Path) -> bool:
-    """Point de montage présent dans /proc/mounts. Pas os.path.ismount : sur
-    un montage FUSE dont le démon est mort, lstat échoue (ENOTCONN) et
-    ismount répond faux, le montage restait alors en place (01/11)."""
-    escaped = str(mountpoint).replace("\\", "\\134").replace(" ", "\\040").replace("\t", "\\011")
-    try:
-        with open("/proc/mounts", encoding="utf-8", errors="replace") as mounts:
-            return any(line.split(" ")[1] == escaped for line in mounts if " " in line)
-    except OSError:
-        return os.path.ismount(mountpoint)
-
-
-def _mount_daemon(command: list[str], log: Path) -> None:
-    """Lance un démon FUSE (squashfuse, fuse-overlayfs) avec sa sortie dans
-    `log`. Pas de tube : le démon le garderait après le montage, et écrire
-    dans un tube fermé le tuerait (SIGPIPE) au premier message."""
-    with open(log, "ab") as out:
-        try:
-            result = subprocess.run(command, stdin=subprocess.DEVNULL, stdout=out,
-                                    stderr=subprocess.STDOUT, timeout=60, check=False)
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            raise RebuildError(f"commande impossible : {' '.join(command)} ({exc})") from exc
-    if result.returncode:
-        raise RebuildError(_log_tail(log) or f"commande en échec : {' '.join(command)}")
+    return "stream" if stream_missing(settings) is None else "extract"
 
 
 def _log_tail(log: Path, lines: int = 8) -> str:
@@ -338,24 +332,6 @@ def _log_tail(log: Path, lines: int = 8) -> str:
     except OSError:
         return ""
     return " / ".join(line.strip() for line in text.splitlines()[-lines:] if line.strip())
-
-
-def _unmount(mountpoint: Path) -> None:
-    """Démontage avec quelques essais (fichiers encore ouverts juste après
-    mksquashfs), puis démontage différé, comme umount_retry() du lanceur."""
-    for _ in range(5):
-        if not _mounted(mountpoint):
-            return
-        for tool in ("fusermount3", "fusermount"):
-            if not shutil.which(tool):
-                continue
-            if subprocess.run([tool, "-u", str(mountpoint)], capture_output=True,
-                              check=False).returncode == 0:
-                return
-        time.sleep(1)
-    for tool in ("fusermount3", "fusermount"):
-        if shutil.which(tool):
-            subprocess.run([tool, "-uz", str(mountpoint)], capture_output=True, check=False)
 
 
 # ------------------------------------------------------------------ application
@@ -408,23 +384,12 @@ def apply_changes(root: Path, changes: Changes) -> None:
         os.symlink(link_target, target)
 
 
-def pseudo_options(changes: Changes, existing: set[str], work: Path, uid: int,
-                   gid: int) -> list[str]:
-    """Tous les changements appliqués par mksquashfs lui-même (exclusions et
-    définitions « pseudo »), l'image d'origine étant lue en lecture seule :
-    rien n'est écrit à travers une vue fuse-overlayfs.
-
-    Pourquoi (01/11) : sur une image qui porte des attributs étendus laissés
-    par Windows/macOS, squashfuse meurt dès que fuse-overlayfs l'interroge
-    (lien `pfx`, attribut user.DOSATTRIB) ; et 1,5 Go de runner écrits par
-    fuse-overlayfs avaient déjà fait tomber les montages.
-
-    Un chemin supprimé ou remplacé est exclu (-ef) ; un fichier est repris
-    du disque par lien dur pseudo (`l`), un lien symbolique recréé (`s`), un
-    dossier nouveau créé (`d`)."""
-    if changes.is_empty():
-        return []
-    excludes: list[str] = []
+def pseudo_plan(changes: Changes, existing: set[str], work: Path, uid: int,
+                gid: int) -> tuple[set[str], list[str]]:
+    """Changements du mode flux : chemins de l'image à retirer de la
+    description (`gone`, avec tout ce qu'ils contiennent) et définitions
+    « pseudo » à ajouter. Un fichier est repris du disque par lien dur pseudo
+    (`l`), un lien symbolique recréé (`s`), un dossier nouveau créé (`d`)."""
     pseudo: list[str] = []
     defined: set[str] = set()
     gone: set[str] = set()
@@ -442,7 +407,6 @@ def pseudo_options(changes: Changes, existing: set[str], work: Path, uid: int,
 
     def replace(rel: str) -> None:
         if present(rel) and rel not in gone:
-            excludes.append(_wildcard_escape(rel))
             gone.add(rel)
         make_dirs(rel)
         defined.add(rel)
@@ -453,7 +417,6 @@ def pseudo_options(changes: Changes, existing: set[str], work: Path, uid: int,
 
     for rel in map(safe_rel, changes.delete):
         if present(rel):
-            excludes.append(_wildcard_escape(rel))
             gone.add(rel)
     written = work / "written"
     for i, (rel, data) in enumerate(changes.write.items()):
@@ -486,50 +449,90 @@ def pseudo_options(changes: Changes, existing: set[str], work: Path, uid: int,
         rel = safe_rel(rel)
         replace(rel)
         pseudo.append(f"{_pseudo_quote(rel)} s 777 {uid} {gid} {link_target}")
-    opts: list[str] = []
-    if excludes:
-        exclude_file = work / "changes.exclude"
-        exclude_file.write_text("".join(line + "\n" for line in excludes), encoding="utf-8")
-        opts += ["-wildcards", "-ef", str(exclude_file)]
-    if pseudo:
-        pseudo_file = work / "changes.pseudo"
-        pseudo_file.write_text("".join(line + "\n" for line in pseudo), encoding="utf-8")
-        opts += ["-pf", str(pseudo_file)]
-    return opts
+    return gone, pseudo
 
 
-def _build_overlay(settings: Settings, image: Path, part: Path, work: Path,
-                   changes: Changes, job: Job, owner_opts: list[str],
-                   existing: set[str] | None = None) -> None:
-    """Mode « overlay » (sans extraction) : l'image est montée en lecture
-    seule et mksquashfs la relit en appliquant lui-même les changements
-    (pseudo_options). Plus de fuse-overlayfs : rien ne s'écrit dans un
-    montage FUSE, seul squashfuse est lu."""
-    lower = work / "lower"
-    lower.mkdir()
-    log = work / "fuse.log"
-    mounted = False
-    try:
-        job.progress("montage", 0.0)
-        _mount_daemon([settings.squashfuse, "-o", "ro", str(image), str(lower)], log)
-        mounted = True
-        for rel in [*changes.write, *changes.copy]:
-            target = lower / safe_rel(rel)
-            if target.is_dir() and not target.is_symlink():
-                raise RebuildError(f"{rel} est un dossier dans l'image")
-        extra = pseudo_options(changes, existing or set(), work, os.getuid(), os.getgid())
-        job.check()
+def stream_name(line: bytes) -> str:
+    """Chemin d'une ligne d'en-tête de `unsquashfs -pf` : jusqu'à la première
+    espace non échappée, barres obliques inverses retirées (« Game\\ Dir »)."""
+    out = bytearray()
+    i = 0
+    while i < len(line):
+        c = line[i]
+        if c == 0x5C and i + 1 < len(line):
+            out.append(line[i + 1])
+            i += 2
+            continue
+        if c in (0x20, 0x0A):
+            break
+        out.append(c)
+        i += 1
+    return out.decode("utf-8", errors="surrogateescape")
+
+
+_STREAM_DATA = b"# START OF DATA"
+
+
+def filter_stream(src, dst, gone: set[str], extra: bytes) -> None:
+    """Recopie la description de `unsquashfs -pf` en retirant les chemins de
+    `gone` (et leur contenu), et ajoute `extra` (définitions pseudo) avant les
+    données, recopiées telles quelles : les entrées restantes y pointent par
+    position, celles retirées sont simplement ignorées par mksquashfs."""
+    def removed(name: str) -> bool:
+        while name and name != "/":
+            if name in gone:
+                return True
+            name = name.rpartition("/")[0]
+        return False
+
+    for line in iter(src.readline, b""):
+        if line.startswith(_STREAM_DATA):
+            dst.write(extra)
+            dst.write(line)
+            shutil.copyfileobj(src, dst, 1 << 20)
+            return
+        if line.startswith(b"#") or not gone or not removed(stream_name(line)):
+            dst.write(line)
+    dst.write(extra)  # image sans données (aucun fichier)
+
+
+def _build_stream(settings: Settings, image: Path, part: Path, work: Path,
+                  changes: Changes, job: Job, owner_opts: list[str],
+                  existing: set[str] | None = None) -> None:
+    """Mode flux : unsquashfs -pf - | filtre | mksquashfs - -pf -. Les
+    attributs étendus sont retirés (-no-xattrs des deux côtés : mksquashfs
+    4.6.1 refuse « x user.DOSATTRIB=0x0 », et les images n'en ont pas besoin)."""
+    gone, pseudo = pseudo_plan(changes, existing or set(), work, os.getuid(), os.getgid())
+    extra = "".join(line + "\n" for line in pseudo).encode("utf-8", errors="surrogateescape")
+    log = work / "unsquashfs.log"
+    with open(log, "wb") as err:
         try:
-            run_progress([*priority_prefix(settings), settings.mksquashfs, str(lower), str(part),
-                          *settings.mksquashfs_opts, *owner_opts, *NO_XATTRS, "-noappend",
-                          "-percentage", *extra],
-                         job, "mksquashfs", 0.02, 0.92)
-        except RebuildError as exc:
-            tail = _log_tail(log)
-            raise RebuildError(f"{exc}{f' — montage FUSE : {tail}' if tail else ''}") from exc
+            src = subprocess.Popen([settings.unsquashfs, "-no-xattrs", "-pf", "-", str(image)],
+                                   stdout=subprocess.PIPE, stderr=err, stdin=subprocess.DEVNULL)
+        except OSError as exc:
+            raise RebuildError(f"commande impossible : {settings.unsquashfs} ({exc})") from exc
+    assert src.stdout is not None
+    feed_error: list[BaseException] = []
+
+    def feed(dst) -> None:
+        try:
+            filter_stream(src.stdout, dst, gone, extra)
+        except (BrokenPipeError, OSError) as exc:   # mksquashfs arrêté : son erreur prime
+            feed_error.append(exc)
+
+    try:
+        run_progress([*priority_prefix(settings), settings.mksquashfs, "-", str(part),
+                      *settings.mksquashfs_opts, *owner_opts, *NO_XATTRS, "-noappend",
+                      "-percentage", "-pf", "-"],
+                     job, "mksquashfs", 0.02, 0.92, feed=feed)
     finally:
-        if mounted:
-            _unmount(lower)
+        if src.poll() is None:
+            src.terminate()
+        src.wait()
+    if src.returncode:
+        raise RebuildError(f"unsquashfs -pf en échec (code {src.returncode}) : {_log_tail(log)}")
+    if feed_error:
+        raise RebuildError(f"flux interrompu : {feed_error[0]}")
 
 
 def _build_extract(settings: Settings, image: Path, part: Path, work: Path,
@@ -686,12 +689,12 @@ def rebuild(settings: Settings, image: Path, changes: Changes, job: Job | None =
     add_cover(settings, image, changes, job)
 
     mode = choose_mode(settings)
-    if mode == "overlay":
-        job.log("Mode : overlay (sans extraction)")
+    if mode == "stream":
+        job.log("Mode : flux (sans montage ni extraction)")
     elif settings.rebuild_mode == "extract":
         job.log("Mode : extraction (imposé par la configuration)")
     else:
-        job.log(f"Mode : extraction complète — overlay impossible : {fuse_missing(settings)}")
+        job.log(f"Mode : extraction complète — flux impossible : {stream_missing(settings)}")
     check_space(space_needed(settings, image, changes, mode))
     before = image.stat()
     owner_opts = _owner_opts(settings, image, job)
@@ -703,7 +706,7 @@ def rebuild(settings: Settings, image: Path, changes: Changes, job: Job | None =
     swapped = False
     try:
         with work_area(settings, image, "rebuild-") as tmp:
-            build = _build_overlay if mode == "overlay" else _build_extract
+            build = _build_stream if mode == "stream" else _build_extract
             build(settings, image, part, tmp, changes, job, owner_opts, set(old_listing))
         job.check()
         job.progress("vérification", 0.93)

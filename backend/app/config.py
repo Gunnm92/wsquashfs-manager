@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     task_priority_ionice: int = 3      # classe ionice (3 = idle)
 
     # Reconstruction : overlay FUSE si disponible, sinon extraction complète
-    rebuild_mode: Literal["auto", "overlay", "extract"] = "auto"
+    rebuild_mode: Literal["auto", "stream", "extract"] = "auto"
 
     # Plage horaire des tâches « de nuit » (HH:MM, peut passer minuit) ;
     # modifiable dans Réglages
@@ -115,10 +115,8 @@ class Settings(BaseSettings):
     allow_no_password: bool = False
 
     # Outils (chemins sur la SteamBox)
-    squashfuse: str = "squashfuse"
     mksquashfs: str = "mksquashfs"
     unsquashfs: str = "unsquashfs"
-    fuse_overlayfs: str = "fuse-overlayfs"
 
     # Propriétaire des images et sauvegardes : le service doit tourner sous
     # cet utilisateur (il n'y a pas d'élévation de privilèges).

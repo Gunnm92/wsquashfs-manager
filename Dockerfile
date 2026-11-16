@@ -1,13 +1,13 @@
 # wsquashfs-manager — conteneur séparé de SteamBox (SPEC § 7, point 2).
 #
-# Debian trixie : squashfs-tools 4.6 (mksquashfs/unsquashfs -percentage,
-# utilisés pour la progression), squashfuse et fuse-overlayfs pour la
-# reconstruction sans extraction (mode overlay, /dev/fuse requis), openssl
-# pour le certificat du port des machines (8790).
+# Debian trixie : squashfs-tools 4.6 (mksquashfs/unsquashfs -percentage pour
+# la progression, unsquashfs -pf pour la reconstruction sans montage ni
+# extraction : ni FUSE ni privilège), openssl pour le certificat du port des
+# machines (8790).
 FROM python:3.12-slim-trixie
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends squashfs-tools squashfuse fuse-overlayfs fuse3 openssl \
+ && apt-get install -y --no-install-recommends squashfs-tools openssl \
  && rm -rf /var/lib/apt/lists/*
 
 # Utilisateur des images et sauvegardes : PUID/PGID (99:100 par défaut,

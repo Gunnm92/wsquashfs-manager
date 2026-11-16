@@ -8,7 +8,7 @@ PUID=${PUID:-99}
 PGID=${PGID:-100}
 
 if [ "$(id -u)" = 0 ]; then
-    # fusermount3 (montages FUSE) exige un compte pour l'utilisateur
+    # Compte pour l'utilisateur du service (outils qui le cherchent dans passwd)
     getent group "$PGID" >/dev/null || groupadd -o -g "$PGID" wsfs
     getent passwd "$PUID" >/dev/null || useradd -o -u "$PUID" -g "$PGID" -d /data -M -s /usr/sbin/nologin wsfs
     mkdir -p /data
