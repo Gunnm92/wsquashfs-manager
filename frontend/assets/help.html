@@ -239,9 +239,9 @@
       <div data-f><dt>Taille</dt><dd>Taille de la sauvegarde la plus récente, sur le client choisi ou sur le manager.</dd></div>
       <div data-f><dt>Dernière partie</dt><dd>Date de cette sauvegarde, et l'endroit où elle se trouve (« sur le manager », nom du client).</dd></div>
       <div data-f><dt>À jour</dt><dd>Toutes les copies présentes sont à jour : rien à faire.</dd></div>
-      <div data-f><dt>À envoyer</dt><dd>Une copie est plus avancée que d'autres : elle peut être envoyée aux clients en retard, ou au manager.</dd></div>
-      <div data-f><dt>À récupérer</dt><dd>Le manager ou un autre client a une version plus récente : elle peut être copiée sur le client choisi.</dd></div>
-      <div data-f><dt>Conflit</dt><dd>Le client a modifié la sauvegarde depuis son dernier échange avec le manager. Rien n'est envoyé : le bouton <b>Choisir…</b> ouvre le menu pour trancher.</dd></div>
+      <div data-f><dt>À envoyer</dt><dd>Le client est en avance sur le manager : sa copie remonte au manager (bouton <b>Envoyer au manager</b>).</dd></div>
+      <div data-f><dt>À récupérer</dt><dd>Le client est en retard : il peut recevoir la version du manager (bouton <b>Récupérer du manager</b>).</dd></div>
+      <div data-f><dt>Conflit</dt><dd>Le client et le manager ont tous deux changé depuis leur dernier échange. Rien n'est écrasé : les deux versions sont gardées sur le manager, et le bouton <b>Départager…</b> ouvre la fenêtre où tu choisis celle à conserver (l'autre reste archivée).</dd></div>
       <div data-f><dt>Non partagée</dt><dd>Une seule copie existe : aucun autre client ne la partage.</dd></div>
       <div data-f><dt>Absente</dt><dd>Le client choisi n'a pas ce jeu. Ce n'est pas une différence : il n'est pas touché. Il s'installe depuis le menu de la ligne.</dd></div>
       <div data-f><dt>Hors ligne</dt><dd>Le client ne répond pas (éteint, agent arrêté) : rien ne peut lui être envoyé avant son retour.</dd></div>
@@ -250,7 +250,7 @@
 
     <h2>Synchroniser</h2>
     <ul data-f>
-      <li><b>Bouton de la ligne</b> (Envoyer, Récupérer, Choisir…) : fait l'action proposée pour ce jeu, dans le sens indiqué par l'info-bulle.</li>
+      <li><b>Bouton de la ligne</b> (Envoyer au manager, Récupérer du manager, Départager…) : fait l'action proposée pour ce jeu, dans le sens indiqué par l'info-bulle.</li>
       <li><b>⋯</b> de la ligne : copier vers le manager, installer sur un client qui n'a pas le jeu, <b>Supprimer…</b>, et les autres actions du jeu.</li>
       <li>Plusieurs jeux : les cocher. La barre du bas choisit la <b>source</b> (la plus avancée, jeu par jeu ; un client ; le manager) et les <b>cibles</b> (cases dans un menu), puis <b>Synchroniser</b> (récapitulatif avant envoi), <b>Copier vers le manager</b> ou <b>Supprimer…</b>.</li>
     </ul>
@@ -267,7 +267,7 @@
 
     <h2>Synchro automatique</h2>
     <p data-f>Quand le manager est joignable, un client lui envoie sa partie <b>à la sortie d'un jeu</b> : rien n'est récupéré au lancement. Sur chaque client, <code>wsquashfs-launcher --sync auto on</code> l'active (<code>--sync auto off</code> l'arrête). Le manager doit être atteignable à l'adresse réglée dans <b>Réglages → Sauvegardes</b> (« Adresse du manager pour les clients ») ; s'il ne répond pas, la partie reste sur le client et une ligne le dit.</p>
-    <p data-f>Dans le sens inverse, les clients à synchro auto activée et en retard reçoivent la version la plus récente du manager, à l'intervalle choisi dans <b>Réglages → Sauvegardes</b> (jamais, 10 min, 1 h, 6 h), si elles n'ont pas de partie non envoyée ; leur agent doit être lancé. Un client modifié depuis le dernier échange n'est pas écrasé : sa copie est marquée <b>Conflit</b>.</p>
+    <p data-f>À l'intervalle choisi dans <b>Réglages → Sauvegardes</b> (jamais, 10 min, 1 h, 6 h), les clients à synchro auto activée qui sont en avance remontent d'abord leur copie au manager, puis les clients en retard reçoivent la version du manager ; leur agent doit être lancé. Si le client et le manager ont tous deux changé, rien n'est écrasé : le jeu passe en <b>Conflit</b>, les deux versions sont gardées, à toi de les <b>départager</b>.</p>
     <div class="tip" data-f><svg class="ico"><use href="#i-shield"/></svg><span>Rien n'est perdu : la version que le manager remplace est archivée (il garde 3 versions). Hors synchro automatique, rien ne revient vers le client : pour récupérer une partie du manager, c'est <b>Synchroniser</b> ou <code>--sync</code>.</span></div>
 
     <h2>En ligne de commande</h2>
@@ -702,7 +702,7 @@ launch: wsquashfs-launcher "{file.path}"</pre></div>
       <details class="guide" data-f><summary><svg class="ico"><use href="#i-alert"/></svg><span>Le client n'apparaît pas, ou reste hors ligne</span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
         <div>Sur le client, <code>wsquashfs-launcher --agent status</code> : si l'agent ne tourne pas, <code>--agent</code>. Vérifier que le client et le manager se joignent à l'adresse réglée dans <b>Réglages → Sauvegardes</b>. Une association se fait avec un code neuf (<code>--pair</code>), valable 10 minutes.</div></details>
       <details class="guide" data-f><summary><svg class="ico"><use href="#i-alert"/></svg><span>Une sauvegarde est marquée <i>Conflit</i></span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
-        <div>Le client a changé la sauvegarde depuis son dernier échange avec le manager, et rien n'est envoyé. Bouton <b>Choisir…</b> de la ligne : le menu permet de trancher. Le jeu doit être arrêté des deux côtés.</div></details>
+        <div>Le client et le manager ont tous deux changé depuis leur dernier échange : les deux versions sont gardées et rien n'est écrasé. Bouton <b>Départager…</b> de la ligne : choisis la version à conserver. Le jeu doit être arrêté des deux côtés.</div></details>
       <details class="guide" data-f><summary><svg class="ico"><use href="#i-alert"/></svg><span>L'icône de zone de notification ne s'affiche pas (<code>--tray</code>)</span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
         <div>L'icône a besoin d'une session graphique avec un bus D-Bus de session. Lancer la commande depuis le bureau (pas en SSH sans session), puis <code>--tray</code> dit ce qui manque. Journal : <code>tray.log</code> à côté de celui de l'agent.</div></details>
       <details class="guide" data-f><summary><svg class="ico"><use href="#i-alert"/></svg><span>La complétion (Tab) ne marche pas</span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>

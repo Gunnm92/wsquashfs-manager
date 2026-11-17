@@ -4,7 +4,7 @@ import { api } from "./api.js";
 import { $, cap, el, icon, toast } from "./core.js";
 import { notice } from "./detail/autorun.js";
 import { showView } from "./header.js";
-import { AUTO, PRESENT_STATES, RESERVE, busy, gameLabel, lateIn, loadSaves, machineName, names, osIcon, paintSavesView, paintStatus, pushTargets, reachableIds, rowTargets, stateOf, suggestedOf, sv } from "./saves.js";
+import { AUTO, PRESENT_STATES, RESERVE, busy, gameLabel, lateIn, loadSaves, machineName, names, osIcon, paintSavesView, paintStatus, pushTargets, reachableIds, stateOf, suggestedOf, sv } from "./saves.js";
 import { onMachine } from "./saves-machines.js";
 import { TASK_STATES, refreshTasks } from "./tasks.js";
 
@@ -105,7 +105,7 @@ export function syncResultNode(task, failuresOnly = false) {
 }
 
 // Une opération : POST (tâche « saves ») puis suivi ; à la fin, résultat et état relu
-async function runSaveOp(path, body) {
+export async function runSaveOp(path, body) {
   sv.result = null;
   sv.op = { text: "Démarrage…" };
   paintSavesView();
@@ -140,13 +140,6 @@ export function pullGames(games, source) {
   const names = games.map((g) => g.game);
   if (!names.length || source === RESERVE) return;
   runSaveOp("/api/saves/pull", { source, games: names });
-}
-
-export function syncRow(g) {                       // la suggérée vers les autres clients joignables
-  const from = suggestedOf(g), targets = rowTargets(g);
-  if (!from || !targets.length) return;
-  if (!confirm(`Sync « ${gameLabel(g)} » : ${from.name} → ${names(targets)}.\n\n${ARCHIVED}`)) return;
-  runSaveOp("/api/saves/push", { source: AUTO, targets, games: [g.game] });
 }
 
 export function pushFrom(g, sourceId, targets) {

@@ -10,7 +10,8 @@ import { renderLibrary, todoChip } from "./library.js";
 import { menus, openMenuNode } from "./menu.js";
 import { connected } from "./mode.js";
 import { menuItem, onMachine } from "./saves-machines.js";
-import { openSaveDelete, pullGames, pushFrom, pushManager, pushReserve, pushSelection, reachManagerTargets, syncResultNode, syncRow } from "./saves-ops.js";
+import { openResolve } from "./saves-resolve.js";
+import { openSaveDelete, pullGames, pushFrom, pushManager, pushReserve, pushSelection, reachManagerTargets, syncResultNode } from "./saves-ops.js";
 import { paintSettingsClients } from "./settings.js";
 
 // Onglet « Sauvegardes » (services/saves.py via /api/saves/*) : bandeau des clients,
@@ -95,13 +96,9 @@ export const presentIn = (g) => g.machines.filter((s) => PRESENT_STATES.has(s.st
 // différence : Sync ne vise que les clients « en retard ». L'installer : menu « … ».
 export const lateIn = (g) => g.machines.filter((s) => s.state === "en retard").map((s) => s.id);
 
-export const rowTargets = (g) => { const reach = reachableIds(); return lateIn(g).filter((id) => reach.includes(id)); };
-
 const absentIn = (g) => reachableIds().filter((id) => (stateOf(g, id)?.state ?? "absente") === "absente");
 
-// Identique : les clients qui ont le jeu ont la même version. Différences : une au moins est en retard.
-const identical = (g) => g.machines.some((s) => s.state === "identique");
-
+// Différences : une au moins est en retard.
 const differs = (g) => lateIn(g).length > 0;
 
 // Source par défaut d'un jeu : la suggérée, sinon un client qui l'a (seul ou identique)
@@ -116,15 +113,6 @@ const pullNeeded = (g, source) => {
   const from = source === AUTO ? sourceOf(g) : stateOf(g, source);
   return Boolean(from && from.fingerprint && !inManager(g, from));
 };
-
-const shortDate = (t) => {
-  if (!t) return "";
-  const d = new Date(t * 1000), p = (n) => String(n).padStart(2, "0");
-  return `${p(d.getDate())}/${p(d.getMonth() + 1)} ${p(d.getHours())}:${p(d.getMinutes())}`;
-};
-
-// « 246 Mo · 13/11 10:02 » : taille et date d'une version (la date seule n'est pas fiable)
-const sizeDate = (bytes, t) => [bytes ? size(bytes) : "", shortDate(t)].filter(Boolean).join(" · ");
 
 export const osIcon = (key, cls = "") => icon(OS_ICONS.includes(key) || key === "server" ? key : "linux", cls);
 
@@ -158,7 +146,7 @@ const SYNC_LABEL = { ok: "À jour", send: "À envoyer", get: "À récupérer", c
 
 const SYNC_ICON = { ok: "check", send: "arrow", get: "arrow", conflict: "alert", none: "info", absent: "info", off: "wifi" };
 
-const CONFLICT_TITLE = "Modifiée sur le client depuis le dernier échange avec le manager : à départager, rien n'est envoyé";
+const CONFLICT_TITLE = "Modifiée sur le client et sur le manager depuis leur dernier échange : les deux versions sont gardées, choisis celle à conserver";
 
 // Client choisi en haut de page, ou null pour « Toutes »
 const scopeMachine = () => (connected() && state.client !== "all" ? sv.machines.find((m) => m.id === state.client) : null) ?? null;
@@ -174,7 +162,7 @@ function copyOf(g, scope) {
 }
 
 // « aujourd'hui, 00:06 » · « hier » · « 12/11 »
-function dayText(t) {
+export function dayText(t) {
   const d = new Date(t * 1000), now = new Date();
   const days = Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate())
     - new Date(d.getFullYear(), d.getMonth(), d.getDate())) / 86400000);
@@ -183,45 +171,33 @@ function dayText(t) {
   return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
 }
 
-// Synchro d'un jeu : kind (ok, send, get, conflict, none, absent, off), et le bouton de la ligne
-// (button ; act : action, ou "menu" pour ouvrir le menu « ⋯ »). Un client qui n'a pas le jeu n'est
-// jamais servi par défaut : son installation se fait dans le menu de la ligne.
+// Synchro d'un jeu d'après la décision du backend (`action` de chaque client) : kind (ok, send, get,
+// conflict, none, absent, off), et le bouton de la ligne (button ; act : action). Un client qui n'a pas
+// le jeu n'est jamais servi par défaut : son installation se fait dans le menu de la ligne.
 function syncOf(g, scope) {
   const reach = reachableIds();
-  if (!scope) {
-    if (g.machines.some((s) => s.conflict && reach.includes(s.id))) return { kind: "conflict", title: CONFLICT_TITLE, button: "Choisir…", act: "menu" };
-    // Copie la plus récente : celle du manager (les clients en retard la reçoivent), ou celle d'un client
-    const here = g.machines.filter((s) => reach.includes(s.id) && PRESENT_STATES.has(s.state));
-    if (g.reserve?.newest > Math.max(0, ...here.map((s) => s.newest))) {
-      const lagging = here.filter((s) => s.fingerprint && s.fingerprint.toLowerCase() !== (g.reserve.fingerprint || "").toLowerCase()).map((s) => s.id);
-      if (lagging.length) return { kind: "get", title: `Le manager a une version plus récente : la copier sur ${names(lagging)}`, button: "Récupérer", act: () => pushManager(g, lagging) };
-    }
-    const targets = rowTargets(g);
-    if (targets.length) return { kind: "send", title: `Envoyer la version la plus avancée à ${names(targets)}`, button: "Envoyer", act: () => syncRow(g) };
-    if (pullNeeded(g, AUTO)) return { kind: "send", title: "Copier la version la plus avancée sur le manager", button: "Envoyer", act: () => pullGames([g], AUTO) };
-    const places = reach.filter((id) => onMachine(g, id)).length + (g.reserve ? 1 : 0);
-    return places <= 1 ? { kind: "none", title: "Une seule copie : aucun autre client ne la partage" }
-      : { kind: "ok", title: "Toutes les copies sont à jour" };
+  const conflict = { kind: "conflict", title: CONFLICT_TITLE, button: "Départager…", act: () => openResolve(g) };
+  const ids = scope ? [scope.id] : reach;
+  const mine = g.machines.filter((s) => ids.includes(s.id));
+  if (scope && !scope.ok) return { kind: "off", title: `${scope.name} est hors ligne : rien ne peut être envoyé avant son retour` };
+  if (g.conflicts?.length || mine.some((s) => s.action === "conflit")) return conflict;
+  const up = mine.filter((s) => s.action === "remonter").sort((a, b) => (b.newest || 0) - (a.newest || 0))[0];
+  if (up) {
+    return { kind: "send", title: `${up.name} est en avance sur le manager : sa copie remonte au manager`, button: "Envoyer au manager", act: () => pullGames([g], up.id) };
   }
-  if (!scope.ok) return { kind: "off", title: `${scope.name} est hors ligne : rien ne peut être envoyé avant son retour` };
-  const s = stateOf(g, scope.id), st = s?.state ?? "absente";
-  if (s?.conflict) return { kind: "conflict", title: CONFLICT_TITLE, button: "Choisir…", act: "menu" };
-  if (st === "absente") {
+  const down = mine.filter((s) => s.action === "descendre").map((s) => s.id);
+  if (down.length) {
+    return { kind: "get", title: `${names(down)} ${down.length > 1 ? "sont en retard" : "est en retard"} sur le manager : ${down.length > 1 ? "ils reçoivent" : "il reçoit"} sa version`,
+      button: "Récupérer du manager", act: () => pushManager(g, down) };
+  }
+  if (scope && (stateOf(g, scope.id)?.state ?? "absente") === "absente") {
     const holders = reach.filter((id) => id !== scope.id && onMachine(g, id)).length;
     return holders ? { kind: "absent", title: `Pas de sauvegarde de ce jeu sur ${scope.name} : l'installer depuis le menu de la ligne` }
       : { kind: "none", title: `Pas de sauvegarde de ce jeu sur ${scope.name}, ni sur un autre client joignable` };
   }
-  if (st === "en retard") {
-    const from = suggestedOf(g);
-    if (from) return { kind: "get", title: `Copier la version de ${from.name} sur ${scope.name}`, button: "Récupérer", act: () => pushFrom(g, from.id, [scope.id]) };
-  }
-  if (g.reserve?.fingerprint && s.fingerprint && g.reserve.fingerprint.toLowerCase() !== s.fingerprint.toLowerCase() && g.reserve.newest > s.newest) {
-    return { kind: "get", title: `Le manager a une version plus récente : la copier sur ${scope.name}`, button: "Récupérer", act: () => pushManager(g, [scope.id]) };
-  }
-  const targets = lateIn(g).filter((id) => reach.includes(id));
-  if (st === "plus avancée" && targets.length) return { kind: "send", title: `Envoyer à ${names(targets)}`, button: "Envoyer", act: () => pushFrom(g, scope.id, targets) };
-  if (pullNeeded(g, scope.id)) return { kind: "send", title: "Copier cette version vers le manager", button: "Envoyer", act: () => pullGames([g], scope.id) };
-  return { kind: "ok", title: `${scope.name} a la version du manager` };
+  const places = reach.filter((id) => onMachine(g, id)).length + (g.reserve ? 1 : 0);
+  if (places <= 1) return { kind: "none", title: "Une seule copie : aucun autre client ne la partage" };
+  return { kind: "ok", title: scope ? `${scope.name} a la version du manager` : "Toutes les copies sont à jour" };
 }
 
 // Le jeu est présent sur ce client : une copie, quel que soit son état. « absente » (pas de copie)
@@ -328,7 +304,7 @@ function svListRow({ g, sync, copy }, enter, images) {
   if (primary) {
     primary.onclick = (event) => {
       event.stopPropagation();
-      if (sync.act === "menu") more.click(); else sync.act();
+      sync.act();
     };
   }
   // Nom et vignette : ouvrent la fiche de l'image ; sans image dans la bibliothèque, ils ne le sont pas
@@ -421,21 +397,29 @@ function saveThumb(g, imgId) {
 // Menu « … » d'une ligne : une action impossible reste visible, grisée, avec sa raison
 function rowItems(g) {
   const busyReason = busy() ? BUSY : "";
-  const reach = reachableIds(), top = sourceOf(g);
+  const reach = reachableIds(), top = sourceOf(g), scope = scopeMachine();
   // Depuis un client qui a le jeu vers les autres qui l'ont dans une autre version
   const others = (s) => presentIn(g).filter((o) => o.id !== s.id && o.fingerprint !== s.fingerprint && reach.includes(o.id)).map((o) => o.id);
   const img = imageIds().get(g.game);
+  // Copie envoyée au manager : celle du client choisi, sinon la plus récente des clients joignables
+  const from = scope ? (reach.includes(scope.id) ? stateOf(g, scope.id) : null)
+    : g.machines.filter((s) => reach.includes(s.id) && PRESENT_STATES.has(s.state)).sort((a, b) => (b.newest || 0) - (a.newest || 0))[0];
+  const fromOk = from && PRESENT_STATES.has(from.state);
   const item = (label, iconName, reason, action, danger = false) => setUnavailable(menuItem(label, iconName, action, { danger }), reason);
+  const conflict = Boolean(g.conflicts?.length || g.machines.some((s) => s.action === "conflit"));
+  // En conflit, une copie ne remplace une autre qu'en passant par Départager (les deux y sont comparées)
+  const held = busyReason || (conflict ? "En conflit : choisis la version à garder avec « Départager… »" : "");
   return [
     item("Ouvrir la fiche de l'image", "image", img ? "" : NO_IMAGE, () => openImage(img)),
+    ...(conflict ? [item("Départager…", "alert", busyReason, () => openResolve(g))] : []),
+    item("Envoyer au manager", "save", held || (!fromOk ? "Aucune copie sur un client joignable" : inManager(g, from) ? "Le manager a déjà cette version" : ""),
+      () => pullGames([g], from.id)),
+    item("Récupérer du manager", "server", held || (!g.reserve ? "Pas de copie sur le manager"
+      : !reachManagerTargets(g).length ? "Aucun client joignable n'a une autre version" : ""), () => pushReserve(g)),
     ...presentIn(g).filter((s) => reach.includes(s.id) && others(s).length)
-      .map((s) => item(`Sync ${s.name} → ${names(others(s))}`, "arrow", busyReason, () => pushFrom(g, s.id, others(s)))),
+      .map((s) => item(`Copier de ${s.name} vers ${names(others(s))}`, "arrow", held, () => pushFrom(g, s.id, others(s)))),
     // Installer sur un client qui n'a pas le jeu : choix explicite, jamais par défaut
     ...(top ? absentIn(g).map((id) => item(`Installer sur ${machineName(id)} (depuis ${top.name})`, "arrow", busyReason, () => pushFrom(g, top.id, [id]))) : []),
-    item(!top ? "Copier vers le manager" : inManager(g, top) ? "Copier vers le manager (déjà identique)" : `Copier vers le manager (${top.name} → Manager)`,
-      "save", busyReason || (!top ? "Aucune copie sur un client joignable" : inManager(g, top) ? "Le manager a déjà cette version" : ""), () => pullGames([g], AUTO)),
-    item("Sync depuis le manager (Manager → clients)", "server", busyReason || (!g.reserve ? "Pas de copie sur le manager"
-      : !reachManagerTargets(g).length ? "Aucun client joignable n'a une autre version" : ""), () => pushReserve(g)),
     item("Supprimer…", "trash", busyReason, () => openSaveDelete([g]), true),
   ];
 }

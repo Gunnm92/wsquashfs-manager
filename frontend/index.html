@@ -653,6 +653,16 @@
     <button class="btn danger" id="sd-run"><svg class="ico sm"><use href="#i-trash"/></svg>Supprimer</button></div>
 </dialog>
 
+<dialog id="dlg-resolve">
+  <div class="dlg-head"><h2 id="rs-title">Départager</h2>
+    <button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
+  <p class="dlg-intro">Les deux versions sont gardées sur le manager : celle que tu ne choisis pas reste archivée.</p>
+  <div class="rs-cands" id="rs-cands"></div>
+  <label class="rs-push"><input type="checkbox" id="rs-push" checked><span>Envoyer ensuite aux clients en retard</span></label>
+  <div class="dlg-foot"><span class="spacer"></span>
+    <button class="btn secondary" data-close>Annuler</button></div>
+</dialog>
+
 <dialog id="dlg-login" class="small">
   <form method="dialog" id="login-form">
     <h2>Connexion</h2>

@@ -316,10 +316,12 @@ dialog > p, .dlg-intro { color: var(--muted); font-size: 13px; }
 .dd-btn .dot-ic .ico { width: 12px; height: 12px; }
 .dd.active .dd-btn { color: var(--text); border-color: var(--accent); }
 .dd-menu { position: absolute; z-index: 35; top: calc(100% + 6px); left: 0; min-width: 230px; padding: 6px; border-radius: 18px;
-  background: var(--s2); box-shadow: var(--shadow-lg); display: flex; flex-direction: column; gap: 2px; animation: pop .15s ease-out; }
+  background: var(--s3); box-shadow: var(--shadow-lg); display: flex; flex-direction: column; gap: 2px; transform-origin: top right; animation: menupop var(--dur-med) var(--ease-out); }
 .dd-menu button { display: flex; align-items: center; gap: 10px; padding: 6px 10px 6px 6px; border: 0; border-radius: 12px; background: transparent;
   color: var(--text); font-size: 13px; text-align: left; white-space: nowrap; }
-.dd-menu button:hover, .dd-menu button:focus-visible { background: var(--s3); outline: none; }
+.dd-menu button:hover, .dd-menu button:focus-visible { background: var(--s2); outline: none; }
+.dd-menu button > .ico { color: var(--muted); }
+.dd-menu button.danger > .ico { color: inherit; }
 .dd-menu button > span:nth-child(2) { flex: 1; }
 .dd-menu button.on { color: var(--accent-300); }
 .dd-menu .dot-ic { width: 26px; height: 26px; }
@@ -331,7 +333,7 @@ dialog > p, .dlg-intro { color: var(--muted); font-size: 13px; }
 
 /* Menus d'action : position fixe, pour ne pas être rognés par le défilement des tableaux */
 .dd-menu label.dd-check { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 12px; font-size: 13px; white-space: nowrap; cursor: pointer; }
-.dd-menu label.dd-check:hover { background: var(--s3); }
+.dd-menu label.dd-check:hover { background: var(--s2); }
 .dd-menu label.dd-check input:disabled { opacity: .4; }
 .dd-menu button:disabled, .dd-menu button[aria-disabled="true"] { opacity: .4; cursor: not-allowed; }
 .dd-menu button:disabled:hover { background: transparent; }
