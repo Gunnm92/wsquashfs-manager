@@ -54,6 +54,7 @@ class ImageInfo(BaseModel):
     joined_runners: list[str] = Field(default_factory=list)   # dossiers runners/<nom> de l'image
     runner_joined: bool = False    # runner utilisé = runner intégré à l'image (comme le lanceur)
     hidraw: bool | None = None
+    attach: str | None = None      # ATTACH= : commande lancée pendant le jeu (étiquette ATTACH)
     xinput: bool = False           # vrai si HIDRAW n'est pas à 1 (mode par défaut)
     cmd: str | None = None
     dir: str | None = None

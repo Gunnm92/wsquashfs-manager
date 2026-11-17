@@ -151,3 +151,22 @@ def test_single_joined_runner_used_without_key():
     info = _info(joined_runners=["a", "b"])
     _apply_joined(info, [])
     assert (info.runner, info.runner_joined) == (RunnerKind.DEFAULT, False)
+
+
+def test_autorun_attach_is_reported():
+    """ATTACH= (commande lancée pendant le jeu) remonte dans la bibliothèque : étiquette ATTACH."""
+    from pathlib import Path
+
+    from app.models import ImageInfo
+    from app.services.autorun import Autorun
+    from app.services.scan import _autorun_fields
+
+    def info_for(text: str) -> ImageInfo:
+        info = ImageInfo(id="win/Jeu", name="Jeu", system="win", path=Path("/x/Jeu.wsquashfs"),
+                         size=1, mtime=0)
+        _autorun_fields(info, Autorun.parse(text))
+        return info
+
+    assert info_for("CMD=Jeu.exe\nATTACH=sh attach.sh\n").attach == "sh attach.sh"
+    assert info_for("CMD=Jeu.exe\n").attach is None
+    assert info_for("CMD=Jeu.exe\nATTACH=\n").attach is None

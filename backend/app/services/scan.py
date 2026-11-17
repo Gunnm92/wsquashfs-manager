@@ -24,7 +24,7 @@ from .autorun import Autorun, decode_autorun, merge_override, override_path, unq
 from .durable import write_atomic
 
 _CACHE_DIR = Path.home() / ".cache/wsquashfs-manager"
-_CACHE_VERSION = 2          # à incrémenter quand le contenu mis en cache change
+_CACHE_VERSION = 3          # à incrémenter quand le contenu mis en cache change
 
 # Dossiers système du prefix : un dinput8.dll qui s'y trouve n'est pas un relais.
 _SYSTEM_DIRS = ("drive_c/windows/",)
@@ -388,6 +388,8 @@ def _autorun_fields(info: ImageInfo, a: Autorun) -> None:
         info.runner = RunnerKind.WINE
     info.cmd = a.get("CMD")
     info.dir = a.get("DIR")
+    attach = a.get("ATTACH")
+    info.attach = attach.strip() or None if attach is not None else None
     hidraw = a.get("HIDRAW")
     # 1 : pont USB ; bt : hidraw direct (wsquashfs-launcher, 02/10)
     info.hidraw = (hidraw.strip().lower() in ("1", "bt")) if hidraw is not None else None
