@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import fcntl
 
-from app.models import ImageType
+from app.config import Settings
+from app.models import ImageInfo, ImageType
 from app.services.scan import (
+    _apply_dynamic,
     _fakeping_candidates,
     _held_lock_inodes,
     detect_type,
@@ -170,3 +172,21 @@ def test_autorun_attach_is_reported():
     assert info_for("CMD=Jeu.exe\nATTACH=sh attach.sh\n").attach == "sh attach.sh"
     assert info_for("CMD=Jeu.exe\n").attach is None
     assert info_for("CMD=Jeu.exe\nATTACH=\n").attach is None
+
+
+def test_old_size_is_the_backup_size_next_to_the_image(tmp_path):
+    """old_size : taille de <image>.old à côté de l'image, 0 sans .old ; calculée au scan
+    (comme has_old), sans relire le squashfs."""
+    image = tmp_path / "Jeu.wsquashfs"
+    image.write_bytes(b"img")
+    settings = Settings(saves_dir=tmp_path / "saves", state_dir=tmp_path / "state")
+
+    def scanne():
+        return _apply_dynamic(settings, ImageInfo(id="win/Jeu", path=image, name="Jeu"),
+                              set(), [], set())
+
+    info = scanne()
+    assert (info.has_old, info.old_size) == (False, 0)
+    image.with_name("Jeu.wsquashfs.old").write_bytes(b"x" * 1234)
+    info = scanne()
+    assert (info.has_old, info.old_size) == (True, 1234)

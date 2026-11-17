@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from app import main
+from app import deps
 from app.config import Settings
 from app.models import ImageInfo
 from app.services import artwork
@@ -231,9 +232,9 @@ def test_folder_cover_dossier_lui_meme_lien(tmp_path):
 def client(cfg, tmp_path, monkeypatch):
     image = _image(tmp_path)
     info = ImageInfo(id="win/jeu", path=image, name="Jeu", system="win", size=5)
-    monkeypatch.setattr(main, "_settings", cfg)
-    monkeypatch.setattr(main, "_find_image", lambda image_id: info)
-    monkeypatch.setattr(main, "queue", TaskQueue(tmp_path / "state" / "tasks.json", main.queue.handlers))
+    monkeypatch.setattr(deps, "_settings", cfg)
+    monkeypatch.setattr(deps, "_find_image", lambda image_id: info)
+    monkeypatch.setattr(deps, "queue", TaskQueue(tmp_path / "state" / "tasks.json", deps.queue.handlers))
     return TestClient(main.app)
 
 

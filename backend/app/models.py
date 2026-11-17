@@ -64,6 +64,7 @@ class ImageInfo(BaseModel):
     saves_size: int = 0
     saves_present: bool = False
     has_old: bool = False
+    old_size: int = 0              # taille en octets de <image>.old (0 sans .old)
     override: list[str] = Field(default_factory=list)   # clés de <jeu>.wsquashfs.autorun
     state: ImageState = ImageState.OK
 

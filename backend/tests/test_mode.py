@@ -13,6 +13,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import main
+from app.services import scan
+from app import deps, machines
+from app.routes import images
+from app.models import ImageInfo
 from app.config import Settings, get_settings, save_mode
 from app.services.rebuild import RebuildError
 
@@ -38,8 +42,8 @@ def _settings(tmp_path: Path, **kw) -> Settings:
 def client(tmp_path, monkeypatch):
     settings = _settings(tmp_path)
     settings.mode = "autonome"
-    monkeypatch.setattr(main, "_settings", settings)
-    monkeypatch.setattr(main, "_library", {})
+    monkeypatch.setattr(deps, "_settings", settings)
+    monkeypatch.setattr(deps, "_library", {})
     return TestClient(main.app)
 
 
@@ -87,19 +91,19 @@ def test_put_mode_validates_and_is_exposed(client):
 
 def test_put_mode_starts_and_stops_the_machine_listener(client, monkeypatch):
     started = []
-    monkeypatch.setattr(main, "_start_machine_server", lambda settings: started.append(settings) or SimpleNamespace(should_exit=False))
-    monkeypatch.setattr(main, "_machine_server", None)
-    main._settings.machine_port = 8790
+    monkeypatch.setattr(machines, "_start_machine_server", lambda settings: started.append(settings) or SimpleNamespace(should_exit=False))
+    monkeypatch.setattr(machines, "_machine_server", None)
+    deps._settings.machine_port = 8790
     try:
         client.put("/api/config/mode", json={"mode": "connecte"})
         client.put("/api/config/mode", json={"mode": "connecte"})          # déjà démarrée : rien de plus
-        assert len(started) == 1 and main._machine_server is not None
-        stopped = main._machine_server
+        assert len(started) == 1 and machines._machine_server is not None
+        stopped = machines._machine_server
         client.put("/api/config/mode", json={"mode": "autonome"})
-        assert stopped.should_exit is True and main._machine_server is None
+        assert stopped.should_exit is True and machines._machine_server is None
     finally:
-        main._machine_server = None
-        main._settings.machine_port = 0
+        machines._machine_server = None
+        deps._settings.machine_port = 0
 
 
 # ------------------------------------------------------------------ garde
@@ -130,7 +134,7 @@ def test_autonomous_refuses_connected_routes(client, method, path, body):
 
 
 def test_autonomous_still_serves_art_and_construction(client, monkeypatch, tmp_path):
-    monkeypatch.setattr(main.scan, "scan_all", lambda settings, force=False: [])
+    monkeypatch.setattr(scan, "scan_all", lambda settings, force=False: [])
     assert client.get("/api/library").status_code == 200
     assert client.get("/api/saves/art", params={"game": "PC:Jeu"}).status_code == 404   # pas 409
     assert client.get("/api/config/systems").status_code == 200
@@ -139,28 +143,28 @@ def test_autonomous_still_serves_art_and_construction(client, monkeypatch, tmp_p
 
 
 def test_autonomous_image_links_does_not_ask_the_game_host(client, monkeypatch):
-    info = main.ImageInfo(id="arcade/jeu", path=Path("/roms/arcade/jeu.wsquashfs"), name="jeu",
+    info = ImageInfo(id="arcade/jeu", path=Path("/roms/arcade/jeu.wsquashfs"), name="jeu",
                           system="arcade", size=1)
-    monkeypatch.setattr(main, "_find_image", lambda image_id: info)
-    monkeypatch.setattr(main, "_doctor", lambda refresh=False: pytest.fail("machine interrogée"))
-    monkeypatch.setattr(main, "suggest", lambda settings, path, runners: {"links": [], "runners": runners})
+    monkeypatch.setattr(deps, "_find_image", lambda image_id: info)
+    monkeypatch.setattr(deps, "_doctor", lambda refresh=False: pytest.fail("machine interrogée"))
+    monkeypatch.setattr(images, "suggest", lambda settings, path, runners: {"links": [], "runners": runners})
     body = client.get("/api/image/links", params={"id": "arcade/jeu"}).json()
     assert body["steambox_error"] == DETAIL
 
 
 def test_connected_mode_lets_connected_routes_through(client, tmp_path, monkeypatch):
-    main._settings.mode = "connecte"
+    deps._settings.mode = "connecte"
     assert client.get("/api/saves/machines").json() == {"machines": []}
     assert client.get("/api/install/status").status_code == 200
 
 
 def test_connected_task_refused_in_autonomous_mode(tmp_path, monkeypatch):
     calls = []
-    monkeypatch.setattr(main, "_settings", _settings(tmp_path))
-    main._settings.mode = "autonome"
-    handler = main._connected_task(lambda task, job: calls.append(task) or "fait")
+    monkeypatch.setattr(deps, "_settings", _settings(tmp_path))
+    deps._settings.mode = "autonome"
+    handler = deps._connected_task(lambda task, job: calls.append(task) or "fait")
     with pytest.raises(RebuildError, match="mode autonome"):
         handler("tâche", None)
     assert calls == []
-    main._settings.mode = "connecte"
+    deps._settings.mode = "connecte"
     assert handler("tâche", None) == "fait"

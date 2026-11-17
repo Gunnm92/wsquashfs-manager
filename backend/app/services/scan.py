@@ -344,12 +344,21 @@ def _saves_size(settings: Settings, stem: str) -> tuple[bool, int]:
     return True, total
 
 
+def _old_size(image: Path) -> int:
+    """Taille de l'ancienne version (<image>.old) : un simple stat, sans relire l'image."""
+    try:
+        return image.with_name(image.name + ".old").stat().st_size
+    except OSError:
+        return 0
+
+
 def _apply_dynamic(settings: Settings, info: ImageInfo, prefixes: set[str],
                    mounts: list[str], held: set[int] | None = None) -> ImageInfo:
     """État qui change sans que l'image change : recalculé à chaque scan."""
     image = info.path
     info.saves_present, info.saves_size = _saves_size(settings, image.stem)
     info.has_old = image.with_name(image.name + ".old").exists()
+    info.old_size = _old_size(image) if info.has_old else 0
     info.extras = [e for e in info.extras if e != ".keys"]
     if image.with_name(image.name + ".keys").exists():    # fichier À CÔTÉ de l'image
         info.extras.insert(0, ".keys")

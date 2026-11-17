@@ -529,9 +529,25 @@ Les images sont désignées par leur identifiant `<système>/<nom>` en paramètr
 
 ```
 backend/app/
-├── main.py              # API FastAPI, démarrage de la file
+├── main.py              # création de l'application, démarrage/arrêt, middlewares, montage des routeurs
+├── deps.py              # état partagé : réglages, file de tâches, bibliothèque, caches, helpers communs
+├── auth.py              # jeton du mot de passe ; routes qui touchent un client (mode autonome)
+├── background.py        # synchro automatique des clients, purge des .old (tâches de fond)
+├── machines.py          # application des clients (machine_app) et écoute HTTPS selon le mode
 ├── config.py            # réglages (WSQUASHFS_MGR_*)
 ├── models.py
+├── routes/              # un APIRouter par domaine (chaque module expose `router`)
+│   ├── library.py       # /api/library, récupération (recovery), illustrations de l'image
+│   ├── images.py        # fiche d'une image : autorun, fichiers, mise à jour, .old, liens, runner, essai
+│   ├── mass.py          # actions en masse
+│   ├── folders.py       # dossiers à empaqueter, base de connaissances des propositions
+│   ├── tasks.py         # file de tâches, captures d'essai
+│   ├── saves.py         # sauvegardes entre clients
+│   ├── clients.py       # clients associés, dossiers synchronisés
+│   ├── install.py       # installation et désinstallation sur les clients
+│   ├── settings.py      # réglages (/api/config*)
+│   ├── game_host.py     # client d'essai : maintenance, voyant, --doctor
+│   └── assets.py        # /, /login, /assets/*, /custom.css, /healthz
 └── services/
     ├── scan.py          # scan + cache, lecture sans montage (unsquashfs)
     ├── autorun.py       # lecture/écriture ligne à ligne, validations, opérations

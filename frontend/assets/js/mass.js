@@ -143,7 +143,8 @@ export function init() {
   $("btn-mass-validate").onclick = async () => {
     const ids = [...state.selected].filter((id) => state.byId.get(id)?.has_old);
     if (!ids.length) { alert("Aucune image sélectionnée n'a de .old."); return; }
-    if (!confirm(`Supprimer les anciennes versions (.old) de ${ids.length} image(s) ? Elles sont effacées définitivement ; les images actuelles ne changent pas.`)) return;
+    const libres = ids.reduce((total, id) => total + (state.byId.get(id).old_size || 0), 0);
+    if (!confirm(`Supprimer les anciennes versions (.old) de ${ids.length} image(s) (${size(libres)} libérés) ? Elles sont effacées définitivement ; les images actuelles ne changent pas.`)) return;
     try {
       const data = await api("/api/mass/old/validate", { method: "POST", body: { ids } });
       if (data.skipped.length) alert(data.skipped.map((s) => `${s.id} : ${s.reason}`).join("\n"));

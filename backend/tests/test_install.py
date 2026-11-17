@@ -22,6 +22,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import main
+from app import deps
+from fastapi import HTTPException
 from app.config import save_saves_machines, saves_machines
 from app.models import Task
 from app.services import install
@@ -478,9 +480,9 @@ def test_run_install_keeps_the_result_and_fails_partially(games_agents, tmp_path
 def api(tmp_path, monkeypatch):
     settings = make_settings(tmp_path)
     settings.mode = "connecte"                  # API des machines : hors mode autonome
-    queue = TaskQueue(tmp_path / "state" / "tasks.json", main.queue.handlers)
-    monkeypatch.setattr(main, "_settings", settings)
-    monkeypatch.setattr(main, "queue", queue)
+    queue = TaskQueue(tmp_path / "state" / "tasks.json", deps.queue.handlers)
+    monkeypatch.setattr(deps, "_settings", settings)
+    monkeypatch.setattr(deps, "queue", queue)
     images = {"arcade/Jeu": SimpleNamespace(id="arcade/Jeu", path=Path("/roms/arcade/Jeu.wsquashfs")),
               "arcade/Autre": SimpleNamespace(id="arcade/Autre", path=Path("/roms/arcade/Autre.wsquashfs")),
               "arcade/Pc": SimpleNamespace(id="arcade/Pc", path=Path("/roms/arcade/Pc.pc"))}
@@ -488,9 +490,9 @@ def api(tmp_path, monkeypatch):
     def find_image(image_id):
         if image_id in images:
             return images[image_id]
-        raise main.HTTPException(status_code=404, detail=f"image inconnue : {image_id}")
+        raise HTTPException(status_code=404, detail=f"image inconnue : {image_id}")
 
-    monkeypatch.setattr(main, "_find_image", find_image)
+    monkeypatch.setattr(deps, "_find_image", find_image)
     return TestClient(main.app), settings, queue
 
 

@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from PIL import Image, ImageDraw
 
 from app import main
+from app import deps
 from app.config import Settings, save_sgdb
 from app.services import artwork, sgdb
 
@@ -309,7 +310,7 @@ def test_save_sgdb_validation(cfg):
 
 @pytest.fixture
 def client(cfg, monkeypatch):
-    monkeypatch.setattr(main, "_settings", cfg)
+    monkeypatch.setattr(deps, "_settings", cfg)
     return TestClient(main.app)
 
 

@@ -14,6 +14,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import main
+from app import deps
+from app import machines
 from app.config import save_saves_machines, saves_machines
 from app.services import machine_api, saves
 from app.services.rebuild import RebuildError
@@ -42,12 +44,12 @@ def add_manager_machine(settings, machine_id: str, name: str, token: str) -> Non
 def mapi(tmp_path, monkeypatch):
     """Client de machine_app (sans TLS) : deux machines déclarées, jetons A et B."""
     settings = make_settings(tmp_path)
-    monkeypatch.setattr(main, "_settings", settings)
+    monkeypatch.setattr(deps, "_settings", settings)
     add_manager_machine(settings, "aaaa0001", "steambox", "jeton-a")
     add_manager_machine(settings, "bbbb0002", "aibox", "jeton-b")
     headers_a = {"Authorization": "Bearer jeton-a", "X-Wsq-Machine": "steambox-sync"}
     headers_b = {"Authorization": "Bearer jeton-b", "X-Wsq-Machine": "aibox-sync"}
-    return TestClient(main.machine_app), settings, headers_a, headers_b
+    return TestClient(machines.machine_app), settings, headers_a, headers_b
 
 
 def put_tar(client, headers, data: bytes, game: str = GAME, fingerprint: str | None = None,
@@ -239,7 +241,7 @@ def test_no_certificate_without_openssl(tmp_path, monkeypatch):
 def test_server_is_off_when_the_port_is_zero(tmp_path, monkeypatch):
     settings = make_settings(tmp_path)
     assert settings.machine_port == 0
-    assert main._start_machine_server(settings) is None
+    assert machines._start_machine_server(settings) is None
 
 
 def test_machine_server_serves_only_the_machine_api(tmp_path, monkeypatch):
@@ -251,9 +253,9 @@ def test_machine_server_serves_only_the_machine_api(tmp_path, monkeypatch):
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
     settings = make_settings(tmp_path, machine_port=port, machine_host="127.0.0.1")
-    monkeypatch.setattr(main, "_settings", settings)
+    monkeypatch.setattr(deps, "_settings", settings)
     add_manager_machine(settings, "aaaa0001", "steambox", "jeton-a")
-    server = main._start_machine_server(settings)
+    server = machines._start_machine_server(settings)
     assert server is not None
     try:
         deadline = time.monotonic() + 10

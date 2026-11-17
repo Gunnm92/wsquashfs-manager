@@ -24,6 +24,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import main
+from app import background
+from app import deps
+from app import machines
+from fastapi import HTTPException
 from app.config import (
     Settings,
     get_settings,
@@ -976,17 +980,17 @@ def test_fingerprint_less_entry_counts_as_absent(agents, tmp_path):
 def api(tmp_path, monkeypatch):
     settings = make_settings(tmp_path)
     settings.mode = "connecte"                  # API des machines : hors mode autonome
-    queue = TaskQueue(tmp_path / "state" / "tasks.json", main.queue.handlers)
-    monkeypatch.setattr(main, "_settings", settings)
-    monkeypatch.setattr(main, "queue", queue)
+    queue = TaskQueue(tmp_path / "state" / "tasks.json", deps.queue.handlers)
+    monkeypatch.setattr(deps, "_settings", settings)
+    monkeypatch.setattr(deps, "queue", queue)
     image = SimpleNamespace(path=Path("/roms/arcade/Jeu.pc.wsquashfs"))
 
     def find_image(image_id):
         if image_id == "arcade/Jeu":
             return image
-        raise main.HTTPException(status_code=404, detail=f"image inconnue : {image_id}")
+        raise HTTPException(status_code=404, detail=f"image inconnue : {image_id}")
 
-    monkeypatch.setattr(main, "_find_image", find_image)
+    monkeypatch.setattr(deps, "_find_image", find_image)
     return TestClient(main.app), settings, queue
 
 
@@ -1762,7 +1766,7 @@ def test_put_from_a_pushes_to_b_but_not_back_to_a(agents, tmp_path, monkeypatch)
     a = agents("a-machine", games={"Jeu": (gz("a-old"), None, 100)}, auto=True)
     b = agents("b-machine", games={"Jeu": (gz("b-old"), None, 100)}, auto=True)
     settings = make_settings(tmp_path)
-    monkeypatch.setattr(main, "_settings", settings)
+    monkeypatch.setattr(deps, "_settings", settings)
     monkeypatch.setattr(machine_api, "_background", lambda target, *args, **kwargs: target(*args, **kwargs))
     monkeypatch.setattr(machine_api, "GZIP_MAGIC", b"GZ")          # les faux agents ne connaissent que « GZ »
     associate(settings, a)
@@ -1775,7 +1779,7 @@ def test_put_from_a_pushes_to_b_but_not_back_to_a(agents, tmp_path, monkeypatch)
     a["st"]["log"].clear()
     b["st"]["log"].clear()
     data = gz("a-new")
-    response = TestClient(main.machine_app).put(
+    response = TestClient(machines.machine_app).put(
         "/v1/saves/tar", params={"game": "Jeu"}, content=data,
         headers={"Authorization": "Bearer jeton-a", "X-Wsq-Machine": "a-sync", "Content-Type": "application/gzip",
                  "X-Wsq-Fingerprint": hashlib.sha256(data).hexdigest()})
@@ -1788,7 +1792,7 @@ def test_put_from_a_pushes_to_b_but_not_back_to_a(agents, tmp_path, monkeypatch)
 
 def test_auto_push_interval_is_checked_saved_and_read_back(tmp_path, monkeypatch):
     settings = make_settings(tmp_path)
-    monkeypatch.setattr(main, "_settings", settings)
+    monkeypatch.setattr(deps, "_settings", settings)
     client = TestClient(main.app)
     assert client.get("/api/config").json()["auto_push_interval"] == 120
     for bad in (-1, 86401):
@@ -1803,16 +1807,16 @@ def test_auto_push_loop_runs_each_interval_until_shutdown(tmp_path, monkeypatch)
     settings = make_settings(tmp_path)
     settings.auto_push_interval = 1
     settings.mode = "connecte"
-    monkeypatch.setattr(main, "_settings", settings)
-    monkeypatch.setattr(main, "_background_stop", threading.Event())
+    monkeypatch.setattr(deps, "_settings", settings)
+    monkeypatch.setattr(background, "_background_stop", threading.Event())
     calls = []
     monkeypatch.setattr(saves, "push_behind", lambda s, *a, **k: calls.append(s) or [])
-    thread = threading.Thread(target=main._auto_push_loop, daemon=True)
+    thread = threading.Thread(target=background._auto_push_loop, daemon=True)
     thread.start()
     deadline = time.monotonic() + 10
     while not calls and time.monotonic() < deadline:
         time.sleep(0.05)
-    main._background_stop.set()
+    background._background_stop.set()
     thread.join(timeout=5)
     assert calls == [settings] and not thread.is_alive()
 
@@ -1820,15 +1824,15 @@ def test_auto_push_loop_runs_each_interval_until_shutdown(tmp_path, monkeypatch)
 def test_auto_push_loop_does_nothing_when_disabled(tmp_path, monkeypatch):
     settings = make_settings(tmp_path)
     settings.auto_push_interval = 0
-    monkeypatch.setattr(main, "_settings", settings)
-    monkeypatch.setattr(main, "_background_stop", threading.Event())
-    monkeypatch.setattr(main, "AUTO_PUSH_IDLE", 0.02)
+    monkeypatch.setattr(deps, "_settings", settings)
+    monkeypatch.setattr(background, "_background_stop", threading.Event())
+    monkeypatch.setattr(background, "AUTO_PUSH_IDLE", 0.02)
     calls = []
     monkeypatch.setattr(saves, "push_behind", lambda s, *a, **k: calls.append(s) or [])
-    thread = threading.Thread(target=main._auto_push_loop, daemon=True)
+    thread = threading.Thread(target=background._auto_push_loop, daemon=True)
     thread.start()
     time.sleep(0.3)
-    main._background_stop.set()
+    background._background_stop.set()
     thread.join(timeout=5)
     assert calls == [] and not thread.is_alive()
 
@@ -1837,7 +1841,7 @@ def test_put_does_not_push_when_auto_push_is_off(agents, tmp_path, monkeypatch):
     a = agents("a-machine", auto=True)
     b = agents("b-machine", games={"Jeu": (gz("b-old"), None, 100)}, auto=True)
     settings = make_settings(tmp_path, auto_push_interval=0)
-    monkeypatch.setattr(main, "_settings", settings)
+    monkeypatch.setattr(deps, "_settings", settings)
     monkeypatch.setattr(machine_api, "_background", lambda target, *args, **kwargs: target(*args, **kwargs))
     monkeypatch.setattr(machine_api, "GZIP_MAGIC", b"GZ")
     associate(settings, a)
@@ -1846,7 +1850,7 @@ def test_put_does_not_push_when_auto_push_is_off(agents, tmp_path, monkeypatch):
     set_saves_machine_field(settings, ids["a-machine"], "manager_token_sha256", hashlib.sha256(b"jeton-a").hexdigest())
     saves.record_state(settings, "Jeu", ids["b-machine"], fp_of(gz("b-old")))   # B est en retard
     data = gz("a-new")
-    response = TestClient(main.machine_app).put(
+    response = TestClient(machines.machine_app).put(
         "/v1/saves/tar", params={"game": "Jeu"}, content=data,
         headers={"Authorization": "Bearer jeton-a", "X-Wsq-Machine": "a-sync", "Content-Type": "application/gzip",
                  "X-Wsq-Fingerprint": hashlib.sha256(data).hexdigest()})

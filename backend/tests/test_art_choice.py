@@ -13,7 +13,10 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from app import main
+from app import deps, main
+from app.routes import library, mass
+from app import deps
+from fastapi import HTTPException
 from app.config import Settings
 from app.models import ImageInfo, Task
 from app.services import art_choice, artwork, scan, sgdb
@@ -311,9 +314,9 @@ def test_candidat_sgdb_panne_donne_502(cfg, api, image):
 
 @pytest.fixture
 def client(cfg, image, monkeypatch):
-    monkeypatch.setattr(main, "_settings", cfg)
+    monkeypatch.setattr(deps, "_settings", cfg)
     info = ImageInfo(id=ID_IMAGE, path=image, name="Portal2", system="windows", size=1)
-    monkeypatch.setattr(main, "_find_image", lambda image_id: info)
+    monkeypatch.setattr(deps, "_find_image", lambda image_id: info)
     return TestClient(main.app)
 
 
@@ -386,8 +389,8 @@ def test_route_actualiser_vide_la_liste(client, api, image):
 @pytest.fixture
 def masse(tmp_path, monkeypatch):
     """Deux images, file de tâches réelle ; `illustrees` : images ayant déjà une illustration."""
-    queue = TaskQueue(tmp_path / "state" / "tasks.json", main.queue.handlers)
-    monkeypatch.setattr(main, "queue", queue)
+    queue = TaskQueue(tmp_path / "state" / "tasks.json", deps.queue.handlers)
+    monkeypatch.setattr(deps, "queue", queue)
     images = {}
     for nom in ("a", "b"):
         path = tmp_path / "roms" / "win" / f"{nom}.wsquashfs"
@@ -402,11 +405,13 @@ def masse(tmp_path, monkeypatch):
             raise HTTPException(status_code=404, detail=f"image inconnue : {image_id}")
         return images[image_id]
 
-    monkeypatch.setattr(main, "_find_image", trouver)
+    monkeypatch.setattr(deps, "_find_image", trouver)
     # tâches de la file jamais réelles : arborescence illisible (aucun outil ici), rien au réseau
     monkeypatch.setattr(scan, "_list_files_uncached", lambda settings, img: None)
-    monkeypatch.setattr(main, "embedded_cover", lambda settings, path: (
-        artwork.Artwork(path, "image/png", "embedded") if path.stem in illustrees else None))
+    # embedded_cover est importée dans les deux routeurs qui l'appellent
+    for routeur in (library, mass):
+        monkeypatch.setattr(routeur, "embedded_cover", lambda settings, path: (
+            artwork.Artwork(path, "image/png", "embedded") if path.stem in illustrees else None))
     client = TestClient(main.app)
     return SimpleNamespace(client=client, queue=queue, illustrees=illustrees)
 
