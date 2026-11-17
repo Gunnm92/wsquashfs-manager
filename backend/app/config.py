@@ -98,6 +98,12 @@ class Settings(BaseSettings):
     # en secondes entre deux passages ; 0 : désactivée. Modifiable dans Réglages.
     auto_push_interval: int = 120
 
+    # Icônes et jaquettes SteamGridDB (services/sgdb.py) : clé API (config.json, jamais exposée),
+    # auteurs préférés (ordre de priorité), seuil de rondeur des icônes (0 à 1). Modifiables dans Réglages.
+    sgdb_api_key: str = ""
+    sgdb_authors: list[str] = []
+    sgdb_round_threshold: float = 0.85
+
     # Rétention des .old (None = suppression manuelle uniquement)
     old_retention_days: int | None = None
 
@@ -261,6 +267,31 @@ def save_machine_url(settings: Settings, url: str) -> None:
     settings.machine_url = value
 
 
+SGDB_AUTHORS_MAX = 20
+
+
+def save_sgdb(settings: Settings, api_key: str | None, authors: list[str], threshold: float) -> None:
+    """Réglages SteamGridDB. `api_key` None : clé inchangée ; "" : clé effacée.
+    ValueError si le seuil est hors de 0..1 ou s'il y a plus de SGDB_AUTHORS_MAX auteurs."""
+    if not 0 <= threshold <= 1:
+        raise ValueError("seuil de rondeur : entre 0 et 1")
+    clean: list[str] = []
+    for name in authors:
+        name = " ".join(str(name).split())
+        if name and name.lower() not in (a.lower() for a in clean):
+            clean.append(name)
+    if len(clean) > SGDB_AUTHORS_MAX:
+        raise ValueError(f"auteurs préférés : {SGDB_AUTHORS_MAX} au plus")
+    values: dict = {"sgdb_authors": clean, "sgdb_round_threshold": float(threshold)}
+    if api_key is not None:
+        values["sgdb_api_key"] = api_key.strip()
+    _save_runtime(settings, **values)
+    settings.sgdb_authors = clean
+    settings.sgdb_round_threshold = float(threshold)
+    if api_key is not None:
+        settings.sgdb_api_key = api_key.strip()
+
+
 AUTO_PUSH_MAX = 86400               # un passage au moins par jour, au plus
 
 
@@ -322,4 +353,12 @@ def get_settings() -> Settings:
     interval = runtime.get("auto_push_interval")
     if type(interval) is int and 0 <= interval <= AUTO_PUSH_MAX:
         settings.auto_push_interval = interval
+    if isinstance(runtime.get("sgdb_api_key"), str):
+        settings.sgdb_api_key = runtime["sgdb_api_key"]
+    authors = runtime.get("sgdb_authors")
+    if isinstance(authors, list):
+        settings.sgdb_authors = [a for a in authors if isinstance(a, str)][:SGDB_AUTHORS_MAX]
+    threshold = runtime.get("sgdb_round_threshold")
+    if type(threshold) in (int, float) and 0 <= threshold <= 1:
+        settings.sgdb_round_threshold = float(threshold)
     return settings

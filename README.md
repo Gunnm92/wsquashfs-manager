@@ -420,6 +420,26 @@ est modifiée en place, sans `.old` : refusé pendant une partie, et quand
 `.wsquashfs/` existe déjà sans illustration (reconstruire alors). Une image
 qui a déjà son illustration n'est pas touchée.
 
+### Icônes et jaquettes SteamGridDB
+
+Les illustrations affichées (fiche, ludothèque) viennent de
+[SteamGridDB](https://www.steamgriddb.com) : **icônes rondes** (`kind=icon`) et
+**jaquettes 600×900** (`kind=cover`). Clé API : Profil › Préférences › API sur
+steamgriddb.com, à coller dans **Réglages**. Sans clé, rien n'est demandé au site.
+
+- **Auteurs préférés** (Réglages) : une image de l'un d'eux passe avant les
+  autres, dans l'ordre de la liste ; sinon, la jaquette la mieux notée, ou
+  l'icône la plus ronde.
+- **Seuil de rondeur** (0 à 1, défaut 0,85) : une icône dont la rondeur n'atteint
+  pas le seuil n'est pas retenue (la rondeur mesure la part du disque opaque et
+  des coins transparents, après réduction à 64×64).
+- **Cache** : `<dossier d'état>/art/sgdb` (`STATE_DIR`). L'illustration retenue
+  y reste ; une absence est revalidée après 7 jours ; après une erreur réseau ou
+  une clé refusée, aucune demande pendant 5 minutes. **Actualiser** la
+  ludothèque revalide les absences.
+- **Ordre des sources** : SteamGridDB (icône ronde ou jaquette) → jaquette
+  d'EmulationStation → icône de l'exécutable de `CMD=`.
+
 ### Fichiers et registre
 
 « Fichiers / registre… » ajoute, remplace ou supprime des fichiers et pose des
@@ -474,6 +494,7 @@ Les images sont désignées par leur identifiant `<système>/<nom>` en paramètr
 | POST | `/api/folders/pack` · `/api/folders/delete` | empaquetage en batch, suppression des dossiers empaquetés |
 | GET/POST | `/api/tasks[?image=]` · `/api/tasks/{id}` · `/api/tasks/{id}/cancel` | file |
 | GET/POST/PATCH/DELETE | `/api/saves/machines` · `/api/saves/status[?id=]` · `/api/saves/pull` · `/api/saves/push` · `/api/saves/delete` | sauvegardes entre machines (voir ci-dessus) |
+| PUT | `/api/config/sgdb` · POST `/api/config/sgdb/test` | clé et réglages SteamGridDB (la clé n'est jamais renvoyée) ; essai de la clé |
 | GET/POST | `/api/install/status` · `/api/install` · `/api/uninstall` · `/api/install/machines/{id}/dir` | installer ou désinstaller un jeu sur les machines (voir ci-dessus) |
 
 ## Structure

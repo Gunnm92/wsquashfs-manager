@@ -27,6 +27,7 @@ from .config import (
     save_machine_url,
     save_night,
     save_roms_dirs,
+    save_sgdb,
 )
 from .models import ImageInfo, ImageState, Task
 from .services import analyze as analyze_mod
@@ -34,7 +35,7 @@ from .services import install as install_svc
 from .services import machine_api, scan
 from .services import saves as saves_svc
 from .services.analyze import FolderAnalysis, add_local_game, analyze_folder, analyze_image, report
-from .services.artwork import artwork, forget_steam_cache, switch_artwork
+from .services.artwork import artwork, switch_artwork
 from .services.autorun import (
     KEY_HELP,
     KEY_NAME_RE,
@@ -74,6 +75,7 @@ from .services.rebuild import (
 )
 from .services.runners import plan_runner, run_relink, run_runner, suggest
 from .services.saves import run_saves
+from .services.sgdb import forget_sgdb_misses, tester_cle
 from .services.tasks import QueueLocked, TaskConflict, TaskQueue
 from .services.trial import (
     MAINTENANCE_COMMANDS,
@@ -245,6 +247,10 @@ def get_config():
         "machine_port": _settings.machine_port,
         "machine_fingerprint": saves_svc.manager_fingerprint(_settings, create=False),
         "auto_push_interval": _settings.auto_push_interval,     # mise à jour automatique des machines en retard
+        # Icônes et jaquettes SteamGridDB : la clé n'est jamais renvoyée, seulement son existence
+        "sgdb_configured": bool(_settings.sgdb_api_key),
+        "sgdb_authors": _settings.sgdb_authors,
+        "sgdb_round_threshold": _settings.sgdb_round_threshold,
     }
 
 
@@ -308,6 +314,29 @@ def set_machine_url(body: MachineUrl):
     # machine éteinte ne bloque pas l'enregistrement ; elle sera déclarée à son prochain statut).
     threading.Thread(target=saves_svc.redeclare_manager, args=(_settings,), daemon=True).start()
     return get_config()
+
+
+class SgdbConfig(BaseModel):
+    api_key: str | None = Field(default=None, max_length=200)   # absent/null : clé inchangée ; "" : effacée
+    authors: list[str] = Field(default_factory=list, max_length=20)
+    threshold: float = Field(ge=0, le=1)
+
+
+@app.put("/api/config/sgdb")
+def set_sgdb(body: SgdbConfig):
+    """Clé SteamGridDB, auteurs préférés et seuil de rondeur des icônes."""
+    try:
+        save_sgdb(_settings, body.api_key, body.authors, body.threshold)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return get_config()
+
+
+@app.post("/api/config/sgdb/test")
+def test_sgdb():
+    """Essai de la clé (recherche de « Portal ») : rien n'est mis en cache."""
+    ok, message = tester_cle(_settings)
+    return {"ok": ok, "message": message}
 
 
 class AutoPushInterval(BaseModel):
@@ -470,8 +499,6 @@ def _with_task_state(info: ImageInfo) -> ImageInfo:
 @app.get("/api/library", response_model=list[ImageInfo])
 def library(refresh: bool = False):
     """Ludothèque : toutes les images des dossiers roms/, avec cache."""
-    if refresh:
-        forget_steam_cache(_settings)
     return [_with_task_state(info) for info in _refresh_library(force=refresh)]
 
 
@@ -525,16 +552,16 @@ def recovery_restore(body: RecoveryRestore):
 
 @app.post("/api/image/art/forget")
 def image_art_forget():
-    """Actualiser : les illustrations Steam sont relues au prochain affichage."""
-    forget_steam_cache(_settings)
+    """Actualiser : les absences SteamGridDB sont revalidées au prochain affichage."""
+    forget_sgdb_misses(_settings)
     return {"ok": True}
 
 
 @app.get("/api/image/art")
 def image_art(id: str, kind: Literal["cover", "icon"] = "cover"):
-    """Illustration : Steam (Steam ROM Manager) d'abord, puis jaquette d'ES, puis icône de
-    l'exécutable. `kind` : « cover » (jaquette) ou « icon » (vignette). L'en-tête X-Art-Kind
-    dit la source (« steam », « es » ou « icon »)."""
+    """Illustration : SteamGridDB d'abord, puis jaquette d'ES, puis icône de l'exécutable.
+    `kind` : « cover » (jaquette 600×900) ou « icon » (icône ronde). L'en-tête X-Art-Kind dit la
+    source (« sgdb », « es » ou « icon »)."""
     info = _find_image(id)
     art = artwork(_settings, info.path, info.cmd, info.dir, kind)
     if art is None:
