@@ -1,0 +1,25 @@
+/* Fiche : bandeaux, pied des onglets d'édition, historique */
+.btn.on-accent { color: var(--accent-200); border-color: var(--accent-700); }
+.fbanner { display: flex; gap: 10px; align-items: flex-start; margin: 14px 0 0; padding: 10px 14px; border-radius: 18px;
+  background: var(--accent-900); color: var(--accent-200); font-size: 13px; animation: fadeup var(--dur-med) var(--ease-out); }
+.fbanner.tall { padding: 12px 14px; border-radius: var(--radius-md); }
+.fbanner > .ico { margin-top: 2px; }
+.fbanner .body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.fbanner .body .row { gap: 6px; }
+.fbanner .body pre.bat { background: rgba(10, 11, 14, .45); color: var(--text); }
+#a-override-box .fbanner { margin: 0 0 12px; }
+.apane-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--divider); }
+.fine { font-size: 12.5px; }
+[data-pane]:not([hidden]), [data-apane]:not([hidden]) { animation: fadeup var(--dur-med) var(--ease-out); }
+
+.tl { display: flex; flex-direction: column; }
+.tl-item { position: relative; display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 12px; padding-bottom: 16px; }
+.tl-item:not(:last-child)::after { content: ""; position: absolute; left: 16px; top: 36px; bottom: 0; width: 2px; background: var(--divider); border-radius: 2px; }
+.tl-dot { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; }
+.tl-dot .ico { width: 15px; height: 15px; }
+.tl-body { display: flex; flex-direction: column; gap: 2px; padding-top: 5px; min-width: 0; }
+.tl-body strong { font-size: 13.5px; }
+.tl-body span { font-size: 12px; overflow-wrap: anywhere; }
+
+/* Liste des fichiers : dossiers en violet */
+.files > div.dir .ico { color: var(--accent2-400); }

@@ -334,7 +334,7 @@ Variables `WSQUASHFS_MGR_*` (ou fichier `backend/.env`) :
 
 ## Personnaliser l'apparence
 
-L'interface charge `assets/app.css`, puis `custom.css` si ce fichier existe dans le dossier d'état
+L'interface charge `assets/app.css` (qui importe les feuilles de `assets/css/`, par couche), puis `custom.css` si ce fichier existe dans le dossier d'état
 (`STATE_DIR` : `~/.local/state/wsquashfs-manager`, ou `WSQUASHFS_MGR_STATE_DIR`). Il est relu à chaque
 chargement de la page : un rechargement suffit après modification.
 
@@ -349,7 +349,7 @@ soit la spécificité. Exemple :
 }
 ```
 
-Jetons principaux, définis dans `:root` (`assets/app.css`, couche `tokens`) :
+Jetons principaux, définis dans `:root` (`assets/css/tokens.css`, couche `tokens`) :
 
 - couleurs : `--accent`, `--accent2` (second accent), `--err`, `--bg`, `--surface`, `--s2`, `--s3`, `--text`, `--muted`, `--faint`
 - rayons : `--radius-xs` à `--radius-xl`, `--radius-panel` (fenêtres), `--radius-pill` (boutons, pilules)
@@ -437,7 +437,14 @@ mode ajout écrit le fichier à la suite et ne réécrit que les tables
 est modifiée en place, sans `.old` : refusé pendant une partie, et quand
 `.wsquashfs/` existe déjà sans illustration (reconstruire alors). Une image
 qui a déjà son illustration n'est pas touchée.
-Pour remplacer l'illustration déjà intégrée (« Remplacement de l'illustration » en masse, `replace`), il faut une reconstruction : l'ancienne image est gardée en `.old`, et la tâche peut être programmée « cette nuit ».
+Pour remplacer l'illustration déjà intégrée, il faut une reconstruction : l'ancienne image est gardée en `.old`, et la tâche peut être programmée « cette nuit ». Le remplacement passe **toujours par un aperçu avec choix manuel** : `POST /api/mass/cover` avec `replace: true` n'accepte une image déjà illustrée que si `choices` donne le candidat choisi pour elle ; sans choix, elle est refusée dans `skipped` (« choisir l'illustration dans l'aperçu avant de remplacer »). Une image sans illustration s'ajoute comme avant, sans choix requis.
+
+**Aperçu** (`GET /api/image/art/candidates?id=<image>`) : aucune modification. Réponse :
+`current` (`present`, `sha1`, `url` de l'illustration intégrée), `sgdb_configured`, `game` (`{id, name}` SteamGridDB ou `null`), `candidates` (au plus 24 grilles SteamGridDB, puis la jaquette d'EmulationStation `es` et l'icône de l'exécutable `icon` si elles existent ; chacune a `key`, `source`, `label`, `author`, `score`, `width`, `height`, `thumb`, `full` et `same_as_current`), `preferred` (la clé que le choix automatique prendrait) et, si SteamGridDB a échoué, `sgdb_error`. Les grilles sont triées : auteurs préférés d'abord (ordre des Réglages), puis note décroissante. `same_as_current` compare les octets au sha1 de l'illustration intégrée ; pour SteamGridDB, seulement si le plein format est déjà en cache. La liste SteamGridDB d'une image est gardée 5 minutes en mémoire (**Actualiser** la vide).
+
+**Image d'un candidat** (`GET /api/image/art/candidate?id=<image>&key=<clé>&size=thumb|full`) : 404 si la clé n'est pas dans la liste de cette image, 502 si SteamGridDB est injoignable ou refuse la clé. Les images SteamGridDB sont mises en cache dans `<dossier d'état>/art/sgdb/candidates/<id de grille>-<size>.<ext>`. Seules les adresses de la liste de l'image sont suivies : la requête ne fournit jamais d'URL.
+
+**Choix** : `POST /api/mass/cover` accepte `choices: {"<id image>": "<clé>"}` (clé `sgdb:<id de grille>`, `es` ou `icon`, sinon 422). La tâche porte `choice` et la reconstruction utilise exactement ce candidat, en pleine taille. Si le candidat ne peut plus être obtenu, la tâche échoue avec un message clair, sans repli sur une autre source. Si ses octets sont identiques à l'illustration intégrée, « Illustration déjà à jour : rien à faire ».
 
 ### Icônes et jaquettes SteamGridDB
 
@@ -456,8 +463,9 @@ steamgriddb.com, à coller dans **Réglages**. Sans clé, rien n'est demandé au
   y reste ; une absence est revalidée après 7 jours ; après une erreur réseau ou
   une clé refusée, aucune demande pendant 5 minutes. **Actualiser** la
   ludothèque revalide les absences.
-- **Ordre des sources** : SteamGridDB (icône ronde ou jaquette) → jaquette
-  d'EmulationStation → icône de l'exécutable de `CMD=`.
+- **Ordre des sources** (sélection automatique) : SteamGridDB (icône ronde ou
+  jaquette) → jaquette d'EmulationStation → icône de l'exécutable de `CMD=`. Pour un
+  remplacement, l'aperçu le remplace : c'est l'utilisateur qui choisit parmi les candidats.
 
 ### Fichiers et registre
 
@@ -508,7 +516,8 @@ Les images sont désignées par leur identifiant `<système>/<nom>` en paramètr
 | POST | `/api/image/saves/reset?id=` | sauvegardes → `<jeu>.avant-<date>` |
 | POST | `/api/game_host/maintenance` | lanceur sur le client d'essai : corps `{"action", "id"?}` ; `list`, `umount`, `clean`, `saves` (sans jeu) ; `save` (jeu requis) ; `sync` (jeu facultatif) ; `sync-status` (sans jeu) |
 | POST | `/api/mass/autorun[/preview]` · `/api/mass/files[/preview]` | masse : autorun, fichiers/registre |
-| POST | `/api/mass/verify` · `/api/mass/cover` · `/api/mass/old/validate` · `/api/mass/saves/reset` | masse : intégrité, illustration, `.old`, sauvegardes |
+| POST | `/api/mass/verify` · `/api/mass/cover` · `/api/mass/old/validate` · `/api/mass/saves/reset` | masse : intégrité, illustration (`choices` pour le remplacement, voir Illustration), `.old`, sauvegardes |
+| GET | `/api/image/art/candidates?id=` · `/api/image/art/candidate?id=&key=&size=` | aperçu du remplacement de l'illustration : candidats et leurs images |
 | GET | `/api/folders` · `/api/folders/analyze?id=&exe=` | dossiers à empaqueter, analyse |
 | POST | `/api/folders/pack` · `/api/folders/delete` | empaquetage en batch, suppression des dossiers empaquetés |
 | GET/POST | `/api/tasks[?image=]` · `/api/tasks/{id}` · `/api/tasks/{id}/cancel` | file |
@@ -533,7 +542,11 @@ backend/app/
     ├── analyze.py       # analyse d'un dossier, PE, choix de l'exécutable, proposition
     └── rules.py         # moteur de règles YAML (génération, étape 5)
 backend/rules/rules.yaml # règles « fichier → réglage », éditables
-frontend/index.html      # interface (sans build)
+frontend/index.html      # interface (sans build) : charge assets/app.css et le module assets/js/main.js
+frontend/assets/app.css  # point d'entrée CSS : couches tokens, base, components, views, puis imports
+frontend/assets/css/    # tokens.css, base.css, components.css, views/<vue>.css (un fichier par vue)
+frontend/assets/js/     # modules ES natifs (sans build) : main.js démarre, chaque module déclare sa responsabilité
+                        # en tête ; core.js (état, outils), api.js, library.js, detail/, saves*.js, settings.js …
 ```
 
 ## Décisions en attente (SPEC § 7)

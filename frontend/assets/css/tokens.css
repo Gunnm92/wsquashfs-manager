@@ -1,0 +1,39 @@
+/* ------------------------------------------------------------------ jetons */
+:root {
+  color-scheme: dark;
+  --accent: #6d87f5;
+  --accent-100: #eef2ff; --accent-200: #dbe3ff; --accent-300: #b9c8ff; --accent-400: #8fa6ff; --accent-500: #6d87f5;
+  --accent-600: #5468d8; --accent-700: #3f4fae; --accent-800: #2c3878; --accent-900: #1a2147;
+  --accent2: #9776ee;
+  --accent2-100: #f5efff; --accent2-200: #e8dcff; --accent2-300: #d2bcff; --accent2-400: #b597ff; --accent2-500: #9776ee;
+  --accent2-600: #7a5ad0; --accent2-700: #5d43a6; --accent2-800: #412f74; --accent2-900: #261c45;
+  --err: #f0787a; --err-200: #ffc9c9; --err-900: #3a1a1f;
+  --bg: #0a0b0e; --surface: #121419; --s2: #191c22; --s3: #232730;
+  --text: #e8eaef; --muted: #8b91a0; --faint: #5a606e;
+  --divider: rgba(232, 234, 239, .07); --line2: rgba(232, 234, 239, .14);
+  --sans: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  --shadow-md: 0 0 0 1px rgba(232, 234, 239, .05), 0 10px 30px rgba(0, 0, 0, .6);
+  --shadow-lg: 0 0 0 1px rgba(232, 234, 239, .07), 0 24px 70px rgba(0, 0, 0, .75);
+  --top-h: 63px;
+  /* Rayons */
+  --radius-xs: 7px; --radius-sm: 12px; --radius-md: 20px; --radius-lg: 22px; --radius-xl: 28px;
+  --radius-panel: 32px; --radius-pill: 999px;
+  /* Durées et courbes (transitions) */
+  --dur-fast: .15s; --dur-base: .2s; --dur-med: .25s; --dur-slow: .35s;
+  --ease-out: cubic-bezier(.2, .8, .2, 1); --ease-spring: cubic-bezier(.3, 1.4, .5, 1);
+  /* Tons sémantiques : fond et texte des pastilles, puces et encadrés (classes .t-*) */
+  --tone-sage-bg: var(--accent2-900); --tone-sage-fg: var(--accent2-300);
+  --tone-accent-bg: var(--accent-900); --tone-accent-fg: var(--accent-300);
+  --tone-err-bg: var(--err-900); --tone-err-fg: var(--err);
+  --tone-neutral-bg: var(--s3); --tone-neutral-fg: var(--muted);
+  /* Tailles des icônes Lucide (.ico, .ico.xs, .ico.sm, .ico.lg) */
+  --ico-xs: 12px; --ico-sm: 14px; --ico: 16px; --ico-lg: 18px;
+  /* Couleurs d'états (maquette v2) : succès, avertissement, erreur douce, inactif */
+  --ok: #5fd1a0; --warn: #f0a66c; --err-soft: rgba(255, 138, 138, .12); --idle: #6b7180;
+  /* Rebond de l'indicateur des groupes à pastille */
+  --ease-bounce: cubic-bezier(.3, 1.2, .5, 1);
+}
+
+/* Jetons de l'édition (v2) */
+:root { --edit: #e6b26a; --edit-900: #2e2414; }

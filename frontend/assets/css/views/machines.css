@@ -1,0 +1,15 @@
+/* Couleurs du lanceur (16 couleurs de base, thème sombre) */
+.ansi-b { font-weight: 700; color: var(--text); }
+.ansi-dim { opacity: .65; }
+.ansi-1, .ansi-9 { color: #f0787a; }   .ansi-2, .ansi-10 { color: #6fd29a; }
+.ansi-3, .ansi-11 { color: #f2c46d; }  .ansi-4, .ansi-12 { color: #8fa6ff; }
+.ansi-5, .ansi-13 { color: #c49bff; }  .ansi-6, .ansi-14 { color: #6cd0e0; }
+.ansi-7, .ansi-15 { color: var(--text); } .ansi-0 { color: var(--faint); } .ansi-8 { color: var(--muted); }
+
+
+
+.mcard-ico { width: 46px; height: 46px; flex: none; display: grid; place-items: center; border-radius: 50%; background: var(--accent-900); color: var(--accent-200); }
+.mcard-ico .ico { width: 24px; height: 24px; stroke-width: 2.1; }
+.mcard-menu { flex: none; width: 34px; border: 0; background: transparent; color: var(--faint); cursor: pointer;
+  display: grid; place-items: center; border-radius: 0 12px 12px 0; }
+.mcard-menu:hover, .mcard-menu:focus-visible { color: var(--text); background: var(--s3); }

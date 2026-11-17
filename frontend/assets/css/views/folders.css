@@ -1,0 +1,23 @@
+/* ------------------------------------------------------------------ vue Dossiers */
+.fcard-empty { grid-column: 1 / -1; border-radius: var(--radius-xl); background: var(--surface); }
+
+/* Réglages : systèmes en puces à cocher */
+.sys-toggles { display: flex; flex-wrap: wrap; gap: 6px; max-height: 40vh; overflow: auto; }
+.sys-toggles label { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px 7px 12px; border-radius: var(--radius-pill);
+  background: var(--s2); color: var(--muted); font-size: 13px; font-weight: 600; cursor: pointer; transition: background var(--dur-base), color var(--dur-base); }
+.sys-toggles label input { position: absolute; opacity: 0; width: 0; height: 0; }
+.sys-toggles label:has(input:checked) { background: var(--accent2-900); color: var(--accent2-200); }
+.sys-toggles label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sys-toggles label .n { opacity: .7; font-weight: 500; font-variant-numeric: tabular-nums; }
+/* Mode « tout le dossier » : les systèmes sont inclus d'office, pas cliquables */
+.sys-toggles.all label { background: var(--accent2-900); color: var(--accent2-200); opacity: .55; cursor: default; }
+.root-block { margin-top: 8px; padding: 14px; border-radius: var(--radius-md); border: 1px solid var(--divider); }
+.root-block + .root-block { margin-top: 10px; }
+.root-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.root-name { flex: 1 1 180px; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.root-name .mono { font-size: 11.5px; overflow-wrap: anywhere; }
+.root-modes > button { padding: 6px 12px; font-size: 12.5px; }
+.root-hint { margin: 10px 0 8px; font-size: 12.5px; }
+dl.st-info { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 0; font-size: 12.5px; }
+dl.st-info dt { color: var(--muted); }
+dl.st-info dd { margin: 0; font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }

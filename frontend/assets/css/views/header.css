@@ -1,0 +1,64 @@
+/* ------------------------------------------------------------------ en-tête */
+header.top { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 14px; padding: 12px 24px;
+  background: rgba(10, 11, 14, .82); backdrop-filter: blur(14px); border-bottom: 1px solid var(--divider); }
+.brand { display: flex; align-items: center; gap: 10px; flex: none; }
+.brand .logo { width: 34px; height: 34px; border-radius: 50%; background: var(--accent); color: var(--bg); display: grid; place-items: center; }
+.brand .logo .ico { width: 18px; height: 18px; }
+.brand .name { font-size: 19px; font-weight: 700; letter-spacing: -.02em; }
+.vsep { width: 1px; height: 24px; flex: none; background: var(--line2); }
+nav.views { flex: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
+nav.views > button { padding: 7px 14px; font-size: 13.5px; }
+.count { font-size: 11px; padding: 0 7px; border-radius: var(--radius-pill); background: rgba(232, 234, 239, .1); font-variant-numeric: tabular-nums; }
+.count:empty { display: none; }
+#count-saves { background: rgba(240, 166, 108, .16); color: var(--warn); }
+nav.views > button > .count { margin-left: 8px; }
+#status { font-size: 12.5px; color: var(--muted); }
+
+/* Sélecteur de client */
+.clients { display: flex; align-items: center; gap: 12px; min-width: 0; flex: none; }
+.clients .seg > button { padding: 5px 14px; font-size: 13px; }
+.clients .seg > button:not(.on) { font-weight: 600; }
+.dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--idle); }
+.dot.ok { background: var(--ok); }
+.client-info { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.client-info.fade { animation: fadein var(--dur-med) ease-out; }
+
+/* Tâches : pastille de l'en-tête et panneau en menu déroulant */
+.tasks-wrap { position: relative; flex: none; }
+.taskpill { display: flex; align-items: center; gap: 7px; height: 36px; padding: 0 11px; border: 0; border-radius: var(--radius-pill);
+  background: transparent; color: var(--muted); font-weight: 600; font-size: 13px; white-space: nowrap;
+  transition: background var(--dur-base), color var(--dur-base); }
+.taskpill:hover, .taskpill[aria-expanded=true] { background: var(--surface); color: var(--text); }
+.taskpill .spinner { display: none; width: 14px; height: 14px; border-width: 2.5px; }
+.taskpill .idle { width: 16px; height: 16px; }
+.taskpill .lbl:empty { display: none; }
+.taskpill .fail { padding: 0 2px; }
+.taskpill.busy { color: var(--accent-300); }
+.taskpill.busy .spinner { display: block; }
+.taskpill.busy .idle { display: none; }
+.taskpill.failed { background: var(--err-soft); color: var(--err); }
+.taskpill.failed .spinner, .taskpill.failed .idle, .taskpill.failed .lbl { display: none; }
+#tasks-panel { position: absolute; right: 0; top: calc(100% + 10px); z-index: 40; width: 380px; max-width: calc(100vw - 40px);
+  max-height: min(60vh, 600px); overflow-y: auto; padding: 16px; border-radius: var(--radius-xl); background: var(--surface);
+  box-shadow: var(--shadow-lg); transform-origin: top right; animation: pop var(--dur-med) var(--ease-out); }
+#tasks-panel .head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+#tasks-panel .head strong { font-size: 17px; }
+#tasks-panel .head .muted { flex: 1; min-width: 0; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Menu ⚙ : Réglages, Actualiser, Aide */
+.menu-wrap { position: relative; flex: none; }
+#btn-menu[aria-expanded=true] { background: var(--s3); color: var(--text); }
+#btn-menu.spin .ico { animation: spin .9s linear infinite; }
+.menu { position: absolute; right: 0; top: calc(100% + 10px); z-index: 40; width: 250px; padding: 6px; display: flex; flex-direction: column;
+  border-radius: 18px; background: var(--s3); box-shadow: var(--shadow-lg); transform-origin: top right; animation: menupop var(--dur-med) var(--ease-out); }
+.menu-item { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border: 0; border-radius: 12px; background: transparent;
+  color: var(--text); font-size: 13px; text-align: left; }
+.menu-item:hover { background: var(--s2); }
+.menu-item .ico { color: var(--muted); }
+.menu-item .ago { margin-left: auto; font-size: 11.5px; color: var(--muted); }
+#btn-refresh .ico { transition: transform var(--dur-slow) var(--ease-spring); }
+
+@keyframes menupop { from { opacity: 0; transform: translateY(-4px) scale(.97); } }
+@keyframes fadein { from { opacity: 0; transform: translateY(3px); } }
+@keyframes rowin { from { opacity: 0; transform: translateY(6px); } }
+@keyframes selup { from { opacity: 0; transform: translateY(16px); } }

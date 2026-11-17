@@ -1,0 +1,37 @@
+/* ------------------------------------------------------------------ écrans étroits */
+
+@media (max-width: 1100px) {
+  main.images.with-detail { grid-template-columns: minmax(0, 1fr); }
+  aside.panel { position: fixed; top: calc(var(--top-h) + 10px); right: 12px; width: min(460px, calc(100vw - 24px));
+    max-height: calc(100vh - var(--top-h) - 30px); box-shadow: var(--shadow-lg); }
+}
+@media (max-width: 1100px) {
+  .grow .c-saves, .grow.head .c-saves { display: none; }   /* l'en-tête a son propre « all: unset » : il faut la règle propre */
+}
+
+@media (max-width: 900px) {
+  header.top { gap: 10px; padding: 10px 12px; flex-wrap: wrap; }
+  main.images { padding: 16px 12px 150px; }
+  main.help { grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 20px 16px 130px; }
+  .help-toc { position: static; flex-direction: row; flex-wrap: wrap; max-height: none; }
+  .help-toc a.sub { display: none; }
+  .help-body h1 { font-size: 32px; }
+  .hgrid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 900px) {
+  .pcard .cols { grid-template-columns: minmax(0, 1fr); }
+  .op { grid-template-columns: minmax(0, 1fr) !important; }
+}
+
+@media (max-width: 640px) {
+  .brand .name, #status { display: none; }
+  header.top { flex-wrap: nowrap; gap: 4px; padding: 10px 8px; }
+  nav.views > button { padding: 7px 9px; }
+}
+@media (max-width: 640px) {
+  .hkey .ex { margin-left: 0; }
+}
+
+
+.btn.bare { background: transparent; color: var(--muted); }
+.btn.bare:hover { background: var(--s3); color: var(--text); }

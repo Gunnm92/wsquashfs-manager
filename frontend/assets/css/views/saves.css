@@ -1,0 +1,36 @@
+/* Aucune machine : explication, pas de page blanche */
+.sv-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; max-width: 68ch; padding: 26px; border-radius: var(--radius-xl); background: var(--surface); }
+.sv-empty > .ico { width: 30px; height: 30px; color: var(--accent-300); }
+.sv-empty strong { font-size: 16px; }
+.sv-empty .dlg-intro { margin: 0; }
+
+
+.sv-menu { min-width: 220px; }
+.sv-menu button > span:last-child { flex: 1; }
+
+.sv-arrow { display: inline-grid; place-items: center; color: var(--faint); }
+.sv-arrow .ico { width: 14px; height: 14px; }
+
+/* Barre de sélection de l'onglet */
+.sv-src { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.sv-src select { height: 32px; font-size: 12.5px; padding: 0 28px 0 10px; background-color: var(--s3); max-width: 200px; }
+#s-targets { height: 32px; }
+.sync-res { margin-top: 12px; padding: 10px 14px; border-radius: 18px; background: var(--surface); font-size: 12.5px; }
+.sync-res strong { display: block; margin-bottom: 6px; }
+.sync-res.err strong { color: var(--err); }
+/* Écrans étroits */
+@media (max-width: 640px) {
+  .sv-arrow { display: none; }
+}
+/* Suppression des sauvegardes : bouton de la barre de sélection, dialogue par machine */
+.sv-danger { color: var(--err); }
+.sv-danger:hover { background: var(--err-900); color: var(--err-200); }
+.sv-danger:disabled { opacity: .4; }
+.sd-targets { display: flex; flex-direction: column; gap: 6px; margin: 14px 0 12px; }
+.sd-row { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 10px; padding: 9px 12px;
+  border-radius: 16px; background: var(--s3); font-size: 13.5px; cursor: pointer; }
+.sd-row:has(input:disabled) { opacity: .5; cursor: default; }
+.sd-row input:disabled { cursor: default; }
+.sd-row span { display: flex; flex-direction: column; min-width: 0; }
+.sd-row small { color: var(--muted); font-size: 12px; }
+.sd-note { margin: 0; }
