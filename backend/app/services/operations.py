@@ -446,6 +446,10 @@ def _replace_cover(settings: Settings, image: Path, art, present: bool, job: Job
     cover = art.path.read_bytes()
     current = scan._unsquashfs_cat(settings, image, COVER) if present else None
     if current == cover:
+        if art.kind != "sgdb" and not settings.sgdb_api_key:
+            # Sans clé, la source est la jaquette ES ou l'icône : souvent celle déjà intégrée
+            return ("Illustration déjà à jour : rien à faire (SteamGridDB n'est pas configuré : "
+                    "ajouter la clé API dans Réglages › Illustrations)")
         return "Illustration déjà à jour : rien à faire"
     # mksquashfs n'envoie son premier pourcentage qu'après un moment sur un gros jeu :
     # sans ce libellé, la tâche resterait affichée sur l'étape précédente
