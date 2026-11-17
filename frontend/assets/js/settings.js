@@ -148,6 +148,9 @@ function paintLibrary() {
     sw.checked = Boolean(input) && systemIsOn(input);
   }
   paintRootsTotal();
+  // Boutons (Toutes, Aucune, Tout le dossier, Choisir) : pas d'événement input/change, la barre
+  // « Enregistrer » est donc remise à jour ici, à chaque changement de la sélection
+  paintSettingsBar();
 }
 
 function paintRootsTotal() {
