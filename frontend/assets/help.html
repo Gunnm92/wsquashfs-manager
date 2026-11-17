@@ -61,15 +61,15 @@
     <h2>En-tête</h2>
     <ul data-f>
       <li><b>Sauvegardes · Images · Dossiers</b> : les trois vues. <b>Sauvegardes</b> n'apparaît qu'en mode Connecté (voir <a href="#hs-mode">Mode</a> dans les réglages).</li>
-      <li><b>Client affiché</b> (mode Connecté) : « Toutes » ou un seul client. Il décide de ce que montre la vue Sauvegardes (colonne Synchro, actions proposées).</li>
+      <li><b>Client affiché</b> (mode Connecté) : « Tous » ou un seul client, et il filtre les vues. <b>Images</b> ne montre que les images installées sur ce client ; <b>Sauvegardes</b> ne montre que les jeux présents sur lui (sans les lignes « Absente »), avec la synchro de ce client. « Tous » montre tout. Le sélecteur est masqué dans <b>Dossiers</b> ; dans <b>Réglages</b>, il désigne le client dont on règle l'essai ou le diagnostic. Le choix reste d'une visite à l'autre.</li>
       <li><b>Tâches</b> (bouton à droite) : la file des reconstructions, vérifications et empaquetages. Un point animé pendant un travail ; un chiffre rouge si une tâche a échoué. Le panneau permet de voir l'état de chaque tâche et d'effacer les terminées (le journal de chaque image est conservé).</li>
       <li><b>⚙ Menu</b> : <b>Réglages</b> (la page des réglages), <b>Actualiser</b> (relit les images ajoutées ou modifiées ; les autres viennent du cache), <b>Aide</b>.</li>
     </ul>
 
     <h2>Images</h2>
     <ul data-f>
-      <li><b>Recherche</b> sur le nom, la commande, la version. <b>Filtres</b> : Système, Prefix, Runner, Manette, Extras (touches clavier, relais fakeping), Installé sur… (clients).</li>
-      <li><b>Pastilles « À traiter »</b> (seulement celles dont le compteur n'est pas nul) : <i>sans version</i>, <i>surcharge à inscrire</i>, <i>ancienne version à supprimer ou restaurer</i>, <i>en cours</i>, <i>sans autorun</i>, <i>tâche en échec</i>.</li>
+      <li><b>Recherche</b> sur le nom, la commande, la version. <b>Filtres</b> : Système, Prefix, Runner, Manette, Extras (touches clavier, relais fakeping). Pour voir les images d'un client, le choisir dans l'en-tête (« Client affiché ») : la liste, son titre et sa taille ne montrent alors que ses images. Si ce client est hors ligne, la liste complète reste affichée avec un bandeau.</li>
+      <li><b>Pastilles « À traiter »</b> (seulement celles dont le compteur n'est pas nul) : <i>sans version</i>, <i>surcharge à inscrire</i>, <i>ancienne version à supprimer ou restaurer</i>, <i>en cours</i>, <i>sans autorun</i>, <i>tâche en échec</i>. Elles comptent les images du client choisi.</li>
       <li><b>Colonnes</b> de la liste : <b>Jeu</b> (avec la version), <b>Prefix</b> (Wine, Proton, Aucun), <b>Réglages</b> (pastilles : DualSense, runner custom ou intégré, touches clavier, relais fakeping, surcharge en attente), <b>Taille</b>, <b>Sauveg.</b> (taille des sauvegardes), <b>État</b>. Un clic sur un en-tête trie.</li>
       <li><b>Affichage</b> : liste ou jaquettes (boutons à droite de la barre de recherche).</li>
       <li><b>Sélection</b> : cocher une ou plusieurs images. La barre du bas propose Autorun (pour toutes), Fichiers et registre, Vérifier, Illustration (ajouter, ou remplacer), supprimer les anciennes versions (.old), inscrire les surcharges, réinitialiser les sauvegardes, Installer sur… / Désinstaller de… (mode Connecté).</li>
@@ -226,7 +226,7 @@
 
     <h2>Les clients</h2>
     <ul data-f>
-      <li>Un bouton par client dans l'en-tête (<b>Toutes</b> ou un client), avec son icône et son état : joignable ou hors ligne. Le manager est sa propre copie.</li>
+      <li>Un bouton par client dans l'en-tête (<b>Tous</b> ou un client), avec son icône et son état : joignable ou hors ligne. Le manager est sa propre copie.</li>
       <li>Un client hors ligne (éteint, en veille) reste visible, mais ce que le manager sait de lui vient de la dernière synchro.</li>
       <li><b>Menu du client</b> (chevron) : <b>Utiliser pour les essais</b> (client d'essai du lancement), <b>Diagnostic du lanceur…</b> et <b>Maintenance…</b> (pour le client d'essai), l'<b>icône</b> (détectée ou choisie : Linux, SteamOS, Batocera), <b>Dossiers synchronisés…</b>, <b>Oublier ce client</b> (sauf le client d'essai du lanceur local).</li>
       <li><b>Maintenance…</b> lance sur le client d'essai : lister les jeux, démonter, nettoyer, copier les sauvegardes de tous les jeux, synchroniser, état de la synchro. Chaque action demande confirmation, sauf les actions de lecture.</li>

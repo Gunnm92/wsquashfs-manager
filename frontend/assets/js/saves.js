@@ -224,11 +224,17 @@ function syncOf(g, scope) {
   return { kind: "ok", title: `${scope.name} a la version du manager` };
 }
 
+// Le jeu est présent sur ce client : une copie, quel que soit son état. « absente » (pas de copie)
+// ne compte pas ; « injoignable » (client hors ligne) reste compté, la copie est connue à la dernière synchro.
+const presentOn = (g, id) => (stateOf(g, id)?.state ?? "absente") !== "absente";
+
 // Lignes du client choisi (ou de toutes) : jeux avec une copie sur un client joignable ou sur le manager.
-// Hors ligne, seule la copie du manager est connue (dernière synchro).
+// Hors ligne, seule la copie du manager est connue (dernière synchro). Client choisi : seulement les jeux
+// présents sur lui (les lignes « Absente » ne sont pas listées ; l'installer se fait depuis le menu d'un jeu).
 function svBase(scope) {
   const reach = reachableIds(), offline = Boolean(scope && !scope.ok);
   return sv.games.filter((g) => (offline ? Boolean(g.reserve) : Boolean(g.reserve) || reach.some((id) => onMachine(g, id))))
+    .filter((g) => !scope || presentOn(g, scope.id))
     .map((g) => ({ g, sync: syncOf(g, scope), copy: copyOf(g, scope) }));
 }
 
@@ -265,7 +271,7 @@ function paintSvList() {
   const todoName = { conflict: "Conflits", sync: "À synchroniser" }[sv.todo] || "";
   $("s-clear-filter").hidden = !todoName;
   $("s-clear-filter-label").textContent = todoName;
-  $("s-visible").textContent = `${visible.length} sur ${base.length} · ${scope ? scope.name : "Toutes"}`;
+  $("s-visible").textContent = `${visible.length} sur ${base.length} · ${scope ? scope.name : "Tous"}`;
 
   const sig = [scope?.id ?? "all", sv.todo, $("s-search").value.trim()].join("|");
   const enter = sig !== svSig;

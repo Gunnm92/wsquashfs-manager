@@ -4,8 +4,8 @@ import { api } from "./api.js";
 import { thumb } from "./art.js";
 import { $, bigSize, cap, dotIc, el, emptyState, icon, size, state, storage, toast } from "./core.js";
 import { markCurrent, openDetail, renderDetailHeader } from "./detail/detail.js";
-import { paintRefreshAgo } from "./header.js";
-import { imageFile, instFilterOptions, instPins, installedOn, isWsq } from "./install.js";
+import { chosenClient, paintRefreshAgo } from "./header.js";
+import { gamesOf, imageFile, inst, instPins, machineOf } from "./install.js";
 import { closeMenu, menus } from "./menu.js";
 import { applyMode } from "./mode.js";
 import { paintSelectionActions } from "./selbar.js";
@@ -27,16 +27,33 @@ export const STATES = { ok: ["Prêt", "Image saine"], in_use: ["En cours", "Jeu 
   modified: ["Tâche", "Une tâche est en file pour cette image"], has_old: [".old", "Ancienne version conservée : à supprimer ou restaurer"] };
 
 // Filtres (menus déroulants à côté de la recherche) : chaque choix montre la
-// même icône, de la même couleur, que dans la colonne « Prefix et réglages »
+// même icône, de la même couleur, que dans la colonne « Prefix et réglages ».
+// Le client se choisit dans l'en-tête (il filtre la liste, voir scopeOf).
 const FILTERS = [
   { key: "system", label: "Système", all: "Tous les systèmes", options: () => [...new Set(state.items.map((i) => i.system).filter(Boolean))].sort().map((v) => [v, null, "", cap(v)]) },
   { key: "type", label: "Prefix", all: "Tous les prefix", options: () => [["wine", "wine", "t-accent", "wine"], ["wine_proton", "atom", "t-sage", "proton"], ["game_only", "app", "t-neutral", "aucun"]] },
   { key: "runner", label: "Runner", all: "Tous les runners", options: () => [["default", null, "", "aucun"], ["custom", "cpu", "t-accent", "custom"], ["joined", "clip", "t-accent", "intégré"]] },
   { key: "pad", label: "Manette", all: "Toutes les manettes", options: () => [["hidraw", "usb", "t-sage", "DualSense"], ["xinput", "gamepad", "t-off", "Xbox"]] },
   { key: "extra", label: "Extras", all: "Tous", options: () => [["keys", "keyboard", "t-neutral", "Touches clavier"], ["fakeping", "wifi", "t-neutral", "Relais fakeping"]] },
-  // Clients associés (état de l'installation, voir « Installation sur les clients »)
-  { key: "inst", label: "Installé sur…", all: "Quel que soit le client", options: () => instFilterOptions() },
 ];
+
+// Client choisi dans l'en-tête : la liste ne montre que les images installées sur lui.
+// status : « ok » (filtre appliqué), « loading » (état pas encore lu), « error », « offline » ;
+// sauf « ok », la bibliothèque entière reste affichée (jamais 0 image par défaut).
+function scopeOf() {
+  const client = chosenClient();
+  if (!client) return null;
+  if (!client.ok) return { client, status: "offline" };
+  if (!inst.loaded) return { client, status: inst.error ? "error" : "loading" };
+  const files = new Set(gamesOf(machineOf(client.id)));
+  return { client, status: "ok", items: state.items.filter((i) => files.has(imageFile(i))) };
+}
+
+// Images de la portée courante (toute la bibliothèque sauf client filtrant)
+function scopedItems() {
+  const scope = scopeOf();
+  return scope?.status === "ok" ? scope.items : state.items;
+}
 
 const SORTS = { name: (i) => i.name, size: (i) => i.size, saves_size: (i) => i.saves_present ? i.saves_size : -1, state: (i) => i.state };
 
@@ -142,7 +159,7 @@ export function renderFilters() {
   closeMenu();
   $("filters").replaceChildren(...FILTERS.map((def) => {
     // Seuls les choix utiles : au moins un jeu, mais pas tous (le choix en cours reste affiché)
-    const base = state.items, total = base.length;
+    const base = scopedItems(), total = base.length;
     const options = def.options().map((o) => [...o, base.filter((i) => matches(i, def.key, o[0])).length])
       .filter((o) => o[0] === f[def.key] || (o[4] > 0 && o[4] < total));
     if (!options.length) { f[def.key] = ""; return null; }
@@ -187,16 +204,15 @@ function matches(i, key, value) {
     case "runner": return value === "default" ? i.runner === "default" : value === "joined" ? Boolean(i.runner_joined) : i.runner !== "default";
     case "pad": return (value === "hidraw") === (i.hidraw === true);
     case "extra": return (i.extras || []).includes(value === "keys" ? ".keys" : value);
-    case "inst": return value === "none" ? isWsq(i) && installedOn(imageFile(i)).length === 0 : installedOn(imageFile(i)).includes(value);
     case "special": return value === "noversion" ? !i.version : value === "old" ? Boolean(i.has_old)
       : value === "inuse" ? i.state === "in_use" : value === "noautorun" ? !i.cmd : value === "override" ? (i.override || []).length > 0 : true;
     default: return true;
   }
 }
 
-function filtered() {
+function filtered(items) {
   const q = $("f-search").value.trim().toLowerCase();
-  return state.items.filter((i) =>
+  return items.filter((i) =>
     (!q || [i.name, i.cmd, i.dir, i.version].some((v) => v && v.toLowerCase().includes(q)))
     && matches(i, "special", state.filter.special)
     && FILTERS.every((def) => matches(i, def.key, state.filter[def.key])));
@@ -223,26 +239,41 @@ function selectBox(i) {
   return box;
 }
 
-let listSig = null;      // filtre, recherche, tri et présentation : les lignes entrent en cascade
+let listSig = null;      // filtre, client, recherche, tri et présentation : les lignes entrent en cascade
+
+// Bandeau et pastille de chargement du client choisi (sous le titre, pas de liste vide trompeuse)
+function paintScope(scope) {
+  const note = $("lib-scope");
+  const offline = scope?.status === "offline", error = scope?.status === "error";
+  note.hidden = !offline && !error;
+  note.replaceChildren(...(note.hidden ? [] : [icon("wifi"), el("div", { className: "body" }, el("span", {
+    textContent: offline ? `${scope.client.name} est hors ligne : liste des images installées indisponible. La liste complète reste affichée.`
+      : `État d'installation de ${scope.client.name} indisponible : la liste complète reste affichée.` }))]));
+  $("lib-busy").hidden = !scope || !(scope.status === "loading" || inst.loading);
+}
 
 export function renderLibrary() {
   renderFilters();
-  const visible = sorted(filtered()), base = state.items.length;
-  const total = state.items.reduce((n, i) => n + (i.size || 0), 0);
+  const scope = scopeOf(), items = scope?.status === "ok" ? scope.items : state.items;
+  const visible = sorted(filtered(items)), base = items.length;
+  const total = items.reduce((n, i) => n + (i.size || 0), 0);
   const images = (n) => `${n} ${n > 1 ? "images" : "image"}`;
-  $("count-images").textContent = base;
-  $("lib-count").textContent = images(base);
+  $("count-images").textContent = state.items.length;
+  $("lib-count").textContent = scope?.status === "ok" ? `${images(base)} sur ${scope.client.name}` : images(base);
   $("lib-size").textContent = bigSize(total, 2);
   $("visible-count").textContent = visible.length === base ? images(base) : `${visible.length} sur ${base}`;
+  paintScope(scope);
   renderTodo();
   const grid = state.layout === "grid";
   $("list").hidden = grid;
   $("grid").hidden = !grid;
-  const sig = [JSON.stringify(state.filter), $("f-search").value, state.sort.key, state.sort.dir, state.layout].join("|");
+  const scopeKey = scope?.status === "ok" ? scope.client.id : "";
+  const sig = [JSON.stringify(state.filter), scopeKey, $("f-search").value, state.sort.key, state.sort.dir, state.layout].join("|");
   const enter = sig !== listSig;
   listSig = sig;
 
-  const empty = base ? emptyState("search", "Aucune image pour ces filtres", "Élargir la recherche ou retirer un filtre.")
+  const empty = scope?.status === "ok" && !base ? emptyState("drive", `Aucune image installée sur ${scope.client.name}`, "Choisir « Tous » pour voir toute la bibliothèque.")
+    : base ? emptyState("search", "Aucune image pour ces filtres", "Élargir la recherche ou retirer un filtre.")
     : emptyState("layers", "Aucune image", "Choisir les systèmes à gérer dans « Réglages ».");
   if (grid) {
     $("grid").replaceChildren(...visible.map((i) => {
@@ -341,10 +372,10 @@ const SPECIALS = [   // [filtre, libellés (un, plusieurs), icône, ton, test]
 ];
 
 export function renderTodo() {
-  const special = state.filter.special;
+  const special = state.filter.special, items = scopedItems();
   const chips = [];
   for (const [id, [one, many], iconName, tone, test] of SPECIALS) {
-    const n = state.items.filter(test).length;
+    const n = items.filter(test).length;
     if (!n) continue;
     const on = special === id;
     chips.push(todoChip(n, n > 1 ? many : one, iconName, tone, on, () => {

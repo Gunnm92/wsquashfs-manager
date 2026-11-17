@@ -63,7 +63,7 @@ export async function loadInstall() {
   if (!connected()) return;
   const seq = ++inst.seq;
   inst.loading = true;
-  paintInstDialog();
+  paintInstall();                 // spinner de la liste (client choisi) pendant la lecture
   try {
     const status = await api("/api/install/status", { timeout: 60000 });
     if (seq !== inst.seq) return;
@@ -93,13 +93,6 @@ export function instPins(i) {
   if (!ids.length) return null;
   return el("span", { className: "inst-pins", title: `Installée sur : ${ids.map(machineNameOf).join(", ")}` },
     ...ids.map((id) => icon(machineIcon(id), "sm")));
-}
-
-// Filtre « Installé sur… » : une entrée par client joignable, et « nulle part »
-export function instFilterOptions() {
-  if (!inst.loaded) return [];
-  return [...inst.machines.filter((m) => m.ok).map((m) => [m.id, machineIcon(m.id), "t-sage", `Installé sur ${m.name}`]),
-    ["none", null, "", "Installé nulle part"]];
 }
 
 // Fiche : état d'une image .wsquashfs sur les clients, et boutons

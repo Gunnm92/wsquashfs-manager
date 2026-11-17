@@ -6,8 +6,8 @@ import { loadHelp } from "./help.js";
 import { inst } from "./install.js";
 import { renderLibrary } from "./library.js";
 import { connected } from "./mode.js";
-import { loadSaves, sv } from "./saves.js";
-import { openSettings, settingsBusy, settingsChanges } from "./settings.js";
+import { loadSaves, paintSavesView, sv } from "./saves.js";
+import { openSettings, paintSettingsClients, settingsBusy, settingsChanges } from "./settings.js";
 import { setTasksOpen } from "./tasks.js";
 
 export function showView(name) {
@@ -54,7 +54,8 @@ function paintViews(name) {
   placeInd($("views"));
 }
 
-// Clients associés : un bouton par client, puis « Toutes » ; le choix reste d'une visite à l'autre
+// Clients associés : un bouton par client, puis « Toutes » ; le choix reste d'une visite à l'autre.
+// Le client choisi filtre la liste des images et la vue Sauvegardes (voir library.js, saves.js).
 const CLIENT_KEY = "wsfs-client";
 
 let clientsSig = "";
@@ -62,6 +63,27 @@ let clientsSig = "";
 function clientList() {
   return (inst.loaded ? inst.machines : sv.machines).map((m) => ({ id: m.id, name: m.name, ok: Boolean(m.ok),
     free: inst.machines.find((x) => x.id === m.id)?.free ?? null }));
+}
+
+// Client choisi dans l'en-tête ({ id, name, ok, free }), ou null : « Toutes » ou mode autonome
+export function chosenClient() {
+  if (!connected() || state.client === "all") return null;
+  return clientList().find((c) => c.id === state.client) ?? null;
+}
+
+// Nouveau choix : le mémorise, puis remet à jour les vues qui le suivent
+function chooseClient(id) {
+  if (id !== state.client) {
+    // Une sélection faite sur un autre client ne doit pas agir sur des lignes devenues invisibles
+    state.selected.clear();
+    sv.selected.clear();
+  }
+  state.client = id;
+  storage.set(CLIENT_KEY, id);
+  paintClients();
+  if (!$("main").hidden) renderLibrary();
+  if (!$("saves-main").hidden) paintSavesView();
+  paintSettingsClients();
 }
 
 export function paintClients() {
@@ -74,7 +96,7 @@ export function paintClients() {
   const sig = JSON.stringify(list.map((c) => [c.id, c.name, c.ok]));
   if (sig !== clientsSig) {
     clientsSig = sig;
-    const choices = [...list, { id: "all", name: "Toutes", ok: null }];
+    const choices = [...list, { id: "all", name: "Tous", ok: null }];
     seg.replaceChildren(el("span", { className: "ind", ariaHidden: "true" }), ...choices.map((c) => {
       const b = el("button", { type: "button", role: "radio",
         title: c.ok === null ? `${list.length} clients` : `${c.name} : ${c.ok ? "en ligne" : "hors ligne"}` },
@@ -122,9 +144,7 @@ export function init() {
   $("client-seg").onclick = (event) => {
     const b = event.target.closest("button[data-client]");
     if (!b) return;
-    state.client = b.dataset.client;
-    storage.set(CLIENT_KEY, state.client);
-    paintClients();
+    chooseClient(b.dataset.client);
   };
   $("btn-menu").onclick = (event) => { event.stopPropagation(); setTopMenu($("top-menu").hidden); };
   $("top-menu").addEventListener("click", (event) => { if (event.target.closest("button")) setTopMenu(false); });
