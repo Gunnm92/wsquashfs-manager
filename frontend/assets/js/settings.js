@@ -110,6 +110,18 @@ function setSystem(path, on) {
   paintLibrary();
 }
 
+// « Toutes » / « Aucune » : d'un bloc (dossier de base) ou de tous les systèmes. « Aucune » sort
+// d'abord de « Tout le dossier », sans quoi le dossier resterait lu en entier.
+function setBlock(block, on) {
+  if (!on && block.dataset.mode === "all") block.setMode("pick");
+  for (const i of block.querySelectorAll("input[data-path]")) i.checked = on;
+  paintLibrary();
+}
+
+function setAllSystems(on) {
+  for (const block of $("st-roots").querySelectorAll(".root-block")) setBlock(block, on);
+}
+
 function renderSystemRows(systems) {
   $("st-libsys").replaceChildren(...systems.map((x) => {
     const rootName = x.root.split("/").filter(Boolean).pop() || x.root;
@@ -176,6 +188,9 @@ function renderRoots(systems, chosen) {
         el("span", { className: "n", textContent: [x.images || "", x.folders ? `${x.folders} dossier(s)` : ""].filter(Boolean).join(" · ") }));
     }));
     const hint = el("p", { className: "st-hint" });
+    const bulk = el("span", { className: "st-bulk" },
+      el("button", { type: "button", className: "btn secondary sm", textContent: "Toutes", onclick: () => setBlock(block, true) }),
+      el("button", { type: "button", className: "btn secondary sm", textContent: "Aucune", onclick: () => setBlock(block, false) }));
     const setMode = (mode) => {
       block.dataset.mode = mode;
       for (const b of modes.children) {
@@ -200,7 +215,7 @@ function renderRoots(systems, chosen) {
       el("div", { className: "root-head" },
         el("div", { className: "root-name" }, el("b", { textContent: root.split("/").filter(Boolean).pop() || root }),
           el("span", { className: "mono muted", textContent: root })),
-        modes),
+        modes, bulk),
       hint, chips);
     block.setMode = setMode;
     return block;
@@ -282,8 +297,9 @@ function paintSettingsDoctor() {
   $("st-doctor-age").textContent = "";
   $("st-doctor-intro").textContent = `Vérifie ce dont le lanceur a besoin sur ${trial ? hostName() : "le client d'essai"}.`;
   if (settingsMode() !== "connecte") return;
-  if (!connected()) body.replaceChildren(el("p", { className: "muted", textContent: ONLY_CONNECTED_TEXT }));
-  else if (!trial) body.replaceChildren(el("p", { className: "muted", textContent: "Aucun client d'essai : dans Clients, menu d'un client, « Utiliser pour les essais »." }));
+  const note = (text) => body.replaceChildren(el("div", { className: "st-card" }, el("p", { className: "st-empty muted", textContent: text })));
+  if (!connected()) note(ONLY_CONNECTED_TEXT);
+  else if (!trial) note("Aucun client d'essai : dans Clients, menu d'un client, « Utiliser pour les essais ».");
   else loadDoctor(false, true);
 }
 
@@ -367,12 +383,16 @@ function renderSettings(cfg, systems, systemsError = "") {
 
   const trial = Number(storage.get("wsfs-trial-duration"));
   setSeg($("st-trial-dur"), TRIAL_DURS.some(([s]) => s === trial) ? trial : 60);
+  // Lecture seule : libellé à gauche, valeur à droite (chemins en mono)
   $("st-info").replaceChildren(...[
-    ["Dossiers de base", (cfg.roms_roots || []).join(", ") || "—"],
-    ["Sauvegardes", cfg.saves_dir], ["Dossier de travail", cfg.tmp_dir], ["Reconstruction", cfg.rebuild_mode],
+    ["Dossiers de base", (cfg.roms_roots || []).join(", ") || "—", true],
+    ["Sauvegardes", cfg.saves_dir, true], ["Dossier de travail", cfg.tmp_dir, true],
+    ["Reconstruction", cfg.rebuild_mode],
     ["Tâches simultanées", cfg.concurrency],
     ["Rétention .old", cfg.old_retention_days == null ? "manuelle" : `${cfg.old_retention_days} jours`],
-  ].flatMap(([k, v]) => [el("dt", { textContent: k }), el("dd", { textContent: v ?? "—" })]));
+  ].map(([label, value, path]) => el("div", { className: "st-row st-ro" },
+    el("div", { className: "st-txt" }, el("b", { textContent: label })),
+    el("span", { className: path ? "st-fixed path" : "st-fixed", textContent: String(value ?? "—") }))));
 
   paintPendingMode();
   paintSettingsTrial();
@@ -497,6 +517,8 @@ export function init() {
   bindSeg($("st-autopush"), () => paintSettingsBar());
   bindSeg($("st-trial-dur"), () => paintSettingsBar());
   $("st-dirs").addEventListener("input", paintLibrary);
+  $("st-sys-all").onclick = () => setAllSystems(true);
+  $("st-sys-none").onclick = () => setAllSystems(false);
   $("settings-main").addEventListener("input", paintSettingsBar);
   $("settings-main").addEventListener("change", paintSettingsBar);
   $("st-pair").onclick = openPair;

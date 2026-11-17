@@ -23,7 +23,9 @@
 /* ------------------------------------------------------------------ contrôles */
 button, select, input, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
-button:disabled { opacity: .45; cursor: default; pointer-events: none; }
+/* Action impossible : visible mais grisée (disabled, ou aria-disabled), curseur interdit ; la raison est dans title */
+button:disabled, button[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+button:disabled:hover, button[aria-disabled="true"]:hover { filter: none; }
 
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 36px; padding: 0 15px;
   border: 1px solid transparent; border-radius: var(--radius-pill); background: transparent; color: var(--text);
@@ -321,7 +323,7 @@ dialog > p, .dlg-intro { color: var(--muted); font-size: 13px; }
 .dd-menu label.dd-check { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 12px; font-size: 13px; white-space: nowrap; cursor: pointer; }
 .dd-menu label.dd-check:hover { background: var(--s3); }
 .dd-menu label.dd-check input:disabled { opacity: .4; }
-.dd-menu button:disabled { opacity: .4; cursor: default; }
+.dd-menu button:disabled, .dd-menu button[aria-disabled="true"] { opacity: .4; cursor: not-allowed; }
 .dd-menu button:disabled:hover { background: transparent; }
 .dd-menu button.danger { color: var(--err); }
 .dd-menu.end { left: auto; right: 0; }

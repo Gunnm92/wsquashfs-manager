@@ -3,14 +3,14 @@
 import { paintSaves } from "../actions.js";
 import { api } from "../api.js";
 import { showArt } from "../art.js";
-import { $, cap, el, icon, size, state, storage, toast, when } from "../core.js";
+import { $, cap, el, icon, setUnavailable, size, state, storage, toast, when } from "../core.js";
 import { loadAutorun, syncForm } from "./autorun.js";
 import { loadFiles, renderHistory } from "./files.js";
 import { loadUpdateDefaults } from "./version.js";
 import { placeInd } from "../header.js";
 import { renderInstBox } from "../install.js";
 import { STATES, TYPES, loadLibrary } from "../library.js";
-import { connected } from "../mode.js";
+import { connected, hostOn } from "../mode.js";
 import { gameOfItem, presentIn, sv } from "../saves.js";
 import { setTasksOpen } from "../tasks.js";
 
@@ -86,6 +86,10 @@ function paintStatusLine(i) {
 
 export function paintTrial() {
   $("d-trial-dur").textContent = (TRIAL_DURS.find(([s]) => s === trialPrefs.seconds) || TRIAL_DURS[1])[1];
+  // Essai sans client d'essai : grisé, la raison en infobulle
+  const reason = hostOn() ? "" : "Aucun client d'essai : choisir un client (menu d'un client, « Utiliser pour les essais »)";
+  setUnavailable($("d-trial"), reason);
+  setUnavailable($("d-trial-pick"), reason);
 }
 
 // Bandeaux d'état : jeu en cours, ancienne version (.old) à valider ou à remettre
@@ -94,7 +98,7 @@ function paintOld(i) {
   old.replaceChildren();
   if (i.state === "in_use") old.append(el("div", { className: "fbanner" }, icon("play"), el("span", { textContent: "Jeu en cours : aucune reconstruction possible." })));
   if (i.has_old) {
-    const keep = el("button", { className: "btn primary sm" }, icon("check", "sm"), "Supprimer l'ancienne version");
+    const keep = el("button", { className: "btn primary sm" }, icon("archive-x", "sm"), "Supprimer l'ancienne version");
     const back = el("button", { className: "btn secondary sm on-accent" }, icon("undo", "sm"), "Restaurer l'ancienne version");
     keep.title = "Supprimer définitivement l'ancienne version (.old)";
     back.title = "Remettre l'ancienne version à la place de l'image actuelle";

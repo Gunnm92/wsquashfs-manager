@@ -83,6 +83,17 @@ export const when = (t) => t ? new Date(t * 1000).toLocaleString("fr-FR", { date
 
 export const cap = (s) => s ? s[0].toUpperCase() + s.slice(1) : s;
 
+// Action impossible : elle reste visible, grisée (disabled + aria-disabled), la raison en infobulle
+// (title). Sans raison, elle est rendue à l'état normal avec son titre d'origine.
+export function setUnavailable(node, reason) {
+  if (node.dataset.titleBase === undefined) node.dataset.titleBase = node.title || "";
+  node.disabled = Boolean(reason);
+  if (reason) node.setAttribute("aria-disabled", "true");
+  else node.removeAttribute("aria-disabled");
+  node.title = reason || node.dataset.titleBase;
+  return node;
+}
+
 let toastTimer = null;
 
 export function toast(message, iconName = "check", error = false) {

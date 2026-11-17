@@ -122,3 +122,40 @@ def test_maintenance_table_local_arguments(tmp_path, monkeypatch):
     with pytest.raises(RebuildError, match="non autorisée"):
         trial.maintenance(s, "saves-all")
     assert calls == []
+
+
+def test_normalize_doctor_fills_missing_fields():
+    """Un rapport --doctor incomplet (item sans `details`, sections ou runners absents)
+    garde la forme attendue par la page : aucun champ manquant ne fait planter l'affichage."""
+    raw = {"sections": [{"title": "Lanceur", "items": [
+        {"status": "missing", "text": "dualsense-usb-bridge absent"},
+        {"status": "ok", "text": "wine", "details": "/opt/wine"}]}, {"title": "vide"}, "n'importe quoi"],
+        "verdict": "✗ À corriger"}
+    out = trial.normalize_doctor(raw, "SteamBox")
+    assert out["sections"] == [
+        {"title": "Lanceur", "items": [
+            {"status": "missing", "text": "dualsense-usb-bridge absent", "details": []},
+            {"status": "ok", "text": "wine", "details": ["/opt/wine"]}]},
+        {"title": "vide", "items": []}]
+    assert out["runners"] == [] and out["verdict"] == "✗ À corriger"
+    empty = trial.normalize_doctor({}, "Salon")
+    assert empty == {"code": 0, "sections": [], "runners": [], "verdict": None}
+
+
+def test_normalize_doctor_refuses_non_object():
+    with pytest.raises(RebuildError, match="inattendu"):
+        trial.normalize_doctor(["pas", "un", "objet"], "SteamBox")
+
+
+def test_run_doctor_local_report_without_details(tmp_path, monkeypatch):
+    class FakeLocal:
+        name = "SteamBox"
+
+        def exec(self, cmd):
+            return 0, b'{"sections":[{"title":"T","items":[{"status":"optional","text":"x"}]}],"runners":[{"name":"GE-Proton"}]}'
+
+    monkeypatch.setattr(trial, "game_host", lambda settings, timeout: FakeLocal())
+    out = trial.run_doctor(Settings(state_dir=tmp_path))
+    assert out["container"] == "SteamBox"
+    assert out["sections"][0]["items"] == [{"status": "optional", "text": "x", "details": []}]
+    assert out["runners"] == [{"name": "GE-Proton", "path": ""}]

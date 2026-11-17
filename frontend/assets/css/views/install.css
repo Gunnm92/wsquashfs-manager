@@ -22,6 +22,8 @@
 .in-dir em { font-style: normal; color: var(--faint); }
 .linklike { all: unset; cursor: pointer; font-size: 12px; font-weight: 600; color: var(--accent-400); }
 .linklike:hover, .linklike:focus-visible { text-decoration: underline; }
+/* Action impossible (raison en infobulle) : même grisé que components.css ; la couche views l'emporte sur components */
+.linklike:disabled, .linklike[aria-disabled="true"] { opacity: .45; cursor: not-allowed; text-decoration: none; }
 .in-edit { display: flex; flex-direction: column; gap: 8px; }
 .in-edit input { width: 100%; min-width: 0; }
 .in-edit .row { gap: 6px; }

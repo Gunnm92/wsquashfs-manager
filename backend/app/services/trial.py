@@ -659,6 +659,32 @@ def host_name(settings: Settings) -> str:
     return GAME_HOST_LABELS[settings.game_host or "off"]
 
 
+def normalize_doctor(data: object, name: str) -> dict:
+    """Rapport --doctor ramené à la forme attendue par la page : chaque section a
+    une liste `items`, chaque item un `status`, un `text` et une liste `details`
+    (vide si le lanceur ne l'envoie pas) ; `runners` et `verdict` toujours présents."""
+    if not isinstance(data, dict):
+        raise RebuildError(f"rapport --doctor inattendu sur {name}")
+    sections = []
+    for section in data.get("sections") or []:
+        if not isinstance(section, dict):
+            continue
+        items = []
+        for item in section.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            details = item.get("details") or []
+            items.append({"status": str(item.get("status") or "info"),
+                          "text": str(item.get("text") or ""),
+                          "details": [str(d) for d in (details if isinstance(details, list) else [details])]})
+        sections.append({"title": str(section["title"]) if section.get("title") else None, "items": items})
+    runners = [{"name": str(r.get("name") or ""), "path": str(r.get("path") or "")}
+               for r in data.get("runners") or [] if isinstance(r, dict)]
+    verdict = data.get("verdict")
+    return {"code": data.get("code", 0), "sections": sections, "runners": runners,
+            "verdict": str(verdict) if verdict else None}
+
+
 def run_doctor(settings: Settings) -> dict:
     """`wsquashfs-launcher --doctor json` sur le client d'essai, sous l'utilisateur
     des jeux : l'état du lanceur tel qu'il lancera les jeux."""
@@ -673,7 +699,7 @@ def run_doctor(settings: Settings) -> dict:
             data = json.loads(out)
         except ValueError as exc:
             raise RebuildError(f"rapport --doctor illisible sur {host.name}") from exc
-    return {"container": host.name, **data}
+    return {"container": host.name, **normalize_doctor(data, host.name)}
 
 
 # ------------------------------------------------------------------ fichiers du client d'essai

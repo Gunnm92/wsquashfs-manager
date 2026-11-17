@@ -41,6 +41,7 @@
 <symbol id="i-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"></path><path d="m9 12 2 2 4-4"></path></symbol>
 <symbol id="i-flask" viewBox="0 0 24 24"><path d="M10 2v7.53a2 2 0 0 1-.21.9L4.72 20.55a1 1 0 0 0 .9 1.45h12.76a1 1 0 0 0 .9-1.45l-5.07-10.13A2 2 0 0 1 14 9.53V2"></path><path d="M8.5 2h7"></path><path d="M7 16h10"></path></symbol>
 <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></symbol>
+<symbol id="i-archive-x" viewBox="0 0 24 24"><rect width="20" height="5" x="2" y="3" rx="1"></rect><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"></path><path d="m9.5 17 5-5"></path><path d="m9.5 12 5 5"></path></symbol>
 <symbol id="i-hammer" viewBox="0 0 24 24"><path d="m15 12-8.37 8.37a1 1 0 1 1-3-3L12 9"></path><path d="m18 15 4-4"></path><path d="m21.5 11.5-1.91-1.91A2 2 0 0 1 19 8.17V7l-2.26-1.13a6 6 0 0 0-2.68-.63H11.4l.92.83A6.18 6.18 0 0 1 14.4 10.7L15 12"></path></symbol>
 <symbol id="i-zap" viewBox="0 0 24 24"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"></path></symbol>
 <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M9.94 15.5A2 2 0 0 0 8.5 14.06l-6.14-1.58a.5.5 0 0 1 0-.96L8.5 9.94A2 2 0 0 0 9.94 8.5l1.58-6.14a.5.5 0 0 1 .96 0l1.58 6.14a2 2 0 0 0 1.44 1.44l6.14 1.58a.5.5 0 0 1 0 .96l-6.14 1.58a2 2 0 0 0-1.44 1.44l-1.58 6.14a.5.5 0 0 1-.96 0z"></path></symbol>
@@ -154,7 +155,7 @@
       <button class="iconbtn bare lg" id="btn-verify" title="Vérifier" aria-label="Vérifier l'intégrité des images sélectionnées"><svg class="ico"><use href="#i-shield"/></svg></button>
       <button class="iconbtn bare lg" id="btn-cover" title="Ajouter l'illustration" aria-label="Ajouter l'illustration aux images sélectionnées qui n'en ont pas, sans les reconstruire"><svg class="ico"><use href="#i-image"/></svg></button>
       <button class="iconbtn bare lg" id="btn-cover-replace" title="Remplacer l'illustration" aria-label="Remplacer l'illustration des images sélectionnées : reconstruction, l'original est gardé en .old"><svg class="ico"><use href="#i-refresh"/></svg></button>
-      <button class="iconbtn bare lg" id="btn-mass-validate" title="Supprimer les anciennes versions (.old)" aria-label="Supprimer les anciennes versions (.old) des images sélectionnées"><svg class="ico"><use href="#i-trash"/></svg></button>
+      <button class="iconbtn bare lg" id="btn-mass-validate" title="Supprimer les anciennes versions (.old)" aria-label="Supprimer les anciennes versions (.old) des images sélectionnées"><svg class="ico"><use href="#i-archive-x"/></svg></button>
       <button class="iconbtn bare lg" id="btn-mass-commit" title="Inscrire les surcharges" aria-label="Reconstruire chaque image avec son autorun effectif, puis supprimer la surcharge"><svg class="ico"><use href="#i-filepen"/></svg></button>
       <button class="iconbtn bare lg" id="btn-saves-reset" title="Réinitialiser les sauvegardes" aria-label="Mettre de côté les sauvegardes (renommées, pas supprimées)"><svg class="ico"><use href="#i-save"/></svg></button>
       <span class="sep"></span>
@@ -468,7 +469,8 @@
       <div class="st-head"><h2>Bibliothèque</h2><p>Systèmes pris en compte dans la liste des images.</p></div>
       <div class="st-card">
         <div id="st-libsys"></div>
-        <div class="st-foot"><span class="st-total" id="st-total"></span></div>
+        <div class="st-foot"><span class="st-total" id="st-total"></span>
+          <span class="st-bulk"><button type="button" class="btn secondary sm" id="st-sys-all">Toutes</button><button type="button" class="btn secondary sm" id="st-sys-none">Aucune</button></span></div>
       </div>
       <p class="notice err" id="st-systems-err" hidden></p>
       <details class="st-adv" id="st-adv">
@@ -555,11 +557,8 @@
     </section>
 
     <section class="st-sec" id="st-server" data-st="server">
-      <details class="st-server">
-        <summary>Serveur <span class="ro-tag">lecture seule</span></summary>
-        <dl id="st-info" class="st-info"></dl>
-        <p class="dlg-intro">Fixé au démarrage par les variables <code>WSQUASHFS_MGR_*</code> (voir le README).</p>
-      </details>
+      <div class="st-head"><h2>Serveur</h2><p>Lecture seule : fixé au démarrage par les variables <code>WSQUASHFS_MGR_*</code> (voir le README).</p></div>
+      <div class="st-card" id="st-info"></div>
     </section>
   </div>
 

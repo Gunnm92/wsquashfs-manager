@@ -102,7 +102,7 @@ aside.panel { position: sticky; top: calc(var(--top-h) + 19px); z-index: 25; max
 .danger-zone > span { flex: 1; font-size: 12.5px; }
 .danger-btn { display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; color: var(--warn); cursor: pointer; font-weight: 600; font-size: 13px; }
 .danger-btn:hover { text-decoration: underline; }
-.danger-btn:disabled { color: var(--faint); cursor: default; text-decoration: none; }
+.danger-btn:disabled { color: var(--faint); cursor: not-allowed; text-decoration: none; }
 
 /* Lancement : modification, choix Surcharge ou Reconstruire */
 .edit-tools { display: flex; align-items: center; gap: 6px; margin-top: 12px; }

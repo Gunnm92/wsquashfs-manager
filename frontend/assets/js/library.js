@@ -8,6 +8,7 @@ import { paintRefreshAgo } from "./header.js";
 import { imageFile, instFilterOptions, instPins, installedOn, isWsq } from "./install.js";
 import { closeMenu, menus } from "./menu.js";
 import { applyMode } from "./mode.js";
+import { paintSelectionActions } from "./selbar.js";
 import { loadSaves } from "./saves.js";
 import { openTasks } from "./tasks.js";
 
@@ -377,6 +378,7 @@ function renderSelection() {
   const n = state.selected.size;
   $("selection").hidden = n === 0;
   $("sel-count").textContent = n > 1 ? `${n} images` : "1 image";
+  paintSelectionActions();
 }
 
 // Relit la configuration (Réglages, client d'essai…) : Actualiser, fin des Réglages

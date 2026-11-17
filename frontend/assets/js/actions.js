@@ -2,7 +2,7 @@
 
 import { openCover, openCoverLot } from "./art-choice.js";
 import { api } from "./api.js";
-import { $, el, helpLink, icon, size, state, storage, toast } from "./core.js";
+import { $, el, helpLink, icon, setUnavailable, size, state, storage, toast } from "./core.js";
 import { notice } from "./detail/autorun.js";
 import { TRIAL_DURS, oldAction, paintTrial, setAutorunEdit, showTab, syncLine, trialPrefs } from "./detail/detail.js";
 import { loadLibrary } from "./library.js";
@@ -82,9 +82,17 @@ export function paintSaves() {
   $("s-sync").textContent = g ? syncLine(g) : "";
   $("s-share").setAttribute("aria-checked", String(Boolean(g && presentIn(g).length > 1)));
   $("s-share").title = "Le partage se règle par client, dans Sauvegardes";
-  $("s-sync-btn").hidden = $("s-copy").hidden = !hostOn();
-  $("s-reset").disabled = !i.saves_present;
+  $("s-sync-btn").hidden = $("s-copy").hidden = !connected();
+  const noClient = trialReason(), noSaves = i.saves_present ? "" : NO_SAVES;
+  setUnavailable($("s-sync-btn"), noClient);
+  setUnavailable($("s-copy"), noClient || noSaves);
+  setUnavailable($("s-reset"), noSaves);
 }
+
+const NO_SAVES = "Aucune sauvegarde pour ce jeu";
+const NO_OLD = "Aucune ancienne version (.old) pour ce jeu";
+// Raison d'une action qui a besoin du client d'essai (vide : il est choisi)
+const trialReason = () => hostOn() ? "" : "Aucun client d'essai : choisir un client (menu d'un client, « Utiliser pour les essais »)";
 
 async function applyRelink(id, sug, button) {
   if (!confirm(`Reconstruire « ${state.current.name} » : réécrire ${sug.rewritten} lien(s) en relatif. L'original est gardé en .old.`)) return;
@@ -129,18 +137,15 @@ export function init() {
   $("d-cover-menu").onclick = () => openCover(state.current);
   $("d-more").onclick = () => {
     const i = state.current;
-    const disabled = (node, off) => { node.disabled = off; return node; };
     openMenuNode($("d-more").parentElement, [
       menuItem("Modifier l'autorun", "pen", () => { showTab("autorun"); if (state.tab === "autorun") setAutorunEdit(true); }),
       menuItem("Nouvelle version…", "upload", () => showTab("version")),
       el("div", { className: "dd-sub", textContent: "Illustration" }),
       coverItem(),
-      ...(i.has_old ? [
-        menuItem("Supprimer l'ancienne version", "check", () => oldAction("validate", `Supprimer définitivement l'ancienne version de « ${i.name} » (.old) ?`)),
-        menuItem("Restaurer l'ancienne version", "undo", () => oldAction("restore", "Remettre l'ancienne version à la place de l'image actuelle (.old) ? La reconstruction sera perdue.")),
-      ] : []),
-      ...(connected() && hostOn() ? [menuItem("Copier les sauvegardes", "save", () => copySaves())] : []),
-      disabled(menuItem("Réinitialiser les sauvegardes", "trash", () => resetSaves([i.id]).catch((error) => alert(error.message)), { danger: true }), !i.saves_present),
+      setUnavailable(menuItem("Supprimer l'ancienne version", "archive-x", () => oldAction("validate", `Supprimer définitivement l'ancienne version de « ${i.name} » (.old) ?`)), i.has_old ? "" : NO_OLD),
+      setUnavailable(menuItem("Restaurer l'ancienne version", "undo", () => oldAction("restore", "Remettre l'ancienne version à la place de l'image actuelle (.old) ? La reconstruction sera perdue.")), i.has_old ? "" : NO_OLD),
+      ...(connected() ? [setUnavailable(menuItem("Copier les sauvegardes", "save", () => copySaves()), trialReason() || (i.saves_present ? "" : NO_SAVES))] : []),
+      setUnavailable(menuItem("Réinitialiser les sauvegardes", "trash", () => resetSaves([i.id]).catch((error) => alert(error.message)), { danger: true }), i.saves_present ? "" : NO_SAVES),
     ]);
   };
   $("s-share").onclick = () => openSavesFor(gameOfItem(state.current));

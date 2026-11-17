@@ -1,7 +1,7 @@
 // install.js — Installation sur les clients : état, pastilles, filtres.
 
 import { api } from "./api.js";
-import { $, el, icon, state } from "./core.js";
+import { $, el, icon, setUnavailable, state } from "./core.js";
 import { paintClients } from "./header.js";
 import { paintInstDialog } from "./install-dialog.js";
 import { renderLibrary } from "./library.js";
@@ -113,5 +113,5 @@ export function renderInstBox() {
   if (!inst.loaded) text = inst.error ? "État des clients indisponible" : "Lecture des clients…";
   else if (down) text += ` · ${down} client${down > 1 ? "s" : ""} injoignable${down > 1 ? "s" : ""} (non vérifié${down > 1 ? "s" : ""})`;
   $("d-inst-where").textContent = text;
-  $("d-inst-uninstall").hidden = !ids.length;
+  setUnavailable($("d-inst-uninstall"), ids.length ? "" : "Pas installée sur un client joignable");
 }

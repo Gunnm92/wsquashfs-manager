@@ -86,26 +86,25 @@ input[type=checkbox].switch::before { transition: left var(--dur-base) var(--eas
 .st-adv[open] > summary::before { transform: rotate(90deg); }
 .st-adv > .st-card { margin-top: 8px; }
 .st-roots { display: flex; flex-direction: column; gap: 14px; padding: 0 20px 16px; }
-/* Diagnostic du lanceur : problèmes d'abord, vérifications OK repliées */
+/* Diagnostic du lanceur : une carte (lignes comme les autres sections), problèmes d'abord, OK repliés */
 #st-doctor { display: flex; flex-direction: column; gap: 10px; }
-.st-alert { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 14px 16px;
-  border-radius: var(--radius-sm); background: color-mix(in srgb, var(--warn) 12%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 34%, transparent); }
-.st-alert > .ico { color: var(--warn); width: 18px; height: 18px; }
-.st-alert-txt { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.st-alert-txt .mono { font-size: 11.5px; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
-.st-ok { border-radius: var(--radius-sm); background: var(--surface); padding: 10px 14px; }
-.st-ok > summary { cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; list-style: none; }
-.st-ok > summary::-webkit-details-marker { display: none; }
-.st-ok > summary .ico:first-child { color: var(--ok); }
-.st-ok[open] { padding-bottom: 12px; }
-.st-ok .doctor { margin-top: 10px; }
+.st-disc { width: 22px; height: 22px; flex: none; display: grid; place-items: center; border-radius: 50%; background: var(--s3); color: var(--muted); }
+.st-disc .ico { width: 12px; height: 12px; stroke-width: 3; }
+.st-disc.ok { background: var(--accent2-900); color: var(--accent2-300); }
+.st-disc.missing { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+.st-row.st-doc.missing { background: color-mix(in srgb, var(--warn) 9%, transparent); }
+.st-okfold > summary { cursor: pointer; list-style: none; }
+.st-okfold > summary::-webkit-details-marker { display: none; }
+.st-okfold > summary > .ico:last-child { margin-left: auto; color: var(--muted); transition: transform var(--dur-base) var(--ease-out); }
+.st-okfold[open] > summary > .ico:last-child { transform: rotate(180deg); }
+.st-okfold:not(:first-child) { border-top: 1px solid var(--divider); }
+.st-okfold > summary + .st-row, .st-okfold > .st-row + .st-row { border-top: 1px solid var(--divider); }
 .st-verdict { margin: 0; font-weight: 600; }
-/* Serveur (lecture seule) */
-.st-server > summary { cursor: pointer; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
-.st-server > summary .ro-tag { text-transform: none; letter-spacing: 0; font-weight: 400; }
-.st-server dl { margin-top: 12px; }
-.st-server > .dlg-intro { margin-top: 10px; }
+/* Serveur et valeurs en lecture seule : chemin en mono, qui peut passer à la ligne */
+.st-fixed.path { font-family: var(--mono); font-size: 12px; white-space: normal; overflow-wrap: anywhere; text-align: right; max-width: 60%; }
+/* Bibliothèque : « Toutes » / « Aucune » (systèmes, et par dossier de base) */
+.st-bulk { display: inline-flex; gap: 6px; margin-left: auto; flex: none; }
+.root-head .st-bulk { margin-left: 0; }
 /* Barre d'enregistrement : monte quand un réglage change */
 .savebar { position: fixed; z-index: 40; left: 50%; bottom: 22px; width: min(720px, calc(100vw - 32px));
   transform: translate(-50%, calc(100% + 48px)); opacity: 0; visibility: hidden;
@@ -124,8 +123,6 @@ input[type=checkbox].switch::before { transition: left var(--dur-base) var(--eas
   .st-times, .st-keyrow, .st-range, .st-trial-ctl { flex-wrap: wrap; }
   .st-input, .st-keyrow .st-input { width: 100%; }
   .st-client { flex-wrap: wrap; }
-  .st-alert { grid-template-columns: auto minmax(0, 1fr); }
-  .st-alert > .btn { grid-column: 2; justify-self: start; }
   .savebar { bottom: 12px; width: calc(100vw - 24px); }
   .savebar-count { white-space: normal; }
 }

@@ -28,7 +28,8 @@ export function applyMode() {
   const previous = appliedMode;
   appliedMode = mode;
   document.body.dataset.mode = mode;
-  $("d-trial-wrap").hidden = !(connected() && hostOn());
+  // Essai : visible en mode connecté, grisé (raison en infobulle) sans client d'essai (detail.js paintTrial)
+  $("d-trial-wrap").hidden = !connected();
   $("d-links").title = hostOn() ? `Liens du prefix vers un runner hors de l'image ou absent, et réparation avec les runners de ${hostName()}`
     : "Liens du prefix vers un runner hors de l'image ou absent";
   paintClients();
