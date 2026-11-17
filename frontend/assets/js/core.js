@@ -97,7 +97,7 @@ export function setUnavailable(node, reason) {
 // Animations : une entrée joue l'animation CSS de l'élément dès qu'il redevient visible (hidden
 // retiré) ; une sortie passe par la classe `cls` (animation CSS de sortie), puis hidden.
 
-const motionOff = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+export const motionOff = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // Relance une animation CSS déjà posée sur un nœud affiché : retire la classe, force un reflow, la remet
 export function replay(node, cls) {

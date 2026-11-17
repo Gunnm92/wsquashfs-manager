@@ -2,7 +2,13 @@
    après les composants et les menus d'en-tête, qui ont leur propre animation d'entrée. */
 
 /* Changement de vue : le contenu entre en fondu et monte de 8 px (display retiré = animation rejouée) */
-#main, #saves-main, #folders-main, #help-main, #settings-main { animation: pagein .4s cubic-bezier(.2, .8, .3, 1) both; }
+/* Changement de vue (header.js, swapView) : sortie courte, entrée du côté de l'onglet choisi */
+@keyframes viewout { to { opacity: 0; transform: translateY(-6px); } }
+@keyframes viewin-r { from { opacity: 0; transform: translateX(32px); } }
+@keyframes viewin-l { from { opacity: 0; transform: translateX(-32px); } }
+.view-out { animation: viewout .14s ease-in both; pointer-events: none; }
+.view-in-r { animation: viewin-r .38s cubic-bezier(.2, .8, .3, 1) both; }
+.view-in-l { animation: viewin-l .38s cubic-bezier(.2, .8, .3, 1) both; }
 
 /* Sorties animées (hideAnimated) : la classe is-leaving joue la sortie, puis le nœud passe hidden */
 .is-leaving { pointer-events: none; }

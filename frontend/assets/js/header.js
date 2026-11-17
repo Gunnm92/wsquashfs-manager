@@ -1,6 +1,6 @@
 // header.js — En-tête : vues, clients, menu ⚙, actualisation.
 
-import { $, bigSize, el, hideAnimated, isShown, replay, showAnimated, state, storage } from "./core.js";
+import { $, bigSize, el, hideAnimated, isShown, motionOff, replay, showAnimated, state, storage } from "./core.js";
 import { loadFolders } from "./folders.js";
 import { loadHelp } from "./help.js";
 import { inst } from "./install.js";
@@ -20,11 +20,7 @@ export function showView(name) {
   document.body.dataset.view = name;
   paintViews(name);
   $("btn-menu").classList.toggle("on", name === "settings");   // le ⚙ de l'en-tête montre la page ouverte
-  $("main").hidden = name !== "images";
-  $("folders-main").hidden = name !== "folders";
-  $("saves-main").hidden = name !== "saves";
-  $("help-main").hidden = name !== "help";
-  $("settings-main").hidden = name !== "settings";
+  swapView(name);
   storage.set("wsfs-view", name);
   if (name === "folders") loadFolders();
   if (name === "saves") loadSaves();
@@ -32,6 +28,35 @@ export function showView(name) {
   if (name === "help") return loadHelp();
   if (name === "settings") return openSettings();
   return Promise.resolve();
+}
+
+// Changement de vue animé : la vue quittée s'efface (VIEW_OUT ms), puis la nouvelle arrive du
+// côté de l'onglet choisi (ordre de la navigation). Un clic pendant la transition l'emporte.
+const VIEW_IDS = { saves: "saves-main", images: "main", folders: "folders-main", help: "help-main", settings: "settings-main" };
+const VIEW_ORDER = ["saves", "images", "folders", "help", "settings"];
+const VIEW_OUT = 140;
+let viewTurn = 0;
+let shownView = null;
+
+function swapView(name) {
+  const turn = ++viewTurn;
+  const prev = shownView;
+  shownView = name;
+  const target = $(VIEW_IDS[name]);
+  const others = Object.entries(VIEW_IDS).filter(([v]) => v !== name).map(([, id]) => $(id));
+  const leaving = others.filter((n) => !n.hidden);
+  const reveal = () => {
+    if (turn !== viewTurn) return;
+    for (const n of others) { n.hidden = true; n.classList.remove("view-out", "view-in-r", "view-in-l"); }
+    target.classList.remove("view-out", "view-in-r", "view-in-l");
+    target.hidden = false;
+    if (motionOff() || !prev || prev === name) return;
+    const dir = VIEW_ORDER.indexOf(name) >= VIEW_ORDER.indexOf(prev) ? "view-in-r" : "view-in-l";
+    replay(target, dir);
+  };
+  if (motionOff() || !leaving.length || leaving.includes(target)) { reveal(); return; }
+  for (const n of leaving) n.classList.add("view-out");
+  setTimeout(reveal, VIEW_OUT);
 }
 
 // Indicateur qui glisse derrière le choix actif d'un groupe à pastille (.seg > .ind)
