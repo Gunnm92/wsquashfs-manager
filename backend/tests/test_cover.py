@@ -116,3 +116,101 @@ def test_cover_refuses_image_in_use(tmp_path: Path, monkeypatch):
     with pytest.raises(RebuildError, match="en cours"):
         _run(image, tmp_path)
     assert image.read_bytes() == data
+
+
+# ------------------------------------------------------------------ remplacement (sans outils)
+
+NEW = b"\x89PNG\r\n\x1a\n" + b"steamgriddb" * 100
+
+
+def _fake_image(tmp_path: Path) -> Path:
+    image = tmp_path / "roms" / "win" / "Jeu.wsquashfs"
+    image.parent.mkdir(parents=True)
+    image.write_bytes(b"squashfs")
+    return image
+
+
+def _replace_setup(monkeypatch, tmp_path: Path, *, present: bool, current: bytes | None = None,
+                   folder: bool = False, kind: str = "sgdb"):
+    """Image factice : arborescence, autorun, illustration trouvée et état d'utilisation."""
+    from app.services import artwork as artwork_mod, rebuild as rebuild_mod, scan
+    image = _fake_image(tmp_path)
+    files = ["Game/game.exe", "autorun.cmd"]
+    if present:
+        files += [".wsquashfs", COVER]
+    elif folder:
+        files += [".wsquashfs", ".wsquashfs/autre"]
+    art_path = tmp_path / "sgdb.png"
+    art_path.write_bytes(NEW)
+    monkeypatch.setattr(scan, "_list_files_uncached", lambda settings, img: files)
+    monkeypatch.setattr(scan, "read_autorun_bytes", lambda settings, img: b"CMD=game.exe\r\n")
+    monkeypatch.setattr(scan, "image_in_use", lambda img: False)
+    monkeypatch.setattr(scan, "_unsquashfs_cat", lambda settings, img, member: current)
+    monkeypatch.setattr(artwork_mod, "artwork",
+                        lambda settings, img, cmd, dir_: artwork_mod.Artwork(art_path, "image/png", kind))
+    calls = []
+
+    def fake_rebuild(settings, img, changes, job=None, in_use=None):
+        calls.append((img, changes, in_use))
+        return rebuild_mod.RebuildResult(mode="extract", size_before=1, size_after=1,
+                                         backup=img.with_name(img.name + ".old"), duration=0.0)
+
+    monkeypatch.setattr(rebuild_mod, "rebuild", fake_rebuild)
+    return image, calls
+
+
+def _run_replace(image: Path, tmp_path: Path, replace: bool) -> str:
+    task = Task(id="c", kind="cover", image="win/Jeu", image_path=str(image),
+                params={"replace": replace})
+    return run_cover(Settings(tmp_dir=tmp_path / "tmp"), task, Job())
+
+
+def test_replace_false_with_cover_changes_nothing(monkeypatch, tmp_path: Path):
+    image, calls = _replace_setup(monkeypatch, tmp_path, present=True, current=b"autre")
+    assert "déjà présente" in _run_replace(image, tmp_path, replace=False)
+    assert calls == []
+
+
+def test_replace_true_rebuilds_with_new_cover(monkeypatch, tmp_path: Path):
+    from app.services import scan
+    image, calls = _replace_setup(monkeypatch, tmp_path, present=True, current=b"ancienne")
+    message = _run_replace(image, tmp_path, replace=True)
+    assert "Illustration remplacée (SteamGridDB, jaquette)" in message
+    assert "Jeu.wsquashfs.old" in message
+    assert len(calls) == 1
+    img, changes, in_use = calls[0]
+    assert img == image
+    assert changes.copy == {COVER: tmp_path / "sgdb.png"}
+    assert changes.write == {} and changes.delete == []
+    assert in_use is scan.image_in_use
+
+
+def test_replace_true_identical_cover_does_not_rebuild(monkeypatch, tmp_path: Path):
+    image, calls = _replace_setup(monkeypatch, tmp_path, present=True, current=NEW)
+    assert _run_replace(image, tmp_path, replace=True) == "Illustration déjà à jour : rien à faire"
+    assert calls == []
+
+
+def test_replace_true_with_folder_but_no_cover_rebuilds(monkeypatch, tmp_path: Path):
+    image, calls = _replace_setup(monkeypatch, tmp_path, present=False, folder=True)
+    assert "Illustration remplacée" in _run_replace(image, tmp_path, replace=True)
+    assert len(calls) == 1 and COVER in calls[0][1].copy
+
+
+def test_replace_true_without_cover_appends(monkeypatch, tmp_path: Path):
+    """Sans illustration : chemin d'ajout normal (mksquashfs en ajout), pas de reconstruction."""
+    from app.services import operations
+    image, calls = _replace_setup(monkeypatch, tmp_path, present=False)
+    commands = []
+    listings = iter([["Game/game.exe", "autorun.cmd"],
+                     ["Game/game.exe", "autorun.cmd", ".wsquashfs", COVER]])
+    monkeypatch.setattr(operations.scan, "_list_files_uncached", lambda s, i: next(listings))
+    monkeypatch.setattr(operations, "run_progress",
+                        lambda command, job, phase, start, end: commands.append(command))
+    monkeypatch.setattr(operations.subprocess, "run",
+                        lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout=NEW))
+    message = _run_replace(image, tmp_path, replace=True)
+    assert message.startswith("Illustration ajoutée")
+    assert calls == []
+    assert any(str(c).endswith("mksquashfs") for c in commands[0])
+

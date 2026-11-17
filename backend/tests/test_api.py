@@ -251,6 +251,19 @@ def test_mass_cover_queues_one_task_per_image(client, queue):
     assert [s["id"] for s in result["skipped"]] == ["arcade/absent"]
 
 
+def test_mass_cover_replace_option_reaches_task(client, queue):
+    """`replace` est porté par la tâche, avec un titre dédié."""
+    body = {"ids": ["arcade/jeu"], "replace": True}
+    task = queue.get(client.post("/api/mass/cover", json=body).json()["tasks"][0])
+    assert task.kind == "cover" and task.params == {"replace": True}
+    assert task.title == "Remplacement de l'illustration"
+
+
+def test_mass_cover_default_is_add_only(client, queue):
+    task = queue.get(client.post("/api/mass/cover", json={"ids": ["arcade/jeu"]}).json()["tasks"][0])
+    assert task.params == {"replace": False} and task.title == "illustration"
+
+
 def test_saves_reset(client, monkeypatch, tmp_path):
     monkeypatch.setattr(main._settings, "saves_dir", tmp_path / "saves")
     assert client.post("/api/image/saves/reset", params={"id": "arcade/jeu"}).status_code == 409

@@ -1236,16 +1236,23 @@ def mass_verify(body: MassIds):
     return {"tasks": created, "skipped": skipped}
 
 
+class MassCover(MassIds):
+    # replace : remplace l'illustration intégrée par reconstruction (ancienne en .old)
+    replace: bool = False
+
+
 @app.post("/api/mass/cover")
-def mass_cover(body: MassIds):
+def mass_cover(body: MassCover):
     """Illustration ajoutée aux images qui n'en ont pas, sans reconstruction
-    (mksquashfs en ajout), une tâche par image."""
+    (mksquashfs en ajout), une tâche par image. Avec `replace`, l'illustration
+    déjà intégrée est remplacée par reconstruction (ancienne image gardée en .old)."""
     created, skipped = [], []
+    title = "Remplacement de l'illustration" if body.replace else "illustration"
     for image_id in body.ids:
         try:
             info = _find_image(image_id)
-            created.append(_submit(info, "cover", {}, "illustration", rebuild=False,
-                                   night=body.when == "night").id)
+            created.append(_submit(info, "cover", {"replace": body.replace}, title,
+                                   rebuild=body.replace, night=body.when == "night").id)
         except HTTPException as exc:
             skipped.append({"id": image_id, "reason": exc.detail})
     return {"tasks": created, "skipped": skipped}

@@ -437,6 +437,7 @@ mode ajout écrit le fichier à la suite et ne réécrit que les tables
 est modifiée en place, sans `.old` : refusé pendant une partie, et quand
 `.wsquashfs/` existe déjà sans illustration (reconstruire alors). Une image
 qui a déjà son illustration n'est pas touchée.
+Pour remplacer l'illustration déjà intégrée (« Remplacement de l'illustration » en masse, `replace`), il faut une reconstruction : l'ancienne image est gardée en `.old`, et la tâche peut être programmée « cette nuit ».
 
 ### Icônes et jaquettes SteamGridDB
 

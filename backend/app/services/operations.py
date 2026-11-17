@@ -386,14 +386,16 @@ def run_cover(settings: Settings, task: Task, job: Job) -> str:
     from .artwork import artwork
     from .rebuild import COVER
 
+    replace = bool(task.params.get("replace"))
     image, _ = _task_image(task)
     job.progress("lecture", 0.05)
     files = scan._list_files_uncached(settings, image)
     if files is None:
         raise RebuildError("arborescence illisible (unsquashfs -l)")
-    if COVER in files:
+    present = COVER in files
+    if present and not replace:
         return "Illustration déjà présente : rien à faire"
-    if COVER_DIR in files:
+    if COVER_DIR in files and not replace:
         # mksquashfs renommerait le nouveau dossier (.wsquashfs_1) : passer
         # par une reconstruction, qui la dépose (add_cover)
         raise RebuildError(f"{COVER_DIR}/ existe sans illustration : reconstruire l'image")
@@ -402,7 +404,9 @@ def run_cover(settings: Settings, task: Task, job: Job) -> str:
     art = artwork(settings, image, a.get("CMD") if a else None, a.get("DIR") if a else None)
     if art is None:
         return "Aucune illustration trouvée (ni jaquette d'EmulationStation ni icône d'exécutable)"
-    job.log(f"Illustration : {art.path.name} ({'jaquette' if art.kind == 'es' else 'icône'})")
+    job.log(f"Illustration : {art.path.name} (source : {art.kind})")
+    if replace and (present or COVER_DIR in files):
+        return _replace_cover(settings, image, art, present, job)
     if scan.image_in_use(image):
         raise RebuildError("jeu en cours d'utilisation")
     cover = art.path.read_bytes()
@@ -427,6 +431,27 @@ def run_cover(settings: Settings, task: Task, job: Job) -> str:
     if verify_out != cover:
         raise RebuildError("vérification : illustration relue différente")
     return f"Illustration ajoutée ({'jaquette' if art.kind == 'es' else 'icône'}, {len(cover) // 1024} Kio)"
+
+
+_SOURCE_LABEL = {"sgdb": "SteamGridDB, jaquette", "es": "jaquette EmulationStation",
+                 "icon": "icône de l'exécutable"}
+
+
+def _replace_cover(settings: Settings, image: Path, art, present: bool, job: Job) -> str:
+    """Remplace l'illustration par une reconstruction ciblée (mksquashfs en ajout ne
+    peut pas remplacer un fichier) : l'original reste en .old. Rien si l'illustration
+    intégrée est déjà identique octet pour octet."""
+    from .rebuild import COVER, Changes, rebuild
+
+    cover = art.path.read_bytes()
+    current = scan._unsquashfs_cat(settings, image, COVER) if present else None
+    if current == cover:
+        return "Illustration déjà à jour : rien à faire"
+    result = rebuild(settings, image, Changes(copy={COVER: art.path}), job,
+                     in_use=scan.image_in_use)
+    label = _SOURCE_LABEL.get(art.kind, art.kind)
+    return (f"Illustration remplacée ({label}) : "
+            f"l'ancienne image est gardée en {result.backup.name}")
 
 
 # ------------------------------------------------------------------ sauvegardes
