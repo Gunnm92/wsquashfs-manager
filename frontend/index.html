@@ -325,98 +325,89 @@
 </main>
 
 <!-- ================================================================ Dossiers -->
-<main id="folders-main" class="folders" hidden>
-  <div class="page-head">
-    <h1>Dossiers</h1>
-    <p>Dossiers <code>*.pc</code> et <code>*.wine</code> des dossiers roms/ : analyse, autorun proposé et justifié, puis empaquetage en <code>.wsquashfs</code> (renommage en <code>.wine</code>, vérification) dans la file de tâches.</p>
-  </div>
-  <div class="toolbar">
-    <label class="search"><svg class="ico"><use href="#i-search"/></svg><input type="search" id="g-search" placeholder="Rechercher un dossier…"></label>
-    <div class="pills" id="g-state">
-      <button data-state="" class="on"><svg class="ico sm"><use href="#i-list"/></svg>Tous</button>
-      <button data-state="todo"><svg class="ico sm"><use href="#i-package"/></svg>À traiter</button>
-      <button data-state="noautorun"><svg class="ico sm"><use href="#i-terminal"/></svg>Sans autorun</button>
-      <button data-state="done"><svg class="ico sm"><use href="#i-check"/></svg>Déjà empaquetés</button>
+<main id="folders-main" class="images" hidden>
+  <section class="lib">
+    <div class="lib-head">
+      <h1 class="lib-title"><span id="g-title"></span></h1>
+      <span class="vsep" aria-hidden="true"></span>
+      <span class="todo-label" id="g-todo-label" hidden>À traiter</span>
+      <div class="todo" id="g-todo"></div>
     </div>
-    <div class="pills" id="g-system"></div>
-    <span class="spacer"></span>
-    <label class="row muted" id="g-all-label" style="font-size:12.5px;cursor:pointer" title="Tout sélectionner (filtre actuel)"><input type="checkbox" id="g-all">Tout sélectionner</label>
-    <div class="pills" id="g-layout">
-      <button data-layout="list"><svg class="ico sm"><use href="#i-list"/></svg>Liste</button>
-      <button data-layout="grid"><svg class="ico sm"><use href="#i-grid"/></svg>Cartes</button>
+    <div class="toolbar">
+      <label class="search"><svg class="ico"><use href="#i-search"/></svg><input type="search" id="g-search" placeholder="Dossier, système…"></label>
+      <div class="pills" id="g-system"></div>
+      <button type="button" class="filter-clear" id="g-clear-filter" hidden><span id="g-clear-filter-label"></span><svg class="ico sm"><use href="#i-x"/></svg></button>
+      <span class="spacer"></span>
+      <label class="row muted" id="g-all-label" hidden><input type="checkbox" id="g-all">Tout sélectionner</label>
+      <span id="g-visible"></span>
+      <div class="pills icons" id="g-layout">
+        <button data-layout="list" title="Liste" aria-label="Liste"><svg class="ico sm"><use href="#i-list"/></svg></button>
+        <button data-layout="grid" title="Jaquettes" aria-label="Jaquettes"><svg class="ico sm"><use href="#i-grid"/></svg></button>
+      </div>
     </div>
-  </div>
-  <div class="glist" id="g-list">
-    <div class="grow frow head" id="g-thead"></div>
-    <div id="g-list-rows"></div>
-  </div>
-  <div class="ggrid" id="g-rows" hidden></div>
+    <div class="glist ilist flist" id="g-list">
+      <div class="grow head" id="g-thead"></div>
+      <div id="g-list-rows"></div>
+    </div>
+    <div class="ggrid" id="g-rows" hidden></div>
 
-  <div class="selbar" id="g-selection" hidden>
-    <span class="lbl" id="g-count"></span>
-    <button class="btn primary sm" id="g-review"><svg class="ico sm"><use href="#i-package"/></svg>Analyser et empaqueter…</button>
-    <button class="btn bare sm" id="g-delete" title="Supprime les dossiers dont l'image existe déjà (image vérifiée avant)"><svg class="ico sm"><use href="#i-trash"/></svg>Supprimer les dossiers déjà empaquetés</button>
-    <button class="iconbtn bare sm" id="g-clear" title="Désélectionner"><svg class="ico sm"><use href="#i-x"/></svg></button>
-  </div>
+    <div class="selbar" id="g-selection" hidden>
+      <span class="lbl" id="g-count"></span>
+      <button class="btn primary" id="g-review" title="Analyse chaque dossier et propose un autorun justifié, puis empaquette"><svg class="ico sm"><use href="#i-package"/></svg>Analyser et empaqueter…</button>
+      <button class="btn bare" id="g-delete" title="Supprime les dossiers dont l'image existe déjà (image vérifiée avant)"><svg class="ico sm"><use href="#i-trash"/></svg>Supprimer les dossiers déjà empaquetés</button>
+      <span class="sep"></span>
+      <button class="iconbtn bare lg" id="g-clear" title="Désélectionner" aria-label="Désélectionner"><svg class="ico"><use href="#i-x"/></svg></button>
+    </div>
+  </section>
 </main>
 
 <!-- ================================================================ Sauvegardes -->
-<main id="saves-main" class="folders">
-  <div class="page-head">
-    <h1>Sauvegardes</h1>
-    <p>Sauvegardes de partie de tes clients. <b>Sync</b> copie la version suggérée (la plus lourde) vers les clients qui ont le jeu dans une version en retard ; la version écrasée est archivée. Un client qui n'a pas le jeu n'est pas touché (menu de la ligne pour l'y installer). Le manager garde une copie, même client éteint.</p>
-  </div>
-
-  <section class="sv-bar" aria-label="Clients associés">
-    <div class="sv-bar-head">
-      <span class="glabel">Clients</span>
-      <span class="spacer"></span>
-      <button class="btn bare sm" id="s-refresh" title="Relire les clients et leurs sauvegardes"><svg class="ico sm"><use href="#i-refresh"/></svg>Actualiser</button>
+<main id="saves-main" class="images" hidden>
+  <section class="lib">
+    <div class="lib-head" id="sv-head" hidden>
+      <h1 class="lib-title"><span id="sv-count"></span><span class="lib-size" id="sv-size"></span></h1>
+      <span class="vsep" aria-hidden="true"></span>
+      <span class="todo-label" id="sv-todo-label" hidden>À traiter</span>
+      <div class="todo" id="sv-todo"></div>
     </div>
-    <div class="sv-chips" id="s-chips">
-      <button type="button" class="mcard add" id="s-pair" title="Associer un client avec son code wsq://"><svg class="ico"><use href="#i-plus"/></svg><span>Associer un client</span></button>
+    <div class="notice info sv-offline" id="sv-offline" role="status" hidden></div>
+    <div class="notice info" id="s-loading" role="status" hidden><span class="spinner"></span><span>Lecture des clients…</span></div>
+    <div id="s-error"></div>
+
+    <section class="sv-empty" id="s-empty" hidden>
+      <svg class="ico"><use href="#i-save"/></svg>
+      <strong>Aucun client associé</strong>
+      <p class="dlg-intro">Les clients se gèrent dans Réglages › Clients.</p>
+      <div class="row"><button class="btn primary sm" id="s-empty-settings"><svg class="ico sm"><use href="#i-arrow"/></svg>Réglages › Clients</button></div>
+    </section>
+
+    <div id="s-body" hidden>
+      <div class="toolbar">
+        <label class="search"><svg class="ico"><use href="#i-search"/></svg><input type="search" id="s-search" placeholder="Jeu…"></label>
+        <button type="button" class="filter-clear" id="s-clear-filter" hidden><span id="s-clear-filter-label"></span><svg class="ico sm"><use href="#i-x"/></svg></button>
+        <span class="spacer"></span>
+        <span id="s-visible"></span>
+      </div>
+      <div id="s-status"></div>
+      <div class="glist ilist svlist">
+        <div class="grow head" id="s-thead"></div>
+        <div id="s-rows"></div>
+      </div>
+    </div>
+
+    <div class="selbar" id="s-selection" hidden>
+      <span class="lbl" id="s-count"></span>
+      <label class="sv-src"><span>Source</span><select id="s-source" title="D'où viennent les sauvegardes"></select></label>
+      <span class="sv-arrow" aria-hidden="true"><svg class="ico sm"><use href="#i-arrow"/></svg></span>
+      <div class="dd" id="s-targets-dd"><button type="button" class="dd-btn" id="s-targets" aria-haspopup="menu" title="Clients qui reçoivent"></button></div>
+      <span class="sep"></span>
+      <button class="btn primary sm" id="s-push"><svg class="ico sm"><use href="#i-refresh"/></svg>Synchroniser</button>
+      <button class="btn bare sm" id="s-pull" title="Copier les sauvegardes sélectionnées sur le manager"><svg class="ico sm"><use href="#i-server"/></svg>Copier vers le manager</button>
+      <span class="sep"></span>
+      <button class="btn bare sm sv-danger" id="s-delete" title="Supprimer les sauvegardes sélectionnées, sur des clients et/ou le manager"><svg class="ico sm"><use href="#i-trash"/></svg>Supprimer…</button>
+      <button class="iconbtn bare sm" id="s-clear" title="Désélectionner" aria-label="Désélectionner"><svg class="ico sm"><use href="#i-x"/></svg></button>
     </div>
   </section>
-
-  <div class="notice info" id="s-loading" role="status" hidden><span class="spinner"></span><span>Lecture des clients…</span></div>
-  <div id="s-error"></div>
-
-  <section class="sv-empty" id="s-empty" hidden>
-    <svg class="ico"><use href="#i-save"/></svg>
-    <strong>Aucun client associé</strong>
-    <p class="dlg-intro">Associe les clients entre lesquels tu veux garder les mêmes sauvegardes de partie.</p>
-    <ol>
-      <li>Sur le client : <code>wsquashfs-launcher --pair</code> affiche un code <code>wsq://</code>.</li>
-      <li>Ici : « Associer un client » et colle ce code.</li>
-      <li>Sur le client : <code>wsquashfs-launcher --agent</code> pour qu'il reste joignable.</li>
-    </ol>
-    <div class="row"><button class="btn primary sm" id="s-empty-pair"><svg class="ico sm"><use href="#i-plus"/></svg>Associer un client</button></div>
-  </section>
-
-  <div id="s-body" hidden>
-    <div class="toolbar">
-      <label class="search"><svg class="ico"><use href="#i-search"/></svg><input type="search" id="s-search" placeholder="Rechercher un jeu…"></label>
-      <div class="pills" id="s-filter"></div>
-      <span class="spacer"></span>
-      <label class="row muted" id="s-all-label" style="font-size:12.5px;cursor:pointer" title="Tout sélectionner (filtre actuel)"><input type="checkbox" id="s-all">Tout sélectionner</label>
-    </div>
-    <div id="s-status"></div>
-    <div class="glist sv-list">
-      <div class="syncs-wrap"><table class="syncs sv" id="s-table"></table></div>
-    </div>
-  </div>
-
-  <div class="selbar" id="s-selection" hidden>
-    <span class="lbl" id="s-count"></span>
-    <label class="sv-src"><span>Source</span><select id="s-source" title="D'où viennent les sauvegardes"></select></label>
-    <span class="sv-arrow" aria-hidden="true"><svg class="ico sm"><use href="#i-arrow"/></svg></span>
-    <div class="dd" id="s-targets-dd"><button type="button" class="dd-btn" id="s-targets" aria-haspopup="menu" title="Clients qui reçoivent"></button></div>
-    <span class="sep"></span>
-    <button class="btn primary sm" id="s-push"><svg class="ico sm"><use href="#i-arrow"/></svg>Sync</button>
-    <button class="btn bare sm" id="s-pull" title="Copier les sauvegardes sélectionnées sur le manager"><svg class="ico sm"><use href="#i-server"/></svg>Copier vers le manager</button>
-    <button class="btn bare sm sv-danger" id="s-delete" title="Supprimer les sauvegardes sélectionnées, sur des clients et/ou le manager"><svg class="ico sm"><use href="#i-trash"/></svg>Supprimer…</button>
-    <button class="iconbtn bare sm" id="s-clear" title="Désélectionner"><svg class="ico sm"><use href="#i-x"/></svg></button>
-  </div>
 </main>
 
 <!-- ================================================================ Aide (contenu : assets/help.html, chargé à l'ouverture) -->
@@ -438,7 +429,7 @@
 
   <div class="settings-body">
     <section class="st-sec" id="st-mode" data-st="mode">
-      <div class="st-head"><h2>Mode</h2><p>Ce que le manager fait, et avec quelles machines.</p></div>
+      <div class="st-head"><h2>Mode</h2><p>Ce que le manager fait, et avec quels clients.</p></div>
       <div class="st-card">
         <div class="st-row">
           <div class="st-txt"><b>Fonctionnement</b><span id="st-mode-hint"></span></div>
@@ -452,7 +443,7 @@
     </section>
 
     <section class="st-sec" id="st-saves" data-st="saves" data-cfg-conn>
-      <div class="st-head"><h2>Sauvegardes</h2><p>Partage des sauvegardes de jeu entre machines.</p></div>
+      <div class="st-head"><h2>Sauvegardes</h2><p>Partage des sauvegardes de jeu entre clients.</p></div>
       <div class="st-card">
         <div class="st-row">
           <div class="st-txt"><b>Synchronisation automatique</b><span>Les clients dont la synchro auto est activée et qui sont en retard reçoivent la version du manager, à cet intervalle.</span></div>
@@ -466,7 +457,7 @@
     </section>
 
     <section class="st-sec" id="st-clients" data-st="clients" data-cfg-conn>
-      <div class="st-head"><h2>Clients</h2><p>Machines associées : leurs sauvegardes sont partagées avec le manager.</p></div>
+      <div class="st-head"><h2>Clients</h2><p>Clients associés : leurs sauvegardes sont partagées avec le manager.</p></div>
       <div class="st-card">
         <div id="st-clients-list"></div>
         <div class="st-foot"><button type="button" class="btn secondary sm" id="st-pair"><svg class="ico sm"><use href="#i-plus"/></svg>Associer un client</button></div>

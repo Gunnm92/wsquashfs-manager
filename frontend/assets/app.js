@@ -636,7 +636,7 @@ $("f-search").addEventListener("input", renderLibrary);
 for (const b of $("layout").children) {
   b.onclick = () => { state.layout = b.dataset.layout; storage.set("wsfs-layout", state.layout); renderLibrary(); };
 }
-$("btn-refresh").onclick = () => { loadLibrary(); loadConfig(); };
+$("btn-refresh").onclick = () => { loadLibrary(); loadConfig(); loadSaves(); };
 // Relit la configuration (Réglages, client d'essai…) : Actualiser, fin des Réglages
 async function loadConfig() {
   try { state.config = await api("/api/config"); } catch { /* garde la configuration déjà lue */ }
@@ -744,7 +744,7 @@ function paintApercu() {
       el("span", { className: mono ? "v mono" : "v" }, v), action || el("span"));
   };
   const used = i.proton || i.wine;
-  const exe = [(i.dir || "").replace(/[\\/]+$/, ""), i.cmd || ""].filter(Boolean).join("\\");
+  const exe = i.cmd ? [(i.dir || "").replace(/[\\/]+$/, ""), i.cmd].filter(Boolean).join("\\") : "";
   const gfx = [i.dxvk && "DXVK", i.vkd3d && "VKD3D"].filter(Boolean);
   const gfxNode = gfx.length ? el("span", {}, ...gfx.map((t) => el("span", { className: "chip plain t-accent", textContent: t }))) : null;
   const runner = i.runner === "default" ? "Aucun (choisi par le lanceur)"
@@ -1601,7 +1601,7 @@ function clearConnected() {
   sv.machines = []; sv.games = []; sv.loaded = false; sv.error = "";
   state.doctor = null;
   paintInstall();
-  paintSaves();
+  paintSavesView();
 }
 // Client associé choisi comme client d'essai (menu d'un client du bandeau)
 async function useForTrials(m) {
@@ -1609,7 +1609,7 @@ async function useForTrials(m) {
     state.config = await api("/api/config/game_host/machine", { method: "PUT", body: { id: m.id } });
     state.doctor = null;
     applyMode();
-    paintSaves();
+    paintSavesView();
     toast(`${m.name} : client d'essai`);
   } catch (error) { toast(error.message, "alert", true); }
 }
@@ -1720,14 +1720,13 @@ const sectionRank = (key) => key === "sys:win" ? 0 : key === "switch" ? 2 : key 
 // Sections repliées (clic sur leur titre), mémorisées dans le navigateur
 const savesCollapsed = new Set((() => { try { return JSON.parse(storage.get("wsfs-saves-collapsed") || "[]"); } catch { return []; } })());
 
-const SAVE_FILTERS = [["", "Tous"], ["diff", "Différences"], ["same", "Identiques"], ["reserve", "Sur le manager"]];
 const OS_ICONS = ["linux", "steamos", "batocera"];          // icônes choisissables d'un client
 const OS_LABELS = { linux: "Linux", steamos: "SteamOS", batocera: "Batocera" };
 const sv = {
   machines: [],          // clients joints à leur état (kind, removable, ok, games, message)
   games: [],             // { game, reserve, machines: [état par client] }
   loaded: false, error: "", seq: 0,
-  filter: "", selected: new Set(), unchecked: new Set(),   // unchecked : cibles décochées
+  todo: "", selected: new Set(), unchecked: new Set(),   // todo : pastille « À traiter » active ; unchecked : cibles décochées
   source: AUTO,
   op: null,              // { text } pendant une opération
   result: null,          // { task, error } de la dernière opération
@@ -1781,7 +1780,7 @@ const osIcon = (key, cls = "") => icon(OS_ICONS.includes(key) || key === "server
 async function loadSaves() {
   if (!connected()) return;
   const seq = ++sv.seq;               // seule la dernière lecture compte
-  paintSaves();
+  paintSavesView();
   try {
     const [status, listed] = await Promise.all([api("/api/saves/status"), api("/api/saves/machines")]);
     if (seq !== sv.seq) return;
@@ -1796,64 +1795,217 @@ async function loadSaves() {
     if (seq !== sv.seq) return;
     sv.error = error.message;
   }
-  paintSaves();
+  paintSavesView();
   paintSettingsClients();
   if (!$("main").hidden) renderLibrary();      // la colonne « Sauveg. » des images
 }
 
-function paintSaves() {
+// Vue Sauvegardes : le client choisi en haut de page (state.client), ou « Toutes », filtre la liste.
+// Chaque ligne montre la synchro de ce client (ou de l'ensemble) et une seule action.
+const SYNC_LABEL = { ok: "À jour", send: "À envoyer", get: "À récupérer", conflict: "Conflit", none: "Non partagée",
+  absent: "Absente", off: "Hors ligne" };
+const SYNC_ICON = { ok: "check", send: "arrow", get: "arrow", conflict: "alert", none: "info", absent: "info", off: "wifi" };
+const CONFLICT_TITLE = "Modifiée sur le client depuis le dernier échange avec le manager : à départager, rien n'est envoyé";
+// Client choisi en haut de page, ou null pour « Toutes »
+const scopeMachine = () => (connected() && state.client !== "all" ? sv.machines.find((m) => m.id === state.client) : null) ?? null;
+
+// Copie affichée pour un jeu : la plus récente entre celle du client choisi (ou des clients
+// joignables) et celle du manager. `where` nomme son origine.
+function copyOf(g, scope) {
+  const reach = reachableIds();
+  const cands = g.machines.filter((s) => (scope ? s.id === scope.id : reach.includes(s.id)) && PRESENT_STATES.has(s.state) && s.newest)
+    .map((s) => ({ t: s.newest, size: s.size, where: s.name }));
+  if (g.reserve?.newest) cands.push({ t: g.reserve.newest, size: g.reserve.size, where: g.reserve.source || "" });
+  return cands.sort((a, b) => b.t - a.t)[0] ?? null;
+}
+
+// « aujourd'hui, 00:06 » · « hier » · « 12/11 »
+function dayText(t) {
+  const d = new Date(t * 1000), now = new Date();
+  const days = Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    - new Date(d.getFullYear(), d.getMonth(), d.getDate())) / 86400000);
+  if (days === 0) return `aujourd'hui, ${d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`;
+  if (days === 1) return "hier";
+  return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+}
+
+// Synchro d'un jeu : kind (ok, send, get, conflict, none, absent, off), et le bouton de la ligne
+// (button ; act : action, ou "menu" pour ouvrir le menu « ⋯ »). Un client qui n'a pas le jeu n'est
+// jamais servi par défaut : son installation se fait dans le menu de la ligne.
+function syncOf(g, scope) {
+  const reach = reachableIds();
+  if (!scope) {
+    if (g.machines.some((s) => s.conflict && reach.includes(s.id))) return { kind: "conflict", title: CONFLICT_TITLE, button: "Choisir…", act: "menu" };
+    // Copie la plus récente : celle du manager (les clients en retard la reçoivent), ou celle d'un client
+    const here = g.machines.filter((s) => reach.includes(s.id) && PRESENT_STATES.has(s.state));
+    if (g.reserve?.newest > Math.max(0, ...here.map((s) => s.newest))) {
+      const lagging = here.filter((s) => s.fingerprint && s.fingerprint.toLowerCase() !== (g.reserve.fingerprint || "").toLowerCase()).map((s) => s.id);
+      if (lagging.length) return { kind: "get", title: `Le manager a une version plus récente : la copier sur ${names(lagging)}`, button: "Récupérer", act: () => pushManager(g, lagging) };
+    }
+    const targets = rowTargets(g);
+    if (targets.length) return { kind: "send", title: `Envoyer la version la plus avancée à ${names(targets)}`, button: "Envoyer", act: () => syncRow(g) };
+    if (pullNeeded(g, AUTO)) return { kind: "send", title: "Copier la version la plus avancée sur le manager", button: "Envoyer", act: () => pullGames([g], AUTO) };
+    const places = reach.filter((id) => onMachine(g, id)).length + (g.reserve ? 1 : 0);
+    return places <= 1 ? { kind: "none", title: "Une seule copie : aucun autre client ne la partage" }
+      : { kind: "ok", title: "Toutes les copies sont à jour" };
+  }
+  if (!scope.ok) return { kind: "off", title: `${scope.name} est hors ligne : rien ne peut être envoyé avant son retour` };
+  const s = stateOf(g, scope.id), st = s?.state ?? "absente";
+  if (s?.conflict) return { kind: "conflict", title: CONFLICT_TITLE, button: "Choisir…", act: "menu" };
+  if (st === "absente") {
+    const holders = reach.filter((id) => id !== scope.id && onMachine(g, id)).length;
+    return holders ? { kind: "absent", title: `Pas de sauvegarde de ce jeu sur ${scope.name} : l'installer depuis le menu de la ligne` }
+      : { kind: "none", title: `Pas de sauvegarde de ce jeu sur ${scope.name}, ni sur un autre client joignable` };
+  }
+  if (st === "en retard") {
+    const from = suggestedOf(g);
+    if (from) return { kind: "get", title: `Copier la version de ${from.name} sur ${scope.name}`, button: "Récupérer", act: () => pushFrom(g, from.id, [scope.id]) };
+  }
+  if (g.reserve?.fingerprint && s.fingerprint && g.reserve.fingerprint.toLowerCase() !== s.fingerprint.toLowerCase() && g.reserve.newest > s.newest) {
+    return { kind: "get", title: `Le manager a une version plus récente : la copier sur ${scope.name}`, button: "Récupérer", act: () => pushManager(g, [scope.id]) };
+  }
+  const targets = lateIn(g).filter((id) => reach.includes(id));
+  if (st === "plus avancée" && targets.length) return { kind: "send", title: `Envoyer à ${names(targets)}`, button: "Envoyer", act: () => pushFrom(g, scope.id, targets) };
+  if (pullNeeded(g, scope.id)) return { kind: "send", title: "Copier cette version vers le manager", button: "Envoyer", act: () => pullGames([g], scope.id) };
+  return { kind: "ok", title: `${scope.name} a la version du manager` };
+}
+
+// Lignes du client choisi (ou de toutes) : jeux avec une copie sur un client joignable ou sur le manager.
+// Hors ligne, seule la copie du manager est connue (dernière synchro).
+function svBase(scope) {
+  const reach = reachableIds(), offline = Boolean(scope && !scope.ok);
+  return sv.games.filter((g) => (offline ? Boolean(g.reserve) : Boolean(g.reserve) || reach.some((id) => onMachine(g, id))))
+    .map((g) => ({ g, sync: syncOf(g, scope), copy: copyOf(g, scope) }));
+}
+
+// Pastille « À traiter » active et recherche
+function svVisible(base) {
+  const q = $("s-search").value.trim().toLowerCase();
+  return base.filter((r) => (!q || r.g.game.toLowerCase().includes(q) || gameLabel(r.g).toLowerCase().includes(q))
+    && (sv.todo !== "conflict" || r.sync.kind === "conflict")
+    && (sv.todo !== "sync" || r.sync.kind === "send" || r.sync.kind === "get"))
+    .sort((a, b) => gameLabel(a.g).localeCompare(gameLabel(b.g), "fr", { numeric: true, sensitivity: "base" }));
+}
+
+let svSig = null;           // client, pastille et recherche : les lignes entrent en cascade
+function paintSvList() {
+  const scope = scopeMachine(), base = svBase(scope), visible = svVisible(base);
+  const total = base.reduce((n, r) => n + (r.copy?.size || 0), 0);
+  $("sv-count").textContent = `${base.length} sauvegarde${base.length > 1 ? "s" : ""}`;
+  // Hors ligne, les tailles viennent de la copie du manager (dernière synchro), pas du client
+  const sizeWhere = !scope ? "sur tous les clients" : scope.ok ? `sur ${scope.name}` : "à la dernière synchro";
+  $("sv-size").textContent = base.length ? `${bigSize(total, 1)} ${sizeWhere}` : "";
+  const off = Boolean(scope && !scope.ok);
+  $("sv-offline").hidden = !off;
+  $("sv-offline").replaceChildren(...(off ? [icon("wifi"), el("span", { textContent: `${scope.name} est hors ligne : sauvegardes connues à sa dernière synchro. Rien ne peut être envoyé avant son retour.` })] : []));
+
+  const conflicts = base.filter((r) => r.sync.kind === "conflict").length;
+  const syncs = base.filter((r) => r.sync.kind === "send" || r.sync.kind === "get").length;
+  const toggle = (key) => () => { sv.todo = sv.todo === key ? "" : key; paintSvList(); };
+  const chips = [];
+  if (conflicts) chips.push(todoChip(conflicts, conflicts > 1 ? "conflits" : "conflit", "alert", "warn", sv.todo === "conflict", toggle("conflict")));
+  if (syncs) chips.push(todoChip(syncs, "à synchroniser", "refresh", "accent", sv.todo === "sync", toggle("sync")));
+  $("sv-todo").replaceChildren(...chips);
+  $("sv-todo-label").hidden = !chips.length;
+  const todoName = { conflict: "Conflits", sync: "À synchroniser" }[sv.todo] || "";
+  $("s-clear-filter").hidden = !todoName;
+  $("s-clear-filter-label").textContent = todoName;
+  $("s-visible").textContent = `${visible.length} sur ${base.length} · ${scope ? scope.name : "Toutes"}`;
+
+  const sig = [scope?.id ?? "all", sv.todo, $("s-search").value.trim()].join("|");
+  const enter = sig !== svSig;
+  svSig = sig;
+  // Sections (Jeux PC, Switch, Dossiers…) : groupes repliables dans le même tableau
+  const sections = [...new Set(visible.map((r) => sectionOf(r.g)))]
+    .sort((a, b) => sectionRank(a) - sectionRank(b) || sectionTitle(a).localeCompare(sectionTitle(b), "fr"));
+  const multi = sections.length > 1;
+  const folded = (key) => multi && savesCollapsed.has(key);
+  const shown = visible.filter((r) => !folded(sectionOf(r.g)));
+  const all = el("input", { type: "checkbox", checked: shown.length > 0 && shown.every((r) => sv.selected.has(r.g.game)),
+    title: "Tout sélectionner (filtre actuel)" });
+  all.onchange = () => { shown.forEach((r) => (all.checked ? sv.selected.add(r.g.game) : sv.selected.delete(r.g.game))); paintSvList(); paintSelection(); };
+  $("s-thead").replaceChildren(all, el("span", { textContent: "Jeu ↑" }), el("span", { className: "c-size r", textContent: "Taille" }),
+    el("span", { className: "c-when", textContent: "Dernière partie" }), el("span", { textContent: "Synchro" }), el("span"));
+
+  const groupRow = (key, count) => {
+    const button = el("button", { type: "button", className: `sv-group-btn${folded(key) ? " folded" : ""}`, "aria-expanded": String(!folded(key)),
+      title: folded(key) ? "Afficher cette section" : "Replier cette section" },
+      icon("chevd", "sm"), el("span", { textContent: sectionTitle(key) }), el("span", { className: "count", textContent: count }));
+    button.onclick = () => {
+      savesCollapsed.has(key) ? savesCollapsed.delete(key) : savesCollapsed.add(key);
+      storage.set("wsfs-saves-collapsed", JSON.stringify([...savesCollapsed]));
+      paintSvList();
+    };
+    return el("div", { className: "sv-group" }, button);
+  };
+  const rows = sections.flatMap((key) => {
+    const list = visible.filter((r) => sectionOf(r.g) === key);
+    return [...(multi ? [groupRow(key, list.length)] : []), ...(folded(key) ? [] : list.map((r) => svListRow(r, enter)))];
+  });
+  if (!visible.length) rows.push(el("div", { className: "svempty" }, base.length
+    ? emptyState("search", "Aucun jeu pour ces filtres", "Élargir la recherche ou retirer le filtre.")
+    : emptyState("save", "Aucune sauvegarde", "Les clients associés n'ont aucune sauvegarde de partie.")));
+  $("s-rows").replaceChildren(...rows);
+}
+
+// Une ligne : case, vignette et jeu, taille, dernière partie, synchro et son bouton, menu « ⋯ »
+function svListRow({ g, sync, copy }, enter) {
+  const scope = scopeMachine();
+  const selected = sv.selected.has(g.game);
+  const box = el("input", { type: "checkbox", checked: selected, title: "Sélectionner" });
+  box.onclick = (event) => event.stopPropagation();
+  const more = el("button", { type: "button", className: "iconbtn bare sm", title: "Autres actions", "aria-label": `Autres actions pour ${gameLabel(g)}`, "aria-haspopup": "menu" },
+    icon("more", "sm"));
+  const wrap = el("div", { className: "dd end sv-more" }, more);
+  more.onclick = (event) => { event.stopPropagation(); toggleMenu(wrap, () => rowItems(g)); };
+  const primary = sync.button ? el("button", { type: "button", className: "btn secondary sm sv-act", textContent: sync.button, disabled: busy() }) : null;
+  if (primary) {
+    primary.onclick = (event) => {
+      event.stopPropagation();
+      if (sync.act === "menu") more.click(); else sync.act();
+    };
+  }
+  const whenText = copy ? [dayText(copy.t), copy.where && copy.where !== scope?.name ? `sur ${copy.where}` : ""].filter(Boolean).join(", ") : "";
+  const row = el("div", { className: `grow item${selected ? " selected" : ""}${enter ? " enter" : ""}` },
+    box,
+    el("div", { className: "iname" }, saveThumb(g, imageIds().get(g.game)),
+      el("div", { className: "t" }, el("span", { className: "n", textContent: gameLabel(g), title: gameLabel(g) }))),
+    el("span", { className: "gsize c-size", textContent: copy ? size(copy.size) : "—" }),
+    el("span", { className: "sv-when c-when", textContent: whenText || "—", title: copy ? when(copy.t) : "" }),
+    el("div", { className: `sync ${sync.kind}`, title: sync.title + (g.check ? " · la plus lourde n'est pas la plus récente : à vérifier" : "") },
+      el("span", { className: "sync-lbl" }, icon(SYNC_ICON[sync.kind], "sm"), el("span", { textContent: SYNC_LABEL[sync.kind] })),
+      primary),
+    wrap);
+  row.dataset.id = g.game;
+  row.onclick = (event) => {
+    if (event.target.closest("button, input")) return;
+    box.checked = !box.checked;
+    box.onchange();
+  };
+  box.onchange = () => {
+    box.checked ? sv.selected.add(g.game) : sv.selected.delete(g.game);
+    row.classList.toggle("selected", box.checked);
+    paintSelection();
+  };
+  return row;
+}
+
+function paintSavesView() {
   paintClients();
+  const none = sv.loaded && sv.machines.length === 0;
   const diff = sv.games.filter(differs).length;
   $("count-saves").textContent = diff || "";
   $("count-saves").title = diff ? `${diff} jeu(x) dont les versions diffèrent entre clients` : "";
   $("s-loading").hidden = sv.loaded || Boolean(sv.error);
   $("s-error").replaceChildren(...(sv.error ? [notice("err", sv.error)] : []));
-  const none = sv.loaded && sv.machines.length === 0;
   $("s-empty").hidden = !none;
   $("s-body").hidden = !sv.loaded || none;
-  paintChips();
+  $("sv-head").hidden = $("s-body").hidden;
   if (!$("s-body").hidden) {
-    paintFilters();
-    paintTable();
+    paintSvList();
     paintStatus();
   }
   paintSelection();
-}
-
-// Bandeau : une carte par client (icône du système, nom, état) ; clic : menu (icône, oubli).
-// Le manager est une carte de plus, sans menu ; « Associer » est la dernière carte.
-function paintChips() {
-  if (filteredMachine() && !sv.machines.some((m) => m.id === filteredMachine())) sv.filter = "";
-  const kept = sv.games.filter((g) => g.reserve).length;
-  const manager = el("div", { className: "mcard mgr", title: "Copie des sauvegardes sur le manager : elle reste même si un client est éteint" },
-    el("span", { className: "mcard-ico" }, icon("server", "lg")),
-    el("span", { className: "mcard-txt" },
-      el("span", { className: "mcard-name" }, el("b", { textContent: "Manager" })),
-      el("span", { className: "mcard-sub", textContent: kept ? `${kept} jeu${kept > 1 ? "x" : ""} gardé${kept > 1 ? "s" : ""}` : "aucun jeu gardé" })));
-  $("s-chips").replaceChildren(...sv.machines.map(machineCard), manager, $("s-pair"));
-}
-
-function machineCard(m) {
-  const trial = isTrial(m);
-  const title = m.ok ? `${m.url} : joignable` : `Injoignable : ${m.message || "pas de réponse"}`;
-  const active = filteredMachine() === m.id;
-  // Clic sur la carte : n'affiche que les sauvegardes de ce client ; le chevron à droite ouvre le menu
-  const card = el("button", { type: "button", className: `mcard${m.ok ? "" : " off"}${active ? " on" : ""}`, "aria-pressed": String(active),
-    title: `${title}${trial ? " · client d'essai" : ""} · cliquer : ses sauvegardes seulement` },
-    el("span", { className: "mcard-ico" }, osIcon(m.icon, "lg")),
-    el("span", { className: "mcard-txt" },
-      el("span", { className: "mcard-name" }, el("b", { textContent: m.name }),
-        trial ? el("span", { className: "chip plain t-accent", title: "Client d'essai : lancement d'essai, diagnostic du lanceur et maintenance (menu du client)", textContent: "essais" }) : null,
-        m.auto ? el("span", { className: "chip plain t-sage", title: "Synchro automatique : envoie ses sauvegardes au manager à la sortie d'un jeu (--sync auto on)" },
-          icon("refresh", "xs"), el("span", { textContent: "auto" })) : null),
-      el("span", { className: "mcard-sub" }, el("span", { className: "led" }),
-        el("span", { textContent: m.ok ? `${m.games} jeu${m.games > 1 ? "x" : ""}` : "injoignable" }))));
-  card.onclick = () => { sv.filter = active ? "" : `m:${m.id}`; paintSaves(); };
-  const menu = el("button", { type: "button", className: "mcard-menu", title: "Actions sur ce client", "aria-label": `Actions sur ${m.name}`, "aria-haspopup": "menu" },
-    icon("chevd", "sm"));
-  const wrap = el("div", { className: "dd mcard-wrap" }, card, menu);
-  menu.onclick = () => openMenuNode(wrap, machineMenu(m));
-  return wrap;
 }
 
 // Menu d'un client : client d'essai (choix, diagnostic, maintenance), icône (détectée ou
@@ -1971,149 +2123,6 @@ function toggleMenu(wrap, items) {
 
 // Présence d'un jeu sur un client (utilisée par le bandeau et les cibles)
 const onMachine = (g, id) => PRESENT_STATES.has(stateOf(g, id)?.state);
-// Filtre par client : sv.filter = « m:<id> », réglé par un clic sur sa carte du bandeau « Clients »
-const filteredMachine = () => (sv.filter.startsWith("m:") ? sv.filter.slice(2) : "");
-// Filtres d'état, et le filtre client (les pastilles clients sont dans le bandeau)
-function paintFilters() {
-  const counts = { "": sv.games.length, diff: sv.games.filter(differs).length,
-    same: sv.games.filter(identical).length, reserve: sv.games.filter((g) => g.reserve).length };
-  const pill = (key, label, count) => {
-    const b = el("button", { type: "button", className: sv.filter === key ? "on" : "" },
-      el("span", { textContent: label }), el("span", { className: "count", textContent: count }));
-    b.onclick = () => { sv.filter = key; paintSaves(); };
-    return b;
-  };
-  $("s-filter").replaceChildren(...SAVE_FILTERS.map(([key, label]) => pill(key, label, counts[key])));
-}
-
-function visibleGames() {
-  const q = $("s-search").value.trim().toLowerCase();
-  const keep = (g) => {
-    if (sv.filter === "diff") return differs(g);
-    if (sv.filter === "same") return identical(g);
-    if (sv.filter === "reserve") return Boolean(g.reserve);
-    if (filteredMachine()) return onMachine(g, filteredMachine());
-    return true;
-  };
-  return sv.games.filter((g) => (!q || g.game.toLowerCase().includes(q) || gameLabel(g).toLowerCase().includes(q)) && keep(g))
-    .sort((a, b) => gameLabel(a).localeCompare(gameLabel(b), "fr", { numeric: true, sensitivity: "base" }));
-}
-
-// Cellule d'un client : badge (★ plus avancée, identique, en retard, — absente, ? injoignable),
-// « ⚠ à vérifier » si la suggérée n'est pas la plus récente, « ← » si elle reçoit la version,
-// puis « taille · date »
-function machineCell(g, m, target) {
-  const s = stateOf(g, m.id), st = s?.state ?? "absente", conflict = Boolean(s?.conflict);
-  // « à départager » : synchro auto, le client a changé depuis son dernier échange (rien n'est envoyé)
-  const [label, tone] = conflict ? ["à départager", "t-err"]
-    : { "plus avancée": ["★ plus avancée", "t-accent"], identique: ["identique", "t-sage"],
-      "en retard": ["en retard", "t-neutral"], présente: ["seule copie", "t-neutral"], injoignable: ["?", "t-err"] }[st] ?? ["—", ""];
-  const detail = [`${m.name} : ${st}`, s?.newest ? when(s.newest) : "", st === "injoignable" ? (s?.message || m.message || "") : "",
-    conflict ? "à départager : modifiée sur le client depuis le dernier échange avec le manager" : ""]
-    .filter(Boolean).join(" · ");
-  const cls = { "plus avancée": "sv-best", "en retard": "sv-old", absente: "sv-none" }[st] ?? "";
-  const top = suggestedOf(g);
-  const check = g.check && st === "plus avancée" ? checkMarker(g) : null;
-  const incoming = target && top && st !== "plus avancée"
-    ? el("span", { className: "sv-in", title: `Reçoit la version de ${top.name}`, textContent: "←" }) : null;
-  return el("td", { className: cls, title: detail },
-    el("div", { className: "sv-line" }, incoming,
-      st === "absente" ? dash() : el("span", { className: `chip plain ${tone}`, textContent: label }), check),
-    PRESENT_STATES.has(st) ? el("div", { className: "sv-date", textContent: sizeDate(s.size, s.newest) }) : null);
-}
-
-// Suggestion douteuse : la plus lourde n'est pas la plus récente
-function checkMarker(g) {
-  const other = g.machines.find((s) => s.name === g.check_by);
-  const dated = other ? ` (${g.check_by}, ${when(other.newest)})` : "";
-  return el("span", { className: "sv-check", tabIndex: 0, textContent: "⚠ à vérifier",
-    title: `La plus lourde (${suggestedOf(g)?.name ?? "?"}) n'est pas la plus récente${dated} : vérifie avant de synchroniser` });
-}
-
-function paintTable() {
-  closeMenu();
-  const first = filteredMachine();
-  // Colonnes : clients joignables seulement (un Steam Deck en veille n'a que des « ? ») ; sa carte
-  // reste dans le bandeau, en rouge. Le client filtré passe en premier.
-  const shown = sv.machines.filter((m) => m.ok || m.id === first);
-  const cols = first ? [...shown.filter((m) => m.id === first), ...shown.filter((m) => m.id !== first)] : shown;
-  const ids = imageIds(), games = visibleGames();
-  // Une section par plateforme (voir sectionOf) ; titres, repliables, s'il y en a plusieurs
-  const sections = [...new Set(games.map(sectionOf))]
-    .sort((a, b) => sectionRank(a) - sectionRank(b) || sectionTitle(a).localeCompare(sectionTitle(b), "fr"))
-    .map((key) => [key, sectionTitle(key), games.filter((g) => sectionOf(g) === key)]);
-  const multi = sections.length > 1;
-  const folded = (key) => multi && savesCollapsed.has(key);
-  const selectable = games.filter((g) => !folded(sectionOf(g)));       // lignes visibles seulement
-  const all = $("s-all");
-  all.checked = selectable.length > 0 && selectable.every((g) => sv.selected.has(g.game));
-  all.onchange = () => {
-    for (const g of selectable) (all.checked ? sv.selected.add(g.game) : sv.selected.delete(g.game));
-    paintTable();
-    paintSelection();
-  };
-  const head = el("tr", {}, el("th", { className: "sv-stick" }), el("th", { className: "sv-stick2", textContent: "Jeu" }),
-    ...cols.map((m) => el("th", { title: m.url },
-      el("span", { className: "sv-th" }, osIcon(m.icon, "sm"), el("span", { textContent: m.name })))),
-    el("th", { title: "Copie des sauvegardes sur le manager" }, el("span", { className: "sv-th" }, icon("server", "sm"), el("span", { textContent: "Manager" }))),
-    el("th", {}));
-  const rowOf = (g) => {
-    // Toutes les lignes sont actionnables (les routes prennent le nom du jeu) ; seule la fiche
-    // demande une image dans la bibliothèque (un jeu installé sur un seul client n'en a pas)
-    const img = ids.get(g.game), actionable = true;
-    const box = el("input", { type: "checkbox", checked: sv.selected.has(g.game), title: "Sélectionner" });
-    box.onchange = () => { box.checked ? sv.selected.add(g.game) : sv.selected.delete(g.game); paintTable(); paintSelection(); };
-    const name = img
-      ? el("button", { type: "button", className: "sv-name", textContent: gameLabel(g), title: "Ouvrir la fiche de l'image" })
-      : el("span", { className: "sv-name", textContent: gameLabel(g),
-        title: g.kind === "dossier" ? `Dossier déclaré sur les clients (${g.game})`
-          : g.kind === "switch" ? `Sauvegarde Eden (${g.game.slice(7)})` : "Pas d'image dans la bibliothèque du manager" });
-    if (img) name.onclick = () => { showView("images"); openDetail(img); };
-    const top = suggestedOf(g), targets = differs(g) ? rowTargets(g) : [];
-    const reserve = g.reserve
-      ? el("td", { className: "sv-mgr", title: `Copie du manager : depuis ${g.reserve.source || "?"}, le ${when(g.reserve.newest)} · ${g.reserve.archives} version(s) précédente(s)` },
-        el("span", { className: "sv-date", textContent: sizeDate(g.reserve.size, g.reserve.newest) }))
-      : el("td", {}, dash());
-    const actions = el("td", { className: "sv-act" });
-    if (actionable && differs(g)) {
-      const flow = targets.length ? `${top.name} → ${targets.length === 1 ? machineName(targets[0]) : `${targets.length} clients`}` : "";
-      const sync = el("button", { type: "button", className: "btn primary sm sv-sync", disabled: busy() || !targets.length,
-        title: targets.length ? `Sync de ${top.name} vers : ${names(targets)}` : "Aucun autre client joignable à synchroniser" },
-        icon("arrow", "sm"), el("b", { textContent: "Sync" }), flow ? el("span", { className: "sv-flow", textContent: flow }) : null);
-      sync.onclick = () => syncRow(g);
-      actions.append(sync);
-    }
-    if (actionable) {
-      const wrap = el("div", { className: "dd end" }, el("button", { type: "button", className: "iconbtn bare sm", title: "Autres actions", "aria-label": `Autres actions pour ${gameLabel(g)}`, "aria-haspopup": "menu" }, icon("chevd", "sm")));
-      wrap.querySelector("button").onclick = () => toggleMenu(wrap, () => rowItems(g));
-      actions.append(wrap);
-    }
-    return el("tr", { className: differs(g) ? "sv-diff" : "" },
-      el("td", { className: "sv-stick" }, box), el("td", { className: "sv-stick2" }, el("span", { className: "sv-namecell" }, saveThumb(g, img), name)),
-      ...cols.map((m) => machineCell(g, m, targets.includes(m.id))), reserve, actions);
-  };
-  const header = (kind, title, count) => {
-    const button = el("button", { type: "button", className: `sv-group-btn${folded(kind) ? " folded" : ""}`, "aria-expanded": String(!folded(kind)),
-      title: folded(kind) ? "Afficher cette section" : "Replier cette section" },
-      icon("chevd", "sm"), el("span", { textContent: title }), el("span", { className: "count", textContent: count }));
-    button.onclick = () => {
-      savesCollapsed.has(kind) ? savesCollapsed.delete(kind) : savesCollapsed.add(kind);
-      storage.set("wsfs-saves-collapsed", JSON.stringify([...savesCollapsed]));
-      paintTable();
-    };
-    return el("tr", { className: "sv-group" }, el("td", { colSpan: cols.length + 4 }, button));
-  };
-  const rows = sections.flatMap(([kind, title, list]) => [
-    ...(multi ? [header(kind, title, list.length)] : []),
-    ...(folded(kind) ? [] : list.map(rowOf))]);
-  if (!games.length) {
-    rows.push(el("tr", {}, el("td", { colSpan: cols.length + 4 },
-      sv.games.length ? emptyState("search", "Aucun jeu pour ces filtres", "Élargir la recherche ou choisir « Tous ».")
-        : emptyState("save", "Aucune sauvegarde", "Les clients associés n'ont aucune sauvegarde de partie."))));
-  }
-  $("s-table").replaceChildren(el("thead", {}, head), el("tbody", {}, ...rows));
-}
-
 // Vignette d'une ligne : illustration de l'image (jeu PC de la bibliothèque, comme la vue Images),
 // jaquette du gamelist.xml de Batocera (jeu Switch, /api/saves/art), sinon initiales.
 const svArt = { cache: new Map(), done: new Map() };
@@ -2149,7 +2158,9 @@ function rowItems(g) {
   const reach = reachableIds(), top = sourceOf(g);
   // Depuis un client qui a le jeu vers les autres qui l'ont dans une autre version
   const others = (s) => presentIn(g).filter((o) => o.id !== s.id && o.fingerprint !== s.fingerprint && reach.includes(o.id)).map((o) => o.id);
+  const img = imageIds().get(g.game);
   return [
+    ...(img ? [["Ouvrir la fiche de l'image", "image", false, () => { showView("images"); openDetail(img); }]] : []),
     ...presentIn(g).filter((s) => reach.includes(s.id) && others(s).length)
       .map((s) => [`Sync ${s.name} → ${names(others(s))}`, "arrow", !idle, () => pushFrom(g, s.id, others(s))]),
     // Installer sur un client qui n'a pas le jeu : choix explicite, jamais par défaut
@@ -2207,8 +2218,8 @@ $("s-targets").onclick = () => {
   placeMenu(openMenu, wrap);
 };
 $("s-source").onchange = () => { sv.source = $("s-source").value; paintSelection(); };
-$("s-search").addEventListener("input", paintTable);
-$("s-refresh").onclick = () => loadSaves();
+$("s-search").addEventListener("input", paintSvList);
+$("s-clear-filter").onclick = () => { sv.todo = ""; paintSvList(); };
 
 // Rafraîchissement automatique de l'onglet Sauvegardes : un client qui lance son agent (ou
 // l'arrête) change d'état sans recharger la page. Seulement onglet affiché et page visible, sans
@@ -2223,7 +2234,7 @@ async function pollSaves() {
 }
 setInterval(pollSaves, SAVES_POLL_MS);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) pollSaves(); });
-$("s-clear").onclick = () => { sv.selected.clear(); paintTable(); paintSelection(); };
+$("s-clear").onclick = () => { sv.selected.clear(); paintSvList(); paintSelection(); };
 $("s-push").onclick = () => pushSelection();
 $("s-pull").onclick = () => pullGames(sv.games.filter((g) => sv.selected.has(g.game) && pullNeeded(g, sv.source)), sv.source);
 $("s-delete").onclick = () => openSaveDelete(sv.games.filter((g) => sv.selected.has(g.game)));
@@ -2239,8 +2250,7 @@ function openPair() {
   $("dlg-pair").showModal();
   $("pair-code").focus();
 }
-$("s-pair").onclick = openPair;
-$("s-empty-pair").onclick = openPair;
+$("s-empty-settings").onclick = () => { showView("settings").then(() => $("st-clients").scrollIntoView({ block: "start" })); };
 $("pair-save").onclick = async () => {
   const code = $("pair-code").value.trim(), button = $("pair-save");
   if (!code) { setPairError("Colle le code wsq:// affiché par wsquashfs-launcher --pair."); return; }
@@ -2349,14 +2359,14 @@ function syncResultNode(task, failuresOnly = false) {
 async function runSaveOp(path, body) {
   sv.result = null;
   sv.op = { text: "Démarrage…" };
-  paintSaves();
+  paintSavesView();
   let taskId;
   try {
     ({ task: taskId } = await api(path, { method: "POST", body }));
   } catch (error) {
     sv.op = null;
     sv.result = { task: null, error: error.message };
-    paintSaves();
+    paintSavesView();
     return;
   }
   refreshTasks();
@@ -2392,12 +2402,12 @@ function pushFrom(g, sourceId, targets) {
   if (!confirm(`Sync « ${gameLabel(g)} » : ${machineName(sourceId)} → ${names(targets)}.\n\n${ARCHIVED}`)) return;
   runSaveOp("/api/saves/push", { source: sourceId, targets, games: [g.game] });
 }
-function pushReserve(g) {                   // copie du manager (sans source) vers les clients
-  const targets = reachManagerTargets(g);
-  if (!targets.length) return;
-  if (!confirm(`Sync « ${gameLabel(g)} » : Manager → ${names(targets)}.\n\n${ARCHIVED}`)) return;
+// Copie du manager (sans source) vers des clients, après confirmation
+function pushManager(g, targets) {
+  if (!targets.length || !confirm(`Sync « ${gameLabel(g)} » : Manager → ${names(targets)}.\n\n${ARCHIVED}`)) return;
   runSaveOp("/api/saves/push", { targets, games: [g.game] });
 }
+function pushReserve(g) { pushManager(g, reachManagerTargets(g)); }
 function pushSelection() {
   const games = sv.games.filter((g) => sv.selected.has(g.game));
   const targets = pushTargets();
@@ -2435,7 +2445,7 @@ function pushSelection() {
 
 // Ouvre l'onglet filtré sur un jeu (liste des images, fiche)
 function openSavesFor(game) {
-  sv.filter = "";
+  sv.todo = "";
   $("s-search").value = game;
   showView("saves");
   window.scrollTo(0, 0);
@@ -3696,6 +3706,26 @@ function folderBox(f) {
   return box;
 }
 
+// Pastilles « À traiter » des dossiers (filtres) : [état, libellé, icône, ton, test]
+const FOLDER_TODO = [
+  ["todo", "à traiter", "package", "accent", (f) => !f.image_exists],
+  ["noautorun", "sans autorun", "terminal", "accent", (f) => !f.has_autorun],
+  ["done", "déjà empaquetés", "check", "", (f) => f.image_exists],
+];
+function renderFolderTodo() {
+  const chips = FOLDER_TODO.map(([id, label, iconName, tone, test]) => ({ id, label, iconName, tone, n: folders.items.filter(test).length }))
+    .filter((c) => c.n)
+    .map((c) => todoChip(c.n, c.label, c.iconName, c.tone, folders.state === c.id, () => {
+      folders.state = folders.state === c.id ? "" : c.id;
+      renderFolders();
+    }));
+  $("g-todo").replaceChildren(...chips);
+  $("g-todo-label").hidden = !chips.length;
+  const active = FOLDER_TODO.find(([id]) => id === folders.state);
+  $("g-clear-filter").hidden = !active;
+  $("g-clear-filter-label").textContent = active ? cap(active[1]) : "";
+}
+
 function renderFolderList(visible) {
   const { key, dir } = folders.sort;
   const text = (f) => key === "system" ? `${f.system || ""} ${f.folder}` : f.folder;
@@ -3709,18 +3739,18 @@ function renderFolderList(visible) {
     b.onclick = () => { folders.sort = { key: k, dir: key === k ? -dir : 1 }; renderFolders(); };
     return b;
   };
-  $("g-thead").replaceChildren(all, sortBtn("folder", "Dossier"), sortBtn("system", "Système"),
+  $("g-thead").replaceChildren(all, sortBtn("folder", "Dossier"), sortBtn("system", "Système", "c-system"),
     el("span", { className: "c-profile", textContent: "Contenu", title: "autorun.cmd, image .wsquashfs" }), sortBtn("state", "État", "c-state"));
   $("g-list-rows").replaceChildren(...rows.map((f) => {
     const selected = folders.selected.has(f.id), [label, cls] = folderStatus(f);
-    const row = el("div", { className: `grow frow item${selected ? " selected" : ""}` },
+    const row = el("div", { className: `grow item${selected ? " selected" : ""}` },
       folderBox(f),
-      el("div", { className: "gname" }, thumb(f, "thumb", "folder"),
+      el("div", { className: "iname" }, thumb(f, "thumb", "folder"),
         el("div", { className: "t" }, el("span", { className: "n", textContent: f.folder, title: f.folder }),
-          el("span", { className: "sub" }, el("span", { textContent: `.${f.kind}` })))),
+          el("span", { className: "sub", textContent: `.${f.kind}` }))),
       el("span", { className: "c-system", textContent: cap(f.system) || "—" }),
       folderProfile(f),
-      el("span", { className: `state ${cls}`, textContent: label, title: label }));
+      el("span", { className: `state ${cls} c-state`, textContent: label, title: label }));
     row.onclick = () => toggleFolder(f);
     return row;
   }));
@@ -3738,8 +3768,10 @@ function renderFolders() {
     b.onclick = () => { folders.system = value; renderFolders(); };
     return b;
   }));
-  for (const b of $("g-state").children) b.classList.toggle("on", b.dataset.state === folders.state);
-  const visible = visibleFolders(), list = folders.layout === "list";
+  renderFolderTodo();
+  const visible = visibleFolders(), list = folders.layout === "list", total = folders.items.length;
+  $("g-title").textContent = `${total} dossier${total > 1 ? "s" : ""}`;
+  $("g-visible").textContent = `${visible.length} sur ${total}`;
   for (const b of $("g-layout").children) b.classList.toggle("on", b.dataset.layout === folders.layout);
   $("g-list").hidden = !list;
   $("g-rows").hidden = list;
@@ -3786,10 +3818,7 @@ $("g-layout").onclick = (event) => {
   storage.set("wsfs-folder-layout", folders.layout);
   renderFolders();
 };
-$("g-state").onclick = (event) => {
-  const b = event.target.closest("button[data-state]");
-  if (b) { folders.state = b.dataset.state; renderFolders(); }
-};
+$("g-clear-filter").onclick = () => { folders.state = ""; renderFolders(); };
 $("g-all").onchange = () => { visibleFolders().forEach((f) => $("g-all").checked ? folders.selected.add(f.id) : folders.selected.delete(f.id)); renderFolders(); };
 $("g-clear").onclick = () => { folders.selected.clear(); renderFolders(); };
 
@@ -4241,7 +4270,7 @@ $("btn-inst-uninstall").onclick = () => openUninstall(selectedImages());
   showView(view);              // charge aussi les sauvegardes si c'est la vue
   if (connected() && view !== "saves") loadSaves();   // compteur de l'onglet
   await loadLibrary();
-  paintSaves();                // les liens vers les images attendent la bibliothèque
+  paintSavesView();                // les liens vers les images attendent la bibliothèque
   loadInstall();               // images installées par client : filtre, pastilles, fiche (connecté)
   refreshTasks();
 })();
