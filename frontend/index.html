@@ -145,112 +145,80 @@
   </section>
 
   <aside id="detail" class="panel" hidden>
-    <div class="edit-banner" id="edit-banner" hidden>
-      <span class="edot"></span><span id="edit-title">Modification</span><span class="dirty" id="edit-dirty" hidden>· non enregistré</span>
-    </div>
-    <div class="detail-head">
-      <div class="cover" id="d-cover"></div>
+    <header class="detail-head">
+      <div class="dd cover-wrap"><button class="cover" id="d-cover" type="button" title="Illustration" aria-label="Illustration de l'image"></button></div>
       <div class="t"><h2 id="d-title"></h2><div id="d-id" class="id"></div></div>
-      <button class="iconbtn" id="d-close" title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button>
-    </div>
+      <button class="iconbtn" id="d-close" title="Fermer" aria-label="Fermer"><svg class="ico"><use href="#i-x"/></svg></button>
+    </header>
 
-    <!-- -------------------------------------------------- consultation -->
-    <div id="view-mode">
-      <div class="chips" id="d-chips"></div>
-      <div id="d-old"></div>
-      <div class="dtabs" id="d-tabs">
-        <button data-tab="info" class="active">Infos</button>
-        <button data-tab="autorun">Autorun</button>
-        <button data-tab="files">Fichiers</button>
-        <button data-tab="history">Historique</button>
-      </div>
+    <div class="chips" id="d-chips"></div>
+    <div id="d-old"></div>
 
-      <div data-pane="info">
-        <dl class="facts" id="d-info"></dl>
-        <div class="box" id="d-inst" hidden>
-          <div class="box-head"><svg class="ico"><use href="#i-drive"/></svg><strong>Machines</strong></div>
-          <p id="d-inst-where"></p>
-          <div class="row" style="margin-top:10px">
-            <button class="btn primary sm" id="d-inst-install"><svg class="ico sm"><use href="#i-drive"/></svg>Installer sur…</button>
-            <button class="btn secondary sm" id="d-inst-uninstall"><svg class="ico sm"><use href="#i-trash"/></svg>Désinstaller de…</button></div>
-        </div>
-        <div class="box">
-          <div class="box-head"><svg class="ico"><use href="#i-link"/></svg><strong>Liens du runner</strong>
-            <button class="btn secondary sm" id="d-links" title="Liens du prefix vers un runner hors de l'image ou absent, et réparation avec les runners installés sur la machine de jeu">Analyser</button></div>
-          <div id="d-links-result" class="msg">Vérifie que l'image ne dépend pas d'un runner installé sur la machine.</div>
-        </div>
-      </div>
-      <div data-pane="autorun" hidden>
-        <div id="a-override-box"></div>
-        <dl class="arview" id="ar-view"></dl>
-        <div id="ar-result"></div>
-      </div>
-      <div data-pane="files" hidden>
-        <label class="search wide in-panel"><svg class="ico sm"><use href="#i-search"/></svg><input type="search" id="files-q" placeholder="Rechercher un fichier (casse ignorée)"></label>
-        <p id="files-count"></p>
-        <div class="files" id="files-list"></div>
-      </div>
-      <div data-pane="history" hidden><div class="tasks-list" id="d-history"></div></div>
+    <nav class="dtabs" id="d-tabs">
+      <button data-tab="info" class="active" title="Infos" aria-label="Infos"><svg class="ico sm"><use href="#i-info"/></svg><span>Infos</span></button>
+      <button data-tab="autorun" title="Autorun" aria-label="Autorun"><svg class="ico sm"><use href="#i-terminal"/></svg><span>Autorun</span><i class="tdot" id="tab-dirty" title="non enregistré" hidden></i></button>
+      <button data-tab="version" title="Version" aria-label="Version"><svg class="ico sm"><use href="#i-upload"/></svg><span>Version</span></button>
+      <button data-tab="files" title="Fichiers" aria-label="Fichiers"><svg class="ico sm"><use href="#i-folder"/></svg><span>Fichiers</span></button>
+      <button data-tab="history" title="Historique" aria-label="Historique"><svg class="ico sm"><use href="#i-history"/></svg><span>Historique</span></button>
+    </nav>
 
-      <div class="panel-foot">
-        <div class="agroup">
-          <span class="glabel">Modifier</span>
-          <button class="btn secondary sm" id="d-edit-autorun"><svg class="ico sm"><use href="#i-pen"/></svg>Modifier l'autorun</button>
-          <button class="btn secondary sm" id="d-edit-version"><svg class="ico sm"><use href="#i-upload"/></svg>Nouvelle version</button>
-        </div>
-        <div class="agroup">
-          <span class="glabel">Contrôler</span>
-          <button class="btn bare sm" id="d-verify" title="Vérifier l'intégrité de l'image"><svg class="ico sm"><use href="#i-shield"/></svg>Vérifier</button>
-          <button class="btn bare sm" id="d-cover" title="Ajoute l'illustration (jaquette, sinon icône) dans l'image, sans la reconstruire : miniature du gestionnaire de fichiers"><svg class="ico sm"><use href="#i-image"/></svg>Illustration</button>
-          <span class="trial"><button class="btn bare sm" id="d-trial" title="Lance le jeu sur la machine de jeu, l'observe puis l'arrête : tient-il, fenêtre, erreurs, capture"><svg class="ico sm"><use href="#i-flask"/></svg>Lancement d'essai</button>
-            <select id="d-trial-duration" title="Durée de l'essai"><option value="30">30 s</option><option value="60" selected>60 s</option><option value="120">2 min</option></select></span>
-          <button class="btn secondary sm" id="d-saves-open" title="Ouvre l'onglet Sauvegardes, filtré sur ce jeu"><svg class="ico sm"><use href="#i-save"/></svg>Sauvegardes entre machines</button>
-          <button class="btn bare sm" id="d-saves-copy" title="Copie les sauvegardes de partie de ce jeu dans la ludothèque (saves/&lt;système&gt;/&lt;jeu&gt;), sur la machine de jeu"><svg class="ico sm"><use href="#i-save"/></svg>Copier les sauvegardes</button>
-          <button class="btn bare sm" id="d-saves-sync" title="Synchronise les sauvegardes de ce jeu avec les autres machines associées du réseau local : la plus lourde gagne (à taille égale, la plus récente), l'autre est archivée"><svg class="ico sm"><use href="#i-refresh"/></svg>Synchroniser</button>
-          <button class="btn bare sm" id="d-saves-reset" title="Met de côté les sauvegardes du jeu (renommées, pas supprimées)"><svg class="ico sm"><use href="#i-save"/></svg>Réinitialiser les sauvegardes</button>
-        </div>
+    <!-- -------------------------------------------------- infos -->
+    <div data-pane="info">
+      <div class="tiles">
+        <button class="tile" id="d-verify" title="Vérifier l'intégrité de l'image"><span class="disc t-sage"><svg class="ico sm"><use href="#i-shield"/></svg></span><span>Vérifier</span></button>
+        <div class="dd tile-wrap" id="d-trial-wrap"><button class="tile" id="d-trial" title="Lance le jeu sur la machine de jeu, l'observe puis l'arrête : tient-il, fenêtre, erreurs, capture"><span class="disc t-accent"><svg class="ico sm"><use href="#i-flask"/></svg></span><span>Essai</span></button></div>
+        <div class="dd tile-wrap"><button class="tile" id="d-saves" title="Sauvegardes de ce jeu entre machines"><span class="disc t-neutral"><svg class="ico sm"><use href="#i-save"/></svg></span><span>Sauvegardes</span></button></div>
+        <button class="tile" id="d-propose" title="Proposer un autorun (exécutables, règles, base de connaissances)"><span class="disc t-neutral"><svg class="ico sm"><use href="#i-sparkles"/></svg></span><span>Proposer</span></button>
+      </div>
+      <dl class="facts" id="d-info"></dl>
+      <dl class="facts">
+        <div id="d-inst" hidden><svg class="ico"><use href="#i-drive"/></svg><dt>Installé sur</dt>
+          <dd><span id="d-inst-where"></span>
+            <span class="fact-acts"><button class="linklike" id="d-inst-install">Installer sur…</button><button class="linklike" id="d-inst-uninstall">Désinstaller de…</button></span></dd></div>
+      </dl>
+      <div class="box">
+        <div class="box-head"><svg class="ico"><use href="#i-link"/></svg><strong>Liens du runner</strong>
+          <button class="btn secondary sm" id="d-links" title="Liens du prefix vers un runner hors de l'image ou absent, et réparation avec les runners installés sur la machine de jeu">Analyser</button></div>
+        <div id="d-links-result" class="msg">Vérifie que l'image ne dépend pas d'un runner installé sur la machine.</div>
       </div>
     </div>
 
-    <!-- -------------------------------------------------- édition : autorun -->
-    <div id="edit-autorun" class="editor" hidden>
-      <div id="e-override-note"></div>
+    <!-- -------------------------------------------------- autorun (onglet d'édition) -->
+    <div data-pane="autorun" hidden>
+      <div id="a-override-box"></div>
       <div class="ar-top">
         <p id="a-note"></p>
-        <div class="pills on-s2" id="a-tabs">
-          <button data-atab="form" class="on">Formulaire</button>
-          <button data-atab="raw">Texte</button>
+        <div class="pills icons on-s2" id="a-tabs">
+          <button data-atab="form" class="on" title="Formulaire" aria-label="Formulaire"><svg class="ico sm"><use href="#i-list"/></svg></button>
+          <button data-atab="raw" title="Texte brut" aria-label="Texte brut"><svg class="ico sm"><use href="#i-code"/></svg></button>
         </div>
       </div>
       <div data-apane="form">
         <div class="kv-list" id="a-form"></div>
-        <button class="addkey" id="a-addkey"><svg class="ico sm"><use href="#i-plus"/></svg><span>Ajouter un réglage</span></button>
-        <div class="unset" id="a-unset" hidden></div>
+        <button class="addkey" id="a-pick"><svg class="ico sm"><use href="#i-plus"/></svg><span>Ajouter une clé</span></button>
+        <div class="unset" id="a-missing" hidden></div>
         <div id="a-lists" hidden></div>
       </div>
       <div data-apane="raw" hidden><textarea id="a-editor" rows="14" spellcheck="false"></textarea>
-        <label class="row muted" style="font-size:12.5px;margin-top:8px">Fins de ligne <select id="a-eol"><option value="crlf">CRLF (Windows)</option><option value="lf">LF</option></select></label></div>
-      <div class="row" style="margin-top:14px">
-        <button class="btn secondary sm" id="a-propose" title="Analyse les exécutables de l'image et propose un autorun justifié"><svg class="ico sm"><use href="#i-sparkles"/></svg>Proposer un autorun</button>
-        <button class="btn bare sm" id="a-kb" title="Mémoriser ces réglages pour ce jeu : appliqués aux prochaines propositions"><svg class="ico sm"><use href="#i-bookmark"/></svg>Mémoriser pour ce jeu…</button>
-      </div>
+        <label class="row muted fine">Fins de ligne <select id="a-eol"><option value="crlf">CRLF (Windows)</option><option value="lf">LF</option></select></label></div>
       <div id="a-proposal"></div>
       <ul class="issues" id="a-issues"></ul>
       <div id="a-result"></div>
-      <div class="panel-foot edit-foot">
-        <div class="row">
-          <button class="btn bare" id="a-cancel">Annuler</button>
-          <button class="btn bare" id="a-check" title="Contrôle l'autorun sans rien écrire"><svg class="ico sm"><use href="#i-shield"/></svg>Vérifier</button>
-          <span class="spacer"></span>
-          <button class="btn secondary" id="a-override" title="Écrit le réglage à côté de l'image : effet au prochain lancement, sans reconstruction. Batocera ne le voit pas."><svg class="ico sm"><use href="#i-zap"/></svg>Essayer sans reconstruire</button>
-          <div class="split"><button id="a-save" title="Inscrit l'autorun dans l'image ; l'ancienne est gardée en .old"><svg class="ico sm"><use href="#i-hammer"/></svg>Reconstruire</button><button class="when" id="a-when"></button></div>
-        </div>
+      <div id="ar-result"></div>
+      <div class="apane-foot">
+        <button class="roundbtn sage" id="a-propose" title="Analyse les exécutables de l'image et propose un autorun justifié"><svg class="ico"><use href="#i-sparkles"/></svg></button>
+        <button class="roundbtn" id="a-check" title="Contrôle l'autorun sans rien écrire"><svg class="ico"><use href="#i-shield"/></svg></button>
+        <button class="roundbtn" id="a-cancel" title="Annuler les modifications"><svg class="ico"><use href="#i-undo"/></svg></button>
+        <button class="roundbtn" id="a-kb" title="Mémoriser ces réglages pour ce jeu : appliqués aux prochaines propositions" aria-label="Mémoriser pour ce jeu"><svg class="ico"><use href="#i-bookmark"/></svg></button>
+        <span class="spacer"></span>
+        <button class="btn secondary sm" id="a-override" title="Appliquer tout de suite : écrit &lt;jeu&gt;.wsquashfs.autorun à côté de l'image, effet au prochain lancement (ignoré par Batocera)"><svg class="ico sm"><use href="#i-zap"/></svg>Surcharge</button>
+        <div class="split"><button id="a-save" title="Inscrit l'autorun dans l'image ; l'ancienne est gardée en .old"><svg class="ico sm"><use href="#i-hammer"/></svg>Reconstruire</button><button class="when" id="a-when"></button></div>
       </div>
     </div>
 
-    <!-- -------------------------------------------------- édition : nouvelle version -->
-    <div id="edit-version" class="editor" hidden>
-      <p class="pane-intro">Appliquer un nouveau build ou un patch (dossier sur le serveur) au dossier du jeu dans l'image. Fais d'abord un aperçu ; l'original est gardé en .old.</p>
+    <!-- -------------------------------------------------- version (onglet d'édition) -->
+    <div data-pane="version" hidden>
+      <p class="pane-intro">Appliquer un nouveau build ou un patch (dossier sur le serveur) au dossier du jeu dans l'image. Aperçu d'abord ; l'original est gardé en .old.</p>
       <div class="v-form">
         <label class="field">Dossier source<input id="u-source" placeholder="/config/Téléchargements/Jeu v1.2"></label>
         <label class="field">Point d'ancrage dans l'image<input id="u-anchor" placeholder="(racine)"></label>
@@ -259,15 +227,20 @@
         <label class="field">Nouvelle version (GAME_VERSION)<input id="u-version" placeholder="proposée d'après l'exécutable"></label>
       </div>
       <div id="u-result" class="result"></div>
-      <div class="panel-foot edit-foot">
-        <div class="row">
-          <button class="btn bare" id="u-cancel">Annuler</button>
-          <span class="spacer"></span>
-          <button class="btn secondary" id="u-preview"><svg class="ico sm"><use href="#i-eye"/></svg>Aperçu</button>
-          <div class="split"><button id="u-run" disabled title="Faire d'abord un aperçu"><svg class="ico sm"><use href="#i-upload"/></svg>Mettre à jour</button><button class="when" id="u-when"></button></div>
-        </div>
+      <div class="apane-foot">
+        <span class="spacer"></span>
+        <button class="btn secondary sm" id="u-preview"><svg class="ico sm"><use href="#i-eye"/></svg>Aperçu</button>
+        <div class="split"><button id="u-run" disabled title="Faire d'abord un aperçu"><svg class="ico sm"><use href="#i-upload"/></svg>Mettre à jour</button><button class="when" id="u-when"></button></div>
       </div>
     </div>
+
+    <!-- -------------------------------------------------- fichiers, historique -->
+    <div data-pane="files" hidden>
+      <label class="search wide in-panel"><svg class="ico sm"><use href="#i-search"/></svg><input type="search" id="files-q" placeholder="Rechercher un fichier (casse ignorée)"></label>
+      <p id="files-count"></p>
+      <div class="files" id="files-list"></div>
+    </div>
+    <div data-pane="history" hidden><div class="tl" id="d-history"></div></div>
   </aside>
 </main>
 
