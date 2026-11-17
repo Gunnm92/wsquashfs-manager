@@ -525,6 +525,17 @@ def machine_state(settings: Settings, game: str, machine_id: str) -> str:
     return str(value or "")
 
 
+def base_state(settings: Settings, game: str, machine_id: str, entry: dict | None) -> tuple[str, str]:
+    """(base, origine) d'un (jeu, client) pour `decide` : l'empreinte enregistrée par le manager
+    (« manager »), à défaut celle que le client déclare avoir échangée avec ce manager
+    (`state` de saves_list, « client »), sinon ("", ""). Lecture seule : rien n'est enregistré."""
+    own = machine_state(settings, game, machine_id)
+    if own:
+        return own, "manager"
+    declared = str((entry or {}).get("state") or "")
+    return (declared, "client") if declared else ("", "")
+
+
 def record_state(settings: Settings, game: str, machine_id: str, fingerprint: str) -> None:
     """Enregistre que le client a cette empreinte pour ce jeu (meta.json, écriture atomique)."""
     meta = reserve_meta(settings, game) or {}
@@ -1235,7 +1246,7 @@ def status(settings: Settings, games: list[str] | None = None, refresh: bool = F
     out = []
     for game in wanted:
         states = []
-        contents = {}
+        entries = {}
         for row, (listing, error, _, _) in zip(rows, fetched):
             state = {"id": row["id"], "name": row["name"], "state": "absente",
                      "fingerprint": "", "newest": 0, "size": 0, "message": "", "content": ""}
@@ -1243,6 +1254,7 @@ def status(settings: Settings, games: list[str] | None = None, refresh: bool = F
                 state.update(state="injoignable", message=error)
             elif game in listing:
                 entry = listing[game]
+                entries[row["id"]] = entry
                 state.update(state="présente", fingerprint=str(entry.get("fingerprint") or ""),
                              newest=int(entry.get("newest") or 0), size=_size_of(entry),
                              content=str(entry.get("content") or ""))
@@ -1255,8 +1267,9 @@ def status(settings: Settings, games: list[str] | None = None, refresh: bool = F
         versions = conflict_versions(settings, game)
         in_conflict = {v["machine_id"] for v in versions}
         for state in states:
+            base, state["base_source"] = base_state(settings, game, state["id"], entries.get(state["id"]))
             state["action"] = "" if state["state"] == "injoignable" else decide(
-                machine_state(settings, game, state["id"]), state["fingerprint"], current,
+                base, state["fingerprint"], current,
                 client_newest=state["newest"], manager_newest=manager_newest,
                 client_content=state["content"], manager_content=manager_content)
             state["conflict"] = state["action"] == "conflit" or state["id"] in in_conflict
@@ -1337,7 +1350,7 @@ def _result(game: str, row: dict, **kw) -> dict:
 
 def _decision(settings: Settings, game: str, row: dict, entry: dict | None) -> str:
     meta = (reserve_meta(settings, game) or {}) if current_fingerprint(settings, game) else {}
-    return decide(machine_state(settings, game, row["id"]), str((entry or {}).get("fingerprint") or ""),
+    return decide(base_state(settings, game, row["id"], entry)[0], str((entry or {}).get("fingerprint") or ""),
                   current_fingerprint(settings, game),
                   client_newest=int((entry or {}).get("newest") or 0),
                   manager_newest=int(meta.get("newest") or 0),

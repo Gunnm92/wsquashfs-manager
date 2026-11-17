@@ -126,7 +126,7 @@ class SavesAgent(BaseHTTPRequestHandler):
             if self.st.get("no_saves_routes"):         # agent v2 : route inconnue du routeur Go
                 return self._send(404, b"404 page not found\n", ctype="text/plain; charset=utf-8")
             games = [{"name": name, "fingerprint": "" if g.get("gone") else fp_of(g["data"]),
-                      "newest": g["newest"], "size": g["size"], "state": "",
+                      "newest": g["newest"], "size": g["size"], "state": self.st.get("states", {}).get(name, ""),
                       "content": self.st["contents"].get(name, ""),
                       **({"label": self.st["labels"][name]} if name in self.st["labels"] else {}),
                       **({"dir": self.st["dirpaths"][name]} if name in self.st["dirpaths"] else {})}
@@ -2187,6 +2187,43 @@ def test_api_resolve_refuses_an_unknown_client(api):
     store_v(settings, "Jeu", "manager")
     response = client.post("/api/saves/resolve", json={"game": "Jeu", "keep": "client:fantome"})
     assert response.status_code == 422 and "client inconnu" in response.json()["detail"]
+
+
+def test_client_declared_base_is_the_fallback(agents, tmp_path):
+    b, settings, bid = one_auto(agents, tmp_path, {"Jeu": (gz("local"), None, 500)})
+    manager = store_v(settings, "Jeu", "manager")
+    meta_path = saves.reserve_dir(settings, "Jeu") / "meta.json"
+    before = meta_path.read_bytes()
+    b["st"]["states"] = {"Jeu": manager}                            # le client déclare avoir eu la version du manager
+    machine = saves.status(settings, ["Jeu"])["games"][0]["machines"][0]
+    assert (machine["action"], machine["base_source"]) == ("remonter", "client")
+    assert meta_path.read_bytes() == before                         # status n'écrit rien
+    assert saves.machine_state(settings, "Jeu", bid) == ""
+    b["st"]["states"] = {"Jeu": fp_of(gz("local"))}                 # client non modifié, manager différent
+    machine = saves.status(settings, ["Jeu"])["games"][0]["machines"][0]
+    assert (machine["action"], machine["base_source"]) == ("descendre", "client")
+    b["st"]["states"] = {}
+    machine = saves.status(settings, ["Jeu"])["games"][0]["machines"][0]
+    assert (machine["action"], machine["base_source"]) == ("conflit", "")
+
+
+def test_manager_base_wins_over_the_client_declared_one(agents, tmp_path):
+    b, settings, bid = one_auto(agents, tmp_path, {"Jeu": (gz("local"), None, 500)})
+    manager = store_v(settings, "Jeu", "manager")
+    saves.record_state(settings, "Jeu", bid, fp_of(gz("local")))    # le manager : client non modifié
+    b["st"]["states"] = {"Jeu": manager}                            # le client dirait l'inverse
+    machine = saves.status(settings, ["Jeu"])["games"][0]["machines"][0]
+    assert (machine["action"], machine["base_source"]) == ("descendre", "manager")
+
+
+def test_sync_auto_uses_the_client_declared_base(agents, tmp_path):
+    b, settings, bid = one_auto(agents, tmp_path, {"Jeu": (gz("local"), None, 500)})
+    manager = store_v(settings, "Jeu", "manager")
+    b["st"]["states"] = {"Jeu": manager}
+    [result] = saves.sync_auto(settings)
+    assert result["action"] == "remontée" and saves.conflict_versions(settings, "Jeu") == []
+    assert saves.current_fingerprint(settings, "Jeu") == fp_of(gz("local"))
+    assert saves.machine_state(settings, "Jeu", bid) == fp_of(gz("local"))
 
 
 def test_status_exposes_action_content_and_conflicts(agents, tmp_path):
