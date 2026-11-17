@@ -41,10 +41,10 @@ les mêmes tâches). Tests : `backend/.venv/bin/python -m pytest` (dans
 `backend/`, les reconstructions réelles exigent squashfs-tools).
 
 **Mode** (Réglages, section « Mode ») : *autonome* — le manager ne fait que construire
-(Images, Dossiers) : aucune machine, pas d'écoute des machines, pas de sauvegardes
-ni d'installation ; les routes qui touchent une machine répondent 409. *connecté* —
-sauvegardes entre machines, installation, lancement d'essai. Sans choix enregistré,
-le mode est connecté dès qu'une machine est associée ou qu'un lanceur local est
+(Images, Dossiers) : aucun client, pas d'écoute des clients, pas de sauvegardes
+ni d'installation ; les routes qui touchent un client répondent 409. *connecté* —
+sauvegardes entre clients, installation, lancement d'essai. Sans choix enregistré,
+le mode est connecté dès qu'un client est associé ou qu'un lanceur local est
 configuré, autonome sinon (`PUT /api/config/mode {"mode"}`).
 
 Les systèmes se choisissent dans l'interface (Réglages → Systèmes à gérer),
@@ -73,38 +73,38 @@ puis Docker → Add Container → Template : `wsquashfs-manager`. Champs :
 | Champ | Conteneur | Rôle |
 |---|---|---|
 | Port de l'interface | 8765 | interface web |
-| Port des machines | 8790 | HTTPS : sauvegardes envoyées par les machines (synchro automatique) |
+| Port des clients | 8790 | HTTPS : sauvegardes envoyées par les clients (synchro automatique) |
 | Roms | `/roms` | dossier des roms Batocera ; les systèmes se cochent dans Réglages |
 | Sauvegardes du lanceur | `/saves` | sauvegardes de wsquashfs-launcher dans SteamBox |
 | Appdata | `/data` | file de tâches, caches, réglages |
 | Mot de passe | `WSQUASHFS_MGR_PASSWORD` | obligatoire : sans lui, le conteneur refuse de démarrer |
 | PUID / PGID (avancé) | 99 / 100 | propriétaire des images créées (nobody:users = `arcade` de SteamBox) |
 
-**Machine d'essai** (menu d'une machine du bandeau Machines de Sauvegardes, « Utiliser pour les essais ») : là où tourne
+**Client d'essai** (menu d'un client du bandeau Clients de Sauvegardes, « Utiliser pour les essais ») : là où tourne
 `wsquashfs-launcher`, pour le **lancement d'essai** (le jeu tient-il,
 fenêtre minimisée, erreurs connues, capture ; refusé si un jeu .wsquashfs
 tourne déjà), l'état du lanceur (`--doctor`) et les runners installés
 (réparation des liens du runner). Facultative : tout le reste fonctionne
 sans. Le diagnostic et la maintenance du lanceur sont dans ce même menu (« Diagnostic du lanceur… », « Maintenance… »),
-utilisables une fois la machine d'essai enregistrée et joignable : lister,
+utilisables une fois le client d'essai enregistré et joignable : lister,
 démonter, nettoyer, copier les sauvegardes (tous les jeux), synchroniser les
-sauvegardes avec les autres machines associées, voir l'état de la synchro.
+sauvegardes avec les autres clients associés, voir l'état de la synchro.
 La fiche d'un jeu a « Copier les sauvegardes » et « Synchroniser » (ce jeu), et
-« Sauvegardes entre machines », qui ouvre l'onglet Sauvegardes filtré sur le jeu.
-L'association d'une machine se fait une fois, en ligne de commande, sur les
-deux machines : `wsquashfs-launcher --pair` sur l'autre, puis
+« Sauvegardes entre clients », qui ouvre l'onglet Sauvegardes filtré sur le jeu.
+L'association d'un client se fait une fois, en ligne de commande, sur les
+deux clients : `wsquashfs-launcher --pair` sur l'autre, puis
 `wsquashfs-launcher --sync wsq://…` sur celle-ci (le manager ne l'expose pas ;
 le code ne sert qu'une fois, voir ci-dessous).
 
-Dans l'interface, la machine d'essai est une machine associée (`game_host` = `agent`).
+Dans l'interface, le client d'essai est un client associé (`game_host` = `agent`).
 Le lanceur local (`game_host` = `local`, variable `WSQUASHFS_MGR_GAME_HOST=local` :
-lanceur installé sur la machine du gestionnaire, avec un écran) n'y est plus proposé.
+lanceur installé sur le serveur du manager, avec un écran) n'y est plus proposé.
 
 | Valeur de `game_host` | Usage |
 |---|---|
 | `off` | défaut d'une installation neuve |
-| `local` | lanceur installé sur la machine du gestionnaire, avec un écran ; le service tourne sous l'utilisateur de la session graphique |
-| `agent` | **Une machine déjà associée** (onglet Sauvegardes : SteamBox, AIBox, Deck…) se choisit dans la liste « Machine associée » : son adresse, son jeton et son certificat sont repris, sans nouveau code (`PUT /api/config/game_host/machine {"id"}`). **Autre machine** : sur la machine d'essai, ou dans son conteneur (ex. SteamBox) : `wsquashfs-launcher --pair` affiche le code `wsq://…` et attend qu'il soit collé dans **Associer** (le certificat est vérifié contre le code, puis le code est échangé contre un jeton propre à ce manager ; le code ne sert qu'une fois, pendant que `--pair` attend ; une machine se révoque côté machine par `wsquashfs-launcher --pair forget <machine>` ou `--pair reset`) ; ensuite `wsquashfs-launcher --agent` lance l'agent en arrière-plan (`--agent stop` l'arrête ; rien ne le démarre tout seul, aucun port ouvert en dehors de `--agent`). Voir `docs/agent.md` du lanceur. |
+| `local` | lanceur installé sur le serveur du manager, avec un écran ; le service tourne sous l'utilisateur de la session graphique |
+| `agent` | **Un client déjà associé** (onglet Sauvegardes : SteamBox, AIBox, Deck…) se choisit dans la liste « Client associé » : son adresse, son jeton et son certificat sont repris, sans nouveau code (`PUT /api/config/game_host/machine {"id"}`). **Autre client** : sur le client d'essai, ou dans son conteneur (ex. SteamBox) : `wsquashfs-launcher --pair` affiche le code `wsq://…` et attend qu'il soit collé dans **Associer** (le certificat est vérifié contre le code, puis le code est échangé contre un jeton propre à ce manager ; le code ne sert qu'une fois, pendant que `--pair` attend ; un client se révoque côté client par `wsquashfs-launcher --pair forget <machine>` ou `--pair reset`) ; ensuite `wsquashfs-launcher --agent` lance l'agent en arrière-plan (`--agent stop` l'arrête ; rien ne le démarre tout seul, aucun port ouvert en dehors de `--agent`). Voir `docs/agent.md` du lanceur. |
 
 Le mode Conteneur Docker (API Docker, `docker-socket-proxy`) a été retiré : un
 conteneur se joint par l'agent. Une configuration qui le mentionne repasse en
@@ -118,72 +118,72 @@ Le conteneur démarre en root, prépare `/data`, puis passe à PUID/PGID.
 Le travail sur une image se fait à côté d'elle (`.wsquashfs-manager/`, même
 disque), jamais dans l'appdata.
 
-## Sauvegardes entre machines
+## Sauvegardes entre clients
 
 Le manager tourne en permanence : il garde une copie des sauvegardes de partie
 (`wsquashfs-launcher`, `/v1/saves/*` de l'agent) et synchronise celles d'une
-machine **source** (celle qui est la plus avancée) vers les autres machines.
+client **source** (celle qui est la plus avancée) vers les autres clients.
 À l'écran, cette copie est la colonne et la carte **Manager**.
 
-- **Machines** : `POST /api/saves/machines {code}` associe une machine par son
+- **Clients** : `POST /api/saves/machines {code}` associe un client par son
   code `wsq://…` : le certificat est contrôlé contre l'empreinte du code, puis
   le secret du code est échangé une seule fois (`POST /v1/pair`, agent version 7)
   contre le jeton durable de ce manager ; le nom est le `host` de l'agent. Une
   même empreinte ou une même adresse remplace l'entrée. Le secret, le jeton et
-  le certificat ne sont jamais renvoyés. La machine de
+  le certificat ne sont jamais renvoyés. Le client de
   jeu en mode agent apparaît d'office (identifiant `game-host`, non
-  supprimable) sauf si une machine de la liste a la même adresse.
+  supprimable) sauf si un client de la liste a la même adresse.
 - **Icône** : `os` de `/v1/info` (ID de `/etc/os-release` : `steamos`,
   `batocera`, sinon `linux`), remplaçable à la main (`PATCH`, champ `icon` de
-  la machine ; `saves_game_host_icon` pour la machine d'essai).
+  le client ; `saves_game_host_icon` pour le client d'essai).
 - **Copie du manager** : `state_dir/saves-reserve/<jeu>/` : `current.tar.gz`,
   `meta.json` (empreinte, newest, taille, profil, source, date de réception) ;
   avant chaque remplacement, l'ancienne version devient
   `AAAAMMJJ-HHMMSS.tar.gz` (3 gardées). Écritures atomiques (durable.py).
-- **Pull** (machine → manager), **push** (manager → cibles), **push_from**
-  (pull puis push des seuls jeux récupérés). Une machine occupée (jeu en
-  cours, 409) n'est pas touchée : le résultat le dit, par jeu et par machine.
-- **États** (`GET /api/saves/status`) : par jeu et par machine, avec la taille
-  et la date. une machine sans le jeu est « absente » et ce
+- **Pull** (client → manager), **push** (manager → cibles), **push_from**
+  (pull puis push des seuls jeux récupérés). Un client occupé (jeu en
+  cours, 409) n'est pas touchée : le résultat le dit, par jeu et par client.
+- **États** (`GET /api/saves/status`) : par jeu et par client, avec la taille
+  et la date. un client sans le jeu est « absente » et ce
   n'est pas une différence (AIBox ou le Deck n'ont qu'une partie des jeux).
-  « présente » : une seule machine l'a. « identique » : les machines qui l'ont
+  « présente » : un seul client l'a. « identique » : les clients qui l'ont
   (deux au moins) ont la même version. Sinon : « plus avancée » (la plus
   récente parmi les tailles proches de la plus lourde, écart ≤ 10 % : la source suggérée) ou « en retard ». Les
-  machines non jointes sont « injoignable » (elles ne comptent pas). `check` : la suggérée n'est
+  clients non joints sont « injoignable » (ils ne comptent pas). `check` : la suggérée n'est
   pas la plus récente (`check_by` = la plus récente), à vérifier avant de
-  synchroniser. Chaque machine n'est interrogée qu'une fois.
+  synchroniser. Chaque client n'est interrogée qu'une fois.
 - **Suppression** (`POST /api/saves/delete {games, machines, manager}`) : sur
-  les machines cochées, l'agent archive la sauvegarde dans son dossier des
+  les clients cochés, l'agent archive la sauvegarde dans son dossier des
   backups puis l'efface (`DELETE /v1/saves/tar?game=`, route de l'agent v5) ;
   sur le manager, la version courante devient une version datée (3 gardées) et
-  le jeu n'est plus dans la copie. Une machine occupée (409), injoignable, ou
+  le jeu n'est plus dans la copie. Un client occupé (409), injoignable, ou
   un agent plus ancien (404/405 : `--update` demandé) échoue seule. Le jeu doit
-  être arrêté. Rien à supprimer sur une machine : réussite sans effet.
+  être arrêté. Rien à supprimer sur un client : réussite sans effet.
 - **Dossiers déclarés et jeux Switch** (agent v8) : en plus des jeux, les agents
   listent des dossiers déclarés (`dossier:<nom>`) et les sauvegardes Eden, jeu par
-  jeu (`switch:<TitleID>`) ; `status` leur donne `label` (nom lisible venu de la
-  machine, sinon déduit) et `kind` (`dossier`, `switch` ou `jeu`). Pull, push,
+  jeu (`switch:<TitleID>`) ; `status` leur donne `label` (nom lisible venu du
+  client, sinon déduit) et `kind` (`dossier`, `switch` ou `jeu`). Pull, push,
   suppression et copie du manager les traitent comme des jeux. Les dossiers se
-  déclarent par machine (menu de la carte → « Dossiers synchronisés… ») :
+  déclarent par client (menu de la carte → « Dossiers synchronisés… ») :
   Un dossier se propage comme une sauvegarde : le manager garde son chemin (champ
   `dir` de la liste de l'agent, ou en-tête `X-Wsq-Dir` d'un envoi) et le transmet
-  en l'envoyant ; une machine qui ne l'a pas le déclare à la réception.
+  en l'envoyant ; un client qui ne l'a pas le déclare à la réception.
   `GET|PUT|DELETE /api/saves/machines/{id}/dirs` relaient `/v1/saves/dirs` de
   l'agent (422 : son refus, ex. chemin hors de son HOME, ou agent trop ancien ;
   502 : injoignable).
 - **Tâches** : pull, push et suppression passent par la file (tâche `saves`,
   sans image) ; le détail par jeu et par cible est dans `params.result` de la tâche.
 - **Écran** : l'onglet **Sauvegardes**, premier onglet, ouvert au démarrage
-  (Dossiers à empaqueter et Aide restent mémorisés). Aide intégrée : page
+  (Dossiers et Aide restent mémorisés). Aide intégrée : page
   « Sauvegardes ».
-  - Bandeau : une carte par machine (icône, pastille verte joignable ou rouge
-    injoignable, nombre de jeux) et une carte Manager. Un clic sur une machine
+  - Bandeau : une carte par client (icône, pastille verte joignable ou rouge
+    injoignable, nombre de jeux) et une carte Manager. Un clic sur un client
     n'affiche que ses sauvegardes, sa colonne en premier (second clic : tout) ;
     le chevron à droite de la carte propose son icône et « Oublier » (pas pour
-    la machine d'essai). « Associer
-    une machine » prend le code `wsq://` ; sur la machine :
+    le client d'essai). « Associer
+    un client » prend le code `wsq://` ; sur le client :
     `wsquashfs-launcher --pair`, puis `wsquashfs-launcher --agent` pour
-    qu'elle reste joignable. Sans machine, un encadré explique ces étapes.
+    qu'il reste joignable. Sans client, un encadré explique ces étapes.
   - Tableau en sections par plateforme : système Batocera de l'image du jeu
     (dossier sous `roms/` qui contient `<jeu>.wsquashfs` ou `.squashfs` ; à
     défaut un nom rapproché, sans casse ni suffixe entre parenthèses, s'il ne
@@ -196,26 +196,26 @@ machine **source** (celle qui est la plus avancée) vers les autres machines.
     pour un jeu PC de la bibliothèque ; pour un jeu Switch, la jaquette de la
     fiche du `gamelist.xml` de `roms/switch` ou `roms/switch2` qui porte son
     TitleID (`GET /api/saves/art?game=switch:<TitleID>`) ; sinon les initiales.
-  - Une machine injoignable (éteinte, en veille) n'a pas de colonne ; sa carte
+  - Un client injoignable (éteint, en veille) n'a pas de colonne ; sa carte
     reste dans le bandeau, en rouge.
-  - Tableau jeux × machines : ★ plus avancée, identique, en retard, — absente,
+  - Tableau jeux × clients : ★ plus avancée, identique, en retard, — absente,
     seule copie, ? injoignable, avec taille · date ; colonne Manager ;
     ⚠ à vérifier. Filtres : Tous, Différences, Identiques, Sur le manager ; le
-    filtre par machine passe par le bandeau (ci-dessus).
-  - Une ligne : « Sync X → Y » (la plus avancée vers les machines en retard)
-    et son chevron : sync depuis une machine précise, « Installer sur Z » (machine
+    filtre par client passe par le bandeau (ci-dessus).
+  - Une ligne : « Sync X → Y » (la plus avancée vers les clients en retard)
+    et son chevron : sync depuis un client précis, « Installer sur Z » (client
     qui n'a pas le jeu, choix explicite), copier vers le manager, sync depuis
-    le manager (machines qui ont le jeu), et « Supprimer… ».
+    le manager (clients qui ont le jeu), et « Supprimer… ».
   - « Supprimer… » (menu de la ligne, ou bouton de la barre de sélection) ouvre
-    un dialogue : une case par machine joignable et une pour le manager, cochées
+    un dialogue : une case par client joignable et une pour le manager, cochées
     si le jeu (ou un des jeux) y a une sauvegarde, sinon grisées ; « Supprimer »
     reste désactivé tant que rien n'est coché.
-  - Sélection : source (la plus avancée, jeu par jeu ; une machine ; le
+  - Sélection : source (la plus avancée, jeu par jeu ; un client ; le
     manager), cibles, « Sync » (récapitulatif avant envoi), « Copier vers le
     manager ». Une opération à la fois ; le résultat liste les échecs par jeu et
-    par machine.
+    par client.
   - Liste des images : une icône dans « Sauveg. » ouvre l'onglet filtré sur le
-    jeu, dès qu'une machine est associée.
+    jeu, dès qu'un client est associé.
 
 Routes (toutes sous `/api/saves/`) :
 
@@ -223,94 +223,94 @@ Routes (toutes sous `/api/saves/`) :
 |---|---|---|
 | GET | `machines` | `{"machines":[{id,name,url,fingerprint,kind,removable,icon}]}` |
 | POST | `machines` | `{"code":"wsq://…"}` → `{id,name,url,fingerprint,replaced}` ; 422 code illisible, déjà utilisé ou expiré, empreinte différente, agent trop ancien (version < 7) ; 502 injoignable |
-| GET | `machines/{id}/dirs` | `{dirs:[{name,path}], eden}` : dossiers déclarés sur la machine, dossier d'Eden (`""` sinon) |
-| PUT | `machines/{id}/dirs` | `{"name","path"}` (chemin à partir du dossier personnel de la machine, ex. `.local/share/hookshot/save`) → même réponse ; 422 refus de l'agent (chemin hors HOME, nom invalide, agent < 8) ; 502 injoignable |
+| GET | `machines/{id}/dirs` | `{dirs:[{name,path}], eden}` : dossiers déclarés sur le client, dossier d'Eden (`""` sinon) |
+| PUT | `machines/{id}/dirs` | `{"name","path"}` (chemin à partir du dossier personnel du client, ex. `.local/share/hookshot/save`) → même réponse ; 422 refus de l'agent (chemin hors HOME, nom invalide, agent < 8) ; 502 injoignable |
 | DELETE | `machines/{id}/dirs?name=` | retire la déclaration (fichiers gardés) → même réponse ; 422 nom inconnu |
 | PATCH | `machines/{id}` | `{"icon":"linux"\|"steamos"\|"batocera"\|null}` → `{id,icon,icon_set}` ; 400 icône ; 404 inconnue |
 | DELETE | `machines/{id}` | `{"removed":id}` ; 404 inconnue ; 422 `game-host` |
 | GET | `status[?id=<image>]` | `{machines:[{…,os,icon,icon_set}], games:[{game, reserve, check, check_by, machines:[{id,name,state,fingerprint,newest,size,message}]}]}` |
 | POST | `pull` | `{"source":id, "games":[…]}` ou `{"source":id, "all":true}` → `{"task":id}` |
 | POST | `push` | `{"source"?:id, "targets":[id…], "games":[…]}` ou `"all":true` → `{"task":id}` ; sans source : depuis le manager |
-| POST | `delete` | `{"games":[…], "machines":[id…], "manager":bool}` → `{"task":id}` ; 422 : jeu invalide ou en double, machine en double, ni machine ni manager ; 404 machine inconnue |
+| POST | `delete` | `{"games":[…], "machines":[id…], "manager":bool}` → `{"task":id}` ; 422 : jeu invalide ou en double, client en double, ni client ni manager ; 404 client inconnu |
 
-`"source":"auto"` (pull et push) : chaque jeu vient de sa machine « plus
+`"source":"auto"` (pull et push) : chaque jeu vient de son client « plus
 avancée ». Push : seules les cibles « en retard » reçoivent le jeu ; une cible
 « absente » ou déjà à la même version est sautée ; avec une source explicite,
-toutes les cibles reçoivent (c'est ainsi qu'on installe sur une machine) ; un jeu
+toutes les cibles reçoivent (c'est ainsi qu'on installe sur un client) ; un jeu
 identique, ou seulement sur le manager, n'est pas transféré.
 
-`games` (noms de jeux, sans image requise : un jeu installé sur une seule machine peut ne pas être dans la bibliothèque) et `all` s'excluent (422 sinon ; nom invalide : 422) ; source inconnue ou cible inconnue : 404 ;
+`games` (noms de jeux, sans image requise : un jeu installé sur un seul client peut ne pas être dans la bibliothèque) et `all` s'excluent (422 sinon ; nom invalide : 422) ; source inconnue ou cible inconnue : 404 ;
 source parmi les cibles, cible en double, jeu absent du manager ou manager
 vide : 422. Le jeu d'une image est son nom sans `.wsquashfs` ni `.pc`.
 
 ### Synchro automatique à la sortie d'un jeu
 
 Le manager écoute en HTTPS sur le port 8790 (`MACHINE_PORT`) et parle le même
-protocole que l'agent de wsquashfs-launcher : une machine qui le connaît lui
+protocole que l'agent de wsquashfs-launcher : un client qui le connaît lui
 envoie sa partie **à la sortie d'un jeu**, quand il est joignable. Rien n'est
 récupéré automatiquement au lancement ; un manager absent ou injoignable ne
-gêne pas le jeu (une ligne d'information sur la machine).
+gêne pas le jeu (une ligne d'information sur le client).
 
-- **Réglage** : Réglages → « Synchro automatique des machines » → « Adresse du manager pour les machines »
+- **Réglage** : Réglages → « Synchro automatique des clients » → « Adresse du manager pour les clients »
   (`PUT /api/config/machine_url {"url"}`, `https://hôte:port` ou vide). Pré-remplie
   avec l'adresse de cette page et le port 8790 ; l'empreinte du certificat du
   manager est affichée à côté (`machine_fingerprint` dans `GET /api/config`).
-- **Déclaration** : à l'association d'une machine (agent version 9 ou plus), puis
-  à chaque état de la synchro si la machine ne connaît pas encore ce manager
-  (`PUT /v1/saves/manager` sur l'agent). Le manager crée un jeton par machine et
+- **Déclaration** : à l'association d'un client (agent version 9 ou plus), puis
+  à chaque état de la synchro si le client ne connaît pas encore ce manager
+  (`PUT /v1/saves/manager` sur l'agent). Le manager crée un jeton par client et
   n'en garde que l'empreinte SHA-256 (`manager_token_sha256` dans `config.json`).
-  Une machine plus ancienne n'est pas déclarée.
-- **Machine** : `wsquashfs-launcher --sync auto on` (persistant, à faire une fois
-  par machine) ; `--sync auto off` l'arrête. La carte de la machine porte alors la
+  Un client plus ancien n'est pas déclaré.
+- **Client** : `wsquashfs-launcher --sync auto on` (persistant, à faire une fois
+  par client) ; `--sync auto off` l'arrête. La carte du client porte alors la
   pastille « auto ».
 - **Ce que reçoit le manager** : la partie, archivée comme une version
   précédente (3 gardées). Pendant cet envoi, le manager ne renvoie rien à la
-  machine ; l'état de chaque machine (dernière empreinte échangée) est dans
+  client ; l'état de chaque client (dernière empreinte échangée) est dans
   `meta.json` de la réserve du jeu (`states`).
 - **Mise à jour automatique** : toutes les `auto_push_interval` secondes (Réglages
-  → Synchro automatique des machines, 120 par défaut, 0 : désactivée ; `config.json`), et juste après un
-  envoi, le manager pousse sa version vers les machines dont la synchro auto est
+  → Synchro automatique des clients, 120 par défaut, 0 : désactivée ; `config.json`), et juste après un
+  envoi, le manager pousse sa version vers les clients dont la synchro auto est
   activée (`auto` de `GET /v1/info`) et qui sont en retard : celles dont l'état
-  enregistré correspond encore à leur empreinte actuelle. Une machine modifiée
+  enregistré correspond encore à leur empreinte actuelle. Un client modifié
   depuis son dernier échange est « à départager » et n'est pas touchée ; une
-  machine occupée (jeu en cours) est retentée au passage suivant. Chaque
-  poussée va au journal des tâches (« mise à jour auto »). Les machines dont la
+  client occupé (jeu en cours) est retentée au passage suivant. Chaque
+  poussée va au journal des tâches (« mise à jour auto »). Les clients dont la
   synchro auto est activée reçoivent donc aussi la version la plus récente du
   manager ; leur agent doit être lancé.
-- **Routes de la machine** (port 8790 seulement, jamais l'interface) : `GET /v1/info`,
+- **Routes du client** (port 8790 seulement, jamais l'interface) : `GET /v1/info`,
   `GET /v1/saves/list`, `GET|PUT /v1/saves/tar?game=`, `POST /v1/saves/state`.
   Authentification : `Authorization: Bearer <jeton>` (sinon 401) et en-tête
   `X-Wsq-Machine` (sinon 400). Les réponses d'erreur ont la même forme que
   celles de l'agent (`{"detail": …}`).
 
-## Installer un jeu sur une machine
+## Installer un jeu sur un client
 
-Une image `.wsquashfs` de la bibliothèque s'envoie sur les machines associées
+Une image `.wsquashfs` de la bibliothèque s'envoie sur les clients associés
 (les mêmes que l'onglet Sauvegardes), via leur agent (`/v1/games/*`, agent v6),
-et s'en désinstalle. Rien n'est créé sur la machine au-delà de l'image : le
+et s'en désinstalle. Rien n'est créé sur le client au-delà de l'image : le
 raccourci de lancement reste à ajouter à la main.
 
-- **Routes** : `GET /api/install/status` (par machine : joignable, dossier des
+- **Routes** : `GET /api/install/status` (par client : joignable, dossier des
   jeux, espace libre, jeux, envois partiels) ; `POST /api/install {ids, machines}`
   (une tâche par image) ; `POST /api/uninstall {names, machines}` (une tâche par
   nom de jeu) ; `POST /api/install/machines/{id}/dir {dir}`. Les tâches sont
-  de type `install` ; le résultat par machine est dans `params.result`.
+  de type `install` ; le résultat par client est dans `params.result`.
 - **Dossier des jeux** : deviné par l'agent, modifiable (`dir` vide : retour au
   dossier deviné). L'agent n'accepte qu'un dossier dans son HOME : sinon 400, avec
   son message. `set` indique si le dossier a été choisi à la main.
 - **Envoi** : par blocs de 256 Mio (PUT à partir d'un décalage). Avant l'envoi,
   l'espace libre doit couvrir le reste de l'image plus 1 Gio, sinon rien n'est
-  envoyé. L'empreinte SHA-256 est vérifiée par la machine au commit.
+  envoyé. L'empreinte SHA-256 est vérifiée par le client au commit.
 - **Reprise** : une coupure ou un décalage différent relance l'envoi après 1, 2,
-  4, 8, puis 16 s (5 reprises au plus). La machine dit ce qu'elle a déjà reçu ;
+  4, 8, puis 16 s (5 reprises au plus). Le client dit ce qu'il a déjà reçu ;
   l'empreinte est recalculée depuis le début de l'image jusqu'à cet endroit. Une
   empreinte refusée au commit recommence un envoi complet, une fois.
 - **Déjà installé** : même nom et même taille → réussite sans envoi. Une autre
   version → échec (la désinstaller d'abord).
-- **Désinstallation** : jeu monté ou en cours (409) → échec pour cette machine
+- **Désinstallation** : jeu monté ou en cours (409) → échec pour ce client
   seulement ; pas installé → réussite sans effet.
 - **Agent trop ancien** (404/405 sans détail) : `wsquashfs-launcher --update`
-  sur la machine, puis relancer son agent.
+  sur le client, puis relancer son agent.
 
 ## Configuration
 
@@ -327,10 +327,10 @@ Variables `WSQUASHFS_MGR_*` (ou fichier `backend/.env`) :
 | `TASK_CONCURRENCY` | `1` | reconstructions simultanées |
 | `OLD_RETENTION_DAYS` | — (manuelle) | suppression automatique des `.old` |
 | `HOST`, `PORT`, `PASSWORD` | `127.0.0.1`, `8765`, — | accès (voir ci-dessous) |
-| `MACHINE_PORT` | `8790` | HTTPS où les machines envoient leurs sauvegardes (`0` : désactivé) ; certificat auto-signé dans `STATE_DIR/tls/` |
-| `MACHINE_HOST` | `0.0.0.0` | adresse d'écoute de ce port (les machines doivent l'atteindre) |
-| `MACHINE_URL` | — | adresse du manager vue par les machines, ex. `https://192.168.1.10:8790` ; réglée aussi dans Réglages |
-| `UI_URL` | `http://<hôte de MACHINE_URL>:<PORT>` | adresse de l'interface donnée aux machines (« Ouvrir le manager » de `wsquashfs-launcher --tray`) ; à régler derrière un proxy |
+| `MACHINE_PORT` | `8790` | HTTPS où les clients envoient leurs sauvegardes (`0` : désactivé) ; certificat auto-signé dans `STATE_DIR/tls/` |
+| `MACHINE_HOST` | `0.0.0.0` | adresse d'écoute de ce port (les clients doivent l'atteindre) |
+| `MACHINE_URL` | — | adresse du manager vue par les clients, ex. `https://192.168.1.10:8790` ; réglée aussi dans Réglages |
+| `UI_URL` | `http://<hôte de MACHINE_URL>:<PORT>` | adresse de l'interface donnée aux clients (« Ouvrir le manager » de `wsquashfs-launcher --tray`) ; à régler derrière un proxy |
 
 ## Personnaliser l'apparence
 
@@ -359,7 +359,7 @@ Jetons principaux, définis dans `:root` (`assets/app.css`, couche `tokens`) :
 
 ## Création : dossiers → images
 
-Vue « Dossiers à empaqueter » : les dossiers `*.pc` et `*.wine` des dossiers
+Vue « Dossiers » : les dossiers `*.pc` et `*.wine` des dossiers
 `roms/`. Pour une sélection, « Analyser et empaqueter… » :
 
 1. **analyse** de chaque dossier (lecture seule) : prefix (`system.reg`,
@@ -485,7 +485,7 @@ images. L'interface demande le mot de passe et envoie ensuite un jeton dérivé
 dans l'en-tête `x-wsfs-token`.
 
 Sur un réseau domestique de confiance, on peut renoncer au mot de passe en
-posant `WSQUASHFS_MGR_ALLOW_NO_PASSWORD=1` : toute machine du réseau peut
+posant `WSQUASHFS_MGR_ALLOW_NO_PASSWORD=1` : tout client du réseau peut
 alors modifier et supprimer des images. Le template Unraid ne pose pas ce
 réglage : le mot de passe y reste obligatoire.
 
@@ -505,15 +505,15 @@ Les images sont désignées par leur identifiant `<système>/<nom>` en paramètr
 | POST | `/api/image/autorun/preview?id=` · `/api/image/autorun?id=` | vérifier, reconstruire |
 | POST | `/api/image/old/validate?id=` · `/api/image/old/restore?id=` | `.old` |
 | POST | `/api/image/saves/reset?id=` | sauvegardes → `<jeu>.avant-<date>` |
-| POST | `/api/game_host/maintenance` | lanceur sur la machine d'essai : corps `{"action", "id"?}` ; `list`, `umount`, `clean`, `saves` (sans jeu) ; `save` (jeu requis) ; `sync` (jeu facultatif) ; `sync-status` (sans jeu) |
+| POST | `/api/game_host/maintenance` | lanceur sur le client d'essai : corps `{"action", "id"?}` ; `list`, `umount`, `clean`, `saves` (sans jeu) ; `save` (jeu requis) ; `sync` (jeu facultatif) ; `sync-status` (sans jeu) |
 | POST | `/api/mass/autorun[/preview]` · `/api/mass/files[/preview]` | masse : autorun, fichiers/registre |
 | POST | `/api/mass/verify` · `/api/mass/cover` · `/api/mass/old/validate` · `/api/mass/saves/reset` | masse : intégrité, illustration, `.old`, sauvegardes |
 | GET | `/api/folders` · `/api/folders/analyze?id=&exe=` | dossiers à empaqueter, analyse |
 | POST | `/api/folders/pack` · `/api/folders/delete` | empaquetage en batch, suppression des dossiers empaquetés |
 | GET/POST | `/api/tasks[?image=]` · `/api/tasks/{id}` · `/api/tasks/{id}/cancel` | file |
-| GET/POST/PATCH/DELETE | `/api/saves/machines` · `/api/saves/status[?id=]` · `/api/saves/pull` · `/api/saves/push` · `/api/saves/delete` | sauvegardes entre machines (voir ci-dessus) |
+| GET/POST/PATCH/DELETE | `/api/saves/machines` · `/api/saves/status[?id=]` · `/api/saves/pull` · `/api/saves/push` · `/api/saves/delete` | sauvegardes entre clients (voir ci-dessus) |
 | PUT | `/api/config/sgdb` · POST `/api/config/sgdb/test` | clé et réglages SteamGridDB (la clé n'est jamais renvoyée) ; essai de la clé |
-| GET/POST | `/api/install/status` · `/api/install` · `/api/uninstall` · `/api/install/machines/{id}/dir` | installer ou désinstaller un jeu sur les machines (voir ci-dessus) |
+| GET/POST | `/api/install/status` · `/api/install` · `/api/uninstall` · `/api/install/machines/{id}/dir` | installer ou désinstaller un jeu sur les clients (voir ci-dessus) |
 
 ## Structure
 

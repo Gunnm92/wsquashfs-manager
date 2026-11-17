@@ -1,4 +1,4 @@
-"""Runner joint à une image, depuis les runners installés dans SteamBox.
+"""Runner intégré à une image, depuis les runners installés dans SteamBox.
 
 Deux réparations des liens du prefix (voir links.py) :
 - **joindre** un runner entier dans `runners/<nom>/` (Kingdom Hearts III :
@@ -155,7 +155,7 @@ def suggest(settings: Settings, image: Path, runners: list[dict]) -> dict:
         return listings[path]
 
     by_name = {r["name"].lower(): r for r in runners}
-    # Liens vers un runner de la machine : le joindre entier, s'il est dans SteamBox
+    # Liens vers un runner du client : le joindre entier, s'il est dans SteamBox
     wanted: dict[str, list[str]] = {}
     for _, target in report.external:
         name = next((n for n in report.runners if f"/{n}/" in target), None)
@@ -176,7 +176,7 @@ def suggest(settings: Settings, image: Path, runners: list[dict]) -> dict:
                        f"{sum(s in found for s in suffixes)}/{len(suffixes)} liens retrouvent "
                        f"leur fichier"),
             **plan.to_dict(), "set_key": True})
-    # Fichiers absents d'un runner joint : compléter depuis un runner qui les a
+    # Fichiers absents d'un runner intégré : compléter depuis un runner qui les a
     missing: dict[str, list[str]] = {}
     for rel, target in report.missing:
         resolved = posixpath.normpath(posixpath.join(posixpath.dirname(rel), target))
@@ -203,7 +203,7 @@ def suggest(settings: Settings, image: Path, runners: list[dict]) -> dict:
         suggestions.append({
             "action": "complete", "runner": runner["name"],
             "title": f"Compléter {joined} avec {sub} de {runner['name']}",
-            "detail": (f"{len(suffixes)} fichier(s) absents du runner joint ; {sub} copié de "
+            "detail": (f"{len(suffixes)} fichier(s) absents du runner intégré ; {sub} copié de "
                        f"SteamBox ({runner['name']}) dans runners/{joined}/"),
             **plan.to_dict(), "set_key": False})
     return out
@@ -214,7 +214,7 @@ def suggest(settings: Settings, image: Path, runners: list[dict]) -> dict:
 def run_relink(settings: Settings, task: Task, job: Job) -> str:
     """Gestionnaire de la tâche « relink » : réécrit en relatif les liens du
     prefix qui pointent vers un dossier absent de l'image mais présent dans
-    runners/ (ex. un runner joint, dont les liens gardent un chemin absolu)."""
+    runners/ (ex. un runner intégré, dont les liens gardent un chemin absolu)."""
     image, _ = _task_image(task)
     files, links = image_state(settings, image)
     report = classify(links, files)

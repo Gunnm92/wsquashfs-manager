@@ -1,17 +1,17 @@
-"""Installer une image .wsquashfs sur les machines associées (SPEC § 2.8).
+"""Installer une image .wsquashfs sur les clients associés (SPEC § 2.8).
 
-Chaque machine (les mêmes que l'onglet Sauvegardes) a un dossier des jeux, géré
+Chaque client (les mêmes que l'onglet Sauvegardes) a un dossier des jeux, géré
 par son agent (`/v1/games/*`, agent v6). Le manager y envoie l'image par blocs
-(PUT à partir d'un décalage : ce que la machine a déjà reçu), puis la fait
+(PUT à partir d'un décalage : ce que le client a déjà reçu), puis la fait
 valider par l'empreinte SHA-256 (commit).
 
 - Espace : le libre doit couvrir le reste de l'envoi plus 1 Gio, sinon rien n'est envoyé.
 - Reprise : une coupure ou un décalage différent → jusqu'à 5 reprises (pauses
-  croissantes) ; à chaque reprise, la machine dit ce qu'elle a déjà, et l'empreinte
+  croissantes) ; à chaque reprise, le client dit ce qu'il a déjà, et l'empreinte
   est recalculée depuis le début de l'image jusqu'à cet endroit.
-- Empreinte refusée au commit (422) : la machine a effacé son envoi partiel ; un
+- Empreinte refusée au commit (422) : le client a effacé son envoi partiel ; un
   nouvel envoi complet, depuis 0, au plus.
-- Annulation : entre deux blocs. Une machine en échec n'empêche pas les autres.
+- Annulation : entre deux blocs. Un client en échec n'empêche pas les autres.
 """
 
 from __future__ import annotations
@@ -151,7 +151,7 @@ def _installed_size(games: dict, name: str) -> int | None:
 
 def _transfer(host: AgentHost, name: str, size: int, image: Path, job: Job | None,
               label: str, stats: dict) -> None:
-    """Un essai : reprend l'envoi là où la machine en est, puis valide l'image.
+    """Un essai : reprend l'envoi là où le client en est, puis valide l'image.
     Lève AgentUnreachable / InstallOffset (à reprendre) ou InstallChecksum."""
     part = int(host.games_part(name)["part_size"])
     if part > size:                     # envoi plus gros que l'image : on repart de zéro
@@ -190,7 +190,7 @@ def _send(host: AgentHost, settings: Settings, machine_id: str, name: str, size:
             _transfer(host, name, size, image, job, label, stats)
             return "installé"
         except InstallChecksum as exc:
-            # Le .part a été effacé par la machine : un seul nouvel envoi complet
+            # Le .part a été effacé par le client : un seul nouvel envoi complet
             if restarted:
                 raise RebuildError(f"empreinte refusée deux fois par {label} : envoi abandonné") from exc
             restarted = True
@@ -230,7 +230,7 @@ def _install_one(settings: Settings, machine_id: str, name: str, size: int, imag
 
 def _install_on(settings: Settings, machine_id: str, name: str, size: int, image: Path,
                 job: Job | None, label: str, out: dict, stats: dict) -> None:
-    """Corps de l'installation sur une machine ; le résultat est écrit dans `out`."""
+    """Corps de l'installation sur un client ; le résultat est écrit dans `out`."""
     host = open_machine(settings, machine_id)
     games = host.games_list()
     installed = _installed_size(games, name)
@@ -256,8 +256,8 @@ def _install_on(settings: Settings, machine_id: str, name: str, size: int, image
 
 def install(settings: Settings, image_path: Path, machine_ids: list[str],
             job: Job | None = None) -> dict:
-    """Installe l'image sur chaque machine. → {name, size, results:[{machine, machine_id,
-    ok, message, sent, seconds}]}. Une machine en échec n'arrête pas les autres."""
+    """Installe l'image sur chaque client. → {name, size, results:[{machine, machine_id,
+    ok, message, sent, seconds}]}. Un client en échec n'arrête pas les autres."""
     name = image_name(image_path)
     try:
         size = image_path.stat().st_size
@@ -274,8 +274,8 @@ def install(settings: Settings, image_path: Path, machine_ids: list[str],
 
 def uninstall(settings: Settings, name: str, machine_ids: list[str],
               job: Job | None = None) -> dict:
-    """Désinstalle le jeu des machines → {name, results:[{machine, machine_id, ok, message}]}.
-    Pas installé : réussite sans effet. Jeu monté ou en cours : échec pour cette machine."""
+    """Désinstalle le jeu des clients → {name, results:[{machine, machine_id, ok, message}]}.
+    Pas installé : réussite sans effet. Jeu monté ou en cours : échec pour ce client."""
     if not valid_name(name):
         raise RebuildError(f"nom d'image invalide : {name!r}")
     results = []
@@ -301,7 +301,7 @@ def uninstall(settings: Settings, name: str, machine_ids: list[str],
 def status(settings: Settings) -> dict:
     """Jeux installés par machine : {machines:[{id, name, ok, message, dir, set, free,
     games:[noms], parts:[{name, size}], rate}]} ; `rate` : dernier débit mesuré vers elle
-    (octets/s, 0 si aucun envoi encore). Une machine injoignable est signalée seule."""
+    (octets/s, 0 si aucun envoi encore). Un client injoignable est signalé seul."""
     rows = machine_rows(settings)
     rates = measured_rates(settings)
 
@@ -327,7 +327,7 @@ def status(settings: Settings) -> dict:
 
 
 def set_dir(settings: Settings, machine_id: str, directory: str) -> dict:
-    """Dossier des jeux de la machine (« » : retour au dossier deviné) → {dir, set}.
+    """Dossier des jeux du client (« » : retour au dossier deviné) → {dir, set}.
     AgentRejected (400) : message de l'agent, par exemple hors du HOME."""
     return open_machine(settings, machine_id, timeout=30).games_set_dir(directory)
 
@@ -346,10 +346,10 @@ def run_install(settings: Settings, task: Task, job: Job) -> str:
         if not task.image_path:
             raise RebuildError("image absente de la tâche")
         result = install(settings, Path(task.image_path), machines, job)
-        label = f"sur {len(machines)} machine(s)"
+        label = f"sur {len(machines)} client(s)"
     elif op == "uninstall":
         result = uninstall(settings, str(p.get("name") or ""), machines, job)
-        label = f"de {len(machines)} machine(s)"
+        label = f"de {len(machines)} client(s)"
     else:
         raise RebuildError(f"opération d'installation inconnue : {op}")
     task.params["result"] = result

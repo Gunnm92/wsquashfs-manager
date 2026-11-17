@@ -475,7 +475,7 @@ def test_saves_errors_are_clear(agents, tmp_path):
         bad_token.saves_list()
     other = agents("autre", cert_dir="autre-cert")
     wrong_cert = AgentHost(settings, 10, pem=other["pem"], url=steambox["url"], token=TOKEN)
-    with pytest.raises(RebuildError, match="certificat de la machine différent"):
+    with pytest.raises(RebuildError, match="certificat du client différent"):
         wrong_cert.saves_list()
     closed = AgentHost(settings, 2, pem=steambox["pem"], url="https://127.0.0.1:1", token=TOKEN)
     with pytest.raises(RebuildError, match="injoignable"):
@@ -689,7 +689,7 @@ def test_push_auto_skips_identical_and_reserve_only_games(agents, tmp_path):
     result = saves.push_auto(settings, [ids["m1"], ids["m2"]], None)
     by_game = {r["game"]: r for r in result["push"]["results"] if not r["machine"]}
     assert by_game["C"]["ok"] is True and by_game["C"]["message"] == "déjà identiques"
-    assert by_game["D"]["ok"] is True and by_game["D"]["message"] == "aucune machine ne l'a : rien à pousser"
+    assert by_game["D"]["ok"] is True and by_game["D"]["message"] == "aucun client ne l'a : rien à pousser"
     # Aucun transfert pour C ni D : seul A part de m1 vers m2
     assert not [e for e in m1["st"]["log"] + m2["st"]["log"] if e["method"] == "PUT" and e["game"] in ("C", "D")]
     assert [(r["game"], r["machine"]) for r in result["push"]["results"] if r["machine"]] == [("A", "m2")]
@@ -915,7 +915,7 @@ def test_old_agent_gets_a_clear_message(agents, tmp_path, status):
     associate(settings, old)
     result = saves.delete(settings, delete_machine_ids(settings, "vieux"), ["Jeu"], manager=False)
     assert result["results"][0]["ok"] is False
-    assert result["results"][0]["message"] == "agent trop ancien : wsquashfs-launcher --update sur cette machine"
+    assert result["results"][0]["message"] == "agent trop ancien : wsquashfs-launcher --update sur ce client"
     assert "Jeu" in old["st"]["games"]
 
 
@@ -1339,7 +1339,7 @@ def test_api_delete_queues_one_task(agents, api):
     task = client.get(f"/api/tasks/{response.json()['task']}").json()
     assert task["kind"] == "saves" and task["image"] is None
     assert task["params"] == {"op": "delete", "machines": [ids["m1"]], "games": ["Jeu", "Autre"], "manager": True}
-    assert "1 machine" in task["title"] and "manager" in task["title"]
+    assert "1 client" in task["title"] and "manager" in task["title"]
     manager_only = client.post("/api/saves/delete", json={"games": ["Jeu"], "machines": [], "manager": True})
     assert manager_only.status_code == 200
     assert client.get(f"/api/tasks/{manager_only.json()['task']}").json()["params"]["machines"] == []

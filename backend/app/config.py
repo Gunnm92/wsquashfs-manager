@@ -39,7 +39,7 @@ class Settings(BaseSettings):
 
     # Sauvegardes (même convention que wsquashfs-launcher)
     saves_dir: Path = Path.home() / ".local/share/wsquashfs/saves"
-    # Icône choisie à la main pour la machine d'essai (Sauvegardes) ; None = détection
+    # Icône choisie à la main pour le client d'essai (Sauvegardes) ; None = détection
     saves_game_host_icon: str | None = None
 
     # Cache de wsquashfs-launcher (son WSQUASHFS_CACHE) : montages des jeux et
@@ -70,38 +70,38 @@ class Settings(BaseSettings):
     night_start: str = "01:00"
     night_end: str = "07:00"
 
-    # Machine d'essai : là où tourne wsquashfs-launcher pour le lancement
+    # Client d'essai : là où tourne wsquashfs-launcher pour le lancement
     # d'essai, l'état du lanceur (--doctor) et les runners installés.
     #   off    : fonctions désactivées (défaut d'une installation neuve) ;
-    #   local  : sur cette machine (lanceur installé ici, session graphique) ;
-    #   agent  : wsquashfs-launcher --agent, sur cette machine ou sur le réseau
+    #   local  : sur ce serveur (lanceur installé ici, session graphique) ;
+    #   agent  : wsquashfs-launcher --agent, sur ce client ou sur le réseau
     #            (association par code wsq://… ; un conteneur tourne ainsi aussi).
     # Non renseigné : « off ». Modifiable dans Réglages.
     game_host: Literal["off", "local", "agent"] | None = None
     agent_url: str = ""                           # https://hôte:port (mode agent)
-    agent_token: str = ""                         # jeton durable de la machine d'essai (config.json, jamais exposé)
+    agent_token: str = ""                         # jeton durable du client d'essai (config.json, jamais exposé)
     # Processus de la session graphique dont l'environnement (DISPLAY…) est
     # repris pour l'essai ; vide = environnement du gestionnaire
     session_process: str = "emulationstation"
     trial_duration: int = 60
 
     # Mode du manager. « autonome » : il ne fait que construire (Images, Dossiers) ; aucune
-    # machine, aucune écoute des machines, aucune synchro. « connecte » : sauvegardes entre
+    # machine, aucune écoute des clients, aucune synchro. « connecte » : sauvegardes entre
     # machines, installation, essais. Non renseigné dans config.json : « connecte » s'il y a
-    # une machine associée ou une machine d'essai en agent/local, sinon « autonome » (get_settings).
+    # un client associé ou un client d'essai en agent/local, sinon « autonome » (get_settings).
     # Modifiable dans Réglages.
     mode: Literal["autonome", "connecte"] = "autonome"
 
-    # Manager vu par les machines (synchro automatique à la sortie d'un jeu) : écoute HTTPS
+    # Manager vu par les clients (synchro automatique à la sortie d'un jeu) : écoute HTTPS
     # sur machine_port (0 = désactivé), services/machine_api.py. machine_url : adresse du
-    # manager telle que les machines la joignent (https://hôte:port), déclarée à chaque machine.
+    # manager telle que les clients la joignent (https://hôte:port), déclarée à chaque client.
     machine_host: str = "0.0.0.0"
     machine_port: int = 8790
     machine_url: str = ""
-    # Adresse de l'interface donnée aux machines (« Ouvrir le manager » de wsquashfs-launcher --tray) ;
+    # Adresse de l'interface donnée aux clients (« Ouvrir le manager » de wsquashfs-launcher --tray) ;
     # vide : http://<hôte de machine_url>:<port>. WSQUASHFS_MGR_UI_URL derrière un proxy.
     ui_url: str = ""
-    # Mise à jour automatique des machines en retard (services/saves.py push_behind) : intervalle
+    # Mise à jour automatique des clients en retard (services/saves.py push_behind) : intervalle
     # en secondes entre deux passages ; 0 : désactivée. Modifiable dans Réglages.
     auto_push_interval: int = 120
 
@@ -212,25 +212,25 @@ GAME_HOST_KEYS = ("game_host", "session_process", "agent_url", "agent_token")
 
 
 def save_game_host(settings: Settings, values: dict) -> None:
-    """Machine d'essai choisie dans « Réglages » (config.json)."""
+    """Client d'essai choisi dans « Réglages » (config.json)."""
     clean = {k: str(values[k]).strip() for k in GAME_HOST_KEYS if k in values}
     if clean.get("game_host") not in ("off", "local", "agent"):
-        raise ValueError("mode de la machine d'essai : off, local ou agent")
+        raise ValueError("mode du client d'essai : off, local ou agent")
     if clean["game_host"] == "agent":
-        # Pas de saisie d'adresse ni de jeton : la machine d'essai est une machine associée
+        # Pas de saisie d'adresse ni de jeton : le client d'essai est un client associé
         # (code wsq://, puis choix) ; son adresse et son jeton durable viennent d'elle
         url = clean.get("agent_url", settings.agent_url)
         if not re.match(r"^https://[^\s/]+:\d+$", url or ""):
-            raise ValueError("machine d'essai : associer une machine d'abord (code wsq://)")
+            raise ValueError("client d'essai : associer un client d'abord (code wsq://)")
         if not clean.get("agent_token") and not settings.agent_token:
-            raise ValueError("machine d'essai : associer une machine d'abord (code wsq://)")
+            raise ValueError("client d'essai : associer un client d'abord (code wsq://)")
     _save_runtime(settings, **clean)
     for key, value in clean.items():
         setattr(settings, key, value)
 
 
 SAVES_MACHINE_FIELDS = ("id", "name", "url", "token", "pem")
-ICONS = ("linux", "steamos", "batocera")     # icônes des machines de la synchronisation des sauvegardes
+ICONS = ("linux", "steamos", "batocera")     # icônes des clients de la synchronisation des sauvegardes
 _saves_lock = threading.Lock()      # lectures-écritures de config.json pour le manager de sauvegardes
 
 
@@ -250,7 +250,7 @@ def save_saves_machines(settings: Settings, machines: list[dict]) -> None:
 
 
 def save_saves_game_host_icon(settings: Settings, icon: str | None) -> None:
-    """Icône choisie pour la machine d'essai (None : retour à la détection).
+    """Icône choisie pour le client d'essai (None : retour à la détection).
     ValueError si la valeur n'est pas dans ICONS."""
     if icon is not None and icon not in ICONS:
         raise ValueError(f"icône inconnue : {icon} (valeurs : {', '.join(ICONS)})")
@@ -263,7 +263,7 @@ _MACHINE_URL = re.compile(r"https://[^\s/]+:(\d{1,5})")
 
 
 def save_machine_url(settings: Settings, url: str) -> None:
-    """Adresse du manager vue par les machines (https://hôte:port), ou "" pour aucune.
+    """Adresse du manager vue par les clients (https://hôte:port), ou "" pour aucune.
     ValueError si elle n'a pas cette forme ou si le port est hors plage."""
     value = (url or "").strip().rstrip("/")
     if value:
@@ -322,8 +322,8 @@ def save_auto_push_interval(settings: Settings, seconds: int) -> None:
 
 
 def set_saves_machine_field(settings: Settings, machine_id: str, key: str, value: str) -> None:
-    """Un champ d'une machine enregistrée (lecture-modification-écriture sous verrou) ;
-    KeyError si la machine n'existe pas."""
+    """Un champ d'un client enregistré (lecture-modification-écriture sous verrou) ;
+    KeyError si le client n'existe pas."""
     with _saves_lock:
         machines = saves_machines(settings)
         machine = next((m for m in machines if m["id"] == machine_id), None)
@@ -362,7 +362,7 @@ def get_settings() -> Settings:
         if isinstance(runtime.get(key), str):
             setattr(settings, key, runtime[key])
     if settings.game_host not in ("off", "local", "agent"):
-        # Ancien mode « docker » (retiré) : la machine d'essai est désactivée
+        # Ancien mode « docker » (retiré) : le client d'essai est désactivé
         settings.game_host = "off"
     if runtime.get("saves_game_host_icon") in ICONS:
         settings.saves_game_host_icon = runtime["saves_game_host_icon"]

@@ -4,8 +4,8 @@
 <nav class="help-nav" aria-label="Pages de l'aide">
   <button data-page="start" class="on"><svg class="ico"><use href="#i-sparkles"/></svg><span><b>Bien démarrer</b><small>Le principe en 2 minutes</small></span></button>
   <button data-page="guides"><svg class="ico"><use href="#i-list"/></svg><span><b>Guides</b><small>Les tâches courantes, pas à pas</small></span></button>
-  <button data-page="saves"><svg class="ico"><use href="#i-save"/></svg><span><b>Sauvegardes</b><small>Garder ses parties sur toutes les machines</small></span></button>
-  <button data-page="types"><svg class="ico"><use href="#i-package"/></svg><span><b>Types d'images</b><small>Wine, Proton, jeu seul</small></span></button>
+  <button data-page="saves"><svg class="ico"><use href="#i-save"/></svg><span><b>Sauvegardes</b><small>Garder ses parties sur tous les clients</small></span></button>
+  <button data-page="types"><svg class="ico"><use href="#i-package"/></svg><span><b>Prefix des images</b><small>wine, proton, aucun (jeu seul)</small></span></button>
   <button data-page="keys"><svg class="ico"><use href="#i-terminal"/></svg><span><b>Réglages de l'autorun</b><small>Toutes les clés</small></span></button>
   <button data-page="cli"><svg class="ico"><use href="#i-play"/></svg><span><b>Le lanceur</b><small>Ligne de commande</small></span></button>
   <button data-page="trouble"><svg class="ico"><use href="#i-alert"/></svg><span><b>Dépannage</b><small>Erreurs fréquentes</small></span></button>
@@ -22,7 +22,7 @@
 
     <ol class="steps" data-f>
       <li><b>Empaqueter</b><span>Un dossier de jeu devient une image : un seul fichier compressé, en lecture seule. → <a href="#g-add">Ajouter un jeu</a></span></li>
-      <li><b>Essayer</b><span>Le lancement d'essai démarre le jeu sur la machine d'essai et rapporte ce qu'il a vu (à choisir dans le bandeau Machines : « Utiliser pour les essais »). → <a href="#g-broken">Un jeu ne se lance pas</a></span></li>
+      <li><b>Essayer</b><span>Le lancement d'essai démarre le jeu sur le client d'essai et rapporte ce qu'il a vu (à choisir dans le bandeau Clients : « Utiliser pour les essais »). → <a href="#g-broken">Un jeu ne se lance pas</a></span></li>
       <li><b>Ajuster</b><span>Les réglages du jeu sont dans son <code>autorun.cmd</code>, modifiable depuis la fiche. → <a href="#g-setting">Changer un réglage</a></span></li>
     </ol>
 
@@ -49,7 +49,7 @@
       <ol>
         <li>Copier le dossier du jeu dans <code>roms/&lt;système&gt;/</code>, nommé <code>Mon Jeu.pc</code> (ou <code>.wine</code> s'il contient déjà un prefix Wine).</li>
         <li>Facultatif : l'essayer avant de l'empaqueter avec <code>wsquashfs-launcher "Mon Jeu.pc"</code>. Un dossier <code>.pc</code> est monté comme le sera son image : il n'est jamais modifié, prefix et sauvegardes vont dans les sauvegardes de <code>Mon Jeu</code>, reprises ensuite par l'image.</li>
-        <li>Ouvrir l'onglet <b>Dossiers à empaqueter</b>, cocher le dossier puis <b>Analyser et empaqueter</b>.</li>
+        <li>Ouvrir l'onglet <b>Dossiers</b>, cocher le dossier puis <b>Analyser et empaqueter</b>.</li>
         <li>Relire l'autorun proposé : l'exécutable choisi et la raison de chaque réglage sont indiqués. Corriger si besoin.</li>
         <li><b>Empaqueter</b> : la tâche part dans la file (ou cette nuit). L'image est vérifiée à la fin ; le dossier est renommé en <code>.wine</code>, et supprimé seulement si tu l'as demandé.</li>
       </ol>
@@ -58,7 +58,7 @@
     <details class="guide" id="g-broken" data-f>
       <summary><svg class="ico"><use href="#i-alert"/></svg><span>Un jeu ne se lance pas</span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
       <ol>
-        <li>Fiche du jeu → <b>Lancement d'essai</b> : le jeu démarre sur la machine d'essai (bandeau Machines, « Utiliser pour les essais »), puis le rapport donne les fenêtres ouvertes, les erreurs reconnues et une capture.</li>
+        <li>Fiche du jeu → <b>Lancement d'essai</b> : le jeu démarre sur le client d'essai (bandeau Clients, « Utiliser pour les essais »), puis le rapport donne les fenêtres ouvertes, les erreurs reconnues et une capture.</li>
         <li>Message <code>failed to open umu.exe</code> ? Fiche → Infos → <b>Liens du runner</b> → Analyser : la réparation est proposée.</li>
         <li>Chercher l'erreur dans <a href="#h-trouble">Dépannage</a>.</li>
         <li>Essayer un autre réglage (guide suivant) : par exemple <code>WINE=system</code> pour un vieux jeu 32 bits, ou <code>DXVK=0</code> pour un problème d'affichage.</li>
@@ -108,82 +108,82 @@
   <!-- ============================================================ Sauvegardes -->
   <section class="hpage" data-page="saves" id="h-saves" hidden>
     <h1>Sauvegardes</h1>
-    <p class="lead">L'onglet <b>Sauvegardes</b> garde les mêmes parties sur toutes tes machines (PC, Steam Deck, AIBox…). Le manager en garde aussi une copie, disponible même quand une machine est éteinte.</p>
+    <p class="lead">L'onglet <b>Sauvegardes</b> garde les mêmes parties sur toutes tes clients (PC, Steam Deck, AIBox…). Le manager en garde aussi une copie, disponible même quand un client est éteint.</p>
 
     <details class="guide" id="g-pair" data-f>
-      <summary><svg class="ico"><use href="#i-link"/></svg><span>Associer une machine</span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
+      <summary><svg class="ico"><use href="#i-link"/></svg><span>Associer un client</span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
       <ol>
-        <li>Sur la machine : <code>wsquashfs-launcher --pair</code>. Il affiche un code <code>wsq://…</code>, valable une seule fois.</li>
-        <li>Ici : <b>Associer une machine</b>, puis coller ce code.</li>
-        <li>Sur la machine : <code>wsquashfs-launcher --agent</code>, pour qu'elle reste joignable. L'agent ne démarre jamais tout seul.</li>
+        <li>Sur le client : <code>wsquashfs-launcher --pair</code>. Il affiche un code <code>wsq://…</code>, valable une seule fois.</li>
+        <li>Ici : <b>Associer un client</b>, puis coller ce code.</li>
+        <li>Sur le client : <code>wsquashfs-launcher --agent</code>, pour qu'il reste joignable. L'agent ne démarre jamais tout seul.</li>
       </ol>
     </details>
 
-    <h2>Le bandeau des machines</h2>
+    <h2>Le bandeau des clients</h2>
     <ul data-f>
-      <li>Une carte par machine : icône, pastille verte (joignable) ou rouge (injoignable), nombre de jeux. La carte <b>Manager</b> est sa copie.</li>
-      <li>Une machine injoignable (éteinte, en veille) reste dans le bandeau, en rouge, mais n'a pas de colonne dans le tableau.</li>
-      <li><b>Clic sur une carte</b> : n'affiche que les sauvegardes de cette machine, sa colonne en premier. Un second clic affiche tout.</li>
-      <li><b>Chevron à droite</b> de la carte : changer l'icône, ou <b>Oublier cette machine</b> (pas la machine d'essai, qui se choisit dans « Utiliser pour les essais »).</li>
+      <li>Une carte par client : icône, pastille verte (joignable) ou rouge (injoignable), nombre de jeux. La carte <b>Manager</b> est sa copie.</li>
+      <li>Un client injoignable (éteint, en veille) reste dans le bandeau, en rouge, mais n'a pas de colonne dans le tableau.</li>
+      <li><b>Clic sur une carte</b> : n'affiche que les sauvegardes de ce client, sa colonne en premier. Un second clic affiche tout.</li>
+      <li><b>Chevron à droite</b> de la carte : changer l'icône, ou <b>Oublier ce client</b> (pas le client d'essai, qui se choisit dans « Utiliser pour les essais »).</li>
     </ul>
 
     <h2>Lire le tableau</h2>
-    <p data-f>Une ligne par jeu, une colonne par machine, plus la colonne Manager, en sections par plateforme : <b>Jeux PC</b>, puis les autres systèmes de Batocera où se trouve l'image du jeu (Arcade PC, Taito Type X²…), <b>Switch</b>, <b>Dossiers</b>, et « Autres » quand aucune image n'est trouvée. Un clic sur le titre d'une section la replie (pour n'afficher qu'une plateforme) ou la rouvre. Chaque case donne l'état, la taille et la date :</p>
+    <p data-f>Une ligne par jeu, une colonne par client, plus la colonne Manager, en sections par plateforme : <b>Jeux PC</b>, puis les autres systèmes de Batocera où se trouve l'image du jeu (Arcade PC, Taito Type X²…), <b>Switch</b>, <b>Dossiers</b>, et « Autres » quand aucune image n'est trouvée. Un clic sur le titre d'une section la replie (pour n'afficher qu'une plateforme) ou la rouvre. Chaque case donne l'état, la taille et la date :</p>
     <dl class="glossary">
       <div data-f><dt>★ plus avancée</dt><dd>La version la plus récente, parmi celles de taille proche de la plus lourde (moins de 10 % d'écart) : c'est elle que <b>Sync</b> propose d'envoyer.</dd></div>
       <div data-f><dt>en retard</dt><dd>Une version plus ancienne, qui recevra la plus avancée.</dd></div>
-      <div data-f><dt>à départager</dt><dd>Synchro automatique : la machine a changé depuis son dernier échange avec le manager. Rien n'est envoyé ; c'est à toi de choisir la version (<b>Sync</b>, ou <code>--sync</code>).</dd></div>
-      <div data-f><dt>identique</dt><dd>Les machines qui ont le jeu ont la même version : rien à faire.</dd></div>
-      <div data-f><dt>— absente</dt><dd>La machine n'a pas ce jeu. Ce n'est pas une différence : elle n'est pas touchée.</dd></div>
-      <div data-f><dt>? injoignable</dt><dd>La machine ne répond pas (éteinte, agent arrêté) : elle ne compte pas.</dd></div>
+      <div data-f><dt>à départager</dt><dd>Synchro automatique : le client a changé depuis son dernier échange avec le manager. Rien n'est envoyé ; c'est à toi de choisir la version (<b>Sync</b>, ou <code>--sync</code>).</dd></div>
+      <div data-f><dt>identique</dt><dd>Les clients qui ont le jeu ont la même version : rien à faire.</dd></div>
+      <div data-f><dt>— absente</dt><dd>Le client n'a pas ce jeu. Ce n'est pas une différence : il n'est pas touché.</dd></div>
+      <div data-f><dt>? injoignable</dt><dd>Le client ne répond pas (éteint, agent arrêté) : il ne compte pas.</dd></div>
       <div data-f><dt>⚠ à vérifier</dt><dd>Une version plus récente mais nettement plus petite existe ailleurs : vérifier avant de synchroniser.</dd></div>
     </dl>
     <p data-f>Filtres au-dessus du tableau : <b>Tous</b>, <b>Différences</b>, <b>Identiques</b>, <b>Sur le manager</b>.</p>
 
     <h2>Synchroniser</h2>
     <ul data-f>
-      <li><b>Sync</b> sur une ligne : envoie la version la plus avancée vers les machines en retard.</li>
-      <li>Le chevron de la ligne propose aussi : sync depuis une machine précise, <b>Installer sur…</b> une machine qui n'a pas le jeu, <b>Copier vers le manager</b>, <b>Sync depuis le manager</b>, et <b>Supprimer…</b>.</li>
-      <li>Plusieurs jeux : les cocher. Le bandeau en bas choisit la source (la plus avancée, jeu par jeu ; une machine ; le manager) et les cibles, puis <b>Sync</b> (récapitulatif avant envoi), <b>Copier vers le manager</b> ou <b>Supprimer…</b>.</li>
+      <li><b>Sync</b> sur une ligne : envoie la version la plus avancée vers les clients en retard.</li>
+      <li>Le chevron de la ligne propose aussi : sync depuis un client précis, <b>Installer sur…</b> un client qui n'a pas le jeu, <b>Copier vers le manager</b>, <b>Sync depuis le manager</b>, et <b>Supprimer…</b>.</li>
+      <li>Plusieurs jeux : les cocher. Le bandeau en bas choisit la source (la plus avancée, jeu par jeu ; un client ; le manager) et les cibles, puis <b>Sync</b> (récapitulatif avant envoi), <b>Copier vers le manager</b> ou <b>Supprimer…</b>.</li>
     </ul>
-    <div class="tip" data-f><svg class="ico"><use href="#i-shield"/></svg><span>Rien n'est perdu : la version remplacée est archivée sur la machine, et le manager garde ses 3 versions précédentes. Le jeu doit être arrêté : une machine où il tourne n'est pas touchée, le résultat le dit.</span></div>
+    <div class="tip" data-f><svg class="ico"><use href="#i-shield"/></svg><span>Rien n'est perdu : la version remplacée est archivée sur le client, et le manager garde ses 3 versions précédentes. Le jeu doit être arrêté : un client où il tourne n'est pas touché, le résultat le dit.</span></div>
 
     <h2>Autres sauvegardes : dossiers et Switch</h2>
     <ul data-f>
-      <li><b>Dossier déclaré</b> : un dossier quelconque (sauvegardes d'un autre émulateur, d'un jeu Linux…) synchronisé comme un jeu. Le déclarer sur une machine : chevron de la carte → <b>Dossiers synchronisés…</b>, ou <code>wsquashfs-launcher --sync dir add &lt;nom&gt; &lt;chemin&gt;</code> sur la machine (chemin à partir du dossier personnel, ex. <code>.local/share/hookshot/save</code>). Il se propage ensuite comme une sauvegarde : <b>Installer sur…</b> ou <b>Sync</b> vers une machine qui ne l'a pas le déclare chez elle, au même chemin.</li>
-      <li><b>Jeux Switch (Eden)</b> : rien à déclarer. Les sauvegardes d'Eden sont synchronisées jeu par jeu (sous leur nom, dans la section Switch) ; chaque machine les reçoit dans son propre profil Eden. Eden doit être fermé pendant la synchro. Sur une machine neuve, lancer Eden une fois avant de recevoir.</li>
+      <li><b>Dossier déclaré</b> : un dossier quelconque (sauvegardes d'un autre émulateur, d'un jeu Linux…) synchronisé comme un jeu. Le déclarer sur un client : chevron de la carte → <b>Dossiers synchronisés…</b>, ou <code>wsquashfs-launcher --sync dir add &lt;nom&gt; &lt;chemin&gt;</code> sur le client (chemin à partir du dossier personnel, ex. <code>.local/share/hookshot/save</code>). Il se propage ensuite comme une sauvegarde : <b>Installer sur…</b> ou <b>Sync</b> vers un client qui ne l'a pas le déclare chez elle, au même chemin.</li>
+      <li><b>Jeux Switch (Eden)</b> : rien à déclarer. Les sauvegardes d'Eden sont synchronisées jeu par jeu (sous leur nom, dans la section Switch) ; chaque client les reçoit dans son propre profil Eden. Eden doit être fermé pendant la synchro. Sur un client neuf, lancer Eden une fois avant de recevoir.</li>
     </ul>
 
     <h2>Supprimer</h2>
-    <p data-f><b>Supprimer…</b> ouvre une case par machine joignable et une pour le manager. Sur une machine, la sauvegarde est archivée dans son dossier des backups avant d'être effacée ; sur le manager, la version courante devient une version datée.</p>
+    <p data-f><b>Supprimer…</b> ouvre une case par client joignable et une pour le manager. Sur un client, la sauvegarde est archivée dans son dossier des backups avant d'être effacée ; sur le manager, la version courante devient une version datée.</p>
 
     <h2>Synchro automatique</h2>
-    <p data-f>Quand le manager est joignable, une machine lui envoie sa partie <b>à la sortie d'un jeu</b> : rien n'est récupéré au lancement. Sur chaque machine, <code>wsquashfs-launcher --sync auto on</code> l'active (<code>--sync auto off</code> l'arrête) ; la carte de la machine porte alors la pastille <b>auto</b>. Le manager doit être atteignable à l'adresse réglée dans Réglages → Général (port 8790) ; s'il ne répond pas, la partie reste sur la machine et une ligne le dit.</p>
-    <p data-f>Les machines dont la synchro auto est activée reçoivent aussi la version la plus récente du manager, si elles n'ont pas de partie non envoyée ; leur agent doit être lancé. Une machine modifiée depuis le dernier échange n'est pas écrasée : elle est marquée <b>à départager</b>.</p>
-    <div class="tip" data-f><svg class="ico"><use href="#i-shield"/></svg><span>Rien n'est perdu : la version que le manager remplace est archivée (il garde 3 versions). Hors synchro automatique, rien ne revient vers la machine : pour récupérer une partie du manager, c'est <b>Sync</b> ou <code>--sync</code>.</span></div>
+    <p data-f>Quand le manager est joignable, un client lui envoie sa partie <b>à la sortie d'un jeu</b> : rien n'est récupéré au lancement. Sur chaque client, <code>wsquashfs-launcher --sync auto on</code> l'active (<code>--sync auto off</code> l'arrête) ; la carte du client porte alors la pastille <b>auto</b>. Le manager doit être atteignable à l'adresse réglée dans Réglages → Général (port 8790) ; s'il ne répond pas, la partie reste sur le client et une ligne le dit.</p>
+    <p data-f>Les clients dont la synchro auto est activée reçoivent aussi la version la plus récente du manager, si elles n'ont pas de partie non envoyée ; leur agent doit être lancé. Un client modifié depuis le dernier échange n'est pas écrasée : elle est marquée <b>à départager</b>.</p>
+    <div class="tip" data-f><svg class="ico"><use href="#i-shield"/></svg><span>Rien n'est perdu : la version que le manager remplace est archivée (il garde 3 versions). Hors synchro automatique, rien ne revient vers le client : pour récupérer une partie du manager, c'est <b>Sync</b> ou <code>--sync</code>.</span></div>
 
     <h2>En ligne de commande</h2>
-    <p data-f>Sans le manager, <code>wsquashfs-launcher --sync</code> synchronise à la main avec les autres machines du réseau local (<code>--sync status</code> montre ce qui serait fait). Même règle : la plus lourde gagne, l'autre est archivée.</p>
+    <p data-f>Sans le manager, <code>wsquashfs-launcher --sync</code> synchronise à la main avec les autres clients du réseau local (<code>--sync status</code> montre ce qui serait fait). Même règle : la plus lourde gagne, l'autre est archivée.</p>
   </section>
 
-  <!-- ============================================================ Types d'images -->
+  <!-- ============================================================ Prefix des images -->
   <section class="hpage" data-page="types" id="h-types" hidden>
-    <h1>Types d'images</h1>
-    <p class="lead">Le type d'une image dépend de ce qui se trouve à sa racine. Il décide du runner utilisé par défaut.</p>
+    <h1>Prefix des images</h1>
+    <p class="lead">Le prefix d'une image dépend de ce qui se trouve à sa racine. Il décide du runner utilisé par défaut.</p>
 
     <div class="htable" id="h-summary" data-f>
       <table>
-        <thead><tr><th>Type</th><th>Reconnu par</th><th>Runner par défaut</th><th>Batocera</th></tr></thead>
+        <thead><tr><th>Prefix</th><th>Reconnu par</th><th>Runner par défaut</th><th>Batocera</th></tr></thead>
         <tbody>
-          <tr><td><a href="#h-batocera">Prefix Wine</a></td><td><code>system.reg</code></td><td>wine-tkg</td><td>oui</td></tr>
-          <tr><td><a href="#h-proton">Prefix Proton</a></td><td><code>config_info</code></td><td>le Proton du prefix, via umu</td><td>non</td></tr>
-          <tr><td><a href="#h-solo">Jeu seul</a></td><td>ni l'un ni l'autre</td><td>proton-cachyos, UMU-Proton…</td><td>non</td></tr>
+          <tr><td><a href="#h-batocera">wine</a></td><td><code>system.reg</code></td><td>wine-tkg</td><td>oui</td></tr>
+          <tr><td><a href="#h-proton">proton</a></td><td><code>config_info</code></td><td>le Proton du prefix, via umu</td><td>non</td></tr>
+          <tr><td><a href="#h-solo">aucun (jeu seul)</a></td><td>ni l'un ni l'autre</td><td>proton-cachyos, UMU-Proton…</td><td>non</td></tr>
         </tbody>
       </table>
     </div>
 
     <div class="hsec" id="h-batocera" data-f>
-      <h2>Prefix Wine (Batocera)</h2>
+      <h2>Prefix wine (Batocera)</h2>
       <p>Le format de Batocera : jeux arcade et jeux PC préparés pour lui, avec leur prefix Wine complet. L'image reste lisible par Batocera telle quelle.</p>
       <div class="pair">
         <pre>MonJeu.wine/
@@ -204,7 +204,7 @@ CMD=game.exe</pre>
     </div>
 
     <div class="hsec" id="h-proton" data-f>
-      <h2>Prefix Proton</h2>
+      <h2>Prefix proton</h2>
       <p>Un prefix créé par Heroic, Steam ou umu : jeux PC récents. Le jeu est lancé par le même Proton, via umu.</p>
       <div class="pair">
         <pre>MonJeu.wine/
@@ -225,7 +225,7 @@ CMD=game.exe</pre>
     </div>
 
     <div class="hsec" id="h-solo" data-f>
-      <h2>Jeu seul</h2>
+      <h2>Aucun prefix : jeu seul</h2>
       <p>Seulement les fichiers du jeu. Le prefix est créé au premier lancement, dans les sauvegardes : l'image reste légère.</p>
       <div class="pair">
         <pre>MonJeu/
@@ -243,7 +243,7 @@ CMD=game.exe</pre>
     </div>
 
     <div class="hsec" id="h-runner" data-f>
-      <h2>Runner joint à l'image</h2>
+      <h2>Runner intégré à l'image</h2>
       <p>Pour un jeu qui ne marche qu'avec <b>un runner précis</b> (Proton modifié pour lui, Wine particulier d'un jeu arcade) : le runner est copié dans l'image, qui devient autonome. Possible avec les trois types.</p>
       <div class="pair">
         <pre>MonJeu.wine/
@@ -252,24 +252,24 @@ CMD=game.exe</pre>
 └── drive_c/ …</pre>
         <pre class="ar">PROTON=Proton-MonJeu-11.0</pre>
       </div>
-      <div class="tip"><svg class="ico"><use href="#i-info"/></svg><span>À réserver aux runners propres à un jeu. Un Proton standard (UMU-Proton, GE-Proton, proton-cachyos) n'a pas à être joint : compter ~250 Mo de plus par image.</span></div>
+      <div class="tip"><svg class="ico"><use href="#i-info"/></svg><span>À réserver aux runners propres à un jeu. Un Proton standard (UMU-Proton, GE-Proton, proton-cachyos) n'a pas à être intégré : compter ~250 Mo de plus par image.</span></div>
       <details class="more"><summary>Comment le runner est choisi</summary>
         <ul>
-          <li><code>PROTON=&lt;nom&gt;</code> ou <code>WINE=&lt;nom&gt;</code> cherchent d'abord <code>runners/&lt;nom&gt;/</code> (aussi <code>runners/wine-&lt;nom&gt;/</code>, casse ignorée), puis les runners de la machine. Sans clé, un runner <b>seul</b> dans <code>runners/</code> est utilisé.</li>
-          <li>Priorité : <code>--wine</code> &gt; runner joint &gt; runners de la machine.</li>
+          <li><code>PROTON=&lt;nom&gt;</code> ou <code>WINE=&lt;nom&gt;</code> cherchent d'abord <code>runners/&lt;nom&gt;/</code> (aussi <code>runners/wine-&lt;nom&gt;/</code>, casse ignorée), puis les runners du client. Sans clé, un runner <b>seul</b> dans <code>runners/</code> est utilisé.</li>
+          <li>Priorité : <code>--wine</code> &gt; runner intégré &gt; runners du client.</li>
           <li>Runner nommé introuvable : le lancement s'arrête avec un message, le jeu ne part pas sous un autre runner.</li>
           <li>Utilisé en lecture seule depuis l'image : Proton n'écrit rien dans les sauvegardes.</li>
-          <li><code>RUNNER=</code> ne sert qu'aux chemins absolus de la machine.</li>
+          <li><code>RUNNER=</code> ne sert qu'aux chemins absolus du client.</li>
           <li>Batocera ignore <code>runners/</code>.</li>
         </ul>
       </details>
       <details class="more"><summary>Liens du prefix (erreur <code>failed to open umu.exe</code>)</summary>
         <p>Dans un prefix Proton, les DLL de Wine sont des liens vers le runner. Ils doivent pointer <b>en relatif dans <code>runners/&lt;nom&gt;/</code></b> (ex. <code>../../../runners/&lt;nom&gt;/files/lib/wine/…</code>). Un lien vers un autre emplacement est cassé ailleurs, et Proton ne le répare pas.</p>
-        <p>« Dossiers à empaqueter » réécrit ces liens tout seul. Sur une image existante : fiche → Infos → <b>Liens du runner</b> → Analyser, puis la réparation proposée.</p>
+        <p>L'onglet « Dossiers » réécrit ces liens tout seul. Sur une image existante : fiche → Infos → <b>Liens du runner</b> → Analyser, puis la réparation proposée.</p>
         <p>À la main : <code>find MonJeu.wine -type l -lname '*compatibilitytools.d*'</code> doit être vide.</p>
       </details>
       <details class="more"><summary>Correctif du jeu dans le runner (protonfix)</summary>
-        <p>Un Proton joint peut porter un <b>protonfix</b>, script Python que Proton exécute avant chaque lancement. <code>GAMEID</code> désigne le script :</p>
+        <p>Un Proton intégré peut porter un <b>protonfix</b>, script Python que Proton exécute avant chaque lancement. <code>GAMEID</code> désigne le script :</p>
         <pre>runners/&lt;Proton&gt;/protonfixes/gamefixes-umu/umu-monjeu.py</pre>
         <pre class="ar">PROTON=&lt;Proton&gt;
 ENV=GAMEID=umu-monjeu</pre>
@@ -301,11 +301,11 @@ ENV=GAMEID=umu-monjeu</pre>
     <p class="muted">Sans ces réglages, le runner est <a href="#h-ar-choice">choisi automatiquement</a> : c'est le mieux dans la plupart des cas.</p>
     <div class="klist">
       <details class="key" id="hk-WINE" data-f><summary><code>WINE</code><span>Imposer une version de Wine</span><code class="ex">tkg · system</code></summary>
-        <div>Wine joint à l'image (<code>runners/&lt;nom&gt;/</code>), sinon <code>/opt/wine-&lt;nom&gt;/bin/wine</code> ou un runner installé. <code>system</code> : le Wine WoW64 du système, utile aux vieux jeux 32 bits. Introuvable : erreur.</div></details>
+        <div>Wine intégré à l'image (<code>runners/&lt;nom&gt;/</code>), sinon <code>/opt/wine-&lt;nom&gt;/bin/wine</code> ou un runner installé. <code>system</code> : le Wine WoW64 du système, utile aux vieux jeux 32 bits. Introuvable : erreur.</div></details>
       <details class="key" id="hk-PROTON" data-f><summary><code>PROTON</code><span>Imposer une version de Proton</span><code class="ex">GE-Proton9-20</code></summary>
-        <div>Proton joint à l'image, sinon un Proton de Heroic ou Steam (nom du dossier ou version). Introuvable : erreur, pas de repli sur un autre Proton.</div></details>
-      <details class="key" id="hk-RUNNER" data-f><summary><code>RUNNER</code><span>Le chemin complet d'un Wine de la machine</span><code class="ex">/opt/wine-custom/bin/wine</code></summary>
-        <div>Chemin <b>absolu</b> uniquement. Un runner joint à l'image passe par <code>PROTON</code> ou <code>WINE</code>.</div></details>
+        <div>Proton intégré à l'image, sinon un Proton de Heroic ou Steam (nom du dossier ou version). Introuvable : erreur, pas de repli sur un autre Proton.</div></details>
+      <details class="key" id="hk-RUNNER" data-f><summary><code>RUNNER</code><span>Le chemin complet d'un Wine du client</span><code class="ex">/opt/wine-custom/bin/wine</code></summary>
+        <div>Chemin <b>absolu</b> uniquement. Un runner intégré à l'image passe par <code>PROTON</code> ou <code>WINE</code>.</div></details>
       <details class="key" id="hk-ARCH" data-f><summary><code>ARCH</code><span>Prefix 32 ou 64 bits</span><code class="ex">win32</code></summary>
         <div>Déduit du prefix existant, <code>win64</code> sinon.</div></details>
     </div>
@@ -339,7 +339,7 @@ ENV=GAMEID=umu-monjeu</pre>
       <details class="key" id="hk-VIRTUAL_DESKTOP" data-f><summary><code>VIRTUAL_DESKTOP</code><span>Afficher le jeu dans une fenêtre de taille fixe</span><code class="ex">1920x1080</code></summary>
         <div>Bureau virtuel Wine : évite les plantages du gestionnaire de fenêtres quand le jeu change la résolution.</div></details>
       <details class="key" id="hk-NVAPI" data-f><summary><code>NVAPI</code><span>NVAPI et DLSS (NVIDIA)</span><code class="ex">défaut auto</code></summary>
-        <div>dxvk-nvapi. <code>auto</code> : décidé sur la machine qui lance le jeu, actif si elle a une carte NVIDIA et dxvk-nvapi ; une machine AMD seule n'en reçoit rien. <code>0</code> : coupé.</div></details>
+        <div>dxvk-nvapi. <code>auto</code> : décidé sur le client qui lance le jeu, actif s'il a une carte NVIDIA et dxvk-nvapi ; un client AMD seul n'en reçoit rien. <code>0</code> : coupé.</div></details>
       <details class="key" id="hk-VKREFLEX" data-f><summary><code>VKREFLEX</code><span>Couche Reflex (NVIDIA)</span><code class="ex">défaut auto</code></summary>
         <div>Couche Vulkan de dxvk-nvapi, chargée en <code>auto</code> si elle est installée et que NVAPI est actif. <code>1</code> force aussi NVAPI.</div></details>
       <details class="key" id="hk-FSR" data-f><summary><code>FSR</code><span>FSR de Wine en plein écran</span><code class="ex">défaut 0</code></summary>
@@ -351,7 +351,7 @@ ENV=GAMEID=umu-monjeu</pre>
       <details class="key" id="hk-FSYNC" data-f><summary><code>FSYNC</code><span>Synchronisation par futex</span><code class="ex">défaut 0</code></summary>
         <div><code>WINEFSYNC</code>, noyau compatible requis.</div></details>
     </div>
-    <p class="muted" data-f>Un DXVK ou un VKD3D-Proton absent de la machine désactive le réglage, avec un avertissement au lancement.</p>
+    <p class="muted" data-f>Un DXVK ou un VKD3D-Proton absent du client désactive le réglage, avec un avertissement au lancement.</p>
 
     <h2 class="kgroup" id="h-ar-saves">Sauvegardes à part</h2>
     <p class="muted">Tout ce que le jeu écrit va déjà dans ses sauvegardes. Ces deux réglages relient en plus des sauvegardes à <code>saves/&lt;système&gt;/&lt;jeu&gt;</code>, comme Batocera.</p>
@@ -363,7 +363,7 @@ ENV=GAMEID=umu-monjeu</pre>
     </div>
 
     <h2 class="kgroup" id="h-ar-adv">Avancé : commandes autour du jeu</h2>
-    <div class="tip warn" data-f><svg class="ico"><use href="#i-alert"/></svg><span>Ces commandes s'exécutent sur la machine, hors de Wine : seulement pour des images de confiance. Batocera et <code>--exec</code> les ignorent.</span></div>
+    <div class="tip warn" data-f><svg class="ico"><use href="#i-alert"/></svg><span>Ces commandes s'exécutent sur le client, hors de Wine : seulement pour des images de confiance. Batocera et <code>--exec</code> les ignorent.</span></div>
     <div class="klist">
       <details class="key" id="hk-PRE" data-f><summary><code>PRE</code><span>Une commande avant le jeu</span><code class="ex">sh pre.sh</code></summary>
         <div>Lancée une fois, dans <code>DIR</code>, avec l'utilisateur et l'environnement du jeu (<code>WINEPREFIX</code>…). Un échec arrête le lancement. Sert à préparer des fichiers que l'image ne peut pas contenir tels quels.</div></details>
@@ -379,13 +379,13 @@ ENV=GAMEID=umu-monjeu</pre>
       <pre class="ar"># Le Jeu.wsquashfs.autorun
 HIDRAW=1</pre>
       <p>Batocera ne le lit pas : une fois le réglage validé, reconstruire l'image (ou « Inscrire les surcharges » sur une sélection).</p>
-      <p>Le lanceur lit aussi, du plus faible au plus fort : <code>~/.config/wsquashfs/defaults.autorun</code> (la machine), les variables <code>WSQUASHFS_*</code>, <code>_defaults.autorun</code> dans le dossier du jeu (tous les jeux du dossier), l'<code>autorun.cmd</code> de l'image, la surcharge, puis <code>--set RÉGLAGE=valeur</code>. <code>wsquashfs-launcher --show</code> donne la valeur finale de chaque réglage et sa provenance.</p>
+      <p>Le lanceur lit aussi, du plus faible au plus fort : <code>~/.config/wsquashfs/defaults.autorun</code> (le client), les variables <code>WSQUASHFS_*</code>, <code>_defaults.autorun</code> dans le dossier du jeu (tous les jeux du dossier), l'<code>autorun.cmd</code> de l'image, la surcharge, puis <code>--set RÉGLAGE=valeur</code>. <code>wsquashfs-launcher --show</code> donne la valeur finale de chaque réglage et sa provenance.</p>
     </details>
     <details class="more" id="h-ar-choice" data-f><summary>Choix automatique du runner</summary>
-      <p>Sans <code>WINE</code>, <code>PROTON</code>, <code>RUNNER</code>, runner joint ni <code>--wine</code> :</p>
+      <p>Sans <code>WINE</code>, <code>PROTON</code>, <code>RUNNER</code>, runner intégré ni <code>--wine</code> :</p>
       <ul>
-        <li><b>Prefix Proton</b> : la même version de Proton (Heroic, Steam, <code>/usr/share/steam/compatibilitytools.d</code>), sinon proton-cachyos, puis l'UMU-Proton le plus récent, puis GE-Proton, puis n'importe quel Proton. Lancé via umu, comme Heroic ; sans umu, le Wine du Proton est lancé directement (<code>WSQUASHFS_UMU=0</code> force ce mode).</li>
-        <li><b>Jeu seul</b> : proton-cachyos, sinon UMU-Proton, sinon GE-Proton. Les deux premiers gèrent la DualSense en manette XInput avec vibrations ; GE-Proton la force en hidraw.</li>
+        <li><b>Prefix proton</b> : la même version de Proton (Heroic, Steam, <code>/usr/share/steam/compatibilitytools.d</code>), sinon proton-cachyos, puis l'UMU-Proton le plus récent, puis GE-Proton, puis n'importe quel Proton. Lancé via umu, comme Heroic ; sans umu, le Wine du Proton est lancé directement (<code>WSQUASHFS_UMU=0</code> force ce mode).</li>
+        <li><b>Aucun prefix (jeu seul)</b> : proton-cachyos, sinon UMU-Proton, sinon GE-Proton. Les deux premiers gèrent la DualSense en manette XInput avec vibrations ; GE-Proton la force en hidraw.</li>
         <li><b>Autres prefixes</b> (arcade Batocera) : wine-tkg, puis wine-ge/lutris, puis wine-proton, puis le Wine du système.</li>
       </ul>
       <p class="muted">Les DLL que Proton copie d'ordinaire dans chaque prefix (~190 Mo par jeu) y sont des liens ; <code>ENV=PROTON_DLL_COPY=&lt;motifs&gt;</code> pour un jeu qui doit les remplacer. Le lanceur ramène la pile à 8 Mo si elle est illimitée (Docker sur Unraid), sans quoi proton-cachyos ne démarre pas.</p>
@@ -423,8 +423,8 @@ VIRTUAL_DESKTOP=1920x1080</pre></div>
       <div data-f><code>--exec &lt;jeu&gt; &lt;programme&gt;</code><span>Lancer un autre programme dans le prefix du jeu (<code>winecfg</code>, <code>regedit</code>, l'outil de config du jeu…).</span></div>
       <div data-f><code>--info &lt;jeu&gt;</code><span>Version, type, runner, commande et taille, sans monter l'image.</span></div>
       <div data-f><code>--list</code><span>Les jeux connus et leur état.</span></div>
-      <div data-f><code>--sync</code><span>Synchroniser les sauvegardes avec les autres machines (voir <a href="#h-saves">Sauvegardes</a>).</span></div>
-      <div data-f><code>--doctor</code><span>Vérifier l'installation (aussi dans le menu d'une machine d'essai : « Diagnostic du lanceur »).</span></div>
+      <div data-f><code>--sync</code><span>Synchroniser les sauvegardes avec les autres clients (voir <a href="#h-saves">Sauvegardes</a>).</span></div>
+      <div data-f><code>--doctor</code><span>Vérifier l'installation (aussi dans le menu d'un client d'essai : « Diagnostic du lanceur »).</span></div>
       <div data-f><code>--update</code><span>Mettre à jour le lanceur.</span></div>
     </div>
     <details class="more" data-f><summary>Toutes les commandes</summary>
@@ -463,9 +463,9 @@ VIRTUAL_DESKTOP=1920x1080</pre></div>
       <h3>Sauvegardes</h3>
       <dl class="cdetail">
         <dt><code>--sync [jeu | status [jeu] | forget &lt;machine&gt; | wsq://…]</code></dt>
-        <dd>Synchronise à la main les sauvegardes avec les machines associées du réseau local. Sans argument : les jeux présents des deux côtés ; <code>status</code> montre ce qui serait fait. Conflit : la plus lourde gagne (à taille égale, la plus récente), l'autre est archivée. Jeu arrêté des deux côtés.</dd>
+        <dd>Synchronise à la main les sauvegardes avec les clients associés du réseau local. Sans argument : les jeux présents des deux côtés ; <code>status</code> montre ce qui serait fait. Conflit : la plus lourde gagne (à taille égale, la plus récente), l'autre est archivée. Jeu arrêté des deux côtés.</dd>
         <dt><code>--sync dir</code> · <code>--sync dir add &lt;nom&gt; &lt;chemin&gt;</code> · <code>--sync dir forget &lt;nom&gt;</code></dt>
-        <dd>Dossiers synchronisés en plus des jeux (même nom sur chaque machine, chemin à partir du dossier personnel) ; <code>--sync dir</code> les liste avec les jeux Switch d'Eden, synchronisés d'office jeu par jeu. Voir <a href="#h-saves">Sauvegardes</a>.</dd>
+        <dd>Dossiers synchronisés en plus des jeux (même nom sur chaque client, chemin à partir du dossier personnel) ; <code>--sync dir</code> les liste avec les jeux Switch d'Eden, synchronisés d'office jeu par jeu. Voir <a href="#h-saves">Sauvegardes</a>.</dd>
         <dt><code>--save &lt;jeu&gt;</code> · <code>--saves</code></dt>
         <dd>Copie les sauvegardes de partie (Documents, Saved Games, AppData) d'un jeu, ou de tous, dans <code>saves/&lt;système&gt;/&lt;jeu&gt;</code> à côté de <code>roms/</code>. Sens unique, rien n'est supprimé. Restauration, jeu arrêté : <code>cp -a saves/&lt;système&gt;/&lt;jeu&gt;/drive_c ~/.local/share/wsquashfs/saves/&lt;jeu&gt;/</code></dd>
         <dt><code>--clean</code></dt>
@@ -475,14 +475,14 @@ VIRTUAL_DESKTOP=1920x1080</pre></div>
         <dt><code>--erase [jeu]</code></dt>
         <dd>Efface toutes les sauvegardes : le jeu repart de son image. <code>drive_c/users</code> est archivé avant dans <code>~/.local/share/wsquashfs/backups/</code>. Restauration : <code>tar -xf &lt;archive&gt; -C ~/.local/share/wsquashfs/saves/&lt;jeu&gt;/</code></dd>
       </dl>
-      <h3>Machines et gestionnaire</h3>
+      <h3>Clients et gestionnaire</h3>
       <dl class="cdetail">
         <dt><code>--pair [roms DIR]… [port N]</code></dt>
-        <dd>Affiche le code d'association <code>wsq://…</code> (une seule fois, 10 min) à coller dans le gestionnaire (<a href="#g-pair">Associer une machine</a>, puis « Utiliser pour les essais » dans son menu) ou dans <code>--sync wsq://…</code> sur l'autre machine, puis attend l'association.</dd>
+        <dd>Affiche le code d'association <code>wsq://…</code> (une seule fois, 10 min) à coller dans le gestionnaire (<a href="#g-pair">Associer un client</a>, puis « Utiliser pour les essais » dans son menu) ou dans <code>--sync wsq://…</code> sur l'autre client, puis attend l'association.</dd>
         <dt><code>--pair forget &lt;machine&gt;</code> · <code>--pair reset</code></dt>
-        <dd>Retire une machine associée (son accès est coupé tout de suite) ; les retire toutes puis attend une nouvelle association.</dd>
+        <dd>Retire un client associé (son accès est coupé tout de suite) ; les retire toutes puis attend une nouvelle association.</dd>
         <dt><code>--agent</code> · <code>--agent stop</code> · <code>--agent status</code></dt>
-        <dd>Lance l'agent en arrière-plan pour que la machine reste joignable ; l'arrête ; dit s'il tourne et liste les machines associées. Rien ne le démarre tout seul. <code>--agent run [log]</code> : au premier plan, pour le débogage.</dd>
+        <dd>Lance l'agent en arrière-plan pour que le client reste joignable ; l'arrête ; dit s'il tourne et liste les clients associés. Rien ne le démarre tout seul. <code>--agent run [log]</code> : au premier plan, pour le débogage.</dd>
       </dl>
       <h3>Installation</h3>
       <dl class="cdetail">
@@ -547,7 +547,7 @@ launch: wsquashfs-launcher "{file.path}"</pre></div>
       <details class="guide" data-f><summary><svg class="ico"><use href="#i-alert"/></svg><span>Le jeu ne se lance pas</span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
         <div>Fiche → <b>Lancement d'essai</b> : rapport avec fenêtres, erreurs et capture. En ligne de commande : relancer depuis un terminal pour lire les erreurs Wine, et vérifier la commande avec <code>--info</code>.</div></details>
       <details class="guide" data-f><summary><svg class="ico"><use href="#i-alert"/></svg><span><code>failed to open umu.exe</code></span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
-        <div>Les liens du prefix pointent vers un runner absent. Fiche → Infos → <b>Liens du runner</b> → Analyser, puis la réparation proposée. Voir <a href="#h-runner">Runner joint</a>.</div></details>
+        <div>Les liens du prefix pointent vers un runner absent. Fiche → Infos → <b>Liens du runner</b> → Analyser, puis la réparation proposée. Voir <a href="#h-runner">Runner intégré</a>.</div></details>
       <details class="guide" data-f><summary><svg class="ico"><use href="#i-alert"/></svg><span><code>fusermount3: mount failed: Operation not permitted</code></span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
         <div>FUSE est bloqué dans le conteneur : le lanceur passe en mode copy (plus lent au premier lancement). Pour l'overlay : <code>--device /dev/fuse --cap-add SYS_ADMIN</code>.</div></details>
       <details class="guide" data-f><summary><svg class="ico"><use href="#i-alert"/></svg><span>Overlay noyau indisponible</span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>

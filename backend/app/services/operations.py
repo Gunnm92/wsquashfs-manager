@@ -567,7 +567,7 @@ def run_pack(settings: Settings, task: Task, job: Job) -> str:
         source = wine
         params["source"] = str(wine)
 
-    # Liens du prefix vers un runner joint mais pointant hors du dossier :
+    # Liens du prefix vers un runner intégré mais pointant hors du dossier :
     # réécrits en relatif dans l'image, le dossier n'est pas modifié
     links = classify(folder_links(source), listing.files)
     for issue in links.issues():

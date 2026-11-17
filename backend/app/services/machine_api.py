@@ -1,17 +1,17 @@
-"""API des machines pour la synchro automatique des sauvegardes (services/saves.py).
+"""API des clients pour la synchro automatique des sauvegardes (services/saves.py).
 
 Le manager écoute en HTTPS sur machine_port (main.py) et ne sert que ce routeur, jamais
 l'interface. Il parle le même protocole que l'agent de wsquashfs-launcher (routes
 /v1/saves/*), pour que le lanceur le traite comme un pair de --sync.
 
 Chaque requête porte :
-- `Authorization: Bearer <jeton>` : jeton donné à la machine par declare_manager ; seule
-  son empreinte SHA-256 est gardée (config.json). Le jeton identifie la machine ;
+- `Authorization: Bearer <jeton>` : jeton donné au client par declare_manager ; seule
+  son empreinte SHA-256 est gardée (config.json). Le jeton identifie le client ;
 - `X-Wsq-Machine` : identifiant de synchro du lanceur, contrôlé seulement.
 
 Routes : GET /v1/info, GET /v1/saves/list, GET et PUT /v1/saves/tar?game=,
 POST /v1/saves/state. Les états par machine sont dans meta.json de la réserve du jeu.
-Après un envoi réussi, les autres machines en retard (synchro auto) reçoivent la version du
+Après un envoi réussi, les autres clients en retard (synchro auto) reçoivent la version du
 manager (saves.push_behind, en arrière-plan).
 """
 
@@ -42,7 +42,7 @@ _FINGERPRINT = re.compile(r"[0-9A-Fa-f]{64}")
 
 
 def _background(target, *args, **kwargs) -> None:
-    """Lance `target` dans un thread démoniaque : la réponse à la machine n'attend pas."""
+    """Lance `target` dans un thread démoniaque : la réponse au client n'attend pas."""
     threading.Thread(target=target, args=args, kwargs=kwargs, name="synchro-auto", daemon=True).start()
 
 
@@ -57,7 +57,7 @@ def _check_game(game: str) -> None:
 
 
 def build_router(settings_of: Callable[[], Settings]) -> APIRouter:
-    """Routeur de l'API des machines ; `settings_of` donne les réglages à chaque requête."""
+    """Routeur de l'API des clients ; `settings_of` donne les réglages à chaque requête."""
     router = APIRouter()
 
     def caller(request: Request) -> dict:
@@ -160,7 +160,7 @@ def build_router(settings_of: Callable[[], Settings]) -> APIRouter:
             raise HTTPException(status_code=500, detail=f"écriture dans le manager impossible : {exc}") from exc
         finally:
             part.unlink(missing_ok=True)
-        # Les autres machines en retard (synchro auto) reçoivent cette version, sans retarder la réponse
+        # Les autres clients en retard (synchro auto) reçoivent cette version, sans retarder la réponse
         if settings.auto_push_interval:
             _background(saves_svc.push_behind, settings, [game], exclude={machine["id"]})
         return {"fingerprint": fingerprint, "archived": archived}

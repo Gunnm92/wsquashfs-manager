@@ -33,7 +33,7 @@ from test_saves import SECRET, TOKEN, associate, auth_ok, make_cert, make_settin
 BLOCK = 1 << 20
 GIB = 1 << 30
 NAME = "Jeu.wsquashfs"
-OLD_MESSAGE = "agent trop ancien : wsquashfs-launcher --update sur cette machine, puis relancer son agent"
+OLD_MESSAGE = "agent trop ancien : wsquashfs-launcher --update sur ce client, puis relancer son agent"
 
 
 @pytest.fixture(autouse=True)
@@ -469,7 +469,7 @@ def test_run_install_keeps_the_result_and_fails_partially(games_agents, tmp_path
         install.run_install(settings, task, Job())
     assert task.params["result"]["results"][0]["ok"] is False
     assert install.run_install(settings, Task(id="t3", kind="install", params={
-        "op": "uninstall", "name": NAME, "machines": [ids["steambox"]]}), Job()) == "1 opération(s) réussie(s) de 1 machine(s)"
+        "op": "uninstall", "name": NAME, "machines": [ids["steambox"]]}), Job()) == "1 opération(s) réussie(s) de 1 client(s)"
 
 
 # ------------------------------------------------------------------ API

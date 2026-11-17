@@ -38,12 +38,12 @@ KEY_HELP: dict[str, tuple[str, list[str]]] = {
              "nom contient des espaces, arguments ensuite."), []),
     "DIR": ("Dossier de l'exécutable, relatif à la racine de l'image.", []),
     "GAME_VERSION": ("Version du jeu packagé (ignorée par Batocera).", []),
-    "WINE": (("Runner Wine imposé : runners/<nom> joint à l'image d'abord, puis la "
-              "machine ; introuvable : erreur. Défaut : wine-tkg pour un prefix Batocera."),
+    "WINE": (("Runner Wine imposé : runners/<nom> intégré à l'image d'abord, puis les "
+              "runners du client ; introuvable : erreur. Défaut : wine-tkg pour un prefix Batocera."),
              ["tkg", "system"]),
-    "PROTON": (("Proton imposé (prefix Proton ou jeu seul) : runners/<nom> joint à "
+    "PROTON": (("Proton imposé (prefix Proton ou jeu seul) : runners/<nom> intégré à "
                 "l'image d'abord, puis Heroic/Steam ; introuvable : erreur."), []),
-    "RUNNER": (("Chemin absolu d'un binaire wine de la machine. Runner joint au jeu : "
+    "RUNNER": (("Chemin absolu d'un binaire wine du client. Runner intégré au jeu : "
                 "runners/<nom>/ et PROTON= ou WINE=."), []),
     "ARCH": ("Architecture du prefix créé.", ["win32", "win64"]),
     "HIDRAW": (("Manette Sony gérée par le jeu lui-même (DualSense native) au lieu de "
@@ -51,7 +51,7 @@ KEY_HELP: dict[str, tuple[str, list[str]]] = {
     "DXVK": ("D3D9-11 via Vulkan. Actif par défaut ; 0 pour wined3d.", ["1", "0"]),
     "VKD3D": ("D3D12 via Vulkan. Actif par défaut.", ["1", "0"]),
     "D7VK": ("DirectDraw/D3D7 via Vulkan. Actif par défaut.", ["1", "0"]),
-    "NVAPI": (("NVAPI / DLSS (dxvk-nvapi). auto (défaut) : actif si la machine qui lance "
+    "NVAPI": (("NVAPI / DLSS (dxvk-nvapi). auto (défaut) : actif si le client qui lance "
                "le jeu a une carte NVIDIA et dxvk-nvapi ; ignoré sur AMD."), ["auto", "1", "0"]),
     "VKREFLEX": (("Couche Reflex de dxvk-nvapi (NVIDIA). auto (défaut) : chargée si elle est "
                   "installée ; 1 force aussi NVAPI."), ["auto", "1", "0"]),
@@ -69,10 +69,10 @@ KEY_HELP: dict[str, tuple[str, list[str]]] = {
     "SAVEDIR": ("Dossier de sauvegarde du jeu, redirigé vers saves/<système>/<jeu>.", []),
     "SAVEFILES": ("Fichiers de sauvegarde (séparés par ;), redirigés comme SAVEDIR.", []),
     "PRE": (("Commande Linux lancée une fois avant le jeu, dans DIR ; un échec arrête "
-             "le lancement. Exécutée sur la machine, hors de Wine : images de confiance "
+             "le lancement. Exécutée sur le client, hors de Wine : images de confiance "
              "seulement. Ignorée par Batocera."), []),
     "ATTACH": (("Commande Linux lancée pendant le jeu (GAME_PID = son PID), arrêtée "
-                "avec lui. Exécutée sur la machine, hors de Wine : images de confiance "
+                "avec lui. Exécutée sur le client, hors de Wine : images de confiance "
                 "seulement. Ignorée par Batocera."), []),
     "ATTACH_PROCESS": (("Processus attendu par ATTACH (15 caractères au plus). Défaut : "
                         "l'exécutable de CMD ; à renseigner si CMD est un lanceur."), []),

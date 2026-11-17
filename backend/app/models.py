@@ -50,9 +50,9 @@ class ImageInfo(BaseModel):
     runner: RunnerKind = RunnerKind.DEFAULT
     wine: str | None = None
     proton: str | None = None
-    runner_path: str | None = None # RUNNER= (chemin d'un binaire wine de la machine)
+    runner_path: str | None = None # RUNNER= (chemin d'un binaire wine du client)
     joined_runners: list[str] = Field(default_factory=list)   # dossiers runners/<nom> de l'image
-    runner_joined: bool = False    # runner utilisé = runner joint à l'image (comme le lanceur)
+    runner_joined: bool = False    # runner utilisé = runner intégré à l'image (comme le lanceur)
     hidraw: bool | None = None
     xinput: bool = False           # vrai si HIDRAW n'est pas à 1 (mode par défaut)
     cmd: str | None = None

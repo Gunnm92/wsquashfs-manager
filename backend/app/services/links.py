@@ -2,7 +2,7 @@
 
 Dans un prefix créé par Proton, les DLL de Wine sont des liens vers le
 runner (`.../GE-Proton-latest/files/lib/wine/x86_64-windows/d3d11.dll`).
-Pointant hors de l'image, ils dépendent d'un runner installé sur la machine :
+Pointant hors de l'image, ils dépendent d'un runner installé sur le client :
 cassés ailleurs ou quand ce runner change, et Proton ne répare pas un lien
 cassé (« failed to open umu.exe »). Vérifié sur la ludothèque le 01/11 :
 Kingdom Hearts III en a 1350 vers le GE-Proton-latest de Heroic.
@@ -60,7 +60,7 @@ class LinkReport:
                 f"{len(self.fixable)} lien(s) du prefix vers un runner hors du dossier, "
                 f"présent dans runners/ : réécrits en relatif dans l'image (dossier inchangé)")})
         if self.external:
-            names = ", ".join(self.runners[:3]) or "runner de la machine"
+            names = ", ".join(self.runners[:3]) or "runner du client"
             out.append({"level": "warn", "message": (
                 f"{len(self.external)} lien(s) du prefix vers {names}, hors de l'image : "
                 f"l'image dépend de ce runner installé (cassée ailleurs ou s'il change ; "
@@ -84,7 +84,7 @@ class LinkReport:
 def _dangling(rel: str, target: str, files: set[str]) -> str | None:
     """"external" : cible hors de l'image (absolue, ou relative qui en sort) ;
     "missing" : dans l'image mais absente (ancien `runner/` renommé
-    `runners/`, fichier manquant du runner joint) ; None : lien valide."""
+    `runners/`, fichier manquant du runner intégré) ; None : lien valide."""
     if target.startswith("/"):
         return None if _BATOCERA_RE.match(target) else "external"
     resolved = posixpath.normpath(posixpath.join(posixpath.dirname(rel), target))
@@ -126,7 +126,7 @@ def classify(links: Iterable[tuple[str, str]], files: Iterable[str]) -> LinkRepo
         if name:
             parts = [p for p in target.split("/") if p]
             suffix = "/".join(parts[parts.index(name) + 1:])
-            # Runner joint du même nom, sinon le seul runner joint
+            # Runner intégré du même nom, sinon le seul runner intégré
             real = joined.get(name.lower()) or (next(iter(joined.values()))
                                                 if len(joined) == 1 else None)
             if real and f"runners/{real}/{suffix}" in files:

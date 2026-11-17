@@ -82,9 +82,9 @@
     <div class="name">wsquashfs</div>
   </div>
   <nav class="views" id="views">
-    <button data-view="saves" class="active" data-connected title="Sauvegardes entre machines"><svg class="ico"><use href="#i-save"/></svg><span>Sauvegardes</span><span class="count" id="count-saves"></span></button>
+    <button data-view="saves" class="active" data-connected title="Sauvegardes entre clients"><svg class="ico"><use href="#i-save"/></svg><span>Sauvegardes</span><span class="count" id="count-saves"></span></button>
     <button data-view="images" title="Images"><svg class="ico"><use href="#i-layers"/></svg><span>Images</span><span class="count" id="count-images"></span></button>
-    <button data-view="folders" title="Dossiers à empaqueter"><svg class="ico"><use href="#i-package"/></svg><span>Dossiers à empaqueter</span><span class="count" id="count-folders"></span></button>
+    <button data-view="folders" title="Dossiers"><svg class="ico"><use href="#i-package"/></svg><span>Dossiers</span><span class="count" id="count-folders"></span></button>
     <button data-view="help" title="Aide : images, autorun.cmd, lanceur"><svg class="ico"><use href="#i-book"/></svg><span>Aide</span></button>
   </nav>
   <span id="status"></span>
@@ -141,8 +141,8 @@
       <button class="iconbtn bare lg" id="btn-mass-commit" title="Inscrire les surcharges" aria-label="Reconstruire chaque image avec son autorun effectif, puis supprimer la surcharge"><svg class="ico"><use href="#i-filepen"/></svg></button>
       <button class="iconbtn bare lg" id="btn-saves-reset" title="Réinitialiser les sauvegardes" aria-label="Mettre de côté les sauvegardes (renommées, pas supprimées)"><svg class="ico"><use href="#i-save"/></svg></button>
       <span class="sep"></span>
-      <button class="iconbtn bare lg" id="btn-inst-install" data-connected title="Installer sur…" aria-label="Copier les images sélectionnées (.wsquashfs) dans le dossier des jeux des machines associées"><svg class="ico"><use href="#i-drive"/></svg></button>
-      <button class="iconbtn bare lg" id="btn-inst-uninstall" data-connected title="Désinstaller de…" aria-label="Retirer les images sélectionnées (.wsquashfs) des machines associées ; elles restent dans la bibliothèque"><svg class="ico"><use href="#i-trash"/></svg></button>
+      <button class="iconbtn bare lg" id="btn-inst-install" data-connected title="Installer sur…" aria-label="Copier les images sélectionnées (.wsquashfs) dans le dossier des jeux des clients associés"><svg class="ico"><use href="#i-drive"/></svg></button>
+      <button class="iconbtn bare lg" id="btn-inst-uninstall" data-connected title="Désinstaller de…" aria-label="Retirer les images sélectionnées (.wsquashfs) des clients associés ; elles restent dans la bibliothèque"><svg class="ico"><use href="#i-trash"/></svg></button>
       <button class="iconbtn bare lg" id="btn-sel-clear" title="Désélectionner" aria-label="Désélectionner"><svg class="ico"><use href="#i-x"/></svg></button>
     </div>
   </section>
@@ -169,8 +169,8 @@
     <div data-pane="info">
       <div class="tiles">
         <button class="tile" id="d-verify" title="Vérifier l'intégrité de l'image"><span class="disc t-sage"><svg class="ico sm"><use href="#i-shield"/></svg></span><span>Vérifier</span></button>
-        <div class="dd tile-wrap" id="d-trial-wrap" data-connected><button class="tile" id="d-trial" title="Lance le jeu sur la machine d'essai, l'observe puis l'arrête : tient-il, fenêtre, erreurs, capture"><span class="disc t-accent"><svg class="ico sm"><use href="#i-flask"/></svg></span><span>Essai</span></button></div>
-        <div class="dd tile-wrap" data-connected><button class="tile" id="d-saves" title="Sauvegardes de ce jeu entre machines"><span class="disc t-neutral"><svg class="ico sm"><use href="#i-save"/></svg></span><span>Sauvegardes</span></button></div>
+        <div class="dd tile-wrap" id="d-trial-wrap" data-connected><button class="tile" id="d-trial" title="Lance le jeu sur le client d'essai, l'observe puis l'arrête : tient-il, fenêtre, erreurs, capture"><span class="disc t-accent"><svg class="ico sm"><use href="#i-flask"/></svg></span><span>Essai</span></button></div>
+        <div class="dd tile-wrap" data-connected><button class="tile" id="d-saves" title="Sauvegardes de ce jeu entre clients"><span class="disc t-neutral"><svg class="ico sm"><use href="#i-save"/></svg></span><span>Sauvegardes</span></button></div>
         <button class="tile" id="d-propose" title="Proposer un autorun (exécutables, règles, base de connaissances)"><span class="disc t-neutral"><svg class="ico sm"><use href="#i-sparkles"/></svg></span><span>Proposer</span></button>
       </div>
       <dl class="facts" id="d-info"></dl>
@@ -181,8 +181,8 @@
       </dl>
       <div class="box">
         <div class="box-head"><svg class="ico"><use href="#i-link"/></svg><strong>Liens du runner</strong>
-          <button class="btn secondary sm" id="d-links" title="Liens du prefix vers un runner hors de l'image ou absent, et réparation avec les runners installés sur la machine d'essai">Analyser</button></div>
-        <div id="d-links-result" class="msg">Vérifie que l'image ne dépend pas d'un runner installé sur la machine.</div>
+          <button class="btn secondary sm" id="d-links" title="Liens du prefix vers un runner hors de l'image ou absent, et réparation avec les runners installés sur le client d'essai">Analyser</button></div>
+        <div id="d-links-result" class="msg">Vérifie que l'image ne dépend pas d'un runner installé sur le client.</div>
       </div>
     </div>
 
@@ -250,14 +250,14 @@
 <!-- ================================================================ Dossiers -->
 <main id="folders-main" class="folders" hidden>
   <div class="page-head">
-    <h1>Dossiers à empaqueter</h1>
+    <h1>Dossiers</h1>
     <p>Dossiers <code>*.pc</code> et <code>*.wine</code> des dossiers roms/ : analyse, autorun proposé et justifié, puis empaquetage en <code>.wsquashfs</code> (renommage en <code>.wine</code>, vérification) dans la file de tâches.</p>
   </div>
   <div class="toolbar">
     <label class="search"><svg class="ico"><use href="#i-search"/></svg><input type="search" id="g-search" placeholder="Rechercher un dossier…"></label>
     <div class="pills" id="g-state">
       <button data-state="" class="on"><svg class="ico sm"><use href="#i-list"/></svg>Tous</button>
-      <button data-state="todo"><svg class="ico sm"><use href="#i-package"/></svg>À empaqueter</button>
+      <button data-state="todo"><svg class="ico sm"><use href="#i-package"/></svg>À traiter</button>
       <button data-state="noautorun"><svg class="ico sm"><use href="#i-terminal"/></svg>Sans autorun</button>
       <button data-state="done"><svg class="ico sm"><use href="#i-check"/></svg>Déjà empaquetés</button>
     </div>
@@ -287,33 +287,33 @@
 <main id="saves-main" class="folders">
   <div class="page-head">
     <h1>Sauvegardes</h1>
-    <p>Sauvegardes de partie de tes machines. <b>Sync</b> copie la version suggérée (la plus lourde) vers les machines qui ont le jeu dans une version en retard ; la version écrasée est archivée. Une machine qui n'a pas le jeu n'est pas touchée (menu de la ligne pour l'y installer). Le manager garde une copie, même machine éteinte.</p>
+    <p>Sauvegardes de partie de tes clients. <b>Sync</b> copie la version suggérée (la plus lourde) vers les clients qui ont le jeu dans une version en retard ; la version écrasée est archivée. Un client qui n'a pas le jeu n'est pas touché (menu de la ligne pour l'y installer). Le manager garde une copie, même client éteint.</p>
   </div>
 
-  <section class="sv-bar" aria-label="Machines associées">
+  <section class="sv-bar" aria-label="Clients associés">
     <div class="sv-bar-head">
-      <span class="glabel">Machines</span>
+      <span class="glabel">Clients</span>
       <span class="spacer"></span>
-      <button class="btn bare sm" id="s-refresh" title="Relire les machines et leurs sauvegardes"><svg class="ico sm"><use href="#i-refresh"/></svg>Actualiser</button>
+      <button class="btn bare sm" id="s-refresh" title="Relire les clients et leurs sauvegardes"><svg class="ico sm"><use href="#i-refresh"/></svg>Actualiser</button>
     </div>
     <div class="sv-chips" id="s-chips">
-      <button type="button" class="mcard add" id="s-pair" title="Associer une machine avec son code wsq://"><svg class="ico"><use href="#i-plus"/></svg><span>Associer une machine</span></button>
+      <button type="button" class="mcard add" id="s-pair" title="Associer un client avec son code wsq://"><svg class="ico"><use href="#i-plus"/></svg><span>Associer un client</span></button>
     </div>
   </section>
 
-  <div class="notice info" id="s-loading" role="status" hidden><span class="spinner"></span><span>Lecture des machines…</span></div>
+  <div class="notice info" id="s-loading" role="status" hidden><span class="spinner"></span><span>Lecture des clients…</span></div>
   <div id="s-error"></div>
 
   <section class="sv-empty" id="s-empty" hidden>
     <svg class="ico"><use href="#i-save"/></svg>
-    <strong>Aucune machine associée</strong>
-    <p class="dlg-intro">Associe les machines entre lesquelles tu veux garder les mêmes sauvegardes de partie.</p>
+    <strong>Aucun client associé</strong>
+    <p class="dlg-intro">Associe les clients entre lesquels tu veux garder les mêmes sauvegardes de partie.</p>
     <ol>
-      <li>Sur la machine : <code>wsquashfs-launcher --pair</code> affiche un code <code>wsq://</code>.</li>
-      <li>Ici : « Associer une machine » et colle ce code.</li>
-      <li>Sur la machine : <code>wsquashfs-launcher --agent</code> pour qu'elle reste joignable.</li>
+      <li>Sur le client : <code>wsquashfs-launcher --pair</code> affiche un code <code>wsq://</code>.</li>
+      <li>Ici : « Associer un client » et colle ce code.</li>
+      <li>Sur le client : <code>wsquashfs-launcher --agent</code> pour qu'il reste joignable.</li>
     </ol>
-    <div class="row"><button class="btn primary sm" id="s-empty-pair"><svg class="ico sm"><use href="#i-plus"/></svg>Associer une machine</button></div>
+    <div class="row"><button class="btn primary sm" id="s-empty-pair"><svg class="ico sm"><use href="#i-plus"/></svg>Associer un client</button></div>
   </section>
 
   <div id="s-body" hidden>
@@ -333,11 +333,11 @@
     <span class="lbl" id="s-count"></span>
     <label class="sv-src"><span>Source</span><select id="s-source" title="D'où viennent les sauvegardes"></select></label>
     <span class="sv-arrow" aria-hidden="true"><svg class="ico sm"><use href="#i-arrow"/></svg></span>
-    <div class="dd" id="s-targets-dd"><button type="button" class="dd-btn" id="s-targets" aria-haspopup="menu" title="Machines qui reçoivent"></button></div>
+    <div class="dd" id="s-targets-dd"><button type="button" class="dd-btn" id="s-targets" aria-haspopup="menu" title="Clients qui reçoivent"></button></div>
     <span class="sep"></span>
     <button class="btn primary sm" id="s-push"><svg class="ico sm"><use href="#i-arrow"/></svg>Sync</button>
     <button class="btn bare sm" id="s-pull" title="Copier les sauvegardes sélectionnées sur le manager"><svg class="ico sm"><use href="#i-server"/></svg>Copier vers le manager</button>
-    <button class="btn bare sm sv-danger" id="s-delete" title="Supprimer les sauvegardes sélectionnées, sur des machines et/ou le manager"><svg class="ico sm"><use href="#i-trash"/></svg>Supprimer…</button>
+    <button class="btn bare sm sv-danger" id="s-delete" title="Supprimer les sauvegardes sélectionnées, sur des clients et/ou le manager"><svg class="ico sm"><use href="#i-trash"/></svg>Supprimer…</button>
     <button class="iconbtn bare sm" id="s-clear" title="Désélectionner"><svg class="ico sm"><use href="#i-x"/></svg></button>
   </div>
 </main>
@@ -369,7 +369,7 @@
   <div class="in-targets" id="in-targets"></div>
   <p class="dlg-intro sd-note">Le jeu est copié dans ce dossier ; ajoute-le ensuite toi-même à Steam ou à ton lanceur. Un envoi coupé reprend où il s'est arrêté.</p>
   <div class="dlg-foot">
-    <button class="btn bare sm" id="in-refresh" title="Relit l'état des machines"><svg class="ico sm"><use href="#i-refresh"/></svg>Actualiser</button>
+    <button class="btn bare sm" id="in-refresh" title="Relit l'état des clients"><svg class="ico sm"><use href="#i-refresh"/></svg>Actualiser</button>
     <span class="spacer"></span>
     <button class="btn secondary" data-close>Annuler</button>
     <button class="btn primary" id="in-run"><svg class="ico sm"><use href="#i-drive"/></svg>Installer</button></div>
@@ -380,17 +380,17 @@
   <p class="dlg-intro" id="un-images"></p>
   <div id="un-status"></div>
   <div class="in-targets" id="un-targets"></div>
-  <p class="dlg-intro sd-note">L'image est supprimée de la machine (pas d'archive : elle reste dans la bibliothèque). Le jeu ne doit pas être lancé.</p>
+  <p class="dlg-intro sd-note">L'image est supprimée du client (pas d'archive : elle reste dans la bibliothèque). Le jeu ne doit pas être lancé.</p>
   <div class="dlg-foot">
-    <button class="btn bare sm" id="un-refresh" title="Relit l'état des machines"><svg class="ico sm"><use href="#i-refresh"/></svg>Actualiser</button>
+    <button class="btn bare sm" id="un-refresh" title="Relit l'état des clients"><svg class="ico sm"><use href="#i-refresh"/></svg>Actualiser</button>
     <span class="spacer"></span>
     <button class="btn secondary" data-close>Annuler</button>
     <button class="btn danger" id="un-run"><svg class="ico sm"><use href="#i-trash"/></svg>Désinstaller</button></div>
 </dialog>
 <dialog id="dlg-pair" class="small">
-  <div class="dlg-head"><h2>Associer une machine</h2><span class="spacer"></span>
+  <div class="dlg-head"><h2>Associer un client</h2><span class="spacer"></span>
     <button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
-  <p class="dlg-intro">Sur la machine : <code>wsquashfs-launcher --pair</code>, colle ici le code affiché (il ne sert qu'une fois, pendant que <code>--pair</code> attend) ; puis <code>wsquashfs-launcher --agent</code> pour qu'elle reste joignable.</p>
+  <p class="dlg-intro">Sur le client : <code>wsquashfs-launcher --pair</code>, colle ici le code affiché (il ne sert qu'une fois, pendant que <code>--pair</code> attend) ; puis <code>wsquashfs-launcher --agent</code> pour qu'il reste joignable.</p>
   <label class="field">Code wsq://<input id="pair-code" autocomplete="off" placeholder="wsq://…"></label>
   <p id="pair-err" class="notice err" hidden></p>
   <div class="dlg-foot"><span class="spacer"></span>
@@ -400,11 +400,11 @@
 <dialog id="dlg-dirs" class="small">
   <div class="dlg-head"><h2 id="dirs-title">Dossiers synchronisés</h2><span class="spacer"></span>
     <button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
-  <p class="dlg-intro">Dossiers synchronisés comme des jeux (par exemple les sauvegardes d'un autre émulateur). Il suffit de le déclarer sur une machine : il se propage ensuite comme une sauvegarde (une machine qui le reçoit le déclare au même chemin, à partir de son dossier personnel). Retirer une déclaration ne supprime aucun fichier.</p>
+  <p class="dlg-intro">Dossiers synchronisés comme des jeux (par exemple les sauvegardes d'un autre émulateur). Il suffit de le déclarer sur un client : il se propage ensuite comme une sauvegarde (un client qui le reçoit le déclare au même chemin, à partir de son dossier personnel). Retirer une déclaration ne supprime aucun fichier.</p>
   <div class="dirs-list" id="dirs-list"></div>
   <p class="dlg-intro" id="dirs-eden"></p>
   <label class="field">Nom<input id="dirs-name" maxlength="48" autocomplete="off" placeholder="hookshot"></label>
-  <label class="field">Chemin depuis le dossier personnel de la machine<input id="dirs-path" autocomplete="off" placeholder=".local/share/hookshot/save"></label>
+  <label class="field">Chemin depuis le dossier personnel du client<input id="dirs-path" autocomplete="off" placeholder=".local/share/hookshot/save"></label>
   <p id="dirs-err" class="notice err" hidden></p>
   <div class="dlg-foot"><span class="spacer"></span>
     <button class="btn secondary" data-close>Fermer</button><button class="btn primary" id="dirs-add"><svg class="ico sm"><use href="#i-folder"/></svg>Déclarer</button></div>
@@ -415,7 +415,7 @@
     <button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
   <p class="dlg-intro" id="sd-games"></p>
   <div class="sd-targets" id="sd-targets"></div>
-  <p class="dlg-intro sd-note">Sur chaque machine, la sauvegarde est archivée dans le dossier des backups avant d'être effacée ; sur le manager, elle reste dans ses versions précédentes. Le jeu doit être arrêté.</p>
+  <p class="dlg-intro sd-note">Sur chaque client, la sauvegarde est archivée dans le dossier des backups avant d'être effacée ; sur le manager, elle reste dans ses versions précédentes. Le jeu doit être arrêté.</p>
   <div class="dlg-foot"><span class="spacer"></span>
     <button class="btn secondary" data-close>Annuler</button>
     <button class="btn danger" id="sd-run"><svg class="ico sm"><use href="#i-trash"/></svg>Supprimer</button></div>
@@ -435,7 +435,7 @@
   <div class="dlg-head"><h2>Réglages</h2><span class="spacer"></span>
     <button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
 
-  <!-- Mode : autonome (construire seulement) ou connecté (machines) -->
+  <!-- Mode : autonome (construire seulement) ou connecté (clients) -->
   <div class="section-label">Mode</div>
   <div class="pills on-s2 cfg-mode" id="cfg-mode" role="radiogroup">
     <button data-mode="autonome" role="radio">Autonome</button>
@@ -467,21 +467,21 @@
   <label class="field">Auteurs préférés<textarea id="cfg-sgdb-authors" rows="2" placeholder="un par ligne, ou séparés par des virgules"></textarea></label>
   <label class="field"><span class="cfg-thr-row">Seuil de rondeur des icônes <span id="cfg-sgdb-threshold-out" class="cfg-threshold-out"></span></span><input id="cfg-sgdb-threshold" type="range" min="0" max="1" step="0.05"></label>
 
-  <!-- Lanceur de la machine d'essai (connecté seulement) -->
+  <!-- Lanceur du client d'essai (connecté seulement) -->
   <div class="conn-only">
-    <div class="section-label row"><span id="cfg-doctor-title">Lanceur de la machine d'essai</span><span class="spacer"></span><span id="cfg-doctor-age" class="muted"></span>
+    <div class="section-label row"><span id="cfg-doctor-title">Lanceur du client d'essai</span><span class="spacer"></span><span id="cfg-doctor-age" class="muted"></span>
       <button class="iconbtn bare sm" id="cfg-doctor-refresh" title="Relancer le diagnostic"><svg class="ico sm"><use href="#i-refresh"/></svg></button></div>
     <div id="cfg-doctor" class="doctor"><span class="muted">—</span></div>
   </div>
 
-  <!-- Synchro automatique des machines (connecté seulement) -->
+  <!-- Synchro automatique des clients (connecté seulement) -->
   <div class="conn-only">
-    <div class="section-label">Synchro automatique des machines</div>
-    <label class="field">Adresse du manager pour les machines<input id="cfg-machine-url" autocomplete="off" placeholder="https://192.168.1.10:8790"></label>
-    <p class="dlg-intro">Adresse par laquelle les machines joignent ce manager (HTTPS, port 8790). Elle est déclarée à chaque machine associée (agent version 9 ou plus) ; vide : pas de synchro automatique.</p>
+    <div class="section-label">Synchro automatique des clients</div>
+    <label class="field">Adresse du manager pour les clients<input id="cfg-machine-url" autocomplete="off" placeholder="https://192.168.1.10:8790"></label>
+    <p class="dlg-intro">Adresse par laquelle les clients joignent ce manager (HTTPS, port 8790). Elle est déclarée à chaque client associé (agent version 9 ou plus) ; vide : pas de synchro automatique.</p>
     <p class="muted" id="cfg-machine-fp" style="font-size:12.5px"></p>
-    <label class="field">Mise à jour automatique des machines (secondes ; 0 : désactivée)<input id="cfg-auto-push" type="number" min="0" max="86400" step="1" inputmode="numeric"></label>
-    <p class="dlg-intro">Les machines dont la synchro auto est activée et qui sont en retard reçoivent la version du manager, à cet intervalle.</p>
+    <label class="field">Mise à jour automatique des clients (secondes ; 0 : désactivée)<input id="cfg-auto-push" type="number" min="0" max="86400" step="1" inputmode="numeric"></label>
+    <p class="dlg-intro">Les clients dont la synchro auto est activée et qui sont en retard reçoivent la version du manager, à cet intervalle.</p>
   </div>
 
   <!-- Serveur : lecture seule, replié -->
@@ -500,7 +500,7 @@
   <div class="dlg-head"><h2>Diagnostic du lanceur</h2><span class="spacer"></span><span id="doc-age" class="muted"></span>
     <button class="iconbtn bare sm" id="doc-refresh" title="Relancer le diagnostic"><svg class="ico sm"><use href="#i-refresh"/></svg></button>
     <button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
-  <p class="dlg-intro" id="doc-title">wsquashfs-launcher --doctor sur la machine d'essai</p>
+  <p class="dlg-intro" id="doc-title">wsquashfs-launcher --doctor sur le client d'essai</p>
   <div id="doc-body" class="doctor"><span class="muted">—</span></div>
   <div class="dlg-foot"><span class="spacer"></span><button class="btn secondary" data-close>Fermer</button></div>
 </dialog>
@@ -518,7 +518,7 @@
       <button class="btn secondary sm" data-maint="clean">Nettoyer</button></div>
     <div class="tool"><div><b>Copier les sauvegardes</b><span>De tous les jeux vers saves/&lt;système&gt;/&lt;jeu&gt; dans la ludothèque. Rien n'est supprimé.</span></div>
       <button class="btn secondary sm" data-maint="saves">Copier</button></div>
-    <div class="tool"><div><b>Synchroniser les sauvegardes</b><span>Avec les autres machines associées du réseau local : la plus lourde gagne (à taille égale, la plus récente), l'autre est archivée. Association une fois, en ligne de commande : <code>wsquashfs-launcher --pair</code> sur l'autre machine, puis <code>wsquashfs-launcher --sync wsq://…</code> sur celle-ci.</span></div>
+    <div class="tool"><div><b>Synchroniser les sauvegardes</b><span>Avec les autres clients associés du réseau local : la plus lourde gagne (à taille égale, la plus récente), l'autre est archivée. Association une fois, en ligne de commande : <code>wsquashfs-launcher --pair</code> sur l'autre client, puis <code>wsquashfs-launcher --sync wsq://…</code> sur celle-ci.</span></div>
       <button class="btn secondary sm" data-maint="sync">Synchroniser</button></div>
     <div class="tool"><div><b>État de la synchro</b><span>Ce qui serait synchronisé, sans rien changer.</span></div>
       <button class="btn secondary sm" data-maint="sync-status">Voir l'état</button></div>

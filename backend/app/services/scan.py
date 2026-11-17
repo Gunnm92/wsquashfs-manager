@@ -207,7 +207,7 @@ def _is_joined_proton(files: list[str], name: str) -> bool:
 
 
 def _apply_joined(info: ImageInfo, files: list[str] | None = None) -> None:
-    """Runner joint, résolu comme resolve_image_runner du lanceur : PROTON= ou
+    """Runner intégré, résolu comme resolve_image_runner du lanceur : PROTON= ou
     WINE= désignant runners/<nom> (aussi wine-<nom>, casse ignorée), sinon un
     runner seul dans runners/."""
     joined = info.joined_runners

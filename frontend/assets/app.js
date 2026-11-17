@@ -248,38 +248,41 @@ $("dlg-login").addEventListener("cancel", (event) => event.preventDefault());
 
 // ------------------------------------------------------------------ bibliothèque
 
-const TYPES = { wine_batocera: "Prefix Wine (Batocera)", wine_proton: "Prefix Proton", wine_other: "Autre prefix Wine",
-  game_only: "Jeu seul", unknown: "Type inconnu" };
+const TYPES = { wine_batocera: "wine", wine_proton: "proton", wine_other: "wine", game_only: "aucun", unknown: "inconnu" };
+// Détail affiché après le nom court (info-bulle, fiche) : « wine — prefix Batocera (system.reg) »
+const TYPE_DETAIL = { wine_batocera: "prefix Batocera (system.reg)", wine_proton: "prefix Proton", wine_other: "autre prefix Wine",
+  game_only: "jeu seul, sans prefix", unknown: "prefix non reconnu" };
+const typeLong = (t) => TYPE_DETAIL[t] ? `${TYPES[t]} — ${TYPE_DETAIL[t]}` : (TYPES[t] || t);
 const TYPE_LOOK = { wine_batocera: ["wine", "t-accent"], wine_other: ["wine", "t-neutral"], wine_proton: ["atom", "t-sage"],
   game_only: ["app", "t-neutral"], unknown: ["alert", "t-err"] };
 const STATES = { ok: ["Prêt", "Image saine"], in_use: ["En cours", "Jeu lancé : aucune reconstruction possible"],
   modified: ["Tâche", "Une tâche est en file pour cette image"], has_old: [".old", "Ancienne version conservée : à valider"] };
 // Filtres (menus déroulants à côté de la recherche) : chaque choix montre la
-// même icône, de la même couleur, que dans la colonne « Type et réglages »
+// même icône, de la même couleur, que dans la colonne « Prefix et réglages »
 const FILTERS = [
   { key: "system", label: "Système", all: "Tous les systèmes", options: () => [...new Set(state.items.map((i) => i.system).filter(Boolean))].sort().map((v) => [v, null, "", cap(v)]) },
-  { key: "type", label: "Type", all: "Tous les types", options: () => [["wine", "wine", "t-accent", "Prefix Wine"], ["wine_proton", "atom", "t-sage", "Prefix Proton"], ["game_only", "app", "t-neutral", "Jeu seul"]] },
-  { key: "runner", label: "Runner", all: "Tous les runners", options: () => [["default", null, "", "Par défaut"], ["custom", "cpu", "t-accent", "Personnalisé"], ["joined", "clip", "t-accent", "Joint à l'image"]] },
-  { key: "pad", label: "Manettes", all: "Toutes les manettes", options: () => [["hidraw", "usb", "t-sage", "HIDRAW"], ["xinput", "gamepad", "t-off", "XInput"]] },
+  { key: "type", label: "Prefix", all: "Tous les prefix", options: () => [["wine", "wine", "t-accent", "wine"], ["wine_proton", "atom", "t-sage", "proton"], ["game_only", "app", "t-neutral", "aucun"]] },
+  { key: "runner", label: "Runner", all: "Tous les runners", options: () => [["default", null, "", "aucun"], ["custom", "cpu", "t-accent", "custom"], ["joined", "clip", "t-accent", "intégré"]] },
+  { key: "pad", label: "Manette", all: "Toutes les manettes", options: () => [["hidraw", "usb", "t-sage", "DualSense"], ["xinput", "gamepad", "t-off", "Xbox"]] },
   { key: "extra", label: "Extras", all: "Tous", options: () => [["keys", "keyboard", "t-neutral", "Touches clavier"], ["fakeping", "wifi", "t-neutral", "Relais fakeping"]] },
   { key: "special", label: "État", all: "Tous les états", options: () => [["noversion", "tag", "t-accent", "Sans version"], ["old", "history", "t-accent", "Ancienne image (.old)"],
     ["inuse", "play", "t-accent", "En cours"], ["noautorun", "terminal", "t-accent", "Sans autorun"], ["override", "filepen", "t-accent", "Surcharge à inscrire"]] },
-  // Machines associées (état de l'installation, voir « Installation sur les machines »)
-  { key: "inst", label: "Installé sur…", all: "Quelle que soit la machine", options: () => instFilterOptions() },
+  // Clients associés (état de l'installation, voir « Installation sur les clients »)
+  { key: "inst", label: "Installé sur…", all: "Quel que soit le client", options: () => instFilterOptions() },
 ];
 const SORTS = { name: (i) => i.name, size: (i) => i.size, saves_size: (i) => i.saves_present ? i.saves_size : -1, state: (i) => i.state };
 
-// Colonne et filtre : « défaut » ou « personnalisé » ; le détail est dans l'info-bulle
-const runnerLabel = (i) => i.runner === "default" ? "défaut" : "personnalisé";
+// Colonne et filtre : « aucun », « custom » ou « intégré » ; le détail est dans l'info-bulle
+const runnerLabel = (i) => i.runner === "default" ? "aucun" : i.runner_joined ? "intégré" : "custom";
 function runnerDetails(i) {
   const joined = i.joined_runners || [];
   const used = i.proton || i.wine;
   const lines = [];
-  if (i.runner === "custom") lines.push(`RUNNER=${i.runner_path || "?"}`, "binaire wine de la machine");
-  else if (i.runner === "default") lines.push("choisi par le lanceur selon le type d'image");
+  if (i.runner === "custom") lines.push(`RUNNER=${i.runner_path || "?"}`, "binaire wine du client");
+  else if (i.runner === "default") lines.push("choisi par le lanceur selon le prefix de l'image");
   else {
     lines.push(`${i.runner === "proton" ? "PROTON" : "WINE"}=${used}`);
-    lines.push(i.runner_joined ? `joint à l'image (runners/${used})` : "installé sur la machine");
+    lines.push(i.runner_joined ? `intégré à l'image (runners/${used})` : "installé sur le client");
   }
   const unused = joined.filter((n) => !(i.runner_joined && n.toLowerCase() === (used || "").toLowerCase()));
   if (unused.length) lines.push(`runners/ : ${unused.join(", ")} (non utilisé)`);
@@ -289,9 +292,9 @@ function runnerDetails(i) {
 // Pastilles de la colonne Profil : type, runner, manettes, extras, surcharge
 function profileBadges(i) {
   const [typeIcon, typeTone] = TYPE_LOOK[i.type] || TYPE_LOOK.unknown;
-  const out = [dotIc(typeIcon, typeTone, TYPES[i.type] || i.type)];
-  if (i.runner !== "default") out.push(dotIc(i.runner_joined ? "clip" : "cpu", "t-accent", "Runner personnalisé", runnerDetails(i)));
-  out.push(i.hidraw ? dotIc("usb", "t-sage", "Manettes : HIDRAW") : dotIc("gamepad", "t-off", "Manettes : XInput"));
+  const out = [dotIc(typeIcon, typeTone, `Prefix : ${typeLong(i.type)}`)];
+  if (i.runner !== "default") out.push(dotIc(i.runner_joined ? "clip" : "cpu", "t-accent", i.runner_joined ? "Runner intégré" : "Runner custom", runnerDetails(i)));
+  out.push(i.hidraw ? dotIc("usb", "t-sage", "Manette : DualSense") : dotIc("gamepad", "t-off", "Manette : Xbox"));
   for (const extra of i.extras || []) {
     if (extra === ".keys") out.push(dotIc("keyboard", "t-neutral", "Touches clavier", [".wsquashfs.keys à côté de l'image"]));
     else if (extra === "fakeping") out.push(dotIc("wifi", "t-neutral", "Relais fakeping", ["dinput8.dll"]));
@@ -506,7 +509,7 @@ function renderLibrary() {
       b.onclick = () => { state.sort = { key, dir: state.sort.key === key ? -state.sort.dir : 1 }; renderLibrary(); };
       return b;
     };
-    $("thead").replaceChildren(all, sortBtn("name", "Jeu"), el("span", { className: "c-profile", textContent: "Type et réglages" }),
+    $("thead").replaceChildren(all, sortBtn("name", "Jeu"), el("span", { className: "c-profile", textContent: "Prefix et réglages" }),
       sortBtn("size", "Taille", "r"), sortBtn("saves_size", "Sauveg.", "r c-saves"), sortBtn("state", "État", "c-state"));
     $("rows").replaceChildren(...visible.map((i) => {
       const row = el("div", { className: `grow item${state.selected.has(i.id) ? " selected" : ""}` },
@@ -586,7 +589,7 @@ for (const b of $("layout").children) {
   b.onclick = () => { state.layout = b.dataset.layout; storage.set("wsfs-layout", state.layout); renderLibrary(); };
 }
 $("btn-refresh").onclick = () => { loadLibrary(); loadConfig(); };
-// Relit la configuration (Réglages, machine d'essai…) : Actualiser, fin des Réglages
+// Relit la configuration (Réglages, client d'essai…) : Actualiser, fin des Réglages
 async function loadConfig() {
   try { state.config = await api("/api/config"); } catch { /* garde la configuration déjà lue */ }
   applyMode();
@@ -629,12 +632,12 @@ function renderDetailHeader() {
   const [typeIcon, typeTone] = TYPE_LOOK[i.type] || TYPE_LOOK.unknown;
   const [stateLabel] = STATES[i.state] || [i.state];
   $("d-chips").replaceChildren(...[
-    chip(typeIcon, TYPES[i.type] || i.type, typeTone, TYPE_HELP[i.type] || null),
+    chip(typeIcon, TYPES[i.type] || i.type, typeTone, TYPE_HELP[i.type] || null, `Prefix : ${typeLong(i.type)}`),
     i.version ? chip("tag", `v${i.version.replace(/^v/i, "")}`, "t-sage", null, "GAME_VERSION")
       : chip("tag", "sans version", "t-accent", "hk-GAME_VERSION", "GAME_VERSION absente"),
     chip("drive", size(i.size), "t-neutral", null, "Taille de l'image"),
-    i.runner_joined ? chip("clip", "runner joint", "t-accent", "h-runner") : null,
-    i.hidraw ? chip("usb", "HIDRAW", "t-sage", "hk-HIDRAW") : chip("gamepad", "XInput", "t-neutral", "hk-HIDRAW"),
+    i.runner_joined ? chip("clip", "runner intégré", "t-accent", "h-runner") : null,
+    i.hidraw ? chip("usb", "DualSense", "t-sage", "hk-HIDRAW") : chip("gamepad", "Xbox", "t-neutral", "hk-HIDRAW"),
     i.state !== "ok" && i.state !== "has_old" ? chip(i.state === "in_use" ? "play" : "clock", stateLabel, "t-accent") : null,
     (i.override || []).length ? chip("filepen", "surcharge", "t-accent", "h-ar-override") : null].filter(Boolean));
   const facts = [
@@ -652,7 +655,7 @@ function renderDetailHeader() {
   if ($("d-links-result").dataset.id !== i.id) {      // autre image : constat à refaire
     $("d-links-result").dataset.id = i.id;
     $("d-links-result").className = "msg";
-    $("d-links-result").textContent = "Vérifie que l'image ne dépend pas d'un runner installé sur la machine.";
+    $("d-links-result").textContent = "Vérifie que l'image ne dépend pas d'un runner installé sur le client.";
   }
 
   const old = $("d-old");
@@ -798,7 +801,7 @@ function setKey(key, value) {
   syncForm();
 }
 
-// Valeurs proposées par clé (datalists), y compris les runners de la machine d'essai
+// Valeurs proposées par clé (datalists), y compris les runners du client d'essai
 function buildForm() {
   $("a-lists").replaceChildren(...state.keys.map(({ key, values }) =>
     el("datalist", { id: `v-${key}` }, ...values.map((v) => new Option(v, v)))));
@@ -1196,8 +1199,8 @@ function paintHistory(tasks) {
 // ------------------------------------------------------------------ tâches
 
 const TASK_KINDS = { autorun: ["hammer", "Reconstruction"], update: ["upload", "Montée de version"], files: ["file", "Fichiers et registre"],
-  verify: ["shield", "Vérification"], cover: ["image", "Illustration"], pack: ["package", "Empaquetage"], runner: ["clip", "Runner joint"], trial: ["flask", "Lancement d'essai"],
-  saves: ["save", "Sauvegardes entre machines"], install: ["drive", "Installation sur les machines"] };
+  verify: ["shield", "Vérification"], cover: ["image", "Illustration"], pack: ["package", "Empaquetage"], runner: ["clip", "Runner intégré"], trial: ["flask", "Lancement d'essai"],
+  saves: ["save", "Sauvegardes entre clients"], install: ["drive", "Installation sur les clients"] };
 const TASK_STATES = { pending: ["clock", "en attente", "t-neutral"], running: ["refresh", "en cours", "t-accent"], done: ["check", "terminée", "t-sage"],
   failed: ["alert", "échec", "t-err"], cancelled: ["x", "annulée", "t-neutral"] };
 
@@ -1307,7 +1310,7 @@ function trialReport(t, r) {
 
 let tasksTimer = null;
 let activeBefore = new Set();
-let installActive = new Set();     // tâches « install » en cours (leur fin recharge l'état des machines)
+let installActive = new Set();     // tâches « install » en cours (leur fin recharge l'état des clients)
 async function refreshTasks() {
   clearTimeout(tasksTimer);
   try {
@@ -1366,19 +1369,19 @@ document.addEventListener("click", (event) => {
 });
 $("tasks-clear").onclick = async () => { await api("/api/tasks/finished", { method: "DELETE" }); refreshTasks(); };
 
-// ------------------------------------------------------------------ mode et machine d'essai
+// ------------------------------------------------------------------ mode et client d'essai
 // Mode autonome : le manager ne fait que construire (Images, Dossiers), rien n'est connecté.
-// Mode connecté : sauvegardes entre machines, installation, lancement d'essai. La machine
-// d'essai se choisit dans le bandeau Machines de Sauvegardes (menu d'une machine).
+// Mode connecté : sauvegardes entre clients, installation, lancement d'essai. Le client
+// d'essai se choisit dans le bandeau Clients de Sauvegardes (menu d'un client).
 
 const connected = () => state.config?.mode !== "autonome";
 const hostOn = () => Boolean(state.config && state.config.game_host && state.config.game_host !== "off");
-const hostName = () => state.config?.game_host_name || "la machine d'essai";
+const hostName = () => state.config?.game_host_name || "le client d'essai";
 const isTrial = (m) => m.id === state.config?.game_host_machine || m.kind === "game_host";
 let appliedMode = null;         // mode affiché : le passage d'un mode à l'autre relance les lectures
 
-// Applique le mode sans recharger la page : ce qui touche une machine disparaît (attribut
-// data-connected, voir app.css) ; en autonome, les machines lues sont oubliées.
+// Applique le mode sans recharger la page : ce qui touche un client disparaît (attribut
+// data-connected, voir app.css) ; en autonome, les clients lus sont oubliés.
 function applyMode() {
   const mode = connected() ? "connecte" : "autonome";
   const previous = appliedMode;
@@ -1396,7 +1399,7 @@ function applyMode() {
     if (document.body.dataset.view === "saves") loadSaves();
   }
 }
-// Mode autonome : plus rien de connecté à montrer (machines, installation, diagnostic)
+// Mode autonome : plus rien de connecté à montrer (clients, installation, diagnostic)
 function clearConnected() {
   inst.machines = []; inst.loaded = false; inst.error = "";
   sv.machines = []; sv.games = []; sv.loaded = false; sv.error = "";
@@ -1404,14 +1407,14 @@ function clearConnected() {
   paintInstall();
   paintSaves();
 }
-// Machine associée choisie comme machine d'essai (menu d'une machine du bandeau)
+// Client associé choisi comme client d'essai (menu d'un client du bandeau)
 async function useForTrials(m) {
   try {
     state.config = await api("/api/config/game_host/machine", { method: "PUT", body: { id: m.id } });
     state.doctor = null;
     applyMode();
     paintSaves();
-    toast(`${m.name} : machine d'essai`);
+    toast(`${m.name} : client d'essai`);
   } catch (error) { toast(error.message, "alert", true); }
 }
 
@@ -1451,7 +1454,7 @@ const MAINT = {
   umount: ["Démonter les jeux", "Un jeu en cours sera arrêté."],
   clean: ["Nettoyer", "Supprime les copies de travail et les doublons des sauvegardes ; ne garde que les 3 dernières archives de --erase par jeu. Ce que les jeux ont écrit est gardé."],
   saves: ["Copier les sauvegardes de tous les jeux", "Copie les sauvegardes de partie dans la ludothèque (saves/<système>/<jeu>). Rien n'est supprimé."],
-  sync: ["Synchroniser les sauvegardes", "Envoie et reçoit les sauvegardes de partie avec les autres machines associées du réseau local ; en cas de conflit, la plus lourde gagne (à taille égale, la plus récente) et l'autre est archivée. Les jeux en cours sont ignorés."],
+  sync: ["Synchroniser les sauvegardes", "Envoie et reçoit les sauvegardes de partie avec les autres clients associés du réseau local ; en cas de conflit, la plus lourde gagne (à taille égale, la plus récente) et l'autre est archivée. Les jeux en cours sont ignorés."],
   "sync-status": ["État de la synchro", ""],
 };
 // Sans confirmation : les actions qui ne modifient rien
@@ -1480,7 +1483,7 @@ for (const button of document.querySelectorAll("[data-maint]")) {
     }
   };
 }
-// Maintenance de la machine d'essai (menu d'une machine, #dlg-maint)
+// Maintenance du client d'essai (menu d'un client, #dlg-maint)
 function paintMaint() {
   for (const b of $("tools-list").querySelectorAll("button")) b.disabled = Boolean(state.maintBusy) || !hostOn();
 }
@@ -1490,20 +1493,20 @@ function openMaint(m) {
   paintMaint();
   $("dlg-maint").showModal();
 }
-// Diagnostic du lanceur de la machine d'essai (menu d'une machine, #dlg-doctor)
+// Diagnostic du lanceur du client d'essai (menu d'un client, #dlg-doctor)
 function openDoctor() {
   $("doc-title").textContent = `wsquashfs-launcher --doctor sur ${hostName()}`;
   $("dlg-doctor").showModal();
   loadDoctor(true);
 }
 
-// ------------------------------------------------------------------ sauvegardes entre machines
-// Onglet « Sauvegardes » (services/saves.py via /api/saves/*) : bandeau des machines,
-// tableau jeux × machines, sélection et barre d'actions. Une opération à la fois : la
+// ------------------------------------------------------------------ sauvegardes entre clients
+// Onglet « Sauvegardes » (services/saves.py via /api/saves/*) : bandeau des clients,
+// tableau jeux × clients, sélection et barre d'actions. Une opération à la fois : la
 // tâche « saves » est suivie jusqu'à la fin (followTask), puis l'état est relu.
 
 const RESERVE = "__reserve__";          // source : le manager (copie des sauvegardes)
-const AUTO = "auto";                    // source : la machine suggérée (la plus lourde), jeu par jeu
+const AUTO = "auto";                    // source : le client suggéré (la plus lourde), jeu par jeu
 const PRESENT_STATES = new Set(["présente", "identique", "plus avancée", "en retard"]);
 // Nom affiché d'une ligne : nom lisible d'un dossier déclaré ou d'un jeu Switch, sinon le jeu
 const gameLabel = (g) => g.label || g.game;
@@ -1522,11 +1525,11 @@ const sectionRank = (key) => key === "sys:win" ? 0 : key === "switch" ? 2 : key 
 const savesCollapsed = new Set((() => { try { return JSON.parse(storage.get("wsfs-saves-collapsed") || "[]"); } catch { return []; } })());
 
 const SAVE_FILTERS = [["", "Tous"], ["diff", "Différences"], ["same", "Identiques"], ["reserve", "Sur le manager"]];
-const OS_ICONS = ["linux", "steamos", "batocera"];          // icônes choisissables d'une machine
+const OS_ICONS = ["linux", "steamos", "batocera"];          // icônes choisissables d'un client
 const OS_LABELS = { linux: "Linux", steamos: "SteamOS", batocera: "Batocera" };
 const sv = {
-  machines: [],          // machines jointes à leur état (kind, removable, ok, games, message)
-  games: [],             // { game, reserve, machines: [état par machine] }
+  machines: [],          // clients joints à leur état (kind, removable, ok, games, message)
+  games: [],             // { game, reserve, machines: [état par client] }
   loaded: false, error: "", seq: 0,
   filter: "", selected: new Set(), unchecked: new Set(),   // unchecked : cibles décochées
   source: AUTO,
@@ -1552,20 +1555,20 @@ const pushTargets = () => targetIds().filter((id) => id !== sv.source);
 const stateOf = (g, id) => g.machines.find((s) => s.id === id);
 const suggestedOf = (g) => g.machines.find((s) => s.state === "plus avancée");   // la suggérée (la plus lourde)
 const presentIn = (g) => g.machines.filter((s) => PRESENT_STATES.has(s.state));
-// Une machine sans le jeu (« absente » : stockage plus petit, jeu pas installé) n'est pas une
-// différence : Sync ne vise que les machines « en retard ». L'installer : menu « … ».
+// Un client sans le jeu (« absente » : stockage plus petit, jeu pas installé) n'est pas une
+// différence : Sync ne vise que les clients « en retard ». L'installer : menu « … ».
 const lateIn = (g) => g.machines.filter((s) => s.state === "en retard").map((s) => s.id);
 const rowTargets = (g) => { const reach = reachableIds(); return lateIn(g).filter((id) => reach.includes(id)); };
 const absentIn = (g) => reachableIds().filter((id) => (stateOf(g, id)?.state ?? "absente") === "absente");
-// Identique : les machines qui ont le jeu ont la même version. Différences : une au moins est en retard.
+// Identique : les clients qui ont le jeu ont la même version. Différences : une au moins est en retard.
 const identical = (g) => g.machines.some((s) => s.state === "identique");
 const differs = (g) => lateIn(g).length > 0;
-// Source par défaut d'un jeu : la suggérée, sinon une machine qui l'a (seule ou identique)
+// Source par défaut d'un jeu : la suggérée, sinon un client qui l'a (seul ou identique)
 const sourceOf = (g) => suggestedOf(g) || presentIn(g).find((s) => reachableIds().includes(s.id));
-// Le manager a déjà la version de la machine `s` (même empreinte, casse ignorée) : rien à copier
+// Le manager a déjà la version du client `s` (même empreinte, casse ignorée) : rien à copier
 const inManager = (g, s) => Boolean(g.reserve?.fingerprint && s?.fingerprint
   && g.reserve.fingerprint.toLowerCase() === s.fingerprint.toLowerCase());
-// Jeu à copier vers le manager depuis `source` (une machine ou AUTO) : une version qu'il n'a pas encore
+// Jeu à copier vers le manager depuis `source` (un client ou AUTO) : une version qu'il n'a pas encore
 const pullNeeded = (g, source) => {
   const from = source === AUTO ? sourceOf(g) : stateOf(g, source);
   return Boolean(from && from.fingerprint && !inManager(g, from));
@@ -1604,7 +1607,7 @@ async function loadSaves() {
 function paintSaves() {
   const diff = sv.games.filter(differs).length;
   $("count-saves").textContent = diff || "";
-  $("count-saves").title = diff ? `${diff} jeu(x) dont les versions diffèrent entre machines` : "";
+  $("count-saves").title = diff ? `${diff} jeu(x) dont les versions diffèrent entre clients` : "";
   $("s-loading").hidden = sv.loaded || Boolean(sv.error);
   $("s-error").replaceChildren(...(sv.error ? [notice("err", sv.error)] : []));
   const none = sv.loaded && sv.machines.length === 0;
@@ -1619,12 +1622,12 @@ function paintSaves() {
   paintSelection();
 }
 
-// Bandeau : une carte par machine (icône du système, nom, état) ; clic : menu (icône, oubli).
+// Bandeau : une carte par client (icône du système, nom, état) ; clic : menu (icône, oubli).
 // Le manager est une carte de plus, sans menu ; « Associer » est la dernière carte.
 function paintChips() {
   if (filteredMachine() && !sv.machines.some((m) => m.id === filteredMachine())) sv.filter = "";
   const kept = sv.games.filter((g) => g.reserve).length;
-  const manager = el("div", { className: "mcard mgr", title: "Copie des sauvegardes sur le manager : elle reste même si une machine est éteinte" },
+  const manager = el("div", { className: "mcard mgr", title: "Copie des sauvegardes sur le manager : elle reste même si un client est éteint" },
     el("span", { className: "mcard-ico" }, icon("server", "lg")),
     el("span", { className: "mcard-txt" },
       el("span", { className: "mcard-name" }, el("b", { textContent: "Manager" })),
@@ -1636,27 +1639,27 @@ function machineCard(m) {
   const trial = isTrial(m);
   const title = m.ok ? `${m.url} : joignable` : `Injoignable : ${m.message || "pas de réponse"}`;
   const active = filteredMachine() === m.id;
-  // Clic sur la carte : n'affiche que les sauvegardes de cette machine ; le chevron à droite ouvre le menu
+  // Clic sur la carte : n'affiche que les sauvegardes de ce client ; le chevron à droite ouvre le menu
   const card = el("button", { type: "button", className: `mcard${m.ok ? "" : " off"}${active ? " on" : ""}`, "aria-pressed": String(active),
-    title: `${title}${trial ? " · machine d'essai" : ""} · cliquer : ses sauvegardes seulement` },
+    title: `${title}${trial ? " · client d'essai" : ""} · cliquer : ses sauvegardes seulement` },
     el("span", { className: "mcard-ico" }, osIcon(m.icon, "lg")),
     el("span", { className: "mcard-txt" },
       el("span", { className: "mcard-name" }, el("b", { textContent: m.name }),
-        trial ? el("span", { className: "chip plain t-accent", title: "Machine d'essai : lancement d'essai, diagnostic du lanceur et maintenance (menu de la machine)", textContent: "essais" }) : null,
+        trial ? el("span", { className: "chip plain t-accent", title: "Client d'essai : lancement d'essai, diagnostic du lanceur et maintenance (menu du client)", textContent: "essais" }) : null,
         m.auto ? el("span", { className: "chip plain t-sage", title: "Synchro automatique : envoie ses sauvegardes au manager à la sortie d'un jeu (--sync auto on)" },
           icon("refresh", "xs"), el("span", { textContent: "auto" })) : null),
       el("span", { className: "mcard-sub" }, el("span", { className: "led" }),
         el("span", { textContent: m.ok ? `${m.games} jeu${m.games > 1 ? "x" : ""}` : "injoignable" }))));
   card.onclick = () => { sv.filter = active ? "" : `m:${m.id}`; paintSaves(); };
-  const menu = el("button", { type: "button", className: "mcard-menu", title: "Actions sur cette machine", "aria-label": `Actions sur ${m.name}`, "aria-haspopup": "menu" },
+  const menu = el("button", { type: "button", className: "mcard-menu", title: "Actions sur ce client", "aria-label": `Actions sur ${m.name}`, "aria-haspopup": "menu" },
     icon("chevd", "sm"));
   const wrap = el("div", { className: "dd mcard-wrap" }, card, menu);
   menu.onclick = () => openMenuNode(wrap, machineMenu(m));
   return wrap;
 }
 
-// Menu d'une machine : machine d'essai (choix, diagnostic, maintenance), icône (détectée ou
-// choisie), dossiers synchronisés, puis oubli (sauf la machine d'essai du lanceur local ou agent)
+// Menu d'un client : client d'essai (choix, diagnostic, maintenance), icône (détectée ou
+// choisie), dossiers synchronisés, puis oubli (sauf le client d'essai du lanceur local ou agent)
 function machineMenu(m) {
   const choice = (label, key, checked, onpick) => menuItem(label, key, onpick, { checked, role: "menuitemradio" });
   const trial = isTrial(m);
@@ -1668,11 +1671,11 @@ function machineMenu(m) {
     choice(`Détectée (${({ linux: "Linux", steamos: "SteamOS", batocera: "Batocera" })[m.os] || m.os || "Linux"})`, m.icon || "linux", !m.icon_set, () => setMachineIcon(m, null)),
     ...OS_ICONS.map((key) => choice(OS_LABELS[key], key, m.icon_set && m.icon === key, () => setMachineIcon(m, key))));
   if (m.ok) nodes.push(menuItem("Dossiers synchronisés…", "folder", () => openDirs(m)));
-  if (m.removable) nodes.push(menuItem("Oublier cette machine", "trash", () => forgetMachine(m), { danger: true }));
+  if (m.removable) nodes.push(menuItem("Oublier ce client", "trash", () => forgetMachine(m), { danger: true }));
   return nodes;
 }
 
-// Dossiers synchronisés d'une machine (#dlg-dirs, agent v8) : liste, déclaration, retrait.
+// Dossiers synchronisés d'un client (#dlg-dirs, agent v8) : liste, déclaration, retrait.
 let dirsMachine = null;
 function paintDirs(data) {
   const rows = data.dirs.map((d) => {
@@ -1682,10 +1685,10 @@ function paintDirs(data) {
     return el("div", { className: "dirs-row" }, el("b", { textContent: d.name }),
       el("code", { textContent: d.path.startsWith("/") ? d.path : `~/${d.path}` }), del);
   });
-  $("dirs-list").replaceChildren(...(rows.length ? rows : [el("p", { className: "muted", textContent: "Aucun dossier déclaré sur cette machine." })]));
+  $("dirs-list").replaceChildren(...(rows.length ? rows : [el("p", { className: "muted", textContent: "Aucun dossier déclaré sur ce client." })]));
   $("dirs-eden").textContent = data.eden
     ? `Switch : Eden est installé (${data.eden.startsWith("/") ? data.eden : `~/${data.eden}`}) ; ses sauvegardes sont synchronisées jeu par jeu, sans rien déclarer.`
-    : "Switch : Eden n'est pas installé sur cette machine.";
+    : "Switch : Eden n'est pas installé sur ce client.";
 }
 async function dirsCall(method, query = "", body = undefined) {
   $("dirs-err").hidden = true;
@@ -1744,7 +1747,7 @@ async function forgetMachine(m) {
   if (!confirm(`Oublier « ${m.name} » ? Le manager ne lira plus ses sauvegardes. Les sauvegardes déjà copiées sur le manager restent.`)) return;
   try {
     await api(`/api/saves/machines/${encodeURIComponent(m.id)}`, { method: "DELETE" });
-    toast("Machine oubliée");
+    toast("Client oublié");
     loadSaves();
   } catch (error) { toast(error.message, "alert", true); }
 }
@@ -1768,11 +1771,11 @@ function toggleMenu(wrap, items) {
   }));
 }
 
-// Présence d'un jeu sur une machine (utilisée par le bandeau et les cibles)
+// Présence d'un jeu sur un client (utilisée par le bandeau et les cibles)
 const onMachine = (g, id) => PRESENT_STATES.has(stateOf(g, id)?.state);
-// Filtre par machine : sv.filter = « m:<id> », réglé par un clic sur sa carte du bandeau « Machines »
+// Filtre par client : sv.filter = « m:<id> », réglé par un clic sur sa carte du bandeau « Clients »
 const filteredMachine = () => (sv.filter.startsWith("m:") ? sv.filter.slice(2) : "");
-// Filtres d'état, et le filtre machine (les pastilles machines sont dans le bandeau)
+// Filtres d'état, et le filtre client (les pastilles clients sont dans le bandeau)
 function paintFilters() {
   const counts = { "": sv.games.length, diff: sv.games.filter(differs).length,
     same: sv.games.filter(identical).length, reserve: sv.games.filter((g) => g.reserve).length };
@@ -1798,17 +1801,17 @@ function visibleGames() {
     .sort((a, b) => gameLabel(a).localeCompare(gameLabel(b), "fr", { numeric: true, sensitivity: "base" }));
 }
 
-// Cellule d'une machine : badge (★ plus avancée, identique, en retard, — absente, ? injoignable),
+// Cellule d'un client : badge (★ plus avancée, identique, en retard, — absente, ? injoignable),
 // « ⚠ à vérifier » si la suggérée n'est pas la plus récente, « ← » si elle reçoit la version,
 // puis « taille · date »
 function machineCell(g, m, target) {
   const s = stateOf(g, m.id), st = s?.state ?? "absente", conflict = Boolean(s?.conflict);
-  // « à départager » : synchro auto, la machine a changé depuis son dernier échange (rien n'est envoyé)
+  // « à départager » : synchro auto, le client a changé depuis son dernier échange (rien n'est envoyé)
   const [label, tone] = conflict ? ["à départager", "t-err"]
     : { "plus avancée": ["★ plus avancée", "t-accent"], identique: ["identique", "t-sage"],
       "en retard": ["en retard", "t-neutral"], présente: ["seule copie", "t-neutral"], injoignable: ["?", "t-err"] }[st] ?? ["—", ""];
   const detail = [`${m.name} : ${st}`, s?.newest ? when(s.newest) : "", st === "injoignable" ? (s?.message || m.message || "") : "",
-    conflict ? "à départager : modifiée sur la machine depuis le dernier échange avec le manager" : ""]
+    conflict ? "à départager : modifiée sur le client depuis le dernier échange avec le manager" : ""]
     .filter(Boolean).join(" · ");
   const cls = { "plus avancée": "sv-best", "en retard": "sv-old", absente: "sv-none" }[st] ?? "";
   const top = suggestedOf(g);
@@ -1832,8 +1835,8 @@ function checkMarker(g) {
 function paintTable() {
   closeMenu();
   const first = filteredMachine();
-  // Colonnes : machines joignables seulement (un Steam Deck en veille n'a que des « ? ») ; sa carte
-  // reste dans le bandeau, en rouge. La machine filtrée passe en premier.
+  // Colonnes : clients joignables seulement (un Steam Deck en veille n'a que des « ? ») ; sa carte
+  // reste dans le bandeau, en rouge. Le client filtré passe en premier.
   const shown = sv.machines.filter((m) => m.ok || m.id === first);
   const cols = first ? [...shown.filter((m) => m.id === first), ...shown.filter((m) => m.id !== first)] : shown;
   const ids = imageIds(), games = visibleGames();
@@ -1858,14 +1861,14 @@ function paintTable() {
     el("th", {}));
   const rowOf = (g) => {
     // Toutes les lignes sont actionnables (les routes prennent le nom du jeu) ; seule la fiche
-    // demande une image dans la bibliothèque (un jeu installé sur une seule machine n'en a pas)
+    // demande une image dans la bibliothèque (un jeu installé sur un seul client n'en a pas)
     const img = ids.get(g.game), actionable = true;
     const box = el("input", { type: "checkbox", checked: sv.selected.has(g.game), title: "Sélectionner" });
     box.onchange = () => { box.checked ? sv.selected.add(g.game) : sv.selected.delete(g.game); paintTable(); paintSelection(); };
     const name = img
       ? el("button", { type: "button", className: "sv-name", textContent: gameLabel(g), title: "Ouvrir la fiche de l'image" })
       : el("span", { className: "sv-name", textContent: gameLabel(g),
-        title: g.kind === "dossier" ? `Dossier déclaré sur les machines (${g.game})`
+        title: g.kind === "dossier" ? `Dossier déclaré sur les clients (${g.game})`
           : g.kind === "switch" ? `Sauvegarde Eden (${g.game.slice(7)})` : "Pas d'image dans la bibliothèque du manager" });
     if (img) name.onclick = () => { showView("images"); openDetail(img); };
     const top = suggestedOf(g), targets = differs(g) ? rowTargets(g) : [];
@@ -1875,9 +1878,9 @@ function paintTable() {
       : el("td", {}, dash());
     const actions = el("td", { className: "sv-act" });
     if (actionable && differs(g)) {
-      const flow = targets.length ? `${top.name} → ${targets.length === 1 ? machineName(targets[0]) : `${targets.length} machines`}` : "";
+      const flow = targets.length ? `${top.name} → ${targets.length === 1 ? machineName(targets[0]) : `${targets.length} clients`}` : "";
       const sync = el("button", { type: "button", className: "btn primary sm sv-sync", disabled: busy() || !targets.length,
-        title: targets.length ? `Sync de ${top.name} vers : ${names(targets)}` : "Aucune autre machine joignable à synchroniser" },
+        title: targets.length ? `Sync de ${top.name} vers : ${names(targets)}` : "Aucun autre client joignable à synchroniser" },
         icon("arrow", "sm"), el("b", { textContent: "Sync" }), flow ? el("span", { className: "sv-flow", textContent: flow }) : null);
       sync.onclick = () => syncRow(g);
       actions.append(sync);
@@ -1908,7 +1911,7 @@ function paintTable() {
   if (!games.length) {
     rows.push(el("tr", {}, el("td", { colSpan: cols.length + 4 },
       sv.games.length ? emptyState("search", "Aucun jeu pour ces filtres", "Élargir la recherche ou choisir « Tous ».")
-        : emptyState("save", "Aucune sauvegarde", "Les machines associées n'ont aucune sauvegarde de partie."))));
+        : emptyState("save", "Aucune sauvegarde", "Les clients associés n'ont aucune sauvegarde de partie."))));
   }
   $("s-table").replaceChildren(el("thead", {}, head), el("tbody", {}, ...rows));
 }
@@ -1946,16 +1949,16 @@ function saveThumb(g, imgId) {
 function rowItems(g) {
   const idle = !busy();
   const reach = reachableIds(), top = sourceOf(g);
-  // Depuis une machine qui a le jeu vers les autres qui l'ont dans une autre version
+  // Depuis un client qui a le jeu vers les autres qui l'ont dans une autre version
   const others = (s) => presentIn(g).filter((o) => o.id !== s.id && o.fingerprint !== s.fingerprint && reach.includes(o.id)).map((o) => o.id);
   return [
     ...presentIn(g).filter((s) => reach.includes(s.id) && others(s).length)
       .map((s) => [`Sync ${s.name} → ${names(others(s))}`, "arrow", !idle, () => pushFrom(g, s.id, others(s))]),
-    // Installer sur une machine qui n'a pas le jeu : choix explicite, jamais par défaut
+    // Installer sur un client qui n'a pas le jeu : choix explicite, jamais par défaut
     ...(top ? absentIn(g).map((id) => [`Installer sur ${machineName(id)} (depuis ${top.name})`, "arrow", !idle, () => pushFrom(g, top.id, [id])]) : []),
     [!top ? "Copier vers le manager" : inManager(g, top) ? "Copier vers le manager (déjà identique)"
       : `Copier vers le manager (${top.name} → Manager)`, "save", !idle || !top || inManager(g, top), () => pullGames([g], AUTO)],
-    ["Sync depuis le manager (Manager → machines)", "server", !idle || !g.reserve || !reachManagerTargets(g).length, () => pushReserve(g)],
+    ["Sync depuis le manager (Manager → clients)", "server", !idle || !g.reserve || !reachManagerTargets(g).length, () => pushReserve(g)],
     ["Supprimer…", "trash", !idle, () => openSaveDelete([g]), true],
   ];
 }
@@ -1984,15 +1987,15 @@ function paintSelection() {
   $("s-targets").disabled = busy();
   const pushable = !busy() && games.length && targets.length && (sv.source !== RESERVE || games.some((g) => g.reserve));
   $("s-push").disabled = !pushable;
-  $("s-push").title = targets.length ? "" : "Aucune cible : coche au moins une autre machine joignable";
+  $("s-push").title = targets.length ? "" : "Aucune cible : coche au moins un autre client joignable";
   const toPull = sv.source === RESERVE ? [] : games.filter((g) => pullNeeded(g, sv.source));
   $("s-pull").disabled = busy() || !toPull.length;
-  $("s-pull").title = sv.source === RESERVE ? "Choisis une machine, ou « La plus avancée », comme source"
+  $("s-pull").title = sv.source === RESERVE ? "Choisis un client, ou « La plus avancée », comme source"
     : games.length && !toPull.length ? "Le manager a déjà ces versions" : "Copier les sauvegardes sélectionnées sur le manager";
   $("s-delete").disabled = busy();
 }
 
-// Cibles : cases par machine joignable (la source choisie est grisée)
+// Cibles : cases par client joignable (la source choisie est grisée)
 $("s-targets").onclick = () => {
   const wrap = $("s-targets-dd"), open = openMenu?.parentElement === wrap;
   closeMenu();
@@ -2002,14 +2005,14 @@ $("s-targets").onclick = () => {
     box.onchange = () => { box.checked ? sv.unchecked.delete(m.id) : sv.unchecked.add(m.id); paintSelection(); };
     return el("label", { className: "dd-check" }, box, el("span", { textContent: m.name }));
   });
-  openMenu = el("div", { className: "dd-menu", role: "group" }, ...(boxes.length ? boxes : [el("span", { className: "muted dd-check", textContent: "Aucune machine joignable" })]));
+  openMenu = el("div", { className: "dd-menu", role: "group" }, ...(boxes.length ? boxes : [el("span", { className: "muted dd-check", textContent: "Aucun client joignable" })]));
   placeMenu(openMenu, wrap);
 };
 $("s-source").onchange = () => { sv.source = $("s-source").value; paintSelection(); };
 $("s-search").addEventListener("input", paintTable);
 $("s-refresh").onclick = () => loadSaves();
 
-// Rafraîchissement automatique de l'onglet Sauvegardes : une machine qui lance son agent (ou
+// Rafraîchissement automatique de l'onglet Sauvegardes : un client qui lance son agent (ou
 // l'arrête) change d'état sans recharger la page. Seulement onglet affiché et page visible, sans
 // opération en cours, menu ni dialogue ouvert, et jamais deux lectures à la fois.
 const SAVES_POLL_MS = 20000;
@@ -2048,7 +2051,7 @@ $("pair-save").onclick = async () => {
   try {
     const r = await api("/api/saves/machines", { method: "POST", body: { code } });
     $("dlg-pair").close();
-    toast(r.replaced ? `Machine mise à jour : ${r.name}` : `Machine associée : ${r.name}`);
+    toast(r.replaced ? `Client mis à jour : ${r.name}` : `Client associé : ${r.name}`);
     loadSaves();
   } catch (error) {
     setPairError(error.message);
@@ -2058,7 +2061,7 @@ $("pair-save").onclick = async () => {
 };
 $("pair-code").addEventListener("keydown", (event) => { if (event.key === "Enter") $("pair-save").click(); });
 
-// Suppression des sauvegardes (#dlg-save-delete) : une case par machine joignable et une pour le
+// Suppression des sauvegardes (#dlg-save-delete) : une case par client joignable et une pour le
 // manager ; pré-cochée si un des jeux y a une sauvegarde, sinon grisée. Valider : tâche « saves ».
 let sdGames = [];
 function openSaveDelete(games) {
@@ -2121,17 +2124,17 @@ function syncItems(task) {
   return r.results || [];
 }
 const syncFailed = (items) => items.filter((item) => !item.ok);
-// Résultat : ✓ / ✗ par jeu et machine ; failuresOnly : les échecs détaillés, les réussites en compte
+// Résultat : ✓ / ✗ par jeu et client ; failuresOnly : les échecs détaillés, les réussites en compte
 function syncResultNode(task, failuresOnly = false) {
   const items = syncItems(task);
   if (items === null) return notice("err", task?.error || `Tâche ${TASK_STATES[task?.status]?.[1] || "sans résultat"}.`);
   if (!items.length) return notice("info", "Rien à faire.");
   const failed = syncFailed(items);
   const shown = failuresOnly ? failed : items;
-  // Suppression : le message dit déjà où (« supprimée sur <machine> ») et si c'est archivé
+  // Suppression : le message dit déjà où (« supprimée sur <client> ») et si c'est archivé
   const removal = task?.params?.op === "delete";
   const rows = shown.slice(0, 40).map((item) => {
-    // « envoyée vers <machine> » : le nom de la machine est déjà affiché à côté
+    // « envoyée vers <client> » : le nom du client est déjà affiché à côté
     const message = item.machine && !removal ? item.message.replace(` vers ${item.machine}`, "") : item.message;
     const where = item.machine && !removal ? ` → ${item.machine}` : "";
     const archived = item.archived && !removal ? " · version précédente archivée" : "";
@@ -2170,17 +2173,17 @@ async function runSaveOp(path, body) {
   });
 }
 
-const ARCHIVED = "La version écrasée sur chaque machine est archivée.";
-// Cibles d'une copie du manager vers les machines : joignables, qui ont le jeu, pas déjà à sa version
+const ARCHIVED = "La version écrasée sur chaque client est archivée.";
+// Cibles d'une copie du manager vers les clients : joignables, qui ont le jeu, pas déjà à sa version
 const reachManagerTargets = (g) => reachableIds().filter((id) => onMachine(g, id) && (!g.reserve || stateOf(g, id)?.fingerprint !== g.reserve.fingerprint));
 
-// Copie vers le manager : depuis `source` (une machine, ou AUTO : la suggérée, jeu par jeu)
+// Copie vers le manager : depuis `source` (un client, ou AUTO : la suggérée, jeu par jeu)
 function pullGames(games, source) {
   const names = games.map((g) => g.game);
   if (!names.length || source === RESERVE) return;
   runSaveOp("/api/saves/pull", { source, games: names });
 }
-function syncRow(g) {                       // la suggérée vers les autres machines joignables
+function syncRow(g) {                       // la suggérée vers les autres clients joignables
   const from = suggestedOf(g), targets = rowTargets(g);
   if (!from || !targets.length) return;
   if (!confirm(`Sync « ${gameLabel(g)} » : ${from.name} → ${names(targets)}.\n\n${ARCHIVED}`)) return;
@@ -2191,7 +2194,7 @@ function pushFrom(g, sourceId, targets) {
   if (!confirm(`Sync « ${gameLabel(g)} » : ${machineName(sourceId)} → ${names(targets)}.\n\n${ARCHIVED}`)) return;
   runSaveOp("/api/saves/push", { source: sourceId, targets, games: [g.game] });
 }
-function pushReserve(g) {                   // copie du manager (sans source) vers les machines
+function pushReserve(g) {                   // copie du manager (sans source) vers les clients
   const targets = reachManagerTargets(g);
   if (!targets.length) return;
   if (!confirm(`Sync « ${gameLabel(g)} » : Manager → ${names(targets)}.\n\n${ARCHIVED}`)) return;
@@ -2217,11 +2220,11 @@ function pushSelection() {
       const to = from ? targets.filter((id) => lateIn(g).includes(id)) : [];
       return { g, from, to };
     }).filter((x) => x.to.length);
-    if (!moves.length) { toast("Rien à synchroniser : aucune machine cochée n'a ces jeux dans une version en retard.", "info"); return; }
+    if (!moves.length) { toast("Rien à synchroniser : aucun client coché n'a ces jeux dans une version en retard.", "info"); return; }
     body = { source: AUTO, targets, games: idsOf(games) };
     lines = moves.map(({ g, from, to }) => `Sync « ${gameLabel(g)} » : ${from.name} → ${names(to)}.`);
     if (moves.length < games.length) lines.push(`${games.length - moves.length} jeu(x) déjà à jour, ignoré(s).`);
-    lines.push("Les machines qui n'ont pas le jeu ne sont pas touchées.");
+    lines.push("Les clients qui n'ont pas le jeu ne sont pas touchés.");
   } else {
     const dest = targets.filter((id) => id !== sv.source);
     body = { source: sv.source, targets, games: idsOf(games) };
@@ -2240,9 +2243,9 @@ function openSavesFor(game) {
   window.scrollTo(0, 0);
 }
 
-// Colonne « Sauveg. » de la liste : taille et, si une machine est associée, un accès à l'onglet
+// Colonne « Sauveg. » de la liste : taille et, si un client est associée, un accès à l'onglet
 function savesOpen(i, cls) {
-  const open = el("button", { type: "button", className: `iconbtn bare sm ${cls}`, title: "Sauvegardes entre machines de ce jeu", "aria-label": "Sauvegardes entre machines de ce jeu" },
+  const open = el("button", { type: "button", className: `iconbtn bare sm ${cls}`, title: "Sauvegardes entre clients de ce jeu", "aria-label": "Sauvegardes entre clients de ce jeu" },
     icon("save", "sm"));
   open.onclick = (event) => { event.stopPropagation(); openSavesFor(gameOfItem(i)); };
   return open;
@@ -2256,7 +2259,7 @@ function savesCell(i) {
 
 // ------------------------------------------------------------------ état du lanceur (--doctor)
 
-// Diagnostic de la machine d'essai : fenêtre (#dlg-doctor) ou section des Réglages (body)
+// Diagnostic du client d'essai : fenêtre (#dlg-doctor) ou section des Réglages (body)
 async function loadDoctor(refresh = false, body = $("doc-body")) {
   const inDialog = body === $("doc-body");
   if (refresh || !state.doctor) body.replaceChildren(el("div", { className: "row muted" }, el("span", { className: "spinner" }), `vérification sur ${hostName()}…`));
@@ -2288,7 +2291,7 @@ function renderDoctor(body = $("doc-body")) {
     d.verdict ? (ok ? el("div", { className: "verdict", textContent: d.verdict }) : notice("err", d.verdict)) : null);
 }
 
-// Runners installés sur la machine d'essai : proposés pour PROTON= et WINE=
+// Runners installés sur le client d'essai : proposés pour PROTON= et WINE=
 function runnerSuggestions() {
   const names = [...new Set((state.doctor?.runners || []).map((r) => r.name))];
   for (const key of ["PROTON", "WINE"]) {
@@ -2399,8 +2402,8 @@ $("cfg-dirs").addEventListener("input", paintRootsTotal);
 
 // Réglages : une page. Mode, systèmes, nuit et illustrations ; lanceur et synchro seulement connectés.
 const CFG_MODE_HINTS = {
-  autonome: "Autonome : construire et maintenir les images, sans machine ni sauvegardes.",
-  connecte: "Connecté : sauvegardes entre machines, installation, lancement d'essai.",
+  autonome: "Autonome : construire et maintenir les images, sans client ni sauvegardes.",
+  connecte: "Connecté : sauvegardes entre clients, installation, lancement d'essai.",
 };
 let cfgOpened = null;           // valeurs lues à l'ouverture : seules les parties modifiées sont envoyées
 const dirsKey = (list) => [...new Set(list.map(trimSlash))].sort().join("\n");
@@ -2442,15 +2445,15 @@ $("cfg-sgdb-test").onclick = async () => {
   }
 };
 $("cfg-doctor-refresh").onclick = () => loadDoctor(true, $("cfg-doctor"));
-// Lanceur de la machine d'essai dans Réglages : le diagnostic, sans fenêtre. `online` : le mode
+// Lanceur du client d'essai dans Réglages : le diagnostic, sans fenêtre. `online` : le mode
 // choisi dans la boîte (pas encore enregistré) ; le diagnostic n'est lu qu'en connecté.
 function paintCfgDoctorSection(cfg, online) {
   const body = $("cfg-doctor"), trial = Boolean(cfg.game_host && cfg.game_host !== "off");
-  $("cfg-doctor-title").textContent = trial ? `Lanceur dans ${cfg.game_host_name}` : "Lanceur de la machine d'essai";
+  $("cfg-doctor-title").textContent = trial ? `Lanceur dans ${cfg.game_host_name}` : "Lanceur du client d'essai";
   $("cfg-doctor-age").textContent = "";
   $("cfg-doctor-refresh").hidden = !(online && trial);
   if (!online) body.replaceChildren(el("p", { className: "muted", textContent: "Disponible en mode connecté." }));
-  else if (!trial) body.replaceChildren(el("p", { className: "muted", textContent: "Aucune machine d'essai : dans Sauvegardes, menu d'une machine, « Utiliser pour les essais »." }));
+  else if (!trial) body.replaceChildren(el("p", { className: "muted", textContent: "Aucun client d'essai : dans Sauvegardes, menu d'un client, « Utiliser pour les essais »." }));
   else loadDoctor(false, body);
 }
 
@@ -2492,12 +2495,12 @@ $("btn-config").onclick = async () => {
   $("cfg-sgdb-authors").value = (cfg.sgdb_authors || []).join("\n");
   $("cfg-sgdb-threshold").value = cfg.sgdb_round_threshold ?? 0.85;
   paintThreshold();
-  // Adresse du manager pour les machines : suggérée à partir de l'adresse de cette page
+  // Adresse du manager pour les clients : suggérée à partir de l'adresse de cette page
   $("cfg-machine-url").dataset.saved = cfg.machine_url || "";
   $("cfg-machine-url").value = cfg.machine_url || (cfg.machine_port ? `https://${location.hostname}:${cfg.machine_port}` : "");
   $("cfg-auto-push").value = cfg.auto_push_interval ?? 120;
   $("cfg-auto-push").dataset.saved = String(cfg.auto_push_interval ?? 120);
-  $("cfg-machine-fp").textContent = !cfg.machine_port ? "Port des machines désactivé (WSQUASHFS_MGR_MACHINE_PORT=0)."
+  $("cfg-machine-fp").textContent = !cfg.machine_port ? "Port des clients désactivé (WSQUASHFS_MGR_MACHINE_PORT=0)."
     : cfg.machine_fingerprint ? `Empreinte du certificat du manager : ${cfg.machine_fingerprint}` : "Certificat du manager créé au prochain démarrage.";
   paintCfgDoctorSection(cfg, cfg.mode === "connecte");
   $("cfg-err").textContent = systemsError || "";
@@ -2856,7 +2859,7 @@ async function gameSaveAction(button, body, label, doneText) {
     else toast(out || doneText, "save");
   } catch (error) { alert(error.message); } finally { button.disabled = false; }
 }
-// Menu de la tuile Sauvegardes : « Copier » et « Synchroniser » n'existent que si une machine d'essai est active
+// Menu de la tuile Sauvegardes : « Copier » et « Synchroniser » n'existent que si un client d'essai est actif
 function savesItems() {
   const i = state.current, on = hostOn();
   return [
@@ -2864,7 +2867,7 @@ function savesItems() {
     ...(on ? [["Copier les sauvegardes", "save", false, () => gameSaveAction($("d-saves"), { action: "save", id: i.id },
       "Copie des sauvegardes", "Sauvegardes copiées")]] : []),
     ...(on ? [["Synchroniser", "refresh", false, () => {
-      if (!confirm(`Synchroniser les sauvegardes de « ${i.name} » avec les autres machines associées du réseau local ? En cas de conflit, la plus lourde gagne (à taille égale, la plus récente) et l'autre est archivée.`)) return;
+      if (!confirm(`Synchroniser les sauvegardes de « ${i.name} » avec les autres clients associés du réseau local ? En cas de conflit, la plus lourde gagne (à taille égale, la plus récente) et l'autre est archivée.`)) return;
       gameSaveAction($("d-saves"), { action: "sync", id: i.id }, "Synchronisation", "Sauvegardes synchronisées");
     }]] : []),
     ["Réinitialiser les sauvegardes", "save", !i.saves_present, () => resetSaves([i.id]).catch((error) => alert(error.message)), true],
@@ -2900,7 +2903,7 @@ $("btn-saves-reset").onclick = () => resetSaves([...state.selected]).catch((erro
   document.addEventListener("keydown", (event) => { if (event.key === "Escape") hide(); });
 }
 
-// Liens du runner : constat et réparation proposée (runner de la machine d'essai joint ou complété)
+// Liens du runner : constat et réparation proposée (runner du client d'essai joint ou complété)
 $("d-links").onclick = async () => {
   const id = state.current.id, box = $("d-links-result");
   box.className = "msg";
@@ -2926,9 +2929,9 @@ $("d-links").onclick = async () => {
           el("div", { className: "split", style: "margin-top:8px" }, apply, whenButton()));
       }),
       ...(r.suggestions.length ? [] : [r.steambox_error
-        ? (!connected() ? notice("info", "Mode autonome : la réparation par runner de la machine d'essai est désactivée (Réglages › Mode).")
+        ? (!connected() ? notice("info", "Mode autonome : la réparation par runner du client d'essai est désactivée (Réglages › Mode).")
           : hostOn() ? notice("err", `Réparation impossible, ${hostName()} injoignable : ${r.steambox_error}`)
-          : notice("", "Réparation automatique indisponible : elle reprend un runner installé sur la machine d'essai (menu d'une machine, « Utiliser pour les essais »). Sinon, joindre le runner à la main (voir l'aide).", "info"))
+          : notice("", "Réparation automatique indisponible : elle reprend un runner installé sur le client d'essai (menu d'un client, « Utiliser pour les essais »). Sinon, joindre le runner à la main (voir l'aide).", "info"))
         : el("p", { className: "muted", textContent: `Aucun runner de ${hostName()} ne contient les fichiers visés : joindre le runner à la main (voir l'aide).` })]));
   } catch (error) {
     box.replaceChildren(notice("err", error.message));
@@ -3111,7 +3114,7 @@ function visibleFolders() {
 // État d'un dossier : libellé et classe de pastille (.state), rang pour le tri
 function folderStatus(f) {
   if (f.task) return f.task === "running" ? ["empaquetage en cours", "in_use", 0] : ["en file", "in_use", 1];
-  return f.image_exists ? ["déjà empaqueté", "ok", 3] : ["à empaqueter", "modified", 2];
+  return f.image_exists ? ["déjà empaqueté", "ok", 3] : ["à traiter", "modified", 2];
 }
 
 function folderProfile(f) {
@@ -3164,7 +3167,7 @@ function renderFolderList(visible) {
   }));
   if (!rows.length) $("g-list-rows").append(folders.items.length
     ? emptyState("search", "Aucun dossier pour ces filtres", null)
-    : emptyState("folder", "Aucun dossier à empaqueter", "Les dossiers *.pc et *.wine des systèmes choisis dans « Réglages » apparaissent ici."));
+    : emptyState("folder", "Aucun dossier à traiter", "Les dossiers *.pc et *.wine des systèmes choisis dans « Réglages » apparaissent ici."));
 }
 
 function renderFolders() {
@@ -3207,7 +3210,7 @@ function renderFolders() {
   }));
   if (!visible.length) $("g-rows").append(el("div", { className: "fcard-empty" }, folders.items.length
     ? emptyState("search", "Aucun dossier pour ces filtres", null)
-    : emptyState("folder", "Aucun dossier à empaqueter", "Les dossiers *.pc et *.wine des systèmes choisis dans « Réglages » apparaissent ici.")));
+    : emptyState("folder", "Aucun dossier à traiter", "Les dossiers *.pc et *.wine des systèmes choisis dans « Réglages » apparaissent ici.")));
   renderFolderSelection();
 }
 
@@ -3389,10 +3392,10 @@ document.addEventListener("click", (event) => {
     whenOf() === "night" ? "moon" : "zap");
 });
 
-// ------------------------------------------------------------------ installation sur les machines
-// Une image .wsquashfs est copiée dans le dossier des jeux d'une machine associée (les machines de
-// l'onglet Sauvegardes) : une tâche « install » par image, puis l'état des machines est relu à la fin.
-// Désinstaller retire l'image de la machine ; elle reste dans la bibliothèque.
+// ------------------------------------------------------------------ installation sur les clients
+// Une image .wsquashfs est copiée dans le dossier des jeux d'un client associé (les clients de
+// l'onglet Sauvegardes) : une tâche « install » par image, puis l'état des clients est relu à la fin.
+// Désinstaller retire l'image du client ; elle reste dans la bibliothèque.
 
 const inst = { machines: [], loaded: false, error: "", loading: false, seq: 0 };
 let instDlg = null;             // dialogue ouvert : { mode, images, skipped, picked, edit, busy }
@@ -3407,17 +3410,17 @@ const machineOf = (id) => inst.machines.find((m) => m.id === id);
 const machineNameOf = (id) => machineOf(id)?.name ?? id;
 const gamesOf = (m) => m.games || [];
 const selectedImages = () => [...state.selected].map((id) => state.byId.get(id)).filter(Boolean);
-// Durée estimée : dernier débit réellement mesuré vers cette machine (m.rate), sinon le filaire supposé
+// Durée estimée : dernier débit réellement mesuré vers ce client (m.rate), sinon le filaire supposé
 function etaText(bytes, rate) {
   const min = Math.round(bytes / (rate || LINK_RATE) / 60);
   const span = min < 1 ? "moins d'1 min" : min < 60 ? `~${min} min` : `~${Math.floor(min / 60)} h ${String(min % 60).padStart(2, "0")}`;
   const mo = (rate || LINK_RATE) / 1e6;
   return `${span} (${rate ? `débit mesuré ${mo < 10 ? mo.toFixed(1).replace(".", ",") : Math.round(mo)} Mo/s` : "débit supposé 100 Mo/s"})`;
 }
-// Identifiants des machines joignables où ce fichier est installé
+// Identifiants des clients joignables où ce fichier est installé
 const installedOn = (file) => inst.machines.filter((m) => m.ok && gamesOf(m).includes(file)).map((m) => m.id);
 
-// Ce qui reste à envoyer sur une machine pour ces images (un envoi coupé est compté à sa reprise)
+// Ce qui reste à envoyer sur un client pour ces images (un envoi coupé est compté à sa reprise)
 function instPlan(m, images) {
   const have = new Set(gamesOf(m));
   const parts = new Map((m.parts || []).map((p) => [p.name, p.size]));
@@ -3453,7 +3456,7 @@ function paintInstall() {
   paintInstDialog();
 }
 
-// Pastilles discrètes : icône de chaque machine où l'image est installée (liste et jaquettes)
+// Pastilles discrètes : icône de chaque client où l'image est installée (liste et jaquettes)
 function instPins(i) {
   const ids = isWsq(i) ? installedOn(imageFile(i)) : [];
   if (!ids.length) return null;
@@ -3461,14 +3464,14 @@ function instPins(i) {
     ...ids.map((id) => icon(machineIcon(id), "sm")));
 }
 
-// Filtre « Installé sur… » : une entrée par machine joignable, et « nulle part »
+// Filtre « Installé sur… » : une entrée par client joignable, et « nulle part »
 function instFilterOptions() {
   if (!inst.loaded) return [];
   return [...inst.machines.filter((m) => m.ok).map((m) => [m.id, machineIcon(m.id), "t-sage", `Installé sur ${m.name}`]),
     ["none", null, "", "Installé nulle part"]];
 }
 
-// Fiche : état d'une image .wsquashfs sur les machines, et boutons
+// Fiche : état d'une image .wsquashfs sur les clients, et boutons
 function renderInstBox() {
   const i = state.current, box = $("d-inst");
   box.hidden = !i || !isWsq(i);
@@ -3476,8 +3479,8 @@ function renderInstBox() {
   const ids = installedOn(imageFile(i));
   const down = inst.machines.filter((m) => !m.ok).length;
   let text = ids.length ? ids.map(machineNameOf).join(", ") : "nulle part";
-  if (!inst.loaded) text = inst.error ? "État des machines indisponible" : "Lecture des machines…";
-  else if (down) text += ` · ${down} machine${down > 1 ? "s" : ""} injoignable${down > 1 ? "s" : ""} (non vérifiée${down > 1 ? "s" : ""})`;
+  if (!inst.loaded) text = inst.error ? "État des clients indisponible" : "Lecture des clients…";
+  else if (down) text += ` · ${down} client${down > 1 ? "s" : ""} injoignable${down > 1 ? "s" : ""} (non vérifié${down > 1 ? "s" : ""})`;
   $("d-inst-where").textContent = text;
   $("d-inst-uninstall").hidden = !ids.length;
 }
@@ -3503,7 +3506,7 @@ function openUninstall(images) {
 }
 for (const id of Object.values(DLG_INST)) $(id).addEventListener("close", () => { instDlg = null; });
 
-// Une ligne par machine ; le dialogue entier est refait à chaque changement (peu d'éléments)
+// Une ligne par client ; le dialogue entier est refait à chaque changement (peu d'éléments)
 function paintInstDialog() {
   if (!instDlg) return;
   const d = instDlg, install = d.mode === "install", p = install ? "in" : "un";
@@ -3518,7 +3521,7 @@ function paintInstDialog() {
   const total = d.images.reduce((sum, i) => sum + (i.size || 0), 0);
   $(`${p}-images`).textContent = `${n} image${n > 1 ? "s" : ""} : ${shown}${install ? ` · ${size(total)}` : ""}${skipped}`;
 
-  // Machines proposées : toutes (installer), ou celles qui ont au moins une de ces images
+  // Clients proposés : tous (installer), ou ceux qui ont au moins une de ces images
   const rows = [];
   const candidates = install ? inst.machines.map((m) => ({ m, plan: instPlan(m, d.images) }))
     : inst.machines.filter((m) => m.ok && d.images.some((i) => gamesOf(m).includes(imageFile(i)))).map((m) => ({ m }));
@@ -3526,8 +3529,8 @@ function paintInstDialog() {
   d.picked = new Set([...(d.picked ?? eligible)].filter((id) => eligible.includes(id)));
 
   const status = [];
-  if (inst.error) status.push(notice("err", `États des machines indisponibles : ${inst.error}`));
-  else if (!inst.loaded) status.push(el("div", { className: "notice info" }, el("span", { className: "spinner" }), el("span", { textContent: "Lecture des machines…" })));
+  if (inst.error) status.push(notice("err", `États des clients indisponibles : ${inst.error}`));
+  else if (!inst.loaded) status.push(el("div", { className: "notice info" }, el("span", { className: "spinner" }), el("span", { textContent: "Lecture des clients…" })));
   else if (!install) {
     const absent = d.images.filter((i) => !installedOn(imageFile(i)).length).length;
     if (absent) status.push(notice("info", `${absent} image${absent > 1 ? "s" : ""} installée${absent > 1 ? "s" : ""} nulle part : ${absent > 1 ? "elles sont" : "elle est"} ignorée${absent > 1 ? "s" : ""}.`));
@@ -3561,8 +3564,8 @@ function paintInstDialog() {
         meta, dirNode)));
   }
   if (!rows.length && inst.loaded && !inst.error) {
-    rows.push(el("p", { className: "muted", textContent: install ? "Aucune machine associée : onglet Sauvegardes, « Associer »."
-      : "Ces images ne sont installées sur aucune machine joignable." }));
+    rows.push(el("p", { className: "muted", textContent: install ? "Aucun client associé : onglet Sauvegardes, « Associer »."
+      : "Ces images ne sont installées sur aucun client joignable." }));
   }
   $(`${p}-targets`).replaceChildren(...rows);
   const run = $(`${p}-run`);
@@ -3639,12 +3642,12 @@ async function runInstallDialog(install) {
   }
 }
 
-// Résultat par machine d'une tâche install / uninstall (dans le détail de la tâche)
+// Résultat par client d'une tâche install / uninstall (dans le détail de la tâche)
 function installResultNode(r) {
   const items = r.results || [];
   const failed = items.filter((x) => !x.ok).length;
   return el("div", { className: `sync-res${failed ? " err" : ""}` },
-    el("strong", { textContent: failed ? `${failed} échec(s) sur ${items.length}` : `${items.length} machine(s) sans erreur` }),
+    el("strong", { textContent: failed ? `${failed} échec(s) sur ${items.length}` : `${items.length} client(s) sans erreur` }),
     el("ul", { className: "sync-list" }, ...items.map((x) => el("li", { className: x.ok ? "ok" : "err",
       textContent: `${x.ok ? "✓" : "✗"} ${x.machine} : ${x.message}` }))));
 }
@@ -3678,6 +3681,6 @@ $("btn-inst-uninstall").onclick = () => openUninstall(selectedImages());
   if (connected() && view !== "saves") loadSaves();   // compteur de l'onglet
   await loadLibrary();
   paintSaves();                // les liens vers les images attendent la bibliothèque
-  loadInstall();               // images installées par machine : filtre, pastilles, fiche (connecté)
+  loadInstall();               // images installées par client : filtre, pastilles, fiche (connecté)
   refreshTasks();
 })();

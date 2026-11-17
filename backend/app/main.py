@@ -130,7 +130,7 @@ MODE_AUTONOME_DETAIL = "mode autonome : fonction connectée désactivée (Régla
 
 
 def _connected_task(handler):
-    """Gestionnaire d'une tâche qui touche une machine : refusé en mode autonome (une tâche
+    """Gestionnaire d'une tâche qui touche un client : refusé en mode autonome (une tâche
     restée en file avant le passage en autonome échoue au lieu de se connecter)."""
     def run(task, job):
         if _settings.mode == "autonome":
@@ -143,35 +143,35 @@ def _serve_machines(server: uvicorn.Server) -> None:
     try:
         server.run()
     except (SystemExit, OSError) as exc:        # port occupé, par exemple : l'interface reste
-        logger.error("machines : écoute impossible (%s)", exc)
+        logger.error("clients : écoute impossible (%s)", exc)
 
 
 def _start_machine_server(settings: Settings) -> uvicorn.Server | None:
-    """Écoute HTTPS des machines (machine_port, certificat du manager) dans un thread démoniaque ;
-    seulement l'API des machines (machine_app), jamais l'interface. None si désactivée."""
+    """Écoute HTTPS des clients (machine_port, certificat du manager) dans un thread démoniaque ;
+    seulement l'API des clients (machine_app), jamais l'interface. None si désactivée."""
     if settings.machine_port <= 0:
         return None
     try:
         cert, key = saves_svc.machine_tls(settings)
     except RebuildError as exc:
-        logger.error("machines : %s", exc)
+        logger.error("clients : %s", exc)
         return None
     config = uvicorn.Config(machine_app, host=settings.machine_host, port=settings.machine_port,
                             ssl_certfile=str(cert), ssl_keyfile=str(key), log_level="warning",
                             access_log=False)
     server = uvicorn.Server(config)
     threading.Thread(target=_serve_machines, args=(server,), name="machines", daemon=True).start()
-    logger.info("machines : écoute HTTPS sur le port %s", settings.machine_port)
+    logger.info("clients : écoute HTTPS sur le port %s", settings.machine_port)
     return server
 
 
-# Écoute HTTPS des machines : seulement en mode connecté ; suit le passage d'un mode à l'autre
+# Écoute HTTPS des clients : seulement en mode connecté ; suit le passage d'un mode à l'autre
 _machine_server: uvicorn.Server | None = None
 _machine_lock = threading.Lock()
 
 
 def _sync_machine_listener() -> None:
-    """Démarre l'écoute des machines si le mode est connecté, l'arrête sinon. Appelé sous
+    """Démarre l'écoute des clients si le mode est connecté, l'arrête sinon. Appelé sous
     _machine_lock, au démarrage et à chaque changement de mode."""
     global _machine_server
     if _settings.mode == "connecte":
@@ -205,9 +205,9 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="wsquashfs-manager", version="0.2.0", lifespan=lifespan)
-# API des machines (synchro automatique) : application distincte, sur machine_port seulement,
+# API des clients (synchro automatique) : application distincte, sur machine_port seulement,
 # sans l'interface, sans documentation, avec son propre contrôle (jeton par machine)
-machine_app = FastAPI(title="wsquashfs-manager (machines)", version="0.2.0",
+machine_app = FastAPI(title="wsquashfs-manager (clients)", version="0.2.0",
                       docs_url=None, redoc_url=None, openapi_url=None)
 machine_app.include_router(machine_api.build_router(lambda: _settings))
 
@@ -225,7 +225,7 @@ def _same(a: str | bytes, b: str) -> bool:
     return hmac.compare_digest(a if isinstance(a, bytes) else a.encode(), b.encode())
 
 
-# Routes qui touchent une machine (sauvegardes, installation, essais, lanceur de la machine
+# Routes qui touchent un client (sauvegardes, installation, essais, lanceur du client
 # d'essai) : 409 en mode autonome. Les vignettes des sauvegardes restent servies.
 CONNECTED_PREFIXES = ("/api/saves/", "/api/install", "/api/uninstall", "/api/game_host/", "/api/launcher/")
 CONNECTED_EXACT = ("/api/image/trial", "/api/image/runner")
@@ -279,7 +279,7 @@ def login(req: LoginReq):
 def get_config():
     return {
         "mode": _settings.mode,                                  # autonome : rien de connecté ; connecte : le reste
-        "machine_listening": _machine_server is not None,        # écoute HTTPS des machines active
+        "machine_listening": _machine_server is not None,        # écoute HTTPS des clients active
         "roms_dirs": _settings.roms_dirs,
         "saves_dir": str(_settings.saves_dir),
         "tmp_dir": str(_settings.tmp_dir) if _settings.tmp_dir else "à côté de chaque image",
@@ -291,18 +291,18 @@ def get_config():
         "old_retention_days": _settings.old_retention_days,
         "rebuild_mode": _settings.rebuild_mode,
         "tool_user": _settings.tool_user,
-        # Machine d'essai (lancement d'essai, --doctor, runners installés)
+        # Client d'essai (lancement d'essai, --doctor, runners installés)
         "game_host": _settings.game_host,
         "game_host_name": _trial_name(),
         "session_process": _settings.session_process,
         "agent_url": _settings.agent_url,
         "agent_fingerprint": _agent_fingerprint(),
-        "game_host_machine": saves_svc.game_host_machine(_settings),   # machine associée choisie, "" sinon
-        # Manager vu par les machines (synchro automatique) : adresse réglée, port d'écoute, empreinte
+        "game_host_machine": saves_svc.game_host_machine(_settings),   # client associé choisi, "" sinon
+        # Manager vu par les clients (synchro automatique) : adresse réglée, port d'écoute, empreinte
         "machine_url": _settings.machine_url,
         "machine_port": _settings.machine_port,
         "machine_fingerprint": saves_svc.manager_fingerprint(_settings, create=False),
-        "auto_push_interval": _settings.auto_push_interval,     # mise à jour automatique des machines en retard
+        "auto_push_interval": _settings.auto_push_interval,     # mise à jour automatique des clients en retard
         # Icônes et jaquettes SteamGridDB : la clé n'est jamais renvoyée, seulement son existence
         "sgdb_configured": bool(_settings.sgdb_api_key),
         "sgdb_authors": _settings.sgdb_authors,
@@ -311,7 +311,7 @@ def get_config():
 
 
 def _trial_name() -> str:
-    """Nom de la machine d'essai (celui de l'association), sinon sa description technique."""
+    """Nom du client d'essai (celui de l'association), sinon sa description technique."""
     machine_id = saves_svc.game_host_machine(_settings)
     name = next((m["name"] for m in saves_machines(_settings) if m["id"] == machine_id), "")
     return name or host_name(_settings)
@@ -332,8 +332,8 @@ class GameHostConfig(BaseModel):
 
 @app.put("/api/config/game_host")
 def set_game_host(body: GameHostConfig):
-    """Machine d'essai : désactivée, cette machine, ou la machine associée déjà choisie (agent).
-    Le mode agent ne associe rien : l'adresse et le jeton viennent de la machine choisie
+    """Client d'essai : désactivé, ce serveur, ou le client associé déjà choisi (agent).
+    Le mode agent ne associe rien : l'adresse et le jeton viennent du client choisi
     (PUT /api/config/game_host/machine), refusé tant qu'aucune machine n'est associée."""
     values = {"game_host": body.game_host, "session_process": body.session_process}
     try:
@@ -350,12 +350,12 @@ class GameHostMachine(BaseModel):
 
 @app.put("/api/config/game_host/machine")
 def set_game_host_machine(body: GameHostMachine):
-    """Machine d'essai = une machine déjà associée (onglet Sauvegardes) : son adresse, son
+    """Client d'essai = un client déjà associé (onglet Sauvegardes) : son adresse, son
     jeton et son certificat sont repris, sans nouveau code d'association."""
     try:
         saves_svc.use_as_game_host(_settings, body.id)
     except KeyError:
-        raise HTTPException(status_code=404, detail=f"machine inconnue : {body.id}") from None
+        raise HTTPException(status_code=404, detail=f"client inconnu : {body.id}") from None
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     _doctor_cache.clear()           # l'état du lanceur est celui de l'ancienne machine
@@ -368,12 +368,12 @@ class MachineUrl(BaseModel):
 
 @app.put("/api/config/machine_url")
 def set_machine_url(body: MachineUrl):
-    """Adresse du manager vue par les machines : déclarée à chaque machine associée (agent v9)."""
+    """Adresse du manager vue par les clients : déclarée à chaque client associé (agent v9)."""
     try:
         save_machine_url(_settings, body.url)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    # Les machines déjà déclarées gardent l'ancienne adresse : redéclaration, en arrière-plan (une
+    # Les clients déjà déclarés gardent l'ancienne adresse : redéclaration, en arrière-plan (une
     # machine éteinte ne bloque pas l'enregistrement ; elle sera déclarée à son prochain statut).
     threading.Thread(target=saves_svc.redeclare_manager, args=(_settings,), daemon=True).start()
     return get_config()
@@ -408,7 +408,7 @@ class AutoPushInterval(BaseModel):
 
 @app.put("/api/config/auto_push")
 def set_auto_push(body: AutoPushInterval):
-    """Intervalle de la mise à jour automatique des machines en retard (0 : désactivée)."""
+    """Intervalle de la mise à jour automatique des clients en retard (0 : désactivée)."""
     try:
         save_auto_push_interval(_settings, body.seconds)
     except ValueError as exc:
@@ -437,9 +437,9 @@ class MaintenanceRequest(BaseModel):
 
 @app.post("/api/game_host/maintenance")
 def game_host_maintenance(body: MaintenanceRequest):
-    """Maintenance du lanceur sur la machine d'essai : lister, démonter, nettoyer,
+    """Maintenance du lanceur sur le client d'essai : lister, démonter, nettoyer,
     copier les sauvegardes d'un jeu (save) ou de tous (saves), synchroniser les
-    sauvegardes avec les autres machines associées (sync, un jeu ou tous) et
+    sauvegardes avec les autres clients associés (sync, un jeu ou tous) et
     afficher l'état de la synchro (sync-status, sans rien changer)."""
     rule = maintenance_game_rule(body.action)
     shown = " ".join(MAINTENANCE_COMMANDS[body.action][0])
@@ -460,7 +460,7 @@ _STATUS_TTL = 20            # s : le voyant ne refait pas le test à chaque ouve
 
 @app.get("/api/game_host/status")
 def game_host_status(refresh: bool = False):
-    """Voyant de la machine d'essai (connectée, injoignable, désactivée)."""
+    """Voyant du client d'essai (connecté, injoignable, désactivé)."""
     now = time.monotonic()
     cached = _status_cache.get("value")
     if cached and not refresh and now - cached[0] < _STATUS_TTL and cached[2] == _settings.game_host:
@@ -472,7 +472,7 @@ def game_host_status(refresh: bool = False):
 
 @app.get("/api/launcher/doctor")
 def launcher_doctor(refresh: bool = False):
-    """État du lanceur sur la machine d'essai (`wsquashfs-launcher --doctor`) :
+    """État du lanceur sur le client d'essai (`wsquashfs-launcher --doctor`) :
     sections vérifiées et runners installés. Mis en cache quelques minutes."""
     try:
         return _doctor(refresh)
@@ -513,7 +513,7 @@ class ModeConfig(BaseModel):
 
 @app.put("/api/config/mode")
 def set_mode(body: ModeConfig):
-    """Mode du manager. Passer en connecté démarre l'écoute des machines, passer en autonome
+    """Mode du manager. Passer en connecté démarre l'écoute des clients, passer en autonome
     l'arrête (sans redémarrer le manager)."""
     try:
         save_mode(_settings, body.mode)
@@ -963,7 +963,7 @@ AUTO_PUSH_IDLE = 5                      # secondes entre deux tours quand la syn
 
 
 def _auto_push_loop() -> None:
-    """Mise à jour automatique des machines en retard (services/saves.py push_behind), toutes les
+    """Mise à jour automatique des clients en retard (services/saves.py push_behind), toutes les
     `auto_push_interval` secondes ; 0 : désactivée (tours vides). Relu à chaque tour : un réglage
     prend effet tout de suite."""
     while not _background_stop.wait(_settings.auto_push_interval or AUTO_PUSH_IDLE):
@@ -972,7 +972,7 @@ def _auto_push_loop() -> None:
         try:
             saves_svc.push_behind(_settings)
         except Exception:  # tâche de fond : une erreur ne tue pas la boucle
-            logger.exception("mise à jour automatique des machines impossible")
+            logger.exception("mise à jour automatique des clients impossible")
 
 
 def _purge_old_backups() -> None:
@@ -1511,7 +1511,7 @@ class TrialRequest(BaseModel):
 @app.get("/api/image/links")
 def image_links_report(id: str):
     """Liens du prefix vers un runner hors de l'image ou absent, et
-    réparations proposées avec les runners installés sur la machine d'essai."""
+    réparations proposées avec les runners installés sur le client d'essai."""
     info = _find_image(id)
     steambox_error = None
     if _settings.mode == "autonome":
@@ -1521,7 +1521,7 @@ def image_links_report(id: str):
         try:
             runners = _doctor().get("runners", [])
         except RebuildError as exc:
-            runners = []        # machine d'essai désactivée ou injoignable : constat sans proposition
+            runners = []        # client d'essai désactivé ou injoignable : constat sans proposition
             steambox_error = str(exc)
     try:
         return {**suggest(_settings, info.path, runners), "steambox_error": steambox_error}
@@ -1530,7 +1530,7 @@ def image_links_report(id: str):
 
 
 class RunnerRequest(BaseModel):
-    source: str = Field(min_length=2, pattern=r"^/")    # dossier du runner sur la machine d'essai
+    source: str = Field(min_length=2, pattern=r"^/")    # dossier du runner sur le client d'essai
     sub: str = ""
     dest: str
     set_key: bool = False
@@ -1539,7 +1539,7 @@ class RunnerRequest(BaseModel):
 
 @app.post("/api/image/runner")
 def image_runner(id: str, body: RunnerRequest):
-    """Joint un runner de la machine d'essai à l'image (ou complète un runner joint),
+    """Joint un runner du client d'essai à l'image (ou complète un runner intégré),
     liens du prefix réécrits ; seulement depuis un runner installé (--doctor)."""
     info = _find_image(id)
     try:
@@ -1574,7 +1574,7 @@ def image_relink(id: str, body: RelinkRequest):
 
 @app.post("/api/image/trial")
 def image_trial(id: str, body: TrialRequest):
-    """Lancement d'essai chronométré sur la machine d'essai (le jeu s'affiche
+    """Lancement d'essai chronométré sur le client d'essai (le jeu s'affiche
     sur l'écran de la session pendant la durée choisie, puis est arrêté)."""
     info = _find_image(id)
     try:
@@ -1617,7 +1617,7 @@ def saves_machines_list():
 
 @app.post("/api/saves/machines")
 def saves_machine_add(body: SavesMachineAdd):
-    """Associe une machine par son code wsq:// ; même empreinte ou même adresse → remplacement."""
+    """Associe un client par son code wsq:// ; même empreinte ou même adresse → remplacement."""
     try:
         return saves_svc.add_machine(_settings, body.code)
     except ValueError as exc:
@@ -1631,10 +1631,10 @@ def saves_machine_remove(machine_id: str):
     try:
         saves_svc.remove_machine(_settings, machine_id)
     except KeyError:
-        raise HTTPException(status_code=404, detail=f"machine inconnue : {machine_id}") from None
+        raise HTTPException(status_code=404, detail=f"client inconnu : {machine_id}") from None
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    _doctor_cache.clear()           # la machine d'essai a pu être désactivée avec elle
+    _doctor_cache.clear()           # le client d'essai a pu être désactivé avec lui
     return {"removed": machine_id}
 
 
@@ -1644,12 +1644,12 @@ class SavesDir(BaseModel):
 
 
 def _machine_dirs(machine_id: str, change: tuple[str, ...] = ()) -> dict:
-    """Dossiers déclarés d'une machine ; 404 machine inconnue, 502 injoignable, 422 refus de
+    """Dossiers déclarés d'un client ; 404 client inconnu, 502 injoignable, 422 refus de
     l'agent (chemin hors HOME, nom invalide, agent trop ancien...)."""
     try:
         return saves_svc.machine_dirs(_settings, machine_id, change)
     except KeyError:
-        raise HTTPException(status_code=404, detail=f"machine inconnue : {machine_id}") from None
+        raise HTTPException(status_code=404, detail=f"client inconnu : {machine_id}") from None
     except AgentUnreachable as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except RebuildError as exc:
@@ -1658,19 +1658,19 @@ def _machine_dirs(machine_id: str, change: tuple[str, ...] = ()) -> dict:
 
 @app.get("/api/saves/machines/{machine_id}/dirs")
 def saves_machine_dirs(machine_id: str):
-    """Dossiers synchronisés en plus des jeux, déclarés sur la machine (et dossier d'Eden)."""
+    """Dossiers synchronisés en plus des jeux, déclarés sur le client (et dossier d'Eden)."""
     return _machine_dirs(machine_id)
 
 
 @app.put("/api/saves/machines/{machine_id}/dirs")
 def saves_machine_dir_put(machine_id: str, body: SavesDir):
-    """Déclare (ou remplace) un dossier sur la machine : chemin de cette machine, sous son HOME."""
+    """Déclare (ou remplace) un dossier sur le client : chemin de ce client, sous son HOME."""
     return _machine_dirs(machine_id, ("put", body.name.strip(), body.path.strip()))
 
 
 @app.delete("/api/saves/machines/{machine_id}/dirs")
 def saves_machine_dir_delete(machine_id: str, name: str):
-    """Retire la déclaration sur la machine ; ses fichiers restent."""
+    """Retire la déclaration sur le client ; ses fichiers restent."""
     return _machine_dirs(machine_id, ("delete", name))
 
 
@@ -1680,11 +1680,11 @@ class SavesMachineIcon(BaseModel):
 
 @app.patch("/api/saves/machines/{machine_id}")
 def saves_machine_icon(machine_id: str, body: SavesMachineIcon):
-    """Icône choisie à la main d'une machine ; null la rend à la détection (système)."""
+    """Icône choisie à la main d'un client ; null la rend à la détection (système)."""
     try:
         return saves_svc.set_icon(_settings, machine_id, body.icon)
     except KeyError:
-        raise HTTPException(status_code=404, detail=f"machine inconnue : {machine_id}") from None
+        raise HTTPException(status_code=404, detail=f"client inconnu : {machine_id}") from None
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1700,7 +1700,7 @@ def saves_status(id: str | None = None):
 
 class SavesSelection(BaseModel):
     # Noms de jeux (comme le lanceur : nom de l'image sans .wsquashfs) ; un jeu installé
-    # seulement sur une machine n'a pas forcément d'image dans la bibliothèque du manager
+    # seulement sur un client n'a pas forcément d'image dans la bibliothèque du manager
     games: list[str] | None = None
     all: bool = False                   # tous les jeux : de la source, ou du manager
 
@@ -1716,7 +1716,7 @@ class SavesPull(SavesSelection):
 
 
 class SavesPush(SavesSelection):
-    # absent : depuis le manager ; « auto » : pour chaque jeu, depuis la machine la plus avancée
+    # absent : depuis le manager ; « auto » : pour chaque jeu, depuis le client le plus avancé
     source: str | None = Field(default=None, max_length=64)
     targets: list[str] = Field(min_length=1, max_length=20)
 
@@ -1735,12 +1735,12 @@ def _saves_machine(machine_id: str) -> dict:
     try:
         return saves_svc.find_machine(_settings, machine_id)
     except KeyError:
-        raise HTTPException(status_code=404, detail=f"machine inconnue : {machine_id}") from None
+        raise HTTPException(status_code=404, detail=f"client inconnu : {machine_id}") from None
 
 
 @app.post("/api/saves/pull")
 def saves_pull(body: SavesPull):
-    """Sauvegardes d'une machine source vers le manager (tâche « saves »). Source « auto » :
+    """Sauvegardes d'un client source vers le manager (tâche « saves »). Source « auto » :
     chaque jeu depuis sa machine la plus avancée."""
     games = _saves_games(body)
     if body.source == "auto":
@@ -1758,18 +1758,18 @@ def saves_pull(body: SavesPull):
 def saves_push(body: SavesPush):
     """Manager (sans source) ou machine source (push_from) vers les cibles (tâche « saves »)."""
     if len(set(body.targets)) != len(body.targets):
-        raise HTTPException(status_code=422, detail="machine cible en double")
+        raise HTTPException(status_code=422, detail="client cible en double")
     targets = [_saves_machine(machine_id) for machine_id in body.targets]
     games = _saves_games(body)
     if body.source == "auto":            # chaque jeu depuis sa machine la plus avancée
         params = {"op": "push_auto", "targets": body.targets, "games": games}
-        title = f"sauvegardes : plus avancée → {len(targets)} machine(s)"
+        title = f"sauvegardes : plus avancée → {len(targets)} client(s)"
     elif body.source is not None:
         source = _saves_machine(body.source)
         if body.source in body.targets:
             raise HTTPException(status_code=422, detail="la source ne peut pas être une cible")
         params = {"op": "push_from", "source": body.source, "targets": body.targets, "games": games}
-        title = f"sauvegardes : {source['name']} → {len(targets)} machine(s)"
+        title = f"sauvegardes : {source['name']} → {len(targets)} client(s)"
     else:
         reserve = set(saves_svc.reserve_games(_settings))
         if games is None and not reserve:
@@ -1778,7 +1778,7 @@ def saves_push(body: SavesPush):
         if missing:
             raise HTTPException(status_code=422, detail=f"absent du manager : {', '.join(missing)}")
         params = {"op": "push", "targets": body.targets, "games": games}
-        title = f"sauvegardes : manager → {len(targets)} machine(s)"
+        title = f"sauvegardes : manager → {len(targets)} client(s)"
     task = queue.submit("saves", None, None, params, title)
     return {"task": task.id}
 
@@ -1791,7 +1791,7 @@ class SavesDelete(BaseModel):
 
 @app.post("/api/saves/delete")
 def saves_delete(body: SavesDelete):
-    """Supprime les sauvegardes de jeux sur des machines (archivées puis effacées) et/ou sur
+    """Supprime les sauvegardes de jeux sur des clients (archivées puis effacées) et/ou sur
     le manager (version courante datée) : tâche « saves »."""
     for game in body.games:
         if not saves_svc.valid_game(game):
@@ -1799,11 +1799,11 @@ def saves_delete(body: SavesDelete):
     if len(set(body.games)) != len(body.games):
         raise HTTPException(status_code=422, detail="jeu en double")
     if len(set(body.machines)) != len(body.machines):
-        raise HTTPException(status_code=422, detail="machine en double")
+        raise HTTPException(status_code=422, detail="client en double")
     if not body.machines and not body.manager:
-        raise HTTPException(status_code=422, detail="aucune machine ni le manager : rien à supprimer")
+        raise HTTPException(status_code=422, detail="aucun client ni le manager : rien à supprimer")
     targets = [_saves_machine(machine_id) for machine_id in body.machines]
-    where = " et ".join(part for part in (f"{len(targets)} machine(s)" if targets else "",
+    where = " et ".join(part for part in (f"{len(targets)} client(s)" if targets else "",
                                           "le manager" if body.manager else "") if part)
     params = {"op": "delete", "machines": body.machines, "games": body.games, "manager": body.manager}
     title = f"sauvegardes : suppression de {len(body.games)} jeu(x) sur {where}"
@@ -1811,8 +1811,8 @@ def saves_delete(body: SavesDelete):
     return {"task": task.id}
 
 
-# ------------------------------------------------------------- installation sur les machines
-# Images .wsquashfs envoyées aux machines associées (services/install.py, agent v6).
+# ------------------------------------------------------------- installation sur les clients
+# Images .wsquashfs envoyées aux clients associés (services/install.py, agent v6).
 # Les envois et désinstallations sont des tâches de la file (« install »), suivies par
 # /api/tasks/{id} ; le résultat par machine est dans task.params.result.
 
@@ -1838,12 +1838,12 @@ def install_status():
 
 @app.post("/api/install")
 def install_submit(body: InstallIds):
-    """Une tâche « install » par image, vers les machines cochées. Une image déjà en
+    """Une tâche « install » par image, vers les clients cochés. Une image déjà en
     tâche active : 409 (rien n'est soumis)."""
     if len(set(body.ids)) != len(body.ids):
         raise HTTPException(status_code=422, detail="image en double")
     if len(set(body.machines)) != len(body.machines):
-        raise HTTPException(status_code=422, detail="machine en double")
+        raise HTTPException(status_code=422, detail="client en double")
     infos = [_find_image(image_id) for image_id in body.ids]
     for info in infos:
         if not valid_name(info.path.name):
@@ -1852,7 +1852,7 @@ def install_submit(body: InstallIds):
     for info in infos:
         if queue.active_for(info.id):
             raise HTTPException(status_code=409, detail=f"une tâche est déjà en attente ou en cours pour {info.id}")
-    where = f"{len(targets)} machine(s)"
+    where = f"{len(targets)} client(s)"
     tasks = []
     for info in infos:
         params = {"op": "install", "machines": body.machines}
@@ -1866,16 +1866,16 @@ def install_submit(body: InstallIds):
 
 @app.post("/api/uninstall")
 def uninstall_submit(body: UninstallNames):
-    """Une tâche « install » (op uninstall) par nom de jeu, sur les machines cochées."""
+    """Une tâche « install » (op uninstall) par nom de jeu, sur les clients cochés."""
     if len(set(body.names)) != len(body.names):
         raise HTTPException(status_code=422, detail="jeu en double")
     for name in body.names:
         if not valid_name(name):
             raise HTTPException(status_code=422, detail=f"nom d'image invalide : {name}")
     if len(set(body.machines)) != len(body.machines):
-        raise HTTPException(status_code=422, detail="machine en double")
+        raise HTTPException(status_code=422, detail="client en double")
     targets = [_saves_machine(machine_id) for machine_id in body.machines]
-    where = f"{len(targets)} machine(s)"
+    where = f"{len(targets)} client(s)"
     tasks = []
     for name in body.names:
         params = {"op": "uninstall", "name": name, "machines": body.machines}
@@ -1885,8 +1885,8 @@ def uninstall_submit(body: UninstallNames):
 
 @app.post("/api/install/machines/{machine_id}/dir")
 def install_set_dir(machine_id: str, body: InstallDir):
-    """Dossier des jeux de la machine (« » : le dossier deviné). 400 : refusé par l'agent
-    (hors du HOME, inexistant), son message relayé ; 502 : machine injoignable."""
+    """Dossier des jeux du client (« » : le dossier deviné). 400 : refusé par l'agent
+    (hors du HOME, inexistant), son message relayé ; 502 : client injoignable."""
     _saves_machine(machine_id)
     try:
         return install_svc.set_dir(_settings, machine_id, body.dir)

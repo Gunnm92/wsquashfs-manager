@@ -1,8 +1,8 @@
-"""Machine d'essai et lancement d'essai chronométré (SPEC § 2.5, étape 7).
+"""Client d'essai et lancement d'essai chronométré (SPEC § 2.5, étape 7).
 
-La machine d'essai est là où tourne wsquashfs-launcher (réglage game_host) :
-- « local » : la machine du gestionnaire, commandes lancées directement ;
-- « agent » : wsquashfs-launcher --agent sur cette machine ou sur le réseau
+Le client d'essai est là où tourne wsquashfs-launcher (réglage game_host) :
+- « local » : le serveur du manager, commandes lancées directement ;
+- « agent » : wsquashfs-launcher --agent sur ce client ou sur le réseau
   (code d'association), y compris dans un conteneur ;
 - « off » : lancement d'essai, --doctor et runners installés indisponibles.
 
@@ -12,7 +12,7 @@ donnée, puis arrêté. Rapport : le jeu a-t-il tenu, ses fenêtres (minimisée 
 erreurs connues du journal, une capture d'écran.
 
 Garde-fous (leçons des essais faits à la main, 01/10) :
-- refus si un jeu .wsquashfs tourne déjà sur la machine d'essai (lancements
+- refus si un jeu .wsquashfs tourne déjà sur le client d'essai (lancements
   croisés : les montages de l'un et de l'autre se gêneraient) ;
 - processus du jeu trouvés par leur WINEPREFIX et leur ligne de commande,
   jamais par leur nom (un jeu peut renommer son processus) ;
@@ -112,10 +112,10 @@ def report_from_json(data: dict) -> TrialReport:
 
 
 class LocalHost:
-    """Machine d'essai = celle du gestionnaire : commandes lancées directement,
+    """Client d'essai = celle du gestionnaire : commandes lancées directement,
     sous l'utilisateur du service."""
 
-    name = "cette machine"
+    name = "ce serveur"
 
     def __init__(self, settings: Settings, timeout: float):
         self.timeout = timeout
@@ -156,7 +156,7 @@ def agent_cert_path(settings: Settings) -> Path:
 PAIR_CODE_RE = re.compile(r"^wsq://([A-Za-z0-9_-]+)@([^\s/:@#]+):(\d+)#([0-9A-Fa-f]{64})$")
 PAIR_VERSION = 7                # premier agent qui échange le secret du code contre un jeton durable
 PAIR_EXPIRED = ("code d'association expiré ou déjà utilisé : relancer « wsquashfs-launcher --pair » "
-                "sur la machine, puis coller le nouveau code")
+                "sur le client, puis coller le nouveau code")
 
 
 def parse_pair_code(code: str) -> dict:
@@ -256,11 +256,11 @@ def pair_agent(url: str, secret: str, expected: str, machine_id: str, timeout: f
 
 
 class SavesBusy(RebuildError):
-    """Un jeu tourne sur la machine : ses sauvegardes ne se synchronisent pas maintenant."""
+    """Un jeu tourne sur le client : ses sauvegardes ne se synchronisent pas maintenant."""
 
 
 class AgentUnreachable(RebuildError):
-    """La machine ne répond pas (réseau, certificat) : l'envoi peut reprendre plus tard."""
+    """Le client ne répond pas (réseau, certificat) : l'envoi peut reprendre plus tard."""
 
 
 class AgentRejected(RebuildError):
@@ -271,7 +271,7 @@ class InstallOffset(RebuildError):
     """PUT refusé : le décalage ne correspond pas à ce que l'agent a reçu (409 « décalage »)."""
 
     def __init__(self, part_size: int):
-        super().__init__("décalage de l'envoi différent de la machine")
+        super().__init__("décalage de l'envoi différent du client")
         self.part_size = part_size
 
 
@@ -279,12 +279,12 @@ class InstallChecksum(RebuildError):
     """Empreinte de l'image installée différente de celle envoyée (422 au commit)."""
 
 
-OLD_AGENT_MESSAGE = ("agent trop ancien : wsquashfs-launcher --update sur cette machine, "
+OLD_AGENT_MESSAGE = ("agent trop ancien : wsquashfs-launcher --update sur ce client, "
                      "puis relancer son agent")
 
 
 class AgentHost:
-    """Machine d'essai = wsquashfs-agent sur le réseau (HTTPS, jeton, certificat épinglé)."""
+    """Client d'essai = wsquashfs-agent sur le réseau (HTTPS, jeton, certificat épinglé)."""
 
     def __init__(self, settings: Settings, timeout: float, pem: str | None = None,
                  url: str | None = None, token: str | None = None, client_id: str | None = None):
@@ -293,7 +293,7 @@ class AgentHost:
         if pem is None:
             cert = agent_cert_path(settings)
             if not cert.exists():
-                raise RebuildError("agent non associé : associer la machine (bandeau Machines de Sauvegardes)")
+                raise RebuildError("agent non associé : associer le client (bandeau Clients de Sauvegardes)")
             pem = cert.read_text()
         self.name = f"l'agent ({self.url})"
         self.timeout = timeout
@@ -375,10 +375,10 @@ class AgentHost:
         cause: BaseException | None = exc
         while cause is not None:
             if isinstance(cause, ssl.SSLCertVerificationError):
-                return RebuildError(f"certificat de la machine différent de celui associé ({self.url}) : "
+                return RebuildError(f"certificat du client différent de celui associé ({self.url}) : "
                                     "refaire l'association (wsquashfs-launcher --pair)")
             cause = cause.__cause__ or cause.__context__
-        return AgentUnreachable(f"machine injoignable ({self.url}) : {exc}")
+        return AgentUnreachable(f"client injoignable ({self.url}) : {exc}")
 
     def _saves_error(self, response: httpx.Response, conflict: str | None = None) -> RebuildError:
         if response.status_code == 401:
@@ -395,7 +395,7 @@ class AgentHost:
         detail = detail or response.text[:200] or f"erreur {response.status_code}"
         if response.status_code == 409:
             if detail == "jeu en cours":
-                return SavesBusy("jeu en cours sur la machine : sauvegardes non synchronisées")
+                return SavesBusy("jeu en cours sur le client : sauvegardes non synchronisées")
             return RebuildError(conflict or detail)
         return RebuildError(detail)
 
@@ -411,7 +411,7 @@ class AgentHost:
         return response
 
     def saves_list(self, timeout: float = 30) -> list[dict]:
-        """Jeux de la machine : [{name, fingerprint, newest, state}]."""
+        """Jeux du client : [{name, fingerprint, newest, state}]."""
         data = self._saves_request("GET", "/v1/saves/list", timeout=timeout).json()
         games = data.get("games") if isinstance(data, dict) else None
         if not isinstance(games, list):
@@ -420,7 +420,7 @@ class AgentHost:
 
     def saves_get(self, game: str, dest: Path) -> tuple[str, str | None]:
         """Archive d'un jeu, écrite (et fsync) dans `dest` ; renvoie (empreinte,
-        profil). Le profil est None si la machine ne l'envoie pas."""
+        profil). Le profil est None si le client ne l'envoie pas."""
         dest.parent.mkdir(parents=True, exist_ok=True)
         try:
             with self.client.stream("GET", "/v1/saves/tar", params={"game": game},
@@ -441,9 +441,9 @@ class AgentHost:
         return fingerprint, profile
 
     def saves_put(self, game: str, archive: Path, profile: str | None, dir_path: str | None = None) -> dict:
-        """Envoie une archive ; la machine archive sa version si elle a changé
+        """Envoie une archive ; le client archive sa version si elle a changé
         depuis le dernier échange avec ce manager. `dir_path` : chemin d'un dossier déclaré (à
-        partir du HOME de la machine) : une machine qui ne l'a pas le déclare (X-Wsq-Dir, encodé
+        partir du HOME du client) : un client qui ne l'a pas le déclare (X-Wsq-Dir, encodé
         en pourcentage). → {fingerprint, archived}."""
         headers = {"Content-Type": "application/gzip", "Content-Length": str(archive.stat().st_size)}
         if dir_path:
@@ -460,7 +460,7 @@ class AgentHost:
         return response.json()
 
     def saves_delete(self, game: str, timeout: float = 120) -> dict:
-        """Archive puis efface le jeu sur la machine (DELETE /v1/saves/tar) → {archived, removed}.
+        """Archive puis efface le jeu sur le client (DELETE /v1/saves/tar) → {archived, removed}.
         Un agent plus ancien ne connaît pas la route (404/405) : sa mise à jour est demandée."""
         try:
             response = self.client.request("DELETE", "/v1/saves/tar", params={"game": game},
@@ -468,9 +468,9 @@ class AgentHost:
         except httpx.HTTPError as exc:
             raise self._unreachable(exc) from exc
         if response.status_code in (404, 405):
-            raise RebuildError("agent trop ancien : wsquashfs-launcher --update sur cette machine")
+            raise RebuildError("agent trop ancien : wsquashfs-launcher --update sur ce client")
         if response.status_code == 409:
-            raise SavesBusy("jeu en cours sur la machine : non supprimée")
+            raise SavesBusy("jeu en cours sur le client : non supprimée")
         if response.status_code >= 400:
             raise self._saves_error(response)
         return response.json()
@@ -485,8 +485,8 @@ class AgentHost:
         return self._saves_request("PUT", "/v1/saves/manager", timeout=30, json=body).json()
 
     # ---------------------------------------------------------- dossiers déclarés (agent v8)
-    # Dossiers synchronisés comme des jeux (« dossier:<nom> »), déclarés sur la machine ; leur
-    # chemin est celui de la machine (sous son HOME, vérifié par l'agent).
+    # Dossiers synchronisés comme des jeux (« dossier:<nom> »), déclarés sur le client ; leur
+    # chemin est celui du client (sous son HOME, vérifié par l'agent).
 
     def saves_dirs(self) -> dict:
         """Dossiers déclarés : {dirs: [{name, path}], eden} (eden : dossier d'Eden, "" sinon)."""
@@ -497,13 +497,13 @@ class AgentHost:
         return self._saves_request("PUT", "/v1/saves/dirs", timeout=30, json={"name": name, "path": path}).json()
 
     def saves_dir_delete(self, name: str) -> dict:
-        """Retire la déclaration (les fichiers restent sur la machine)."""
+        """Retire la déclaration (les fichiers restent sur le client)."""
         return self._saves_request("DELETE", "/v1/saves/dirs", timeout=30, params={"name": name}).json()
 
     def saves_ack(self, game: str, fingerprint: str) -> None:
         """Enregistre l'empreinte commune de ce jeu pour ce manager."""
         self._saves_request("POST", "/v1/saves/state", timeout=30,
-                            conflict="la machine a changé entre-temps : relancer la synchronisation",
+                            conflict="le client a changé entre-temps : relancer la synchronisation",
                             json={"game": game, "fingerprint": fingerprint})
 
     # ---------------------------------------------------------- jeux installés (agent v6)
@@ -536,8 +536,8 @@ class AgentHost:
             if conflict:
                 return RebuildError(conflict)
             if "envoi" in detail:
-                return RebuildError("envoi en cours sur la machine : réessayer plus tard")
-            return RebuildError(detail or "conflit sur la machine")
+                return RebuildError("envoi en cours sur le client : réessayer plus tard")
+            return RebuildError(detail or "conflit sur le client")
         if response.status_code == 422:
             return InstallChecksum(detail or "empreinte incorrecte")
         if response.status_code == 400:
@@ -549,7 +549,7 @@ class AgentHost:
         return self._games("GET", "/v1/games/list", timeout=timeout).json()
 
     def games_set_dir(self, directory: str, timeout: float = 30) -> dict:
-        """Dossier des jeux de la machine (« » : le dossier deviné) → {dir, set}."""
+        """Dossier des jeux du client (« » : le dossier deviné) → {dir, set}."""
         return self._games("POST", "/v1/games/dir", timeout=timeout, json={"dir": directory}).json()
 
     def games_part(self, name: str, timeout: float = 30) -> dict:
@@ -576,19 +576,19 @@ class AgentHost:
                            params={"name": name}).json()
 
 
-GAME_HOST_LABELS ={"off": "désactivée", "local": "cette machine", "agent": "agent réseau"}
+GAME_HOST_LABELS ={"off": "désactivée", "local": "ce serveur", "agent": "agent réseau"}
 
 
 def game_host(settings: Settings, timeout: float = 120) -> LocalHost | AgentHost:
-    """Machine d'essai configurée ; RebuildError si elle est désactivée."""
+    """Client d'essai configuré ; RebuildError s'il est désactivé."""
     if settings.game_host == "local":
         return LocalHost(settings, timeout)
     if settings.game_host == "agent" and settings.agent_url:
         return AgentHost(settings, timeout)
-    raise RebuildError("machine d'essai non choisie : Sauvegardes › menu d'une machine › « Utiliser pour les essais »")
+    raise RebuildError("client d'essai non choisi : Sauvegardes › menu d'un client › « Utiliser pour les essais »")
 
 
-# Maintenance du lanceur (menu d'une machine d'essai) : liste fermée, comme celle de l'agent.
+# Maintenance du lanceur (menu d'un client d'essai) : liste fermée, comme celle de l'agent.
 # Table action → (arguments de la ligne de commande, règle sur le jeu) :
 #   "obligatoire" : une image (fiche du jeu) est requise (save) ;
 #   "facultatif"  : sans image, tous les jeux ; avec une image, ce seul jeu (sync) ;
@@ -614,7 +614,7 @@ def maintenance_game_rule(action: str) -> str:
 
 
 def maintenance(settings: Settings, action: str, image: Path | None = None) -> dict:
-    """Lance une action de maintenance du lanceur sur la machine d'essai."""
+    """Lance une action de maintenance du lanceur sur le client d'essai."""
     rule = maintenance_game_rule(action)
     flags, _ = MAINTENANCE_COMMANDS[action]
     shown = " ".join(flags)
@@ -634,7 +634,7 @@ def maintenance(settings: Settings, action: str, image: Path | None = None) -> d
 
 
 def host_status(settings: Settings) -> dict:
-    """Voyant de la machine d'essai : ok (connectée), ko (injoignable ou sans
+    """Voyant du client d'essai : ok (connectée), ko (injoignable ou sans
     lanceur) ou off (désactivée). Test léger, sans --doctor."""
     if settings.game_host in (None, "off"):
         return {"state": "off", "name": GAME_HOST_LABELS["off"], "detail": ""}
@@ -647,7 +647,7 @@ def host_status(settings: Settings) -> dict:
                     "detail": f"{info.get('host', '')} · utilisateur {info.get('user', '')} · agent {info.get('version', '')}"}
         code, out = host.exec(["bash", "-lc", "command -v wsquashfs-launcher"])
         if code != 0:
-            return {"state": "ko", "name": name, "detail": "wsquashfs-launcher introuvable sur la machine d'essai"}
+            return {"state": "ko", "name": name, "detail": "wsquashfs-launcher introuvable sur le client d'essai"}
         return {"state": "ok", "name": name, "detail": out.decode("utf-8", "replace").strip()}
     except RebuildError as exc:
         return {"state": "ko", "name": name, "detail": str(exc)}
@@ -660,7 +660,7 @@ def host_name(settings: Settings) -> str:
 
 
 def run_doctor(settings: Settings) -> dict:
-    """`wsquashfs-launcher --doctor json` sur la machine d'essai, sous l'utilisateur
+    """`wsquashfs-launcher --doctor json` sur le client d'essai, sous l'utilisateur
     des jeux : l'état du lanceur tel qu'il lancera les jeux."""
     host = game_host(settings, 120)
     if isinstance(host, AgentHost):
@@ -676,10 +676,10 @@ def run_doctor(settings: Settings) -> dict:
     return {"container": host.name, **data}
 
 
-# ------------------------------------------------------------------ fichiers de la machine d'essai
+# ------------------------------------------------------------------ fichiers du client d'essai
 
 def steambox_listing(settings: Settings, path: str) -> dict[str, int]:
-    """Arborescence d'un dossier de la machine d'essai (runner) : chemin
+    """Arborescence d'un dossier du client d'essai (runner) : chemin
     relatif → taille (0 pour un dossier ou un lien)."""
     host = game_host(settings, 120)
     if isinstance(host, AgentHost):
@@ -696,8 +696,8 @@ def steambox_listing(settings: Settings, path: str) -> dict[str, int]:
 
 def steambox_fetch(settings: Settings, path: str, dest: Path, job: Job | None = None,
                    total: int = 0) -> None:
-    """Copie un dossier de la machine d'essai dans `dest` (créé), liens
-    symboliques gardés : `tar` sur la machine d'essai, lu en flux (API Docker ou
+    """Copie un dossier du client d'essai dans `dest` (créé), liens
+    symboliques gardés : `tar` sur le client d'essai, lu en flux (API Docker ou
     processus local) et extrait au fil de l'eau, sans archive intermédiaire."""
     dest.mkdir(parents=True, exist_ok=True)
     parent, name = path.rstrip("/").rsplit("/", 1)
@@ -735,7 +735,7 @@ def trial_dir(settings: Settings) -> Path:
 
 def run_trial(settings: Settings, task: Task, job: Job) -> str:
     """Gestionnaire de la tâche « trial » : `wsquashfs-launcher --trial` sur la
-    machine d'essai (local, Docker, ou agent) ; rapport JSON."""
+    client d'essai (local, Docker, ou agent) ; rapport JSON."""
     image = Path(task.image_path or "")
     duration = int(task.params.get("duration", settings.trial_duration))
     host = game_host(settings, duration + 180)
