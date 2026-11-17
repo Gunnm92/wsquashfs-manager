@@ -11,8 +11,6 @@ const state = {
   layout: "list",
   autorun: null,          // dernière lecture de l'autorun de la fiche
   pendingKeys: new Set(), // clés ajoutées au formulaire, pas encore renseignées
-  // Source de l'onglet Images (machine associée) : voir loadSource
-  src: { loading: false, loaded: false, error: "", source: null, games: [], seq: 0 },
 };
 const $ = (id) => document.getElementById(id);
 const el = (tag, props = {}, ...children) => {
@@ -227,7 +225,7 @@ const STATES = { ok: ["Prêt", "Image saine"], in_use: ["En cours", "Jeu lancé 
 // Filtres (menus déroulants à côté de la recherche) : chaque choix montre la
 // même icône, de la même couleur, que dans la colonne « Type et réglages »
 const FILTERS = [
-  { key: "system", label: "Système", all: "Tous les systèmes", options: () => [...new Set(scoped().map((i) => i.system).filter(Boolean))].sort().map((v) => [v, null, "", cap(v)]) },
+  { key: "system", label: "Système", all: "Tous les systèmes", options: () => [...new Set(state.items.map((i) => i.system).filter(Boolean))].sort().map((v) => [v, null, "", cap(v)]) },
   { key: "type", label: "Type", all: "Tous les types", options: () => [["wine", "wine", "t-accent", "Prefix Wine"], ["wine_proton", "atom", "t-sage", "Prefix Proton"], ["game_only", "app", "t-neutral", "Jeu seul"]] },
   { key: "runner", label: "Runner", all: "Tous les runners", options: () => [["default", null, "", "Par défaut"], ["custom", "cpu", "t-accent", "Personnalisé"], ["joined", "clip", "t-accent", "Joint à l'image"]] },
   { key: "pad", label: "Manettes", all: "Toutes les manettes", options: () => [["hidraw", "usb", "t-sage", "HIDRAW"], ["xinput", "gamepad", "t-off", "XInput"]] },
@@ -363,7 +361,7 @@ function renderFilters() {
   closeMenu();
   $("filters").replaceChildren(...FILTERS.map((def) => {
     // Seuls les choix utiles : au moins un jeu, mais pas tous (le choix en cours reste affiché)
-    const base = scoped(), total = base.length;
+    const base = state.items, total = base.length;
     const options = def.options().map((o) => [...o, base.filter((i) => matches(i, def.key, o[0])).length])
       .filter((o) => o[0] === f[def.key] || (o[4] > 0 && o[4] < total));
     if (!options.length) { f[def.key] = ""; return null; }
@@ -417,7 +415,7 @@ function matches(i, key, value) {
 
 function filtered() {
   const q = $("f-search").value.trim().toLowerCase();
-  return scoped().filter((i) =>
+  return state.items.filter((i) =>
     (!q || [i.name, i.cmd, i.dir, i.version].some((v) => v && v.toLowerCase().includes(q)))
     && FILTERS.every((def) => matches(i, def.key, state.filter[def.key])));
 }
@@ -444,17 +442,15 @@ function selectBox(i) {
 }
 
 function renderLibrary() {
-  renderSource();
   renderFilters();
-  const visible = sorted(filtered()), base = scoped().length;
-  $("count-images").textContent = srcMode() ? (state.src.loaded ? srcGames().length : "") : state.items.length;
+  const visible = sorted(filtered()), base = state.items.length;
+  $("count-images").textContent = state.items.length;
   $("visible-count").textContent = visible.length === base ? `${visible.length}` : `${visible.length} / ${base}`;
   const grid = state.layout === "grid";
   $("list").hidden = grid;
   $("grid").hidden = !grid;
 
   const empty = base ? emptyState("search", "Aucune image pour ces filtres", "Élargir la recherche ou retirer un filtre.")
-    : srcMode() ? sourceEmpty()
     : emptyState("layers", "Aucune image", "Choisir les systèmes à gérer dans « Réglages ».");
   if (grid) {
     $("grid").replaceChildren(...visible.map((i) => {
@@ -525,11 +521,11 @@ async function loadRecovery() {
 
 // Chiffres clés de la bibliothèque ; un clic filtre (deuxième clic : retire le filtre)
 function renderStats() {
-  const items = scoped(), special = state.filter.special;
+  const items = state.items, special = state.filter.special;
   const total = items.reduce((n, i) => n + (i.size || 0), 0);
   const count = (f) => items.filter(f).length;
   const tiles = [
-    ["", "Images", items.length, size(total), "layers", "t-sage", srcMode() ? `Toutes les images installées sur ${srcName()}` : "Toute la bibliothèque"],
+    ["", "Images", items.length, size(total), "layers", "t-sage", "Toute la bibliothèque"],
     ["noversion", "Sans version", count((i) => !i.version), null, "tag", "t-accent", "GAME_VERSION non renseignée"],
     ["old", "Ancienne image (.old)", count((i) => i.has_old), null, "history", "t-accent", "À valider ou à restaurer"],
     ["override", "Surcharge à inscrire", count((i) => (i.override || []).length), null, "filepen", "t-accent", "Réglage appliqué hors de l'image"],
@@ -553,125 +549,15 @@ function renderSelection() {
   $("sel-count").textContent = n > 1 ? `${n} images` : "1 image";
 }
 
-// ------------------------------------------------------------------ source de l'onglet Images
-// Par défaut : la bibliothèque du manager. Avec une machine associée (Réglages → Machine de jeu) :
-// ce qui est installé sur cette machine. Les images aussi présentes dans la bibliothèque gardent
-// leur fiche ; les autres sont listées à part, sous la liste.
-const srcMode = () => Boolean(state.config?.images_source);
-const srcGames = () => state.src.games;
-const srcName = () => state.src.source?.name || state.config?.images_source_name || "la machine";
-// Images affichées : la bibliothèque, ou (machine source) celles installées sur elle
-function scoped() {
-  if (!srcMode()) return state.items;
-  if (!state.src.loaded || !state.src.source?.ok) return [];
-  const ids = new Set(srcGames().map((g) => g.image).filter(Boolean));
-  return state.items.filter((i) => ids.has(i.id));
-}
-
-// Relit la source (et la config, qui la porte) : démarrage, après les Réglages, Actualiser, fin de tâche
-async function loadSource() {
-  const seq = ++state.src.seq;
-  state.src.loading = true;
-  try {
-    const [config, data] = await Promise.all([api("/api/config"), api("/api/source/games")]);
-    if (seq !== state.src.seq) return;
-    state.config = config;
-    Object.assign(state.src, { loaded: true, error: "", source: data.source ?? null, games: data.games ?? [] });
-  } catch (error) {
-    if (seq !== state.src.seq) return;
-    Object.assign(state.src, { loaded: true, error: error.message, source: null, games: [] });
-  } finally {
-    if (seq === state.src.seq) state.src.loading = false;
-  }
-  if (seq === state.src.seq) renderLibrary();
-}
-
-// Retour à la bibliothèque du manager (source « ») : la config est renvoyée par le serveur
-async function useLibrary() {
-  try {
-    state.config = await api("/api/config/images_source", { method: "PUT", body: { id: "" } });
-  } catch (error) {
-    toast(error.message, "alert", true);
-    return;
-  }
-  renderLibrary();
-  loadSource();
-}
-
-// Liste vide quand la source est une machine : pourquoi
-function sourceEmpty() {
-  const src = state.src.source, total = srcGames().length, absentN = srcGames().filter((g) => !g.image).length;
-  if (!state.src.loaded) return emptyState("layers", "Lecture des images installées…", "");
-  if (state.src.error) return emptyState("alert", "Images indisponibles", state.src.error);
-  if (!src) return emptyState("alert", "Machine source introuvable", "Choisis une autre machine dans Réglages → Machine de jeu, ou reviens à la bibliothèque.");
-  if (!src.ok) return emptyState("alert", `${srcName()} injoignable`, "Les images installées apparaissent dès que la machine répond.");
-  if (absentN && absentN === total) return emptyState("layers", `Aucune image de la bibliothèque n'est installée sur ${srcName()}`, "Les images absentes de la bibliothèque sont listées sous cette liste.");
-  return emptyState("layers", `Aucune image installée sur ${srcName()}`, "Installe des images depuis la bibliothèque (Installer sur…).");
-}
-
-// Bandeau au-dessus des statistiques, et section des images absentes de la bibliothèque
-function renderSource() {
-  const banner = $("src-banner"), absent = $("src-absent");
-  absent.hidden = true;
-  absent.replaceChildren();
-  banner.hidden = !srcMode();
-  if (!srcMode()) { banner.replaceChildren(); return; }
-  const src = state.src.source, name = srcName();
-  const machine = sv.machines.find((m) => m.id === src?.id);
-  const detail = [src?.dir, src?.free != null ? `libre ${size(src.free)}` : ""].filter(Boolean).join(" · ");
-  const bar = el("div", { className: "src-bar" },
-    machine ? el("span", { className: "dot-ic t-sage" }, osIcon(machine.icon)) : null,
-    el("div", { className: "src-text" }, el("strong", { textContent: `Source : ${name}` }),
-      detail ? el("span", { className: "muted", textContent: ` — ${detail}` }) : null),
-    el("button", { type: "button", className: "btn secondary sm", title: "Revenir à la bibliothèque du manager", onclick: useLibrary },
-      icon("layers", "sm"), "Voir la bibliothèque du manager"));
-  const notes = [];
-  if (state.src.error) notes.push(notice("err", `Lecture impossible : ${state.src.error}`));
-  else if (!state.src.loaded) notes.push(el("div", { className: "notice info" }, el("span", { className: "spinner" }), el("span", { textContent: `Lecture des images installées sur ${name}…` })));
-  else if (!src) notes.push(notice("err", "Machine source introuvable : choisis-en une dans Réglages → Machine de jeu."));
-  else if (!src.ok) notes.push(notice("err", `${name} injoignable : lance wsquashfs-launcher --agent sur ${name}.${src.message ? ` (${src.message})` : ""}`));
-  banner.replaceChildren(bar, ...notes);
-
-  if (!state.src.loaded || !src?.ok) return;
-  const rows = srcGames().filter((g) => !g.image);
-  if (!rows.length) return;
-  absent.hidden = false;
-  absent.replaceChildren(
-    el("h3", { textContent: `Sur ${name}, absentes de la bibliothèque (${rows.length})` }),
-    el("p", { className: "muted", textContent: "Ces images ne sont pas dans la bibliothèque du manager : les désinstaller les supprime de la machine, sans copie." }),
-    el("div", { className: "src-rows" }, ...rows.map((g) => {
-      const btn = el("button", { type: "button", className: "btn danger sm" }, icon("trash", "sm"), "Désinstaller");
-      btn.onclick = () => uninstallAbsent(g, btn);
-      return el("div", { className: "src-row" },
-        el("div", { className: "src-name" },
-          el("span", { className: "n", textContent: g.name.replace(/\.wsquashfs$/i, ""), title: g.name }),
-          el("span", { className: "muted", textContent: [g.size != null ? size(g.size) : "", when(g.mtime)].filter(Boolean).join(" · ") })),
-        btn);
-    })));
-}
-
-// Désinstallation d'une image sans fiche : confirmation (aucune copie dans la bibliothèque)
-async function uninstallAbsent(g, btn) {
-  const src = state.src.source;
-  if (!src) return;
-  const label = g.name.replace(/\.wsquashfs$/i, "");
-  if (!confirm(`Désinstaller « ${label} » de ${src.name} ?\n\nCette image n'est pas dans la bibliothèque : elle sera supprimée de la machine, sans copie.`)) return;
-  btn.disabled = true;
-  try {
-    const data = await api("/api/uninstall", { method: "POST", body: { names: [g.name], machines: [src.id] } });
-    toast(`Désinstallation lancée (${data.tasks.length} tâche${data.tasks.length > 1 ? "s" : ""})`, "trash");
-    refreshTasks();
-  } catch (error) {
-    btn.disabled = false;
-    toast(error.message, "alert", true);
-  }
-}
-
 $("f-search").addEventListener("input", renderLibrary);
 for (const b of $("layout").children) {
   b.onclick = () => { state.layout = b.dataset.layout; storage.set("wsfs-layout", state.layout); renderLibrary(); };
 }
-$("btn-refresh").onclick = () => { loadLibrary(); loadSource(); };
+$("btn-refresh").onclick = () => { loadLibrary(); loadConfig(); };
+// Relit la configuration (Réglages, machine de jeu…) : Actualiser, fin des Réglages
+async function loadConfig() {
+  try { state.config = await api("/api/config"); } catch { /* garde la configuration déjà lue */ }
+}
 $("btn-sel-clear").onclick = () => { state.selected.clear(); renderLibrary(); };
 
 // ------------------------------------------------------------------ fiche
@@ -1422,7 +1308,7 @@ async function refreshTasks() {
   const installNow = new Set(active.filter((t) => t.kind === "install").map((t) => t.id));
   const installEnded = [...installActive].some((id) => !nowActive.has(id));
   installActive = installNow;
-  if (installEnded) { loadInstall(); loadSource(); }
+  if (installEnded) loadInstall();
   if ([...activeBefore].some((id) => !nowActive.has(id))) {
     await loadLibrary();
     if (state.current) await loadAutorun();
@@ -2700,7 +2586,7 @@ $("cfg-save").onclick = async () => {
     done?.();
     save.disabled = false;
     save.textContent = "Enregistrer";
-    loadSource();
+    loadConfig();
   }
 };
 for (const button of document.querySelectorAll("[data-close]")) button.onclick = () => button.closest("dialog").close();
@@ -3774,7 +3660,6 @@ $("btn-inst-uninstall").onclick = () => openUninstall(selectedImages());
   if (view !== "saves") loadSaves();   // compteur de l'onglet
   await loadLibrary();
   paintSaves();                // les liens vers les images attendent la bibliothèque
-  loadSource();                // source de l'onglet Images (machine associée, sinon la bibliothèque)
   loadInstall();               // images installées par machine : filtre, pastilles, fiche
   refreshTasks();
 })();

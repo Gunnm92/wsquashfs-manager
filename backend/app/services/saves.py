@@ -36,7 +36,6 @@ from ..config import (
     ICONS,
     Settings,
     save_game_host,
-    save_images_source,
     save_saves_game_host_icon,
     save_saves_machines,
     saves_client_id,
@@ -137,14 +136,6 @@ def machine_rows(settings: Settings) -> list[dict]:
     return rows
 
 
-def images_source_row(settings: Settings) -> dict | None:
-    """Machine associée source de l'onglet Images, None pour la bibliothèque du manager
-    (ou si la machine a été oubliée)."""
-    if not settings.images_source:
-        return None
-    return next((r for r in machine_rows(settings) if r["id"] == settings.images_source), None)
-
-
 def game_host_machine(settings: Settings) -> str:
     """Machine associée qui sert de machine de jeu (même adresse), "" sinon."""
     if settings.game_host != "agent" or not settings.agent_url:
@@ -173,7 +164,6 @@ def use_as_game_host(settings: Settings, machine_id: str) -> None:
     write_atomic(cert, machine["pem"].strip() + "\n")
     save_game_host(settings, {"game_host": "agent", "agent_url": machine["url"],
                               "agent_token": machine["token"], "session_process": session})
-    save_images_source(settings, machine_id)        # l'onglet Images montre cette machine
 
 
 def find_machine(settings: Settings, machine_id: str) -> dict:
@@ -333,7 +323,7 @@ def remove_machine(settings: Settings, machine_id: str) -> None:
     """KeyError si la machine n'est pas enregistrée ; la machine de jeu ne se retire pas.
     Si la machine oubliée était la machine de jeu (Réglages), la machine de jeu est
     désactivée : sinon son adresse resterait listée comme « machine de jeu », injoignable.
-    Elle cesse aussi d'être la source de l'onglet Images."""
+    """
     if machine_id == GAME_HOST_ID:
         raise ValueError("machine de jeu : non supprimable (la désactiver dans Réglages)")
     machines = saves_machines(settings)
@@ -344,8 +334,6 @@ def remove_machine(settings: Settings, machine_id: str) -> None:
     save_saves_machines(settings, kept)
     if was_game_host:
         save_game_host(settings, {"game_host": "off", "agent_url": "", "agent_token": ""})
-    if settings.images_source == machine_id:
-        save_images_source(settings, "")
 
 
 def machine_dirs(settings: Settings, machine_id: str, change: tuple[str, ...] = ()) -> dict:

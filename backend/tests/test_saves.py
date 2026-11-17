@@ -1377,8 +1377,7 @@ def test_associated_machine_becomes_the_game_host(agents, api):
 
 def test_forgetting_the_game_host_machine_leaves_no_ghost(agents, api):
     """Oublier la machine choisie comme machine de jeu : plus de « machine de jeu (adresse) »
-    injoignable dans la liste ; la machine de jeu est désactivée, l'onglet Images revient à
-    la bibliothèque. Une autre machine oubliée ne touche pas à la machine de jeu."""
+    injoignable dans la liste ; la machine de jeu est désactivée. Une autre machine oubliée ne touche pas à la machine de jeu."""
     client, settings, _ = api
     aibox, deck = agents("aibox"), agents("deck")
     associate(settings, aibox)
@@ -1391,7 +1390,7 @@ def test_forgetting_the_game_host_machine_leaves_no_ghost(agents, api):
     assert client.delete(f"/api/saves/machines/{ids['aibox']}").status_code == 200
     assert client.get("/api/saves/machines").json()["machines"] == []
     config = client.get("/api/config").json()
-    assert config["game_host"] == "off" and config["images_source"] == ""
+    assert config["game_host"] == "off"
     assert settings.agent_url == "" and settings.agent_token == ""
 
 
@@ -1444,54 +1443,6 @@ def test_api_machine_dirs_on_an_older_agent(agents, api):
     associate(settings, old)
     reply = client.get(f"/api/saves/machines/{machine_ids(settings)['old']}/dirs")
     assert reply.status_code == 422 and "--update" in reply.json()["detail"]
-
-
-# ------------------------------------------------------------------ source de l'onglet Images
-
-def test_game_host_machine_becomes_the_images_source(agents, api, monkeypatch):
-    client, settings, _ = api
-    aibox = agents("aibox")
-    associate(settings, aibox)
-    mid = machine_ids(settings)["aibox"]
-    assert client.get("/api/source/games").json() == {"source": None, "games": []}
-    config = client.put("/api/config/game_host/machine", json={"id": mid}).json()
-    assert config["images_source"] == mid and config["images_source_name"] == "aibox"
-    # Retour à la bibliothèque du manager, puis machine inconnue refusée
-    assert client.put("/api/config/images_source", json={"id": ""}).json()["images_source"] == ""
-    assert client.put("/api/config/images_source", json={"id": "inconnue"}).status_code == 404
-    assert client.put("/api/config/images_source", json={"id": mid}).json()["images_source"] == mid
-
-
-def test_source_games_matches_the_library_by_file_name(api, monkeypatch, tmp_path):
-    client, settings, _ = api
-    save_saves_machines(settings, [{"id": "m1", "name": "aibox", "url": "https://127.0.0.1:1", "token": TOKEN, "pem": ""}])
-    main.save_images_source(settings, "m1")
-
-    class Host:
-        def games_list(self, timeout=15):
-            return {"dir": "/home/default/Games/non-steam", "free": 123,
-                    "games": [{"name": "Jeu.pc.wsquashfs", "size": 10, "mtime": 5},
-                              {"name": "Songs of Silence.wsquashfs", "size": 20, "mtime": 6}]}
-
-    monkeypatch.setattr(saves, "open_machine", lambda *a, **k: Host())
-    monkeypatch.setattr(main, "_refresh_library", lambda force=False: [SimpleNamespace(id="arcade/Jeu", path=Path("/roms/arcade/Jeu.pc.wsquashfs"))])
-    data = client.get("/api/source/games").json()
-    assert data["source"]["name"] == "aibox" and data["source"]["ok"] and data["source"]["free"] == 123
-    assert data["games"] == [{"name": "Jeu.pc.wsquashfs", "size": 10, "mtime": 5, "image": "arcade/Jeu"},
-                             {"name": "Songs of Silence.wsquashfs", "size": 20, "mtime": 6, "image": None}]
-
-
-def test_unreachable_source_is_reported(api, monkeypatch):
-    client, settings, _ = api
-    save_saves_machines(settings, [{"id": "m1", "name": "deck", "url": "https://127.0.0.1:1", "token": TOKEN, "pem": ""}])
-    main.save_images_source(settings, "m1")
-
-    def down(*a, **k):
-        raise saves.RebuildError("machine injoignable")
-
-    monkeypatch.setattr(saves, "open_machine", down)
-    data = client.get("/api/source/games").json()
-    assert data["source"]["ok"] is False and "injoignable" in data["source"]["message"] and data["games"] == []
 
 
 def test_api_switch_artwork_from_batocera_gamelist(api, tmp_path):

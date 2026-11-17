@@ -329,6 +329,13 @@ def test_interface_choice_beats_environment(tmp_path, monkeypatch):
     assert again.roms_dirs == ["/roms/win"] and again.roms_roots == ["/roms"]
 
 
+def test_config_has_no_images_source(client):
+    """L'onglet Images montre toujours la bibliothèque du manager : /api/config ne porte plus la
+    source de cet onglet."""
+    config = client.get("/api/config").json()
+    assert "images_source" not in config and "images_source_name" not in config
+
+
 def test_config_systems_lists_game_dirs(client, monkeypatch, tmp_path):
     roms = tmp_path / "base"
     (roms / "win" / "Jeu.pc").mkdir(parents=True)

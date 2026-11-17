@@ -24,7 +24,6 @@ from .config import (
     in_night,
     save_auto_push_interval,
     save_game_host,
-    save_images_source,
     save_machine_url,
     save_night,
     save_roms_dirs,
@@ -246,9 +245,6 @@ def get_config():
         "machine_port": _settings.machine_port,
         "machine_fingerprint": saves_svc.manager_fingerprint(_settings, create=False),
         "auto_push_interval": _settings.auto_push_interval,     # mise à jour automatique des machines en retard
-        # Source de l'onglet Images : "" = bibliothèque du manager, sinon une machine associée
-        "images_source": (row := saves_svc.images_source_row(_settings)) and row["id"] or "",
-        "images_source_name": row["name"] if row else "",
     }
 
 
@@ -275,8 +271,6 @@ def set_game_host(body: GameHostConfig):
         save_game_host(_settings, values)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    if not saves_svc.game_host_machine(_settings):
-        save_images_source(_settings, "")       # machine non associée : l'onglet Images montre la bibliothèque
     _doctor_cache.clear()           # l'état du lanceur est celui de l'ancienne machine
     return get_config()
 
@@ -328,43 +322,6 @@ def set_auto_push(body: AutoPushInterval):
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return get_config()
-
-
-class ImagesSource(BaseModel):
-    id: str = Field(default="", max_length=64)      # "" : bibliothèque du manager
-
-
-@app.put("/api/config/images_source")
-def set_images_source(body: ImagesSource):
-    """Source de l'onglet Images : la bibliothèque du manager, ou une machine associée
-    (ce qui y est installé). Choisir une machine comme machine de jeu la choisit aussi."""
-    if body.id and not any(r["id"] == body.id for r in saves_svc.machine_rows(_settings)):
-        raise HTTPException(status_code=404, detail=f"machine inconnue : {body.id}")
-    save_images_source(_settings, body.id)
-    return get_config()
-
-
-@app.get("/api/source/games")
-def source_games():
-    """Images installées sur la machine source de l'onglet Images, rapprochées de la
-    bibliothèque (même nom de fichier) : {source: null} pour la bibliothèque du manager,
-    sinon {source: {id, name, ok, message, dir, free}, games: [{name, size, mtime, image}]}
-    (`image` : identifiant de l'image de la bibliothèque, null si elle n'y est pas)."""
-    row = saves_svc.images_source_row(_settings)
-    if row is None:
-        return {"source": None, "games": []}
-    source = {"id": row["id"], "name": row["name"], "ok": False, "message": "", "dir": "", "free": 0}
-    try:
-        listing = saves_svc.open_machine(_settings, row["id"], timeout=15).games_list(timeout=15)
-    except RebuildError as exc:
-        source["message"] = str(exc)
-        return {"source": source, "games": []}
-    source.update(ok=True, dir=str(listing.get("dir") or ""), free=int(listing.get("free") or 0))
-    by_file = {info.path.name.lower(): info.id for info in _refresh_library(force=False)}
-    games = [{"name": str(g.get("name")), "size": int(g.get("size") or 0), "mtime": int(g.get("mtime") or 0),
-              "image": by_file.get(str(g.get("name")).lower())}
-             for g in listing.get("games") or [] if isinstance(g, dict) and g.get("name")]
-    return {"source": source, "games": sorted(games, key=lambda g: g["name"].lower())}
 
 
 _doctor_cache: dict = {}
