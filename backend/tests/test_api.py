@@ -10,14 +10,12 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from app import main
-from app.services import scan
-from app import deps
-from app.routes import game_host
-from app.routes import mass
-from app.services.autorun import Autorun
+from app import deps, main
 from app.config import Settings
 from app.models import ImageInfo, TaskStatus
+from app.routes import game_host, mass
+from app.services import scan
+from app.services.autorun import Autorun
 from app.services.tasks import TaskQueue
 
 AUTORUN = b"REM jeu\r\nCMD=game.exe\r\nDIR=Game\r\nHIDRAW=1\r\n"
@@ -47,7 +45,7 @@ def client(monkeypatch, queue, tmp_path):
     monkeypatch.setattr(scan, "read_autorun_bytes", lambda settings, image: AUTORUN)
     monkeypatch.setattr(scan, "image_in_use", lambda image: False)
     deps._library.clear()
-    return TestClient(main.app)
+    return TestClient(main.app, headers={"x-wsfs-token": ""})
 
 
 def _edit(lines, **extra):
@@ -68,6 +66,31 @@ def test_good_token_passes_and_is_not_the_password(client, monkeypatch):
     token = client.post("/login", json={"password": "sésame"}).json()["token"]
     assert token and "sésame" not in token
     assert client.get("/api/config", headers={"x-wsfs-token": token}).status_code == 200
+
+
+def test_writes_without_ui_header_refused_when_no_password(client, monkeypatch):
+    """Sans mot de passe, une écriture sans l'en-tête de l'interface (requête « simple » d'un
+    autre site) est refusée ; les lectures et l'interface passent."""
+    monkeypatch.setattr(deps._settings, "password", "")
+    bare = TestClient(main.app)
+    response = bare.post("/api/image/old/validate", params={"id": "windows/jeu"})
+    assert response.status_code == 403 and "X-Wsfs-Token" in response.json()["detail"]
+    assert bare.delete("/api/tasks/finished").status_code == 403
+    assert bare.get("/api/config").status_code == 200
+    assert client.delete("/api/tasks/finished").status_code == 200      # interface : en-tête vide
+
+
+def test_login_throttled_after_repeated_failures(client, monkeypatch):
+    from app.routes import assets
+    monkeypatch.setattr(deps._settings, "password", "sésame")
+    monkeypatch.setattr(assets, "LOGIN_DELAY", 0)
+    monkeypatch.setattr(assets, "_login_failures", {})
+    for _ in range(assets.LOGIN_MAX_FAILURES):
+        assert client.post("/login", json={"password": "faux"}).status_code == 401
+    blocked = client.post("/login", json={"password": "sésame"})        # même le bon : attendre
+    assert blocked.status_code == 429 and "trop d'essais" in blocked.json()["detail"]
+    monkeypatch.setattr(assets, "_login_failures", {})                     # fenêtre écoulée
+    assert client.post("/login", json={"password": "sésame"}).status_code == 200
 
 
 # ------------------------------------------------------------------ personnalisation
@@ -201,7 +224,7 @@ def test_end_to_end_edit_rebuild_validate(tmp_path, monkeypatch, queue):
                        "rebuild_mode": "extract", "saves_dir": tmp_path / "saves"}.items():
         monkeypatch.setattr(deps._settings, key, value)
     deps._library.clear()
-    client = TestClient(main.app)
+    client = TestClient(main.app, headers={"x-wsfs-token": ""})
 
     library = client.get("/api/library").json()
     assert [(i["id"], i["hidraw"]) for i in library] == [("win/Jeu", True)]
@@ -315,7 +338,7 @@ def folders_client(tmp_path, monkeypatch, queue):
     (win / "Fait.wsquashfs").write_bytes(b"")
     monkeypatch.setattr(deps._settings, "roms_dirs", [str(win)])
     deps._analyses.clear()
-    return TestClient(main.app)
+    return TestClient(main.app, headers={"x-wsfs-token": ""})
 
 
 def test_folders_list_and_analyze(folders_client):
@@ -347,6 +370,36 @@ def test_folders_delete_requires_readable_image(folders_client, tmp_path):
     result = folders_client.post("/api/folders/delete", json={"ids": ["win/Fait.pc"]}).json()
     assert result["done"] == [] and "illisible" in result["skipped"][0]["reason"]
     assert (tmp_path / "roms" / "win" / "Fait.pc").is_dir()
+
+
+def _pack(folder, image):
+    subprocess.run(["mksquashfs", str(folder), str(image), "-noappend", "-quiet"], check=True,
+                   stdout=subprocess.DEVNULL)
+
+
+@pytest.mark.skipif(not shutil.which("mksquashfs"), reason="squashfs-tools absent")
+def test_folders_delete_only_when_image_holds_the_whole_folder(folders_client, tmp_path):
+    """L'image doit contenir chaque fichier du dossier, à la même taille : sinon le dossier reste."""
+    win = tmp_path / "roms" / "win"
+    fait = win / "Fait.pc"
+    (fait / "bin").mkdir()
+    (fait / "bin" / "Jeu.exe").write_bytes(b"MZ" * 10)
+    (fait / "autorun.cmd").write_text("CMD=bin/Jeu.exe\n")
+    (win / "Fait.wsquashfs").unlink()
+    _pack(fait, win / "Fait.wsquashfs")
+    # Dossier modifié depuis l'empaquetage : un fichier en plus, un autre d'une autre taille
+    (fait / "bin" / "patch.dll").write_bytes(b"x")
+    (fait / "bin" / "Jeu.exe").write_bytes(b"MZ" * 20)
+    result = folders_client.post("/api/folders/delete", json={"ids": ["win/Fait.pc"]}).json()
+    assert result["done"] == []
+    assert "2 fichier(s)" in result["skipped"][0]["reason"] and "dossier gardé" in result["skipped"][0]["reason"]
+    assert fait.is_dir()
+    # Autorun différent (remplacé à l'empaquetage) : ne compte pas ; dossier identique : supprimé
+    (fait / "bin" / "patch.dll").unlink()
+    (fait / "bin" / "Jeu.exe").write_bytes(b"MZ" * 10)
+    (fait / "autorun.cmd").write_text("CMD=autre.exe\n")
+    result = folders_client.post("/api/folders/delete", json={"ids": ["win/Fait.pc"]}).json()
+    assert result["done"] == ["win/Fait.pc"] and not fait.exists()
 
 
 def test_folders_pack_after_rename_explains(folders_client, queue, tmp_path):

@@ -388,8 +388,12 @@ def folder_cover(folder: Path) -> Artwork | None:
 # ------------------------------------------------------------------ illustration
 
 def artwork(settings: Settings, image: Path, cmd: str | None, dir_: str | None,
-            kind: str = "cover", cle: str | None = None) -> Artwork | None:
-    """Illustration d'un jeu : SteamGridDB (icône ronde ou jaquette, services/sgdb.py), puis
-    jaquette d'ES, puis icône de l'exécutable. `cle` : id de l'image (nom mémorisé, cf. sgdb)."""
+            kind: str = "icon", cle: str | None = None) -> Artwork | None:
+    """Illustration d'un jeu : SteamGridDB (icône ronde par défaut, jaquette si `kind`
+    « cover », services/sgdb.py), puis icône de l'exécutable et jaquette d'ES (dans cet ordre
+    pour une icône, l'inverse pour une jaquette). `cle` : id de l'image (nom mémorisé, cf. sgdb)."""
+    if kind == "icon":      # une icône : celle de l'exécutable avant une jaquette
+        return (sgdb.sgdb_artwork(settings, image, kind, cle) or exe_icon(settings, image, cmd, dir_)
+                or es_artwork(image))
     return (sgdb.sgdb_artwork(settings, image, kind, cle) or es_artwork(image)
             or exe_icon(settings, image, cmd, dir_))

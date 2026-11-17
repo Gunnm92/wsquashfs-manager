@@ -18,16 +18,14 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
-from urllib.parse import parse_qs, urlsplit, unquote
+from typing import ClassVar
+from urllib.parse import parse_qs, unquote, urlsplit
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from app import main
-from app import background
-from app import deps
-from app import machines
-from fastapi import HTTPException
+from app import background, deps, machines, main
 from app.config import (
     Settings,
     get_settings,
@@ -41,7 +39,13 @@ from app.models import Task
 from app.services import machine_api, saves
 from app.services.rebuild import Job, RebuildError
 from app.services.tasks import TaskQueue
-from app.services.trial import OLD_AGENT_MESSAGE, AgentHost, AgentProbeError, SavesBusy, fingerprint_pem
+from app.services.trial import (
+    OLD_AGENT_MESSAGE,
+    AgentHost,
+    AgentProbeError,
+    SavesBusy,
+    fingerprint_pem,
+)
 
 TOKEN = "jeton-saves"                 # jeton durable de l'agent (rendu par /v1/pair, jamais dans un code)
 SECRET = "secret-du-code"             # secret d'un code d'association : usage unique
@@ -87,7 +91,7 @@ class SavesAgent(BaseHTTPRequestHandler):
     """Faux agent : `st` (propre à chaque serveur) porte l'état et le journal."""
 
     protocol_version = "HTTP/1.0"
-    st: dict = {}
+    st: ClassVar[dict] = {}
 
     def log_message(self, *a):
         pass
@@ -593,7 +597,7 @@ def test_push_to_two_targets_one_busy(agents, tmp_path):
     by_machine = {r["machine"]: r for r in result["results"]}
     assert by_machine["a-machine"]["ok"] is True and by_machine["a-machine"]["archived"] is False
     assert by_machine["b-machine"]["ok"] is False and "jeu en cours" in by_machine["b-machine"]["message"]
-    put = [e for e in a["st"]["log"] if e["method"] == "PUT"][0]
+    put = next(e for e in a["st"]["log"] if e["method"] == "PUT")
     assert put["machine"] == saves_client_id(settings) and put["profile"] == "proton"
     assert a["st"]["games"]["Jeu"]["data"] == data
     assert [e["body"] for e in a["st"]["log"] if e["path"] == "/v1/saves/state"] == [
@@ -992,11 +996,11 @@ def api(tmp_path, monkeypatch):
         raise HTTPException(status_code=404, detail=f"image inconnue : {image_id}")
 
     monkeypatch.setattr(deps, "_find_image", find_image)
-    return TestClient(main.app), settings, queue
+    return TestClient(main.app, headers={"x-wsfs-token": ""}), settings, queue
 
 
 def test_api_machines_codes_and_secrets(agents, api):
-    client, settings, _ = api
+    client, _settings, _ = api
     steambox = agents("steambox")
     code = f"wsq://{SECRET}@127.0.0.1:{steambox['port']}#{steambox['fp']}"
     response = client.post("/api/saves/machines", json={"code": code})
@@ -1012,7 +1016,7 @@ def test_api_machines_codes_and_secrets(agents, api):
 
 
 def test_api_used_code_gives_422_with_the_message(agents, api):
-    client, settings, _ = api
+    client, _settings, _ = api
     steambox = agents("steambox")
     code = f"wsq://{SECRET}@127.0.0.1:{steambox['port']}#{steambox['fp']}"
     assert client.post("/api/saves/machines", json={"code": code}).status_code == 200
@@ -1022,7 +1026,7 @@ def test_api_used_code_gives_422_with_the_message(agents, api):
 
 
 def test_api_old_agent_is_422_not_401(agents, api):
-    client, settings, _ = api
+    client, _settings, _ = api
     old = agents("vieux", old_pair=True)
     response = client.post("/api/saves/machines", json={"code": f"wsq://{SECRET}@127.0.0.1:{old['port']}#{old['fp']}"})
     assert response.status_code == 422 and response.json()["detail"] == OLD_AGENT_MESSAGE
@@ -1114,7 +1118,7 @@ def test_api_pull_and_push_queue_tasks(agents, api):
 
 
 def test_api_push_auto_queues_one_task_without_reserve(agents, api):
-    client, settings, queue = api
+    client, settings, _queue = api
     m1, m2 = agents("m1", games={"Jeu": (gz("x"), None, 5)}), agents("m2", games={"Jeu": (gz("y"), None, 1)})
     associate(settings, m1)
     associate(settings, m2)
@@ -1321,7 +1325,7 @@ def test_api_delete_validation_codes(agents, api):
     m1 = agents("m1")
     associate(settings, m1)
     mid = machine_ids(settings)["m1"]
-    post = lambda body: client.post("/api/saves/delete", json=body)  # noqa: E731
+    post = lambda body: client.post("/api/saves/delete", json=body)
     assert post({"games": [], "machines": [mid]}).status_code == 422              # jeu obligatoire
     assert post({"games": ["../x"], "machines": [mid]}).status_code == 422
     assert post({"games": ["Jeu", "Jeu"], "machines": [mid]}).status_code == 422   # jeu en double
@@ -1613,7 +1617,7 @@ def test_declared_dir_path_travels_with_the_save(agents, api):
     """Un dossier déclaré sur une machine se propage comme une sauvegarde : le manager garde son
     chemin (liste de l'agent) et le transmet en l'envoyant à une machine qui ne l'a pas (X-Wsq-Dir,
     encodé), qui le déclarera à la réception."""
-    client, settings, _ = api
+    _client, settings, _ = api
     name = "dossier:Zelda Ocarina Of Time"
     steambox = agents("steambox", games={name: (b"GZz", "", 900)}, dirpaths={name: ".local/share/hookshot/save é"})
     aibox = agents("aibox")
@@ -1797,7 +1801,7 @@ def test_put_from_a_pushes_to_b_but_not_back_to_a(agents, tmp_path, monkeypatch)
 def test_auto_push_interval_is_checked_saved_and_read_back(tmp_path, monkeypatch):
     settings = make_settings(tmp_path)
     monkeypatch.setattr(deps, "_settings", settings)
-    client = TestClient(main.app)
+    client = TestClient(main.app, headers={"x-wsfs-token": ""})
     assert client.get("/api/config").json()["auto_push_interval"] == 120
     for bad in (-1, 86401):
         assert client.put("/api/config/auto_push", json={"seconds": bad}).status_code == 422
@@ -1993,7 +1997,7 @@ def test_sync_true_conflict_keeps_the_client_copy_aside_without_touching_anythin
 
 
 def test_sync_game_missing_from_the_manager_comes_up(agents, tmp_path):
-    b, settings, bid = one_auto(agents, tmp_path, {"Jeu": (gz("seul"), None, 500)})
+    _b, settings, bid = one_auto(agents, tmp_path, {"Jeu": (gz("seul"), None, 500)})
     results = saves.sync_auto(settings)
     assert [(r["game"], r["action"], r["ok"]) for r in results] == [("Jeu", "remontée", True)]
     assert saves.reserve_games(settings) == ["Jeu"]
@@ -2012,7 +2016,7 @@ def agent_put(settings, monkeypatch, agent_id, data, **headers):
 
 
 def test_agent_upload_in_conflict_is_kept_aside(agents, tmp_path, monkeypatch):
-    a, settings, aid = one_auto(agents, tmp_path, {})
+    _a, settings, aid = one_auto(agents, tmp_path, {})
     store_v(settings, "Jeu", "manager")
     saves.record_state(settings, "Jeu", aid, fp_of(gz("ancien")))
     data = gz("a-new")
@@ -2049,7 +2053,7 @@ def test_agent_upload_behind_replaces_nothing_and_triggers_a_push(agents, tmp_pa
 
 
 def test_agent_upload_same_content_writes_nothing_but_the_base(agents, tmp_path, monkeypatch):
-    a, settings, aid = one_auto(agents, tmp_path, {})
+    _a, settings, aid = one_auto(agents, tmp_path, {})
     manager = store_v(settings, "Jeu", "manager", content="c" * 64)
     saves.record_state(settings, "Jeu", aid, "autre")
     response = agent_put(settings, monkeypatch, aid, gz("differente"), **{"X-Wsq-Content": "C" * 64})
@@ -2061,7 +2065,7 @@ def test_agent_upload_same_content_writes_nothing_but_the_base(agents, tmp_path,
 
 
 def test_agent_upload_ahead_stores_content(agents, tmp_path, monkeypatch):
-    a, settings, aid = one_auto(agents, tmp_path, {})
+    _a, settings, aid = one_auto(agents, tmp_path, {})
     v1 = store_v(settings, "Jeu", "v1")
     saves.record_state(settings, "Jeu", aid, v1)
     data = gz("v2")
@@ -2120,7 +2124,7 @@ def test_resolve_task_pushes_to_clients_that_are_behind(agents, tmp_path):
     saves.record_state(settings, "Jeu", ids["a-machine"], fp_of(gz("ancien")))
     saves.record_state(settings, "Jeu", ids["b-machine"], manager)
     saves.sync_auto(settings)                                       # vrai conflit pour A
-    [version] = saves.conflict_versions(settings, "Jeu")
+    [_version] = saves.conflict_versions(settings, "Jeu")
     task = Task(id="r1", kind="saves", params={"op": "resolve", "game": "Jeu", "keep": "manager", "push": True})
     saves.run_saves(settings, task, Job())
     assert a["st"]["games"]["Jeu"]["data"] == gz("manager")         # A descend
@@ -2129,7 +2133,7 @@ def test_resolve_task_pushes_to_clients_that_are_behind(agents, tmp_path):
 
 
 def test_resolve_keep_manager_without_stored_version_sends_it_to_the_client(agents, tmp_path):
-    b, settings, bid = one_auto(agents, tmp_path, {"Jeu": (gz("local"), None, 500)})
+    b, settings, _bid = one_auto(agents, tmp_path, {"Jeu": (gz("local"), None, 500)})
     store_v(settings, "Jeu", "manager")                              # base inconnue, copie plus ancienne
     row = saves.status(settings, ["Jeu"])["games"][0]
     assert row["machines"][0]["action"] == "conflit" and row["conflicts"] == [] and row["conflict"]
@@ -2142,7 +2146,7 @@ def test_resolve_keep_manager_without_stored_version_sends_it_to_the_client(agen
 
 
 def test_resolve_marks_the_client_as_behind_before_pushing(agents, tmp_path):
-    b, settings, bid = one_auto(agents, tmp_path, {"Jeu": (gz("local"), None, 500)})
+    _b, settings, bid = one_auto(agents, tmp_path, {"Jeu": (gz("local"), None, 500)})
     store_v(settings, "Jeu", "manager")
     result = saves.resolve(settings, "Jeu", "manager")
     assert result["ok"] and result["behind"] == [bid]
@@ -2151,7 +2155,7 @@ def test_resolve_marks_the_client_as_behind_before_pushing(agents, tmp_path):
 
 
 def test_resolve_keep_client_makes_its_copy_current(agents, tmp_path):
-    b, settings, bid = one_auto(agents, tmp_path, {"Jeu": (gz("local"), None, 500)})
+    _b, settings, bid = one_auto(agents, tmp_path, {"Jeu": (gz("local"), None, 500)})
     store_v(settings, "Jeu", "manager")
     result = saves.resolve(settings, "Jeu", f"client:{bid}")
     assert result["ok"] and "retenue" in result["message"]
@@ -2176,7 +2180,7 @@ def test_resolve_keep_client_needs_a_reachable_client_with_the_game(agents, tmp_
 
 
 def test_resolve_with_nothing_to_settle_is_ok(agents, tmp_path):
-    b, settings, bid = one_auto(agents, tmp_path, {"Jeu": (gz("manager"), None, 900)})
+    _b, settings, _bid = one_auto(agents, tmp_path, {"Jeu": (gz("manager"), None, 900)})
     store_v(settings, "Jeu", "manager")
     result = saves.resolve(settings, "Jeu", "manager")
     assert result["ok"] and result["message"] == "rien à départager"
@@ -2227,7 +2231,7 @@ def test_sync_auto_uses_the_client_declared_base(agents, tmp_path):
 
 
 def test_status_exposes_action_content_and_conflicts(agents, tmp_path):
-    b, settings, bid = one_auto(agents, tmp_path, {"Jeu": (gz("v1"), None, 100), "Autre": (gz("x"), None, 5)},
+    _b, settings, bid = one_auto(agents, tmp_path, {"Jeu": (gz("v1"), None, 100), "Autre": (gz("x"), None, 5)},
                                 contents={"Jeu": "c" * 64})
     v1 = store_v(settings, "Jeu", "v1")
     saves.record_state(settings, "Jeu", bid, v1)
@@ -2245,7 +2249,7 @@ def test_status_exposes_action_content_and_conflicts(agents, tmp_path):
 
 
 def test_status_skips_an_unreachable_client_for_a_while(agents, tmp_path):
-    b, settings, bid = one_auto(agents, tmp_path, {"Jeu": (gz("v1"), None, 100)})
+    b, settings, _bid = one_auto(agents, tmp_path, {"Jeu": (gz("v1"), None, 100)})
     b["st"]["token"] = "autre"                                      # refuse désormais : injoignable
     first = saves.status(settings)
     assert first["machines"][0]["ok"] is False and first["machines"][0]["message"]
@@ -2261,7 +2265,7 @@ def test_status_skips_an_unreachable_client_for_a_while(agents, tmp_path):
 
 
 def test_api_resolve_validates_the_version(api):
-    client, settings, queue = api
+    client, settings, _queue = api
     store_v(settings, "Jeu", "manager")
     made = make_conflict(settings, "Jeu", "m1", "client")
     assert client.post("/api/saves/resolve", json={"game": "Jeu", "keep": "inconnue"}).status_code == 422

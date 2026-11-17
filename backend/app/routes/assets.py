@@ -3,10 +3,11 @@ feuille personnalisée, healthz."""
 
 from __future__ import annotations
 
+import threading
 import time
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from pydantic import BaseModel
 
@@ -23,12 +24,43 @@ class LoginReq(BaseModel):
     password: str
 
 
+# Essais de mot de passe : au-delà de LOGIN_MAX_FAILURES échecs en LOGIN_WINDOW secondes depuis
+# une même adresse, refus (429) jusqu'à la fin de la fenêtre ; chaque échec coûte LOGIN_DELAY s.
+LOGIN_MAX_FAILURES = 5
+LOGIN_WINDOW = 900
+LOGIN_DELAY = 1.0
+_login_failures: dict[str, list[float]] = {}
+_login_lock = threading.Lock()
+
+
+def _recent_failures(address: str, now: float) -> list[float]:
+    """Échecs encore dans la fenêtre pour `address` (appelant : sous _login_lock)."""
+    recent = [t for t in _login_failures.get(address, []) if now - t < LOGIN_WINDOW]
+    if recent:
+        _login_failures[address] = recent
+    else:
+        _login_failures.pop(address, None)
+    return recent
+
+
 @router.post("/login")
-def login(req: LoginReq):
+def login(req: LoginReq, request: Request):
     if not deps._settings.password:
         return {"token": ""}
+    address = request.client.host if request.client else "?"
+    now = time.monotonic()
+    with _login_lock:
+        recent = _recent_failures(address, now)
+        if len(recent) >= LOGIN_MAX_FAILURES:
+            wait = int(LOGIN_WINDOW - (now - recent[0])) + 1
+            raise HTTPException(status_code=429, detail=f"trop d'essais : réessayer dans {wait // 60 + 1} min")
     if not auth._same(req.password, deps._settings.password):
+        with _login_lock:
+            _login_failures.setdefault(address, []).append(now)
+        time.sleep(LOGIN_DELAY)
         raise HTTPException(status_code=401, detail="mot de passe invalide")
+    with _login_lock:
+        _login_failures.pop(address, None)
     return {"token": auth._token(deps._settings.password)}
 
 

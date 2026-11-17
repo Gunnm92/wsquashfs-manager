@@ -136,7 +136,9 @@ class LocalHost:
                 proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=err, stdin=subprocess.DEVNULL)
             except FileNotFoundError:
                 return 127, f"{cmd[0]}: command not found".encode()
-            for chunk in iter(lambda: proc.stdout.read(1 << 16), b""):
+            stdout = proc.stdout
+            assert stdout is not None           # stdout=PIPE
+            for chunk in iter(lambda: stdout.read(1 << 16), b""):
                 on_stdout(chunk)
             code = proc.wait()
             err.seek(0)
@@ -730,11 +732,13 @@ def steambox_fetch(settings: Settings, path: str, dest: Path, job: Job | None = 
     tar = subprocess.Popen(["tar", "-x", "-C", str(dest), "--strip-components=1",
                             "--no-same-owner"],
                            stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+    assert tar.stdin is not None and tar.stderr is not None        # PIPE
+    tar_in, tar_errs = tar.stdin, tar.stderr
     received = 0
 
     def feed(chunk: bytes) -> None:
         nonlocal received
-        tar.stdin.write(chunk)
+        tar_in.write(chunk)
         received += len(chunk)
         if job and total:
             job.progress("copie du runner", min(0.99, received / total) * 0.3)
@@ -746,8 +750,8 @@ def steambox_fetch(settings: Settings, path: str, dest: Path, job: Job | None = 
         else:
             code, err = host.exec_stream(["tar", "-C", parent, "-cf", "-", name], feed)
     finally:
-        tar.stdin.close()
-        tar_err = tar.stderr.read().decode("utf-8", "replace")
+        tar_in.close()
+        tar_err = tar_errs.read().decode("utf-8", "replace")
         tar.wait()
     if code != 0:
         raise RebuildError(f"copie depuis {host_name(settings)} en échec : {err.decode('utf-8', 'replace')[:300]}")
@@ -786,7 +790,7 @@ def run_trial(settings: Settings, task: Task, job: Job) -> str:
     job.check()
     report = report_from_json(data)
     job.progress("capture", 0.95)
-    if shot is None and data.get("screenshot"):
+    if shot is None and isinstance(host, LocalHost) and data.get("screenshot"):
         _, shot = host.exec(["cat", "/tmp/wsfs-trial.png"])
     shot = shot or b""
     if shot.startswith(b"\x89PNG"):

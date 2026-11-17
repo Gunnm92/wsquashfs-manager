@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from .. import deps
 from ..models import ImageInfo
 from ..services import art_choice, scan, sgdb
-from ..services.artwork import embedded_cover, forget_embedded_misses
+from ..services.artwork import embedded_cover, es_artwork, forget_embedded_misses
 from ..services.durable import restore
 from ..services.sgdb import forget_sgdb_misses
 
@@ -62,12 +62,20 @@ def image_art_forget():
 
 
 @router.get("/api/image/art")
-def image_art(id: str, kind: Literal["cover", "icon"] = "cover"):
-    """Illustration intégrée à l'image (`.wsquashfs/cover`) : la seule affichée. `kind` est
-    accepté pour compatibilité et ignoré (une seule image pour icône et jaquette). 404 si
-    l'image n'en a pas."""
+def image_art(id: str, kind: Literal["cover", "icon"] = "icon"):
+    """Illustration d'une image selon la vue :
+    - `icon` (vue liste) : l'illustration intégrée à l'image (`.wsquashfs/cover`, l'icône) ;
+    - `cover` (tuiles de la bibliothèque) : l'affiche SteamGridDB en cache dans l'appdata
+      (téléchargée au premier affichage, absence mémorisée), sinon la jaquette
+      d'EmulationStation, sinon l'illustration intégrée.
+    404 si rien n'est trouvé."""
     info = deps._find_image(id)
-    art = embedded_cover(deps._settings, info.path)
+    art = None
+    if kind == "cover":
+        art = (sgdb.sgdb_artwork(deps._settings, info.path, "cover", info.id)
+               or es_artwork(info.path))
+    if art is None:
+        art = embedded_cover(deps._settings, info.path)
     if art is None:
         raise HTTPException(status_code=404, detail="aucune illustration")
     return FileResponse(art.path, media_type=art.media_type,

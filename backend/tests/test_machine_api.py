@@ -13,9 +13,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from app import main
-from app import deps
-from app import machines
+from app import deps, machines, main
 from app.config import save_saves_machines, saves_machines
 from app.services import machine_api, saves
 from app.services.rebuild import RebuildError
@@ -69,7 +67,7 @@ def test_info_needs_a_known_token(mapi):
 
 
 def test_token_is_checked_before_the_machine_header(mapi):
-    client, _, headers_a, _ = mapi
+    client, _, _headers_a, _ = mapi
     assert client.get("/v1/info", headers={"Authorization": "Bearer jeton-a"}).status_code == 400
     bad = {"Authorization": "Bearer jeton-a", "X-Wsq-Machine": "pas valide !"}
     assert client.get("/v1/info", headers=bad).status_code == 400
@@ -166,7 +164,7 @@ def test_put_with_a_bad_game_name_is_refused(mapi):
 
 
 def test_get_returns_the_current_version_with_its_headers(mapi):
-    client, settings, headers_a, _ = mapi
+    client, _settings, headers_a, _ = mapi
     put_tar(client, headers_a, gz("v1"), profile="proton-ge")
     got = client.get("/v1/saves/tar", params={"game": GAME}, headers=headers_a)
     assert got.status_code == 200 and got.content == gz("v1")
@@ -183,7 +181,7 @@ def test_get_errors(mapi):
 
 
 def test_state_is_recorded_when_the_fingerprint_is_the_current_one(mapi):
-    client, settings, headers_a, headers_b = mapi
+    client, _settings, headers_a, headers_b = mapi
     put_tar(client, headers_a, gz("v1"))
     ok = client.post("/v1/saves/state", json={"game": GAME, "fingerprint": fp(gz("v1"))}, headers=headers_b)
     assert ok.status_code == 200 and ok.json() == {"fingerprint": fp(gz("v1"))}
@@ -202,7 +200,7 @@ def test_state_is_refused_when_the_manager_has_another_version(mapi):
 
 def test_states_are_per_machine_and_survive_a_new_version(mapi):
     """Le envoi de A ne change pas l'état de B, et une version nouvelle garde les états."""
-    client, settings, headers_a, headers_b = mapi
+    client, _settings, headers_a, headers_b = mapi
     put_tar(client, headers_a, gz("v1"))
     client.post("/v1/saves/state", json={"game": GAME, "fingerprint": fp(gz("v1"))}, headers=headers_b)
     put_tar(client, headers_a, gz("v2"))
@@ -279,7 +277,7 @@ def test_machine_url_setting_is_checked_and_shown(mapi):
     """Réglages : adresse du manager pour les machines, validée ; l'empreinte n'est affichée
     qu'avec un certificat existant (pas créé par la lecture de la configuration)."""
     _, settings, _, _ = mapi
-    client = TestClient(main.app)
+    client = TestClient(main.app, headers={"x-wsfs-token": ""})
     config = client.get("/api/config").json()
     assert config["machine_url"] == "" and config["machine_port"] == 0 and config["machine_fingerprint"] == ""
     for bad in ("http://192.168.1.10:8790", "https://192.168.1.10", "https://192.168.1.10:99999"):
@@ -295,7 +293,7 @@ def test_put_keeps_the_size_and_date_of_the_save_files(mapi):
     """Taille des fichiers et date du plus récent envoyées par le lanceur (X-Wsq-Size,
     X-Wsq-Newest) : gardées telles quelles, comme la liste d'un agent (elles départagent un
     conflit de --sync) ; sans en-tête : taille de l'archive."""
-    client, settings, headers_a, _ = mapi
+    client, _settings, headers_a, _ = mapi
     data = gz("partie")
     assert put_tar(client, {**headers_a, "X-Wsq-Size": "123456", "X-Wsq-Newest": "1700000000"}, data).status_code == 200
     listed = client.get("/v1/saves/list", headers=headers_a).json()["games"][0]
@@ -305,10 +303,26 @@ def test_put_keeps_the_size_and_date_of_the_save_files(mapi):
     assert client.get("/v1/saves/list", headers=headers_a).json()["games"][0]["size"] == len(other)
 
 
+def test_put_refuses_an_unsafe_declared_dir(mapi):
+    """Chemin de dossier relayé aux autres machines : relatif à HOME, sans « .. »."""
+    client, _settings, headers_a, _ = mapi
+    name = "dossier:Zelda"
+    for bad in ("%2Fetc%2Fcron.d", "..%2F..%2F.ssh", "a%2F..%2F..%2Fb", "~%2F.bashrc", "a%0Ab"):
+        assert put_tar(client, {**headers_a, "X-Wsq-Dir": bad}, gz("z"), game=name).status_code == 400, bad
+
+
+def test_clean_dir():
+    from app.services.saves import clean_dir
+    assert clean_dir(".local/share/x") == ".local/share/x"
+    assert clean_dir("a..b/c") == "a..b/c"
+    for bad in ("", "/etc", "../x", "a/../../b", "~/x", "a\nb", "x" * 513, None, 3):
+        assert clean_dir(bad) is None, bad
+
+
 def test_put_keeps_the_path_of_a_declared_dir(mapi):
     """Dossier déclaré envoyé par une machine : son chemin (X-Wsq-Dir, encodé) est gardé et rendu
     par la liste, pour qu'une autre machine le déclare à la réception."""
-    client, settings, headers_a, _ = mapi
+    client, _settings, headers_a, _ = mapi
     name = "dossier:Zelda Ocarina Of Time"
     data = gz("zelda")
     assert put_tar(client, {**headers_a, "X-Wsq-Dir": ".local%2Fshare%2Fhookshot%2Fsave"}, data, game=name).status_code == 200

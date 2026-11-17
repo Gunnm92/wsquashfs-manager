@@ -278,7 +278,7 @@ export function renderLibrary() {
   if (grid) {
     $("grid").replaceChildren(...visible.map((i) => {
       const card = el("div", { className: `gcard${state.selected.has(i.id) ? " selected" : ""}` },
-        el("div", { className: "gart" }, thumb(i, "gcover"), selectBox(i), stateBadge(i), profileBadges(i), instPins(i)),
+        el("div", { className: "gart" }, thumb(i, "gcover", "poster"), selectBox(i), stateBadge(i), profileBadges(i), instPins(i)),
         el("div", { className: "meta" }, el("div", { className: "n", textContent: i.name, title: i.name }),
           el("div", { className: "sub" }, versionLabel(i), el("span", { textContent: size(i.size) }))));
       card.dataset.id = i.id;

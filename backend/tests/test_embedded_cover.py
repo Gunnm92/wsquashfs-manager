@@ -15,8 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from app import main
-from app import deps
+from app import deps, main
 from app.config import Settings
 from app.models import ImageInfo
 from app.services import artwork
@@ -235,7 +234,7 @@ def client(cfg, tmp_path, monkeypatch):
     monkeypatch.setattr(deps, "_settings", cfg)
     monkeypatch.setattr(deps, "_find_image", lambda image_id: info)
     monkeypatch.setattr(deps, "queue", TaskQueue(tmp_path / "state" / "tasks.json", deps.queue.handlers))
-    return TestClient(main.app)
+    return TestClient(main.app, headers={"x-wsfs-token": ""})
 
 
 def test_route_image_art_presente(client, fake):
@@ -247,11 +246,32 @@ def test_route_image_art_presente(client, fake):
     assert reponse.content == PNG
 
 
-def test_route_image_art_kind_ignore(client, fake):
+def test_route_image_art_sans_affiche_en_cache_repli_sur_l_integree(client, fake):
     fake.set(PNG)
     icone = client.get("/api/image/art", params={"id": "win/jeu", "kind": "icon"})
-    jaquette = client.get("/api/image/art", params={"id": "win/jeu", "kind": "cover"})
-    assert icone.content == jaquette.content == PNG
+    affiche = client.get("/api/image/art", params={"id": "win/jeu", "kind": "cover"})
+    assert icone.content == affiche.content == PNG
+
+
+def test_route_image_art_affiche_pour_les_tuiles_icone_pour_la_liste(client, fake, tmp_path, monkeypatch):
+    """Tuiles (`kind=cover`) : l'affiche SteamGridDB en cache ; liste (`kind=icon`) : l'icône
+    intégrée à l'image."""
+    from app.services import sgdb
+    fake.set(PNG)
+    affiche = tmp_path / "affiche.jpg"
+    affiche.write_bytes(b"\xff\xd8\xff affiche")
+    demandes = []
+
+    def sgdb_artwork(settings, image, kind, cle=None):
+        demandes.append((kind, cle))
+        return artwork.Artwork(affiche, "image/jpeg", "sgdb") if kind == "cover" else None
+    monkeypatch.setattr(sgdb, "sgdb_artwork", sgdb_artwork)
+    tuile = client.get("/api/image/art", params={"id": "win/jeu", "kind": "cover"})
+    assert tuile.content == affiche.read_bytes() and tuile.headers["x-art-kind"] == "sgdb"
+    liste = client.get("/api/image/art", params={"id": "win/jeu", "kind": "icon"})
+    assert liste.content == PNG and liste.headers["x-art-kind"] == "embedded"
+    assert client.get("/api/image/art", params={"id": "win/jeu"}).content == PNG   # défaut : icône
+    assert demandes == [("cover", "win/jeu")]                 # la liste ne va pas sur SteamGridDB
 
 
 def test_route_image_art_absente(client, fake):

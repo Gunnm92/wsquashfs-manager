@@ -312,7 +312,7 @@ def save_mode(settings: Settings, mode: str) -> None:
     if mode not in MODES:
         raise ValueError("mode : autonome ou connecte")
     _save_runtime(settings, mode=mode)
-    settings.mode = mode
+    settings.mode = mode  # type: ignore[assignment]  # vérifié ci-dessus : mode in MODES
 
 
 def save_auto_push_interval(settings: Settings, seconds: int) -> None:
@@ -379,7 +379,7 @@ def get_settings() -> Settings:
     if isinstance(authors, list):
         settings.sgdb_authors = [a for a in authors if isinstance(a, str)][:SGDB_AUTHORS_MAX]
     threshold = runtime.get("sgdb_round_threshold")
-    if type(threshold) in (int, float) and 0 <= threshold <= 1:
+    if isinstance(threshold, int | float) and not isinstance(threshold, bool) and 0 <= threshold <= 1:
         settings.sgdb_round_threshold = float(threshold)
     if runtime.get("mode") in MODES:
         settings.mode = runtime["mode"]

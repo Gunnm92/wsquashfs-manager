@@ -108,12 +108,14 @@ lanceur installé sur le serveur du manager, avec un écran) n'y est plus propos
 
 Le mode Conteneur Docker (API Docker, `docker-socket-proxy`) a été retiré : un
 conteneur se joint par l'agent. Une configuration qui le mentionne repasse en
-« Désactivée ». Le template Unraid ne doit plus poser
-`WSQUASHFS_MGR_STEAMBOX_CONTAINER`, qui n'a plus d'effet.
+« Désactivée ». Le template Unraid ne pose plus les variables de ce mode
+(`WSQUASHFS_MGR_STEAMBOX_CONTAINER`, `WSQUASHFS_MGR_DOCKER_HOST`,
+`WSQUASHFS_MGR_STEAMBOX_ROMS`) et le conteneur est sur le réseau `bridge`, pas
+sur celui du `docker-socket-proxy` : le manager n'a aucun accès à Docker.
 
-Paramètres supplémentaires du template : `--pid=host` (voir les jeux lancés
-dans SteamBox et ne pas reconstruire leur image pendant une partie),
-`--cap-add=SYS_ADMIN --security-opt apparmor=unconfined` (montages FUSE).
+Paramètre supplémentaire du template : `--pid=host` (voir les jeux lancés
+dans SteamBox et ne pas reconstruire leur image pendant une partie). Ni FUSE
+ni privilège : la reconstruction passe par `unsquashfs -pf`.
 Le conteneur démarre en root, prépare `/data`, puis passe à PUID/PGID.
 Le travail sur une image se fait à côté d'elle (`.wsquashfs-manager/`, même
 disque), jamais dans l'appdata.
@@ -419,13 +421,16 @@ annulation ; une tâche interrompue par un redémarrage est remise en attente.
 ### Illustration (miniature des .wsquashfs)
 
 Chaque reconstruction dépose l'illustration du jeu à la racine de l'image,
-`.wsquashfs/cover` : jaquette d'EmulationStation (`gamelist.xml`), sinon
-icône de l'exécutable de `CMD=`. Le fichier `.thumbnailer` installé par
+`.wsquashfs/cover` : une **icône** — icône ronde SteamGridDB, sinon icône de
+l'exécutable de `CMD=`, sinon jaquette d'EmulationStation (`gamelist.xml`). Le fichier `.thumbnailer` installé par
 `wsquashfs-launcher --setup` la montre dans Thunar, Nautilus, Nemo, Caja.
 
-L'interface n'affiche que cette illustration intégrée : vignettes et fiche des
-images lisent `.wsquashfs/cover` (`GET /api/image/art`), la vue Dossiers lit
-`<dossier>/.wsquashfs/cover` (`GET /api/folders/art`). Sans elle, les initiales.
+Deux illustrations à l'écran : la **vue liste** montre l'icône intégrée
+(`GET /api/image/art?kind=icon`, défaut) ; les **tuiles de la bibliothèque**
+montrent l'**affiche** (`kind=cover`) : affiche SteamGridDB 600×900 en cache dans
+l'appdata (téléchargée au premier affichage), sinon jaquette d'EmulationStation,
+sinon l'icône intégrée. La vue Dossiers lit `<dossier>/.wsquashfs/cover`
+(`GET /api/folders/art`). Sans illustration, les initiales.
 Lue sans monter l'image (`unsquashfs -cat`), mise en cache dans
 `<dossier d'état>/art/embedded` ; l'absence y est gardée jusqu'à la prochaine
 modification de l'image ou **Actualiser**.
@@ -440,19 +445,19 @@ qui a déjà son illustration n'est pas touchée.
 Pour remplacer l'illustration déjà intégrée, il faut une reconstruction : l'ancienne image est gardée en `.old`, et la tâche peut être programmée « cette nuit ». Le remplacement passe **toujours par un aperçu avec choix manuel** : `POST /api/mass/cover` avec `replace: true` n'accepte une image déjà illustrée que si `choices` donne le candidat choisi pour elle ; sans choix, elle est refusée dans `skipped` (« choisir l'illustration dans l'aperçu avant de remplacer »). Une image sans illustration s'ajoute comme avant, sans choix requis. L'interface n'envoie rien sans cet aperçu : la fiche (badge de l'illustration, menu « … ») ouvre un dialogue par image, la sélection un dialogue en lot (`js/art-choice.js`) ; le choix automatique est présélectionné.
 
 **Aperçu** (`GET /api/image/art/candidates?id=<image>`) : aucune modification. Réponse :
-`current` (`present`, `sha1`, `url` de l'illustration intégrée), `sgdb_configured`, `game` (`{id, name}` SteamGridDB ou `null`), `candidates` (au plus 24 grilles SteamGridDB, puis la jaquette d'EmulationStation `es` et l'icône de l'exécutable `icon` si elles existent ; chacune a `key`, `source`, `label`, `author`, `score`, `width`, `height`, `thumb`, `full` et `same_as_current`), `preferred` (la clé que le choix automatique prendrait) et, si SteamGridDB a échoué, `sgdb_error`. Les grilles sont triées : auteurs préférés d'abord (ordre des Réglages), puis note décroissante. `same_as_current` compare les octets au sha1 de l'illustration intégrée ; pour SteamGridDB, seulement si le plein format est déjà en cache. La liste SteamGridDB d'une image est gardée 5 minutes en mémoire (**Actualiser** la vide).
+`current` (`present`, `sha1`, `url` de l'illustration intégrée), `sgdb_configured`, `game` (`{id, name}` SteamGridDB ou `null`), `candidates` (au plus 24 icônes SteamGridDB, puis l'icône de l'exécutable `icon` et la jaquette d'EmulationStation `es` si elles existent ; chacune a `key`, `source`, `label`, `author`, `score`, `width`, `height`, `thumb`, `full` et `same_as_current`), `preferred` (la clé que le choix automatique prendrait : auteur préféré, sinon l'icône la plus ronde au-dessus du seuil) et, si SteamGridDB a échoué, `sgdb_error`. Les icônes sont triées : auteurs préférés d'abord (ordre des Réglages), puis note décroissante. `same_as_current` compare les octets au sha1 de l'illustration intégrée ; pour SteamGridDB, seulement si le plein format est déjà en cache. La liste SteamGridDB d'une image est gardée 5 minutes en mémoire (**Actualiser** la vide).
 
 **Chercher sous un autre nom** : `q=<nom>` cherche SteamGridDB sous ce nom au lieu du titre de l'image (`query` = nom utilisé, `default_query` = titre de l'image, `games` = les 5 premiers jeux trouvés, `game` = le jeu retenu). `game_id=<id>` retient un jeu parmi `games`. Le nom et le jeu sont **mémorisés** pour cette image (`<dossier d'état>/art/sgdb/aliases.json`, clé = id de l'image ; `alias` dans la réponse) et servent ensuite à l'aperçu ET au choix automatique. Un nom qui ne trouve aucun jeu n'est pas mémorisé. `q=` vide ou `DELETE /api/image/art/alias?id=` revient au titre de l'image. Pour un dossier, la recherche part du nom du dossier sans `.pc` / `.wine` ; le nom est mémorisé sous l'id du dossier.
 
-**Image d'un candidat** (`GET /api/image/art/candidate?id=<image>&key=<clé>&size=thumb|full`) : 404 si la clé n'est pas dans la liste de cette image, 502 si SteamGridDB est injoignable ou refuse la clé. Les images SteamGridDB sont mises en cache dans `<dossier d'état>/art/sgdb/candidates/<id de grille>-<size>.<ext>`. Seules les adresses de la liste de l'image sont suivies : la requête ne fournit jamais d'URL.
+**Image d'un candidat** (`GET /api/image/art/candidate?id=<image>&key=<clé>&size=thumb|full`) : 404 si la clé n'est pas dans la liste de cette image, 502 si SteamGridDB est injoignable ou refuse la clé. Les images SteamGridDB sont mises en cache dans `<dossier d'état>/art/sgdb/candidates-icons/<id de l'icône>-<size>.<ext>` (les miniatures mesurées pour la rondeur y sont gardées aussi). Seules les adresses de la liste de l'image sont suivies : la requête ne fournit jamais d'URL.
 
 **Choix** : `POST /api/mass/cover` accepte `choices: {"<id image>": "<clé>"}` (clé `sgdb:<id de grille>`, `es` ou `icon`, sinon 422). La tâche porte `choice` et la reconstruction utilise exactement ce candidat, en pleine taille. Si le candidat ne peut plus être obtenu, la tâche échoue avec un message clair, sans repli sur une autre source. Si ses octets sont identiques à l'illustration intégrée, « Illustration déjà à jour : rien à faire ».
 
 ### Icônes et jaquettes SteamGridDB
 
-SteamGridDB ne sert plus à l'affichage : il fournit l'illustration **ajoutée**
-(reconstruction, « Ajouter l'illustration »), à partir de [SteamGridDB](https://www.steamgriddb.com)
-**icônes rondes** (`kind=icon`) et **jaquettes 600×900** (`kind=cover`). Clé API : Profil › Préférences › API sur
+[SteamGridDB](https://www.steamgriddb.com) fournit les **icônes rondes** (`kind=icon`),
+intégrées aux images (reconstruction, « Remplacer l'illustration »), et les **affiches
+600×900** (`kind=cover`), affichées dans les tuiles de la bibliothèque sans toucher aux images. Clé API : Profil › Préférences › API sur
 steamgriddb.com, à coller dans **Réglages**. Sans clé, rien n'est demandé au site.
 
 - **Auteurs préférés** (Réglages) : une image de l'un d'eux passe avant les
@@ -465,9 +470,11 @@ steamgriddb.com, à coller dans **Réglages**. Sans clé, rien n'est demandé au
   y reste ; une absence est revalidée après 7 jours ; après une erreur réseau ou
   une clé refusée, aucune demande pendant 5 minutes. **Actualiser** la
   ludothèque revalide les absences.
-- **Ordre des sources** (sélection automatique) : SteamGridDB (icône ronde ou
-  jaquette) → jaquette d'EmulationStation → icône de l'exécutable de `CMD=`. Pour un
-  remplacement, l'aperçu le remplace : c'est l'utilisateur qui choisit parmi les candidats.
+- **Ordre des sources** (sélection automatique) : icône intégrée : icône ronde
+  SteamGridDB → icône de l'exécutable de `CMD=` → jaquette d'EmulationStation ;
+  affiche des tuiles : affiche SteamGridDB → jaquette d'EmulationStation → icône
+  intégrée. Pour un remplacement, l'aperçu propose les **icônes** SteamGridDB (puis
+  l'icône de l'exécutable et la jaquette ES) : c'est l'utilisateur qui choisit.
 
 ### Fichiers et registre
 

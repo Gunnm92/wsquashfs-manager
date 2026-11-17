@@ -2,9 +2,9 @@
 
 import { $, el, state, storage } from "./core.js";
 
-// Illustration intégrée à l'image (.wsquashfs/cover) ou au dossier à empaqueter
-// (.wsquashfs/cover du dossier) : seule source affichée. Chargée à la demande, 4 à la
-// fois, gardée pour la session. Repli : initiales sur un dégradé.
+// Vue liste : icône intégrée à l'image (.wsquashfs/cover) ; tuiles : affiche en cache
+// (source « poster ») ; dossiers à empaqueter : .wsquashfs/cover du dossier. Chargée à la
+// demande, 4 à la fois, gardée pour la session. Repli : initiales sur un dégradé.
 
 // epoch : incrémentée à chaque Actualiser (illustrations Steam relues) ; purge : requête de purge serveur
 const art = { cache: new Map(), done: new Map(), waiting: [], active: 0, epoch: 0, purge: null };
@@ -28,9 +28,12 @@ const artVersion = (item) => `${item.mtime ?? ""}|${item.dir || ""}|${item.cmd |
 // source : « image » (/api/image/art) ou « folder » (/api/folders/art, dossier à empaqueter)
 const artKey = (item, source) => `${source}:${item.id}:${artVersion(item)}:${art.epoch}`;
 
+// source « poster » : tuiles de la bibliothèque, affiche en cache (SteamGridDB, sinon jaquette ES,
+// sinon l'illustration intégrée) ; « image » : vue liste, icône intégrée à l'image
 const artUrl = (item, source) => source === "folder"
   ? `/api/folders/art?id=${encodeURIComponent(item.id)}&e=${art.epoch}`
-  : `/api/image/art?id=${encodeURIComponent(item.id)}&v=${encodeURIComponent(artVersion(item))}&e=${art.epoch}`;
+  : `/api/image/art?id=${encodeURIComponent(item.id)}&kind=${source === "poster" ? "cover" : "icon"}`
+    + `&v=${encodeURIComponent(artVersion(item))}&e=${art.epoch}`;
 
 // Vignette → { item, source } : ce que l'observateur doit charger quand elle apparaît
 const artRefs = new WeakMap();
@@ -106,7 +109,7 @@ const artObserver = new IntersectionObserver((entries) => {
   }
 }, { rootMargin: "200px" });
 
-// source : « image » (bibliothèque) ou « folder » (dossiers à empaqueter)
+// source : « image » (liste), « poster » (tuiles de la bibliothèque) ou « folder » (dossiers)
 export function thumb(item, className = "thumb", source = "image") {
   const node = el("span", { className });
   node.dataset.id = item.id;

@@ -17,7 +17,14 @@ from ..services import art_choice, scan, sgdb
 from ..services.analyze import FolderAnalysis, add_local_game, analyze_folder, report
 from ..services.artwork import ecrire_cover_dossier, folder_cover
 from ..services.autorun import KEY_NAME_RE, Autorun
-from ..services.operations import find_folders, folder_stem, pack_target, remove_tree
+from ..services.operations import (
+    find_folders,
+    folder_not_in_image,
+    folder_stem,
+    pack_target,
+    remove_tree,
+)
+from ..services.rebuild import RebuildError
 from ..services.tasks import TaskConflict
 from .mass import MassIds
 
@@ -261,6 +268,18 @@ def folders_delete(body: MassIds):
             continue
         if folder["task"]:
             skipped.append({"id": folder_id, "reason": "tâche en cours"})
+            continue
+        # L'image doit contenir tout le dossier (mêmes fichiers, mêmes tailles) : une image d'une
+        # autre version, ou un dossier modifié depuis l'empaquetage, garde le dossier
+        try:
+            differ = folder_not_in_image(deps._settings, Path(folder["path"]), image)
+        except RebuildError as exc:
+            skipped.append({"id": folder_id, "reason": f"{exc} : dossier gardé"})
+            continue
+        if differ:
+            skipped.append({"id": folder_id,
+                            "reason": f"{len(differ)} fichier(s) absent(s) de l'image ou d'une autre "
+                                      f"taille (ex. {differ[0]}) : dossier gardé"})
             continue
         try:
             remove_tree(Path(folder["path"]))

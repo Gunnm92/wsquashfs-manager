@@ -73,6 +73,19 @@ def valid_game(name: object) -> bool:
     return isinstance(name, str) and bool(_GAME_RE.match(name)) and ".." not in name
 
 
+def clean_dir(value: object) -> str | None:
+    """Chemin d'un dossier déclaré par un client (à partir de son HOME, ex. « .local/share/x »),
+    relayé aux autres clients : rendu s'il est relatif, sans « .. » ni caractère de contrôle
+    (512 caractères au plus), None sinon. Le lanceur le revérifie à la réception."""
+    if not isinstance(value, str) or not value or len(value) > 512:
+        return None
+    if value.startswith(("/", "~")) or any(ord(c) < 32 for c in value):
+        return None
+    if any(part == ".." for part in value.replace("\\", "/").split("/")):
+        return None
+    return value
+
+
 def check_game(name: object) -> str:
     if not valid_game(name):
         raise RebuildError(f"nom de jeu invalide : {name!r}")
@@ -476,8 +489,8 @@ def store_archived(settings: Settings, game: str, part: Path, *, fingerprint: st
             "content": content}
     # Dossier déclaré : son chemin à partir du HOME du client, transmis à un client qui ne l'a
     # pas déclaré (elle le déclare à la réception). Gardé d'une version à l'autre.
-    dir_kept = dir_path or prior.get("dir")
-    if game.startswith(DIR_PREFIX) and isinstance(dir_kept, str) and dir_kept:
+    dir_kept = clean_dir(dir_path) or clean_dir(prior.get("dir"))
+    if game.startswith(DIR_PREFIX) and dir_kept:
         meta["dir"] = dir_kept
     text = json.dumps(meta, indent=2, ensure_ascii=False) + "\n"
     if old is not None and old.get("fingerprint") == fingerprint:
@@ -586,7 +599,7 @@ def store_conflict(settings: Settings, game: str, part: Path, *, machine_id: str
     meta = {"machine_id": machine_id, "source": source, "newest": int(newest), "size": int(size),
             "fingerprint": fingerprint, "content": content, "profile": profile,
             "fetched_at": datetime.now(UTC).isoformat(timespec="seconds")}
-    if dir_path:
+    if clean_dir(dir_path):
         meta["dir"] = dir_path
     write_atomic(d / f"{name}.json", json.dumps(meta, indent=2, ensure_ascii=False) + "\n")
     return {"name": name, "created": True}
@@ -647,8 +660,8 @@ def resolve(settings: Settings, game: str, keep: str, job: Job | None = None) ->
                     "profile": chosen_meta.get("profile"), "source": chosen["source"],
                     "fetched_at": datetime.now(UTC).isoformat(timespec="seconds"), "states": states,
                     "content": chosen["content"]}
-            dir_kept = chosen_meta.get("dir") or prior.get("dir")
-            if game.startswith(DIR_PREFIX) and isinstance(dir_kept, str) and dir_kept:
+            dir_kept = clean_dir(chosen_meta.get("dir")) or clean_dir(prior.get("dir"))
+            if game.startswith(DIR_PREFIX) and dir_kept:
                 meta["dir"] = dir_kept
             text = json.dumps(meta, indent=2, ensure_ascii=False) + "\n"
             stamp = _stamp(d)
@@ -668,7 +681,7 @@ def resolve(settings: Settings, game: str, keep: str, job: Job | None = None) ->
         for version in versions:
             if chosen is not None and version["name"] == chosen["name"]:
                 continue
-            stamp = CONFLICT_RE.match(version["name"]).group(1)
+            stamp = version["name"].split("-conflit-", 1)[0]       # horodatage (CONFLICT_RE)
             if (d / f"{stamp}.tar.gz").exists() or (d / f"{stamp}.json").exists():
                 stamp = _stamp(d)
             os.replace(version["path"], d / f"{stamp}.tar.gz")
@@ -706,15 +719,16 @@ def remove_from_manager(settings: Settings, game: str) -> dict:
     Absent du manager : rien à faire, sans erreur. {ok, message, archived}."""
     d = reserve_dir(settings, game)
     current, meta_path = d / CURRENT, d / META
-    if not current.is_file():
-        return {"ok": True, "message": "pas sur le manager", "archived": False}
-    stamp = _stamp(d)
-    # os.replace : renommage atomique dans le même dossier, jamais de version à moitié écrite
-    os.replace(current, d / f"{stamp}.tar.gz")
-    if meta_path.is_file():
-        os.replace(meta_path, d / f"{stamp}.json")
-    fsync_dir(d)
-    _prune(d)
+    with STORE_LOCK:        # pas d'envoi d'un client entre le retrait de l'archive et celui de meta.json
+        if not current.is_file():
+            return {"ok": True, "message": "pas sur le manager", "archived": False}
+        stamp = _stamp(d)
+        # os.replace : renommage atomique dans le même dossier, jamais de version à moitié écrite
+        os.replace(current, d / f"{stamp}.tar.gz")
+        if meta_path.is_file():
+            os.replace(meta_path, d / f"{stamp}.json")
+        fsync_dir(d)
+        _prune(d)
     return {"ok": True, "message": "supprimée du manager (version archivée)", "archived": True}
 
 
@@ -807,7 +821,7 @@ def push(settings: Settings, target_ids: list[str], games: list[str] | None,
             host, error = None, str(exc)
         targets.append((machine_id, _label(settings, machine_id), host, error))
     total = len(wanted) * len(targets)
-    results = []
+    results: list[dict] = []
     for game in wanted:
         for machine_id, label, host, error in targets:
             _check(job)
@@ -828,7 +842,7 @@ def _push_one(settings: Settings, game: str, machine_id: str, label: str,
         archive = reserve_dir(settings, game) / CURRENT
         if meta is None or not archive.is_file():
             raise RebuildError("absent du manager")
-        reply = host.saves_put(game, archive, meta.get("profile"), meta.get("dir"))
+        reply = host.saves_put(game, archive, meta.get("profile"), clean_dir(meta.get("dir")))
         fingerprint = str(reply.get("fingerprint") or meta.get("fingerprint") or "")
         result["archived"] = bool(reply.get("archived"))
     except SavesBusy:
@@ -902,7 +916,7 @@ def delete(settings: Settings, machine_ids: list[str], games: list[str], manager
         targets.append((machine_id, _label(settings, machine_id), host, error))
     per_game = len(targets) + (1 if manager else 0)
     total = len(wanted) * per_game
-    results = []
+    results: list[dict] = []
     for game in wanted:
         for machine_id, label, host, error in targets:
             _check(job)
@@ -1072,6 +1086,7 @@ def label_states(states: list[dict]) -> dict:
             s["state"] = "identique"
         return no_check
     top = best(have)
+    assert top is not None          # au moins deux clients présents
     for s in have:
         s["state"] = "plus avancée" if s["fingerprint"] == top["fingerprint"] else "en retard"
     newest = max(have, key=lambda s: s["newest"])

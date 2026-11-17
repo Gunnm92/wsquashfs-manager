@@ -91,7 +91,7 @@ def build_router(settings_of: Callable[[], Settings]) -> APIRouter:
             games.append({"name": name, "fingerprint": str(meta.get("fingerprint") or ""),
                           "newest": int(meta.get("newest") or 0), "size": int(meta.get("size") or 0),
                           "state": saves_svc.machine_state(settings, name, machine["id"]),
-                          **({"dir": meta["dir"]} if meta.get("dir") else {})})
+                          **({"dir": meta["dir"]} if saves_svc.clean_dir(meta.get("dir")) else {})})
         return {"games": games}
 
     @router.get("/v1/saves/tar")
@@ -154,6 +154,8 @@ def build_router(settings_of: Callable[[], Settings]) -> APIRouter:
             # et l'heure de réception.
             files_size = _header_int(request, "x-wsq-size", size)
             dir_path = unquote(request.headers.get("x-wsq-dir", "")) or None
+            if dir_path is not None and saves_svc.clean_dir(dir_path) is None:
+                raise HTTPException(status_code=400, detail="dossier invalide (X-Wsq-Dir)")
             newest = _header_int(request, "x-wsq-newest", int(time.time()))
             with saves_svc.STORE_LOCK:      # un envoi à la fois dans la réserve (pas d'entrelacement)
                 meta = saves_svc.reserve_meta(settings, game) or {}
@@ -197,11 +199,14 @@ def build_router(settings_of: Callable[[], Settings]) -> APIRouter:
     def saves_state(machine: Machine, body: StateBody):
         settings = settings_of()
         _check_game(body.game)
-        current = saves_svc.current_fingerprint(settings, body.game)
-        if not current or current.lower() != body.fingerprint.lower():
-            raise HTTPException(status_code=409, detail="la version du manager a changé entre-temps : "
-                                                        "relancer la synchronisation")
-        saves_svc.record_state(settings, body.game, machine["id"], body.fingerprint)
+        # Sous STORE_LOCK : contrôle et écriture d'un bloc, et record_state (lecture-écriture de
+        # meta.json) ne peut plus remettre l'ancienne empreinte par-dessus un envoi concurrent
+        with saves_svc.STORE_LOCK:
+            current = saves_svc.current_fingerprint(settings, body.game)
+            if not current or current.lower() != body.fingerprint.lower():
+                raise HTTPException(status_code=409, detail="la version du manager a changé entre-temps : "
+                                                            "relancer la synchronisation")
+            saves_svc.record_state(settings, body.game, machine["id"], body.fingerprint)
         return {"fingerprint": body.fingerprint}
 
     return router

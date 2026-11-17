@@ -1,5 +1,6 @@
 *
 !backend/pyproject.toml
+!backend/requirements.lock
 !backend/app/
 !backend/rules/
 !frontend/

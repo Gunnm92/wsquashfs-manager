@@ -11,10 +11,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from app import main
-from app.services import scan
-from app import deps
-from app.services import durable
+from app import deps, main
+from app.services import durable, scan
 from app.services.durable import publish_new, restore, swap_keep_old, write_atomic
 from app.services.tasks import TaskQueue
 
@@ -173,7 +171,7 @@ def test_damaged_images_found_and_restored(tmp_path, monkeypatch):
                                                  deps.queue.handlers))
     monkeypatch.setattr(scan, "image_in_use", lambda image: False)
     monkeypatch.setattr(deps, "_refresh_library", lambda force: [])
-    client = TestClient(main.app)
+    client = TestClient(main.app, headers={"x-wsfs-token": ""})
 
     found = {d["id"]: d["problem"] for d in client.get("/api/recovery").json()}
     assert found == {"windows/absente": "image absente", "windows/abimee": "image illisible"}

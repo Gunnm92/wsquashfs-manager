@@ -45,10 +45,12 @@ from .rebuild import (
     Changes,
     Job,
     RebuildError,
+    file_sizes,
     priority_prefix,
     rebuild,
     run_progress,
     safe_rel,
+    tree_entries,
     verify,
 )
 from .registry import prefix_reg, set_value
@@ -411,11 +413,12 @@ def run_cover(settings: Settings, task: Task, job: Job) -> str:
     else:
         data = scan.read_autorun_bytes(settings, image)
         a = Autorun.parse(decode_autorun(data)[0]) if data is not None else None
-        art = artwork(settings, image, a.get("CMD") if a else None, a.get("DIR") if a else None,
-                      cle=task.image or None)
-        if art is None:
+        found = artwork(settings, image, a.get("CMD") if a else None, a.get("DIR") if a else None,
+                        cle=task.image or None)
+        if found is None:
             return ("Aucune illustration trouvée (ni jaquette d'EmulationStation ni icône "
                     "d'exécutable)")
+        art = found
     job.log(f"Illustration : {art.path.name} (source : {art.kind}"
             f"{', choisie' if choice else ''})")
     if replace and (present or COVER_DIR in files):
@@ -562,6 +565,28 @@ def remove_tree(path: Path, attempts: int = 6) -> None:
             if attempt == attempts - 1:
                 raise
             time.sleep(1 + attempt)
+
+
+def folder_not_in_image(settings: Settings, folder: Path, image: Path) -> list[str]:
+    """Fichiers du dossier absents de l'image ou d'une autre taille : le dossier n'est pas
+    supprimable sans perte. `autorun.cmd` (remplacé à l'empaquetage) et `.wsquashfs/`
+    (illustration) ne comptent pas. RebuildError si l'image est illisible."""
+    try:
+        in_image = {rel.lower(): size for rel, size in file_sizes(settings, image).items()}
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise RebuildError(f"image illisible : {exc}") from exc
+    if not in_image:
+        raise RebuildError("image illisible ou vide")
+    differ = []
+    for rel, size in tree_entries(folder):
+        path = folder / rel
+        if path.is_symlink() or not path.is_file():
+            continue
+        if rel.lower() == "autorun.cmd" or rel.startswith(".wsquashfs/"):
+            continue
+        if in_image.get(rel.lower()) != size:
+            differ.append(rel)
+    return sorted(differ)
 
 
 def pack_target(source: Path) -> Path:

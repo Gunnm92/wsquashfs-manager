@@ -11,8 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image, ImageDraw
 
-from app import main
-from app import deps
+from app import deps, main
 from app.config import Settings, save_sgdb
 from app.services import artwork, sgdb
 
@@ -311,7 +310,7 @@ def test_save_sgdb_validation(cfg):
 @pytest.fixture
 def client(cfg, monkeypatch):
     monkeypatch.setattr(deps, "_settings", cfg)
-    return TestClient(main.app)
+    return TestClient(main.app, headers={"x-wsfs-token": ""})
 
 
 def test_route_put_sgdb_ne_renvoie_pas_la_cle(client, cfg):

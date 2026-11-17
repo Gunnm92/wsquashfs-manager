@@ -15,19 +15,30 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app import deps, main
-from app.routes import library, mass
-from app import deps
-from fastapi import HTTPException
 from app.config import Settings
 from app.models import ImageInfo, Task
+from app.routes import library, mass
 from app.services import art_choice, artwork, scan, sgdb
 from app.services import rebuild as rebuild_mod
 from app.services.operations import run_cover
 from app.services.rebuild import COVER, Job, RebuildError
 from app.services.tasks import TaskQueue
 
-PNG1 = b"\x89PNG\r\n\x1a\n" + b"grille-un" * 20
-PNG2 = b"\x89PNG\r\n\x1a\n" + b"grille-deux" * 20
+
+def _icone_ronde(couleur: tuple[int, int, int]) -> bytes:
+    """Icône PNG ronde (disque opaque sur fond transparent) : passe le seuil de rondeur."""
+    import io
+
+    from PIL import Image, ImageDraw
+    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    ImageDraw.Draw(img).ellipse((0, 0, 63, 63), fill=(*couleur, 255))
+    out = io.BytesIO()
+    img.save(out, "PNG")
+    return out.getvalue()
+
+
+PNG1 = _icone_ronde((200, 40, 40))
+PNG2 = _icone_ronde((40, 40, 200))
 ICON = b"\x89PNG\r\n\x1a\n" + b"icone" * 20
 ID_IMAGE = "windows/Portal2"
 
@@ -36,7 +47,7 @@ ID_IMAGE = "windows/Portal2"
 
 
 class Faux:
-    """API (`/grids/game/…`, recherche) et CDN : adresses `https://cdn.test/…`."""
+    """API (`/icons/game/…`, recherche) et CDN : adresses `https://cdn.test/…`."""
 
     def __init__(self):
         self.grids: list[dict] = []
@@ -74,7 +85,7 @@ class Faux:
             nom = unquote(nom)
             data = self.jeux.get(nom, [{"id": 7, "name": "Portal"}])
             return httpx.Response(200, json={"success": True, "data": data})
-        if path.startswith("/grids/game/"):
+        if path.startswith("/icons/game/"):
             jeu = int(path.rsplit("/", 1)[-1])
             data = self.grilles_par_jeu.get(jeu, self.grids)
             return httpx.Response(200, json={"success": True, "data": data})
@@ -169,7 +180,7 @@ def test_sans_auteur_prefere_la_mieux_notee_est_preferee(cfg, api, image):
     assert reponse["preferred"] == "sgdb:1"
 
 
-def test_es_et_icone_ajoutees_apres_steamgriddb(cfg, api, image, monkeypatch):
+def test_icone_et_es_ajoutees_apres_steamgriddb(cfg, api, image, monkeypatch):
     api.add_grid(1, 9, "Bob", PNG1)
     _es(image)
     icone = image.parent / "icone.png"
@@ -177,14 +188,14 @@ def test_es_et_icone_ajoutees_apres_steamgriddb(cfg, api, image, monkeypatch):
     monkeypatch.setattr(artwork, "exe_icon",
                         lambda settings, img, cmd, dir_: artwork.Artwork(icone, "image/png", "icon"))
     reponse = _apercu(cfg, image)
-    assert _cles(reponse) == ["sgdb:1", "es", "icon"]
-    es = reponse["candidates"][1]
+    assert _cles(reponse) == ["sgdb:1", "icon", "es"]     # ordre du choix automatique d'une icône
+    es = reponse["candidates"][2]
     assert es["label"] == "Jaquette EmulationStation" and es["author"] is None and es["score"] is None
-    assert reponse["candidates"][2]["label"] == "Icône de l'exécutable"
+    assert reponse["candidates"][1]["label"] == "Icône de l'exécutable"
     assert reponse["preferred"] == "sgdb:1"
 
 
-def test_sans_steamgriddb_es_puis_icone_et_preferee_locale(cfg, api, image, monkeypatch):
+def test_sans_steamgriddb_icone_puis_es_et_preferee_locale(cfg, api, image, monkeypatch):
     cfg.sgdb_api_key = ""
     _es(image)
     icone = image.parent / "icone.png"
@@ -193,7 +204,7 @@ def test_sans_steamgriddb_es_puis_icone_et_preferee_locale(cfg, api, image, monk
                         lambda settings, img, cmd, dir_: artwork.Artwork(icone, "image/png", "icon"))
     reponse = _apercu(cfg, image)
     assert reponse["sgdb_configured"] is False and reponse["game"] is None
-    assert _cles(reponse) == ["es", "icon"] and reponse["preferred"] == "es"
+    assert _cles(reponse) == ["icon", "es"] and reponse["preferred"] == "icon"
     assert "sgdb_error" not in reponse
     assert api.calls == []                               # rien demandé au site
 
@@ -229,13 +240,13 @@ def test_liste_gardee_cinq_minutes(cfg, api, image, monkeypatch):
     monkeypatch.setattr(art_choice, "time", SimpleNamespace(time=lambda: horloge[0]))
     _apercu(cfg, image)
     _apercu(cfg, image)
-    assert api.count("/grids/game/") == 1                # deuxième ouverture : sans appel
+    assert api.count("/icons/game/") == 1                # deuxième ouverture : sans appel
     horloge[0] += art_choice.CANDIDATS_TTL + 1
     _apercu(cfg, image)
-    assert api.count("/grids/game/") == 2
+    assert api.count("/icons/game/") == 2
     art_choice.oublier()                                 # « Actualiser »
     _apercu(cfg, image)
-    assert api.count("/grids/game/") == 3
+    assert api.count("/icons/game/") == 3
 
 
 def test_same_as_current(cfg, api, image, monkeypatch):
@@ -273,7 +284,7 @@ def test_candidat_sgdb_thumb_mis_en_cache(cfg, api, image):
     api.add_grid(1, 9, "Bob", PNG1)
     art = art_choice.candidat_fichier(cfg, _cible(image), "sgdb:1", "thumb")
     assert art.kind == "sgdb" and art.media_type == "image/png"
-    assert art.path == cfg.state_dir / "art" / "sgdb" / "candidates" / "1-thumb.png"
+    assert art.path == cfg.state_dir / "art" / "sgdb" / "candidates-icons" / "1-thumb.png"
     assert art.path.read_bytes() == PNG1
     art_choice.candidat_fichier(cfg, _cible(image), "sgdb:1", "thumb")
     assert api.downloads == ["https://cdn.test/thumb1.png"]   # une seule fois
@@ -305,7 +316,7 @@ def test_candidat_inconnu_ou_cle_invalide_404(cfg, api, image):
         with pytest.raises(art_choice.CandidatError) as exc:
             art_choice.candidat_fichier(cfg, _cible(image), cle, "full")
         assert exc.value.status == 404, cle
-    assert api.downloads == []
+    assert set(api.downloads) <= {"https://cdn.test/thumb1.png"}     # seule la mesure de rondeur
 
 
 def test_candidat_sgdb_panne_donne_502(cfg, api, image):
@@ -330,7 +341,7 @@ def client(cfg, image, monkeypatch):
     monkeypatch.setattr(deps, "_settings", cfg)
     info = ImageInfo(id=ID_IMAGE, path=image, name="Portal2", system="windows", size=1)
     monkeypatch.setattr(deps, "_find_image", lambda image_id: info)
-    return TestClient(main.app)
+    return TestClient(main.app, headers={"x-wsfs-token": ""})
 
 
 def test_route_candidates_forme_de_la_reponse(client, api, image):
@@ -353,7 +364,7 @@ def test_route_candidate_thumb_servi_et_mis_en_cache(client, api, cfg, image):
     seconde = client.get("/api/image/art/candidate", params={"id": ID_IMAGE, "key": "sgdb:1"})
     assert seconde.content == PNG1                       # size par défaut : thumb
     assert api.downloads == ["https://cdn.test/thumb1.png"]
-    assert (cfg.state_dir / "art" / "sgdb" / "candidates" / "1-thumb.png").is_file()
+    assert (cfg.state_dir / "art" / "sgdb" / "candidates-icons" / "1-thumb.png").is_file()
 
 
 def test_route_candidate_cle_inconnue_404(client, api):
@@ -362,7 +373,7 @@ def test_route_candidate_cle_inconnue_404(client, api):
                       params={"id": ID_IMAGE, "key": "sgdb:999"}).status_code == 404
     assert client.get("/api/image/art/candidate",
                       params={"id": ID_IMAGE, "key": "es"}).status_code == 404
-    assert api.downloads == []
+    assert set(api.downloads) <= {"https://cdn.test/thumb1.png"}     # seule la mesure de rondeur
 
 
 def test_route_url_hors_liste_impossible(client, api):
@@ -371,7 +382,7 @@ def test_route_url_hors_liste_impossible(client, api):
     reponse = client.get("/api/image/art/candidate", params={
         "id": ID_IMAGE, "key": "sgdb:1", "size": "full", "url": "https://evil.test/x"})
     assert reponse.status_code == 200 and reponse.content == PNG1
-    assert api.downloads == ["https://cdn.test/grid1.png"]
+    assert api.downloads == ["https://cdn.test/thumb1.png", "https://cdn.test/grid1.png"]  # mesure, puis choix
     assert client.get("/api/image/art/candidate", params={
         "id": ID_IMAGE, "key": "https://evil.test/x"}).status_code == 404
     assert client.get("/api/image/art/candidate", params={
@@ -426,7 +437,7 @@ def masse(tmp_path, monkeypatch):
     for routeur in (library, mass):
         monkeypatch.setattr(routeur, "embedded_cover", lambda settings, path: (
             artwork.Artwork(path, "image/png", "embedded") if path.stem in illustrees else None))
-    client = TestClient(main.app)
+    client = TestClient(main.app, headers={"x-wsfs-token": ""})
     return SimpleNamespace(client=client, queue=queue, illustrees=illustrees)
 
 
@@ -505,7 +516,7 @@ def test_run_cover_utilise_exactement_le_choix(monkeypatch, tmp_path, cfg, api):
     assert len(calls) == 1
     fichier = calls[0].copy[COVER]
     assert fichier.read_bytes() == PNG2                  # pas la mieux notée (sgdb:1)
-    assert fichier == cfg.state_dir / "art" / "sgdb" / "candidates" / "2-full.png"
+    assert fichier == cfg.state_dir / "art" / "sgdb" / "candidates-icons" / "2-full.png"
     assert calls[0].write == {} and calls[0].delete == []
 
 
@@ -569,7 +580,7 @@ def test_q_cherche_sous_un_autre_nom(roms, api, image):
     assert [j["id"] for j in reponse["games"]] == [42, 43]
     assert _cles(reponse) == ["sgdb:5"] and reponse["preferred"] == "sgdb:5"
     assert reponse["alias"] == {"query": "Portal 2", "game_id": 42, "game_name": "Portal 2"}
-    assert "/grids/game/42" in api.calls and "/grids/game/7" not in api.calls
+    assert "/icons/game/42" in api.calls and "/icons/game/7" not in api.calls
 
 
 def test_nom_memorise_dans_le_fichier_du_jeu(roms, api, image):
@@ -589,7 +600,7 @@ def test_nom_memorise_sert_aux_apercus_suivants(roms, api, image):
     reponse = _apercu(roms, image)                       # sans q : le nom mémorisé
     assert reponse["query"] == "Portal 2" and reponse["game"]["id"] == 42
     assert _cles(reponse) == ["sgdb:5"]
-    assert "/grids/game/42" in api.calls[appels:] and "/grids/game/7" not in api.calls[appels:]
+    assert "/icons/game/42" in api.calls[appels:] and "/icons/game/7" not in api.calls[appels:]
 
 
 def test_game_id_force_le_jeu_et_la_memorisation(roms, api, image):
@@ -597,7 +608,7 @@ def test_game_id_force_le_jeu_et_la_memorisation(roms, api, image):
     reponse = _apercu(roms, image, q="Portal 2", game_id=43)
     assert reponse["game"]["id"] == 43 and reponse["candidates"] == []
     assert reponse["alias"]["game_id"] == 43
-    assert "/grids/game/43" in api.calls and "/grids/game/42" not in api.calls
+    assert "/icons/game/43" in api.calls and "/icons/game/42" not in api.calls
     # game_id seul : le nom mémorisé est repris, le jeu est celui demandé
     art_choice.oublier()
     assert _apercu(roms, image, game_id=42)["game"]["id"] == 42
@@ -635,17 +646,17 @@ def test_sans_nom_memorise_rien_n_est_ecrit(roms, api, image):
 def test_le_nom_memorise_s_applique_au_choix_automatique(roms, api, image):
     _jeux_portal(api)
     _apercu(roms, image, q="Portal 2")
-    art = sgdb.sgdb_artwork(roms, image, "cover")
-    assert art is not None and art.path.read_bytes() == PNG2     # grille du jeu 42
-    assert "/grids/game/42" in api.calls
-    assert "/grids/game/7" not in api.calls
+    art = sgdb.sgdb_artwork(roms, image, "icon")
+    assert art is not None and art.path.read_bytes() == PNG2     # icône du jeu 42
+    assert "/icons/game/42" in api.calls
+    assert "/icons/game/7" not in api.calls
 
 
 def test_choix_automatique_et_apercu_restent_d_accord(roms, api, image):
     _jeux_portal(api)
     reponse = _apercu(roms, image, q="Portal 2")
-    art = sgdb.sgdb_artwork(roms, image, "cover")
-    assert reponse["preferred"] == "sgdb:5" and art.path.read_bytes() == PNG2
+    art = sgdb.sgdb_artwork(roms, image, "icon")         # l'illustration intégrée est l'icône
+    assert reponse["preferred"] == "sgdb:5" and art is not None and art.path.read_bytes() == PNG2
 
 
 def test_candidat_suit_le_nom_memorise_et_liste_blanche(roms, api, image):
@@ -678,3 +689,16 @@ def test_route_q_game_id_et_suppression_du_nom(client, api, image, roms):
     assert client.get("/api/image/art/candidates", params={"id": ID_IMAGE, "game_id": "x"}).status_code == 422
     assert client.get("/api/image/art/candidates",
                       params={"id": ID_IMAGE, "q": "x" * 201}).status_code == 422
+
+
+def test_icone_automatique_exe_avant_jaquette_es(cfg, image, monkeypatch):
+    """Sans icône SteamGridDB, l'illustration intégrée (une icône) prend l'icône de l'exécutable
+    avant la jaquette d'EmulationStation ; une affiche (`cover`) garde l'ordre inverse."""
+    cfg.sgdb_api_key = ""
+    es = _es(image)
+    icone = image.parent / "icone.png"
+    icone.write_bytes(ICON)
+    monkeypatch.setattr(artwork, "exe_icon",
+                        lambda settings, img, cmd, dir_: artwork.Artwork(icone, "image/png", "icon"))
+    assert artwork.artwork(cfg, image, "jeu.exe", None).path == icone
+    assert artwork.artwork(cfg, image, "jeu.exe", None, kind="cover").path == es.resolve()

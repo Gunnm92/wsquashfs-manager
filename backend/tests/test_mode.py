@@ -12,12 +12,11 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from app import main
-from app.services import scan
-from app import deps, machines
-from app.routes import images
-from app.models import ImageInfo
+from app import deps, machines, main
 from app.config import Settings, get_settings, save_mode
+from app.models import ImageInfo
+from app.routes import images
+from app.services import scan
 from app.services.rebuild import RebuildError
 
 DETAIL = "mode autonome : fonction connectée désactivée (Réglages › Mode)"
@@ -44,7 +43,7 @@ def client(tmp_path, monkeypatch):
     settings.mode = "autonome"
     monkeypatch.setattr(deps, "_settings", settings)
     monkeypatch.setattr(deps, "_library", {})
-    return TestClient(main.app)
+    return TestClient(main.app, headers={"x-wsfs-token": ""})
 
 
 # ------------------------------------------------------------------ défaut et persistance

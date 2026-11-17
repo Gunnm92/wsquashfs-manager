@@ -296,9 +296,11 @@ def _absence_recente(base: Path, key: str) -> bool:
     return time.time() - date < MISS_TTL
 
 
-def _absence(base: Path, key: str, raison: str) -> None:
+def _absence(base: Path, key: str, raison: str) -> _art.Artwork | None:
+    """Mémorise l'absence (revalidée après MISS_TTL) ; rend None (« rien trouvé »)."""
     _retirer(base, key)
     _ecrire(base / f"{key}.none", json.dumps({"reason": raison, "date": time.time()}))
+    return None
 
 
 def _verrou(key: str) -> threading.Lock:
@@ -358,6 +360,7 @@ def _recuperer(client: httpx.Client, base: Path, key: str, kind: str, titre: str
     game_id, game_name = _jeu(client, base, titre, forcé)
     if game_id is None:
         return _absence(base, key, "jeu introuvable sur SteamGridDB")
+    ext: str | None
     if kind == "icon":
         items = _get(client, f"/icons/game/{game_id}", ICON_PARAMS) or []
         choix = choisir_icone(items, authors, seuil, _telecharger)
@@ -382,7 +385,8 @@ def _recuperer(client: httpx.Client, base: Path, key: str, kind: str, titre: str
         if ext is None:
             return _absence(base, key, "format de jaquette non géré")
         media, id_name = _MEDIA[ext], "grid_id"
-    auteur = item.get("author") if isinstance(item.get("author"), dict) else {}
+    auteur_brut = item.get("author")
+    auteur = auteur_brut if isinstance(auteur_brut, dict) else {}
     meta = {"file": f"{key}{ext}", "media_type": media, "game_id": game_id,
             "game_name": game_name, id_name: item.get("id"),
             "author": str(auteur.get("name") or ""), "reason": raison, "fetched": time.time()}
@@ -471,9 +475,11 @@ def _choisir_jeu(jeux: list[dict], game_id: int | None) -> dict | None:
 def grilles_candidates(settings: Settings, titre: str, game_id: int | None = None
                        ) -> tuple[dict | None, list[dict], list[dict], dict | None]:
     """Pour l'aperçu, d'après le nom `titre` : (jeu {"id", "name"} ou None, jeux trouvés
-    (JEUX_MAX au plus), grilles triées (CANDIDATS_MAX au plus), grille que le choix automatique
-    prendrait ou None). `game_id` : jeu choisi par l'utilisateur. Sans clé, nom vide ou aucun
-    jeu : rien au-delà de la recherche. Lève SgdbError (réseau, clé refusée)."""
+    (JEUX_MAX au plus), icônes triées (CANDIDATS_MAX au plus), icône que le choix automatique
+    prendrait ou None). Ce sont des icônes (`/icons`), comme l'illustration intégrée choisie
+    automatiquement (kind « icon »), pas les jaquettes (`/grids`). `game_id` : jeu choisi par
+    l'utilisateur. Sans clé, nom vide ou aucun jeu : rien au-delà de la recherche. Lève SgdbError
+    (réseau, clé refusée)."""
     titre = titre.strip()
     if not settings.sgdb_api_key or not titre:
         return None, [], [], None
@@ -484,8 +490,19 @@ def grilles_candidates(settings: Settings, titre: str, game_id: int | None = Non
         jeu = _choisir_jeu(jeux, game_id)
         if jeu is None:
             return None, jeux, [], None
-        items = _get(client, f"/grids/game/{int(jeu['id'])}", COVER_PARAMS) or []
-    retenue = choisir_jaquette(items, authors)
+        items = _get(client, f"/icons/game/{int(jeu['id'])}", ICON_PARAMS) or []
+    # Miniatures mesurées (rondeur) gardées dans le cache des candidats : la galerie les
+    # affiche ensuite sans les retélécharger
+    ids = {str(i.get("thumb") or i.get("url")): _entier(i.get("id")) for i in items}
+
+    def miniature(url: str) -> tuple[bytes, str]:
+        grid_id = ids.get(url)
+        if grid_id is None:
+            return _telecharger(url)
+        art = fichier_grille(settings, grid_id, url, "thumb")
+        return art.path.read_bytes(), art.media_type
+
+    retenue = choisir_icone(items, authors, settings.sgdb_round_threshold, miniature)
     return jeu, jeux, _ordonner(items, authors)[:CANDIDATS_MAX], retenue[0] if retenue else None
 
 
@@ -564,9 +581,12 @@ def format_image(data: bytes) -> tuple[str, str] | None:
     return None
 
 
+CANDIDATS_DIR = "candidates-icons"     # icônes proposées ; ids distincts de ceux des grilles
+
+
 def grille_en_cache(settings: Settings, grid_id: int, size: str) -> _art.Artwork | None:
-    """Image d'une grille déjà téléchargée (`candidates/<id>-<size>.<ext>`), sans appel."""
-    base = _dossier(settings) / "candidates"
+    """Image d'un candidat déjà téléchargé (`candidates-icons/<id>-<size>.<ext>`), sans appel."""
+    base = _dossier(settings) / CANDIDATS_DIR
     for path in base.glob(f"{int(grid_id)}-{size}.*"):
         if path.suffix in MEDIA_PAR_EXTENSION and path.is_file():
             return _art.Artwork(path, MEDIA_PAR_EXTENSION[path.suffix], "sgdb")
@@ -584,7 +604,7 @@ def fichier_grille(settings: Settings, grid_id: int, url: str, size: str) -> _ar
     if fmt is None:
         raise SgdbError("format d'image non géré")
     ext, media = fmt
-    base = _dossier(settings) / "candidates"
+    base = _dossier(settings) / CANDIDATS_DIR
     base.mkdir(parents=True, exist_ok=True)
     out = base / f"{int(grid_id)}-{size}{ext}"
     _ecrire(out, data)

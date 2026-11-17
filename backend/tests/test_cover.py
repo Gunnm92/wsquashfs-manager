@@ -133,7 +133,9 @@ def _fake_image(tmp_path: Path) -> Path:
 def _replace_setup(monkeypatch, tmp_path: Path, *, present: bool, current: bytes | None = None,
                    folder: bool = False, kind: str = "sgdb"):
     """Image factice : arborescence, autorun, illustration trouvée et état d'utilisation."""
-    from app.services import artwork as artwork_mod, rebuild as rebuild_mod, scan
+    from app.services import artwork as artwork_mod
+    from app.services import rebuild as rebuild_mod
+    from app.services import scan
     image = _fake_image(tmp_path)
     files = ["Game/game.exe", "autorun.cmd"]
     if present:

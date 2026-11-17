@@ -2,10 +2,10 @@
 la reconstruction. Vaut pour une image (ligne de la ludothèque) et pour un dossier à empaqueter.
 
 Candidats d'une cible, dans cet ordre :
-- SteamGridDB (`sgdb:<id de la grille>`) : grilles portrait, auteurs préférés d'abord, puis note
-  décroissante, 24 au plus (services/sgdb.py) ; liste gardée CANDIDATS_TTL secondes en mémoire ;
-- jaquette d'EmulationStation (`es`), si elle existe ; icône de l'exécutable (`icon`), si elle
-  existe. Locaux : images seulement (un dossier n'a ni gamelist ni exécutable analysé ici).
+- SteamGridDB (`sgdb:<id de l'icône>`) : icônes (`/icons`, comme le choix automatique), auteurs
+  préférés d'abord, puis note décroissante, 24 au plus (services/sgdb.py) ; liste gardée CANDIDATS_TTL secondes en mémoire ;
+- icône de l'exécutable (`icon`), si elle existe ; jaquette d'EmulationStation (`es`), si elle
+  existe (dans l'ordre du choix automatique d'une icône). Locaux : images seulement (un dossier n'a ni gamelist ni exécutable analysé ici).
 
 Nom de recherche : le titre de la cible, sauf nom alternatif mémorisé (sgdb.alias_de) : le nom
 et le jeu choisis remplacent le titre pour l'aperçu ET pour le choix automatique.
@@ -109,6 +109,7 @@ def _sgdb(settings: Settings, cible: Cible, titre: str, gid: int | None) -> tupl
         cached = _listes.get(cache_key)
     if cached is not None and now - cached[0] < CANDIDATS_TTL:
         return cached[1]
+    result: tuple
     try:
         jeu, jeux, grilles, retenue = sgdb.grilles_candidates(settings, titre, gid)
         pref = None if retenue is None or _entier(retenue.get("id")) is None else f"sgdb:{retenue['id']}"
@@ -136,7 +137,7 @@ def _entrees_sgdb(settings: Settings, cible: Cible, titre: str, gid: int | None)
             score = None
         entrees.append({
             "key": f"sgdb:{grid_id}", "source": "sgdb",
-            "label": "SteamGridDB" + (f", par {nom}" if nom else ""),
+            "label": "Icône SteamGridDB" + (f", par {nom}" if nom else ""),
             "author": nom, "score": score, "width": _entier(grille.get("width")),
             "height": _entier(grille.get("height")), "grid_id": grid_id,
             "urls": {"thumb": str(grille.get("thumb") or grille["url"]), "full": grille["url"]},
@@ -157,12 +158,6 @@ def _entrees_locales(settings: Settings, cible: Cible) -> list[dict]:
         return []
     image = cible.path
     entrees = []
-    es = _art.es_artwork(image)
-    if es is not None:
-        w, h = _dimensions(es.path)
-        entrees.append({"key": "es", "source": "es", "label": "Jaquette EmulationStation",
-                        "author": None, "score": None, "width": w, "height": h,
-                        "path": es.path, "media": es.media_type})
     cmd, dir_ = _cmd_dir(settings, image)
     icon = _art.exe_icon(settings, image, cmd, dir_)
     if icon is not None:
@@ -170,6 +165,12 @@ def _entrees_locales(settings: Settings, cible: Cible) -> list[dict]:
         entrees.append({"key": "icon", "source": "icon", "label": "Icône de l'exécutable",
                         "author": None, "score": None, "width": w, "height": h,
                         "path": icon.path, "media": icon.media_type})
+    es = _art.es_artwork(image)
+    if es is not None:
+        w, h = _dimensions(es.path)
+        entrees.append({"key": "es", "source": "es", "label": "Jaquette EmulationStation",
+                        "author": None, "score": None, "width": w, "height": h,
+                        "path": es.path, "media": es.media_type})
     return entrees
 
 

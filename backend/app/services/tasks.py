@@ -32,6 +32,7 @@ from .scan import _write_atomic
 Handler = Callable[[Task, Job], str | None]
 
 ACTIVE = (TaskStatus.PENDING, TaskStatus.RUNNING)
+NOT_RESUMED = ("trial",)        # tâches « en cours » au redémarrage : échec, pas de reprise
 _HISTORY_LIMIT = 500        # tâches terminées conservées
 
 
@@ -87,7 +88,13 @@ class TaskQueue:
                     task = Task.model_validate(raw)
                 except ValueError:
                     continue
-                if task.status == TaskStatus.RUNNING:
+                if task.status == TaskStatus.RUNNING and task.kind in NOT_RESUMED:
+                    # Un essai relancé seul lancerait un jeu sur un client sans que personne le demande
+                    task.status = TaskStatus.FAILED
+                    task.error = "interrompue par un redémarrage (non relancée)"
+                    task.finished_at = time.time()
+                    task.log.append("Interrompue par un redémarrage : non relancée (à relancer à la main)")
+                elif task.status == TaskStatus.RUNNING:
                     task.status = TaskStatus.PENDING
                     task.progress, task.phase = 0.0, ""
                     task.log.append("Interrompue par un redémarrage : remise en attente")
@@ -253,7 +260,10 @@ class TaskQueue:
         try:
             message = self.handlers[task.kind](task, job)
         except RebuildCancelled:
-            if self._stopping:
+            if self._stopping and task.kind in NOT_RESUMED:
+                status, error = TaskStatus.CANCELLED, None
+                message = "Interrompue par l'arrêt du service : non relancée"
+            elif self._stopping:
                 # Arrêt du service, pas demande de l'utilisateur : la tâche
                 # reprendra au prochain démarrage (SPEC § 4)
                 status, error = TaskStatus.PENDING, None

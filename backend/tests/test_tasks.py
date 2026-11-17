@@ -60,6 +60,25 @@ def test_state_survives_restart_and_running_is_requeued(tmp_path: Path):
     assert not part.exists()
 
 
+def test_interrupted_trial_is_not_relaunched_after_restart(tmp_path: Path):
+    """Un essai en cours au redémarrage n'est pas repris : il lancerait un jeu sur un client."""
+    state = tmp_path / "tasks.json"
+    handlers = {"trial": lambda task, job: None, "x": lambda task, job: None}
+    queue = TaskQueue(state, handlers)
+    trial = queue.submit("trial", "win/Jeu", None, {})
+    other = queue.submit("x", "win/Autre", None, {})
+    data = json.loads(state.read_text())
+    for raw in data:
+        raw["status"] = "running"
+    state.write_text(json.dumps(data))
+
+    reloaded = TaskQueue(state, handlers)
+    reloaded.load()
+    assert _task(reloaded, trial.id).status == TaskStatus.FAILED
+    assert "non relancée" in _task(reloaded, trial.id).log[-1]
+    assert _task(reloaded, other.id).status == TaskStatus.PENDING       # les autres reprennent
+
+
 def test_worker_runs_tasks_and_records_failures(tmp_path: Path):
     def ok(task, job):
         job.progress("mksquashfs", 0.5)

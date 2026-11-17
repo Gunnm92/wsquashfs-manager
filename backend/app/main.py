@@ -62,6 +62,9 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="wsquashfs-manager", version="0.2.0", lifespan=lifespan)
 
 
+SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
+
+
 @app.middleware("http")
 async def autonome_guard(request: Request, call_next):
     if deps._settings.mode == "autonome" and auth._needs_connection(request.url.path):
@@ -72,6 +75,13 @@ async def autonome_guard(request: Request, call_next):
 @app.middleware("http")
 async def simple_auth(request: Request, call_next):
     if not deps._settings.password:
+        # Sans mot de passe, une page d'un autre site peut envoyer une requête « simple »
+        # (POST sans corps JSON, DELETE…) au manager. Un en-tête personnalisé ne part jamais
+        # d'une autre origine sans requête préalable (CORS), que le manager n'accepte pas :
+        # l'exiger sur les écritures suffit. L'interface l'envoie toujours (vide ici).
+        if request.method not in SAFE_METHODS and "x-wsfs-token" not in request.headers:
+            return JSONResponse({"detail": "en-tête X-Wsfs-Token requis (requête d'un autre site ?)"},
+                                status_code=403)
         return await call_next(request)
     # Fichiers de l'interface (styles, script, aide, polices) : rien de privé
     if request.url.path in ("/", "/login", "/healthz", "/custom.css") or request.url.path.startswith("/assets/"):

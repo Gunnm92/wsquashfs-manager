@@ -41,9 +41,10 @@ COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 # Installation éditable : le code reste dans /app, d'où sont calculés les
 # chemins de frontend/ et rules/ (une installation classique les perdrait).
 WORKDIR /app
-COPY backend/pyproject.toml backend/
+COPY backend/pyproject.toml backend/requirements.lock backend/
 COPY backend/app backend/app
-RUN pip install --no-cache-dir -e ./backend
+# Versions figées (requirements.lock) : une reconstruction de l'image installe ce qui a été testé
+RUN pip install --no-cache-dir -c backend/requirements.lock -e ./backend
 COPY backend/rules backend/rules
 COPY frontend frontend
 

@@ -16,10 +16,10 @@ from fastapi.testclient import TestClient
 from app import deps, main
 from app.config import Settings
 from app.models import Task
-from app.services import art_choice, artwork, operations, sgdb
+from app.services import art_choice, operations, sgdb
 from app.services.artwork import COVER_DIR, ecrire_cover_dossier, folder_cover
 from app.services.operations import run_pack
-from app.services.rebuild import Job, RebuildError
+from app.services.rebuild import Job
 from app.services.tasks import TaskQueue
 
 PNG1 = b"\x89PNG\r\n\x1a\n" + b"grille-un" * 20
@@ -36,7 +36,7 @@ def _mock(monkeypatch, calls: list[str]) -> None:
         calls.append(path)
         if path.startswith("/search/autocomplete/"):
             return httpx.Response(200, json={"success": True, "data": [{"id": 7, "name": "Jeu"}]})
-        if path.startswith("/grids/game/"):
+        if path.startswith("/icons/game/"):
             grille = {"id": 1, "score": 9, "url": "https://cdn.test/g1.png",
                       "thumb": "https://cdn.test/t1.png", "width": 600, "height": 900,
                       "author": {"name": "Bob"}}
@@ -65,7 +65,7 @@ def pret(tmp_path, monkeypatch):
     calls: list[str] = []
     _mock(monkeypatch, calls)
     return {"folder": folder, "queue": queue, "calls": calls, "state": tmp_path / "state",
-            "client": TestClient(main.app)}
+            "client": TestClient(main.app, headers={"x-wsfs-token": ""})}
 
 
 # ------------------------------------------------------------------ écriture

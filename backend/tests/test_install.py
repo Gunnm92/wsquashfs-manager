@@ -16,21 +16,30 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
+from typing import ClassVar
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
-from fastapi.testclient import TestClient
-
-from app import main
-from app import deps
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
+from test_saves import (
+    SECRET,
+    TOKEN,
+    associate,
+    auth_ok,
+    machine_ids,
+    make_cert,
+    make_settings,
+    pair_reply,
+)
+
+from app import deps, main
 from app.config import save_saves_machines, saves_machines
 from app.models import Task
 from app.services import install
 from app.services.rebuild import Job, RebuildCancelled, RebuildError
 from app.services.tasks import TaskQueue
 from app.services.trial import AgentRejected, AgentUnreachable, fingerprint_pem
-from test_saves import SECRET, TOKEN, associate, auth_ok, make_cert, make_settings, machine_ids, pair_reply
 
 BLOCK = 1 << 20
 GIB = 1 << 30
@@ -49,7 +58,7 @@ class GamesAgent(BaseHTTPRequestHandler):
     """Faux agent v6 : `st` (propre à chaque serveur) porte les jeux, les envois partiels et le journal."""
 
     protocol_version = "HTTP/1.0"
-    st: dict = {}
+    st: ClassVar[dict] = {}
 
     def log_message(self, *a):
         pass
@@ -493,7 +502,7 @@ def api(tmp_path, monkeypatch):
         raise HTTPException(status_code=404, detail=f"image inconnue : {image_id}")
 
     monkeypatch.setattr(deps, "_find_image", find_image)
-    return TestClient(main.app), settings, queue
+    return TestClient(main.app, headers={"x-wsfs-token": ""}), settings, queue
 
 
 def test_api_install_queues_one_task_per_image(games_agents, api):
@@ -514,7 +523,7 @@ def test_api_install_validation(games_agents, api):
     steambox = games_agents("steambox")
     associate(settings, steambox)
     mid = machine_ids(settings)["steambox"]
-    post = lambda body: client.post("/api/install", json=body).status_code  # noqa: E731
+    post = lambda body: client.post("/api/install", json=body).status_code
     assert post({"ids": [], "machines": [mid]}) == 422
     assert post({"ids": ["arcade/Jeu"], "machines": []}) == 422
     assert post({"ids": ["arcade/Jeu", "arcade/Jeu"], "machines": [mid]}) == 422
@@ -550,7 +559,7 @@ def test_api_install_is_all_or_nothing_across_images(games_agents, api):
 
 
 def test_api_uninstall_queues_tasks_and_validates_names(games_agents, api):
-    client, settings, queue = api
+    client, settings, _queue = api
     steambox = games_agents("steambox")
     associate(settings, steambox)
     mid = machine_ids(settings)["steambox"]
