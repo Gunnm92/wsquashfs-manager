@@ -20,7 +20,9 @@ export async function loadFolders() {
     $("g-rows").replaceChildren(notice("err", error.message));
     return;
   }
-  $("count-folders").textContent = folders.items.filter((f) => !f.image_exists).length || "";
+  const todo = folders.items.filter((f) => !f.image_exists).length;
+  $("count-folders").textContent = todo || "";
+  $("count-folders").title = todo ? `${todo} dossier${todo > 1 ? "s" : ""} à empaqueter` : "";
   const ids = new Set(folders.items.map((f) => f.id));
   for (const id of [...folders.selected]) if (!ids.has(id)) folders.selected.delete(id);
   renderFolders();

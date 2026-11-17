@@ -99,7 +99,6 @@ export const lateIn = (g) => g.machines.filter((s) => s.state === "en retard").m
 const absentIn = (g) => reachableIds().filter((id) => (stateOf(g, id)?.state ?? "absente") === "absente");
 
 // Différences : une au moins est en retard.
-const differs = (g) => lateIn(g).length > 0;
 
 // Source par défaut d'un jeu : la suggérée, sinon un client qui l'a (seul ou identique)
 const sourceOf = (g) => suggestedOf(g) || presentIn(g).find((s) => reachableIds().includes(s.id));
@@ -349,9 +348,11 @@ function svListRow({ g, sync, copy }, enter, images) {
 export function paintSavesView() {
   paintClients();
   const none = sv.loaded && sv.machines.length === 0;
-  const diff = sv.games.filter(differs).length;
-  $("count-saves").textContent = diff || "";
-  $("count-saves").title = diff ? `${diff} jeu(x) dont les versions diffèrent entre clients` : "";
+  // Compteur de l'onglet : comme les pastilles « À traiter » (client choisi, ou tous)
+  const kinds = svBase(scopeMachine()).map((r) => r.sync.kind);
+  const conflicts = kinds.filter((k) => k === "conflict").length, syncs = kinds.filter((k) => k === "send" || k === "get").length;
+  $("count-saves").textContent = conflicts + syncs || "";
+  $("count-saves").title = [conflicts ? `${conflicts} conflit${conflicts > 1 ? "s" : ""}` : "", syncs ? `${syncs} à synchroniser` : ""].filter(Boolean).join(", ");
   $("s-loading").hidden = sv.loaded || Boolean(sv.error);
   $("s-error").replaceChildren(...(sv.error ? [notice("err", sv.error)] : []));
   $("s-empty").hidden = !none;

@@ -15,6 +15,9 @@ export function closeMenu() {
 // Menu sous (ou au-dessus de) son déclencheur, aligné à droite ; position fixe : il n'est
 // pas rogné par les tableaux et barres qui défilent, et suit son déclencheur au défilement
 // (il se ferme si celui-ci sort de l'écran). Les menus des filtres restent en position absolue.
+// Le menu est rattaché à <body>, pas à son déclencheur : un ancêtre transformé (lignes et vues
+// animées ; Safari garde une transformation neutre après une animation « both ») servirait sinon
+// de repère à la position fixe, et le menu s'afficherait décalé.
 function positionMenu(menu, wrap) {
   const r = wrap.getBoundingClientRect(), h = menu.offsetHeight;
   menu.style.position = "fixed";
@@ -27,14 +30,15 @@ function positionMenu(menu, wrap) {
 }
 
 export function placeMenu(menu, wrap) {
-  wrap.append(menu);
+  menu.owner = wrap;
+  document.body.append(menu);
   menu.dataset.fixed = "1";
   positionMenu(menu, wrap);
 }
 
 // Ouvre un menu sous (ou au-dessus de) son déclencheur ; un second clic le referme
 export function openMenuNode(wrap, nodes) {
-  const open = menus.open?.parentElement === wrap;
+  const open = menus.open?.owner === wrap;
   closeMenu();
   if (open) return;
   menus.open = el("div", { className: "dd-menu end sv-menu", role: "menu" }, ...nodes);
@@ -43,11 +47,11 @@ export function openMenuNode(wrap, nodes) {
 }
 
 export function init() {
-  document.addEventListener("click", (event) => { if (menus.open && !event.target.closest(".dd")) closeMenu(); });
+  document.addEventListener("click", (event) => { if (menus.open && !event.target.closest(".dd") && !menus.open.contains(event.target)) closeMenu(); });
   document.addEventListener("keydown", (event) => { if (event.key === "Escape" && menus.open) { closeMenu(); event.stopImmediatePropagation(); } });
   addEventListener("scroll", () => {
     if (!menus.open?.dataset.fixed) return;
-    const wrap = menus.open.parentElement, r = wrap.getBoundingClientRect();
+    const wrap = menus.open.owner, r = wrap.getBoundingClientRect();
     if (r.bottom < 0 || r.top > innerHeight) closeMenu();
     else positionMenu(menus.open, wrap);
   }, true);

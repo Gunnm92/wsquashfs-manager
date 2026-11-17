@@ -107,7 +107,7 @@ function chooseClient(id) {
   storage.set(CLIENT_KEY, id);
   paintClients();
   if (!$("main").hidden) renderLibrary();
-  if (!$("saves-main").hidden) paintSavesView();
+  if (sv.loaded) paintSavesView();     // aussi le compteur de l'onglet, qui suit le client
   paintSettingsClients();
 }
 

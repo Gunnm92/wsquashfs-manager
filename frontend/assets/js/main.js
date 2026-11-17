@@ -19,7 +19,7 @@ import { init as initSettings } from "./settings.js";
 import { init as initMass } from "./mass.js";
 import { init as initActions } from "./actions.js";
 import { init as initHeader } from "./header.js";
-import { init as initFolders } from "./folders.js";
+import { init as initFolders, loadFolders } from "./folders.js";
 import { init as initWhen } from "./when.js";
 import { init as initInstallDialog } from "./install-dialog.js";
 
@@ -74,6 +74,7 @@ initInstallDialog();
   const view = ["folders", "help", "settings"].includes(stored) ? stored : connected() ? "saves" : "images";
   showView(view);              // charge aussi les sauvegardes si c'est la vue
   if (connected() && view !== "saves") loadSaves();   // compteur de l'onglet
+  if (view !== "folders") loadFolders();               // compteur de l'onglet (dossiers à empaqueter)
   await loadLibrary();
   paintSavesView();                // les liens vers les images attendent la bibliothèque
   loadInstall();               // images installées par client : filtre, pastilles, fiche (connecté)

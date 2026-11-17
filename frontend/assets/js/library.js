@@ -258,7 +258,6 @@ export function renderLibrary() {
   const visible = sorted(filtered(items)), base = items.length;
   const total = items.reduce((n, i) => n + (i.size || 0), 0);
   const images = (n) => `${n} ${n > 1 ? "images" : "image"}`;
-  $("count-images").textContent = state.items.length;
   $("lib-count").textContent = scope?.status === "ok" ? `${images(base)} sur ${scope.client.name}` : images(base);
   $("lib-size").textContent = bigSize(total, 2);
   $("visible-count").textContent = visible.length === base ? images(base) : `${visible.length} sur ${base}`;
