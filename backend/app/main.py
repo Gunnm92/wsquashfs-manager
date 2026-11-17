@@ -37,7 +37,7 @@ from .services import install as install_svc
 from .services import machine_api, scan
 from .services import saves as saves_svc
 from .services.analyze import FolderAnalysis, add_local_game, analyze_folder, analyze_image, report
-from .services.artwork import artwork, switch_artwork
+from .services.artwork import embedded_cover, folder_cover, forget_embedded_misses, switch_artwork
 from .services.autorun import (
     KEY_HELP,
     KEY_NAME_RE,
@@ -632,18 +632,20 @@ def recovery_restore(body: RecoveryRestore):
 
 @app.post("/api/image/art/forget")
 def image_art_forget():
-    """Actualiser : les absences SteamGridDB sont revalidées au prochain affichage."""
+    """Actualiser : les absences (SteamGridDB, illustration intégrée) sont revalidées au
+    prochain affichage."""
     forget_sgdb_misses(_settings)
+    forget_embedded_misses(_settings)
     return {"ok": True}
 
 
 @app.get("/api/image/art")
 def image_art(id: str, kind: Literal["cover", "icon"] = "cover"):
-    """Illustration : SteamGridDB d'abord, puis jaquette d'ES, puis icône de l'exécutable.
-    `kind` : « cover » (jaquette 600×900) ou « icon » (icône ronde). L'en-tête X-Art-Kind dit la
-    source (« sgdb », « es » ou « icon »)."""
+    """Illustration intégrée à l'image (`.wsquashfs/cover`) : la seule affichée. `kind` est
+    accepté pour compatibilité et ignoré (une seule image pour icône et jaquette). 404 si
+    l'image n'en a pas."""
     info = _find_image(id)
-    art = artwork(_settings, info.path, info.cmd, info.dir, kind)
+    art = embedded_cover(_settings, info.path)
     if art is None:
         raise HTTPException(status_code=404, detail="aucune illustration")
     return FileResponse(art.path, media_type=art.media_type,
@@ -1354,6 +1356,17 @@ def _analysis(folder: dict, refresh: bool) -> FolderAnalysis:
         _analyses.pop(next(iter(_analyses)))
     _analyses[folder["path"]] = (mtime, fa)
     return fa
+
+
+@app.get("/api/folders/art")
+def folder_art(id: str):
+    """Illustration d'un dossier à empaqueter (`<dossier>/.wsquashfs/cover`). Sans cache HTTP
+    durable : le fichier peut être ajouté à tout moment (revalidé à chaque affichage)."""
+    art = folder_cover(Path(_find_folder(id)["path"]))
+    if art is None:
+        raise HTTPException(status_code=404, detail="aucune illustration")
+    return FileResponse(art.path, media_type=art.media_type,
+                        headers={"X-Art-Kind": art.kind, "Cache-Control": "private, no-cache"})
 
 
 @app.get("/api/folders/analyze")

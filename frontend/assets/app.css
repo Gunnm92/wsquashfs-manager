@@ -598,19 +598,6 @@ main.folders { max-width: 1200px; margin: 0 auto; padding: 28px 24px 130px; disp
 .page-head { max-width: 72ch; }
 .page-head h1 { font-size: 32px; margin-bottom: 8px; }
 .page-head p { color: var(--muted); margin: 0; }
-.fgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
-.fcard { display: flex; gap: 14px; align-items: center; padding: 14px 16px; border-radius: 26px; background: var(--surface);
-  cursor: pointer; transition: transform var(--dur-fast), box-shadow var(--dur-base); animation: fadeup .3s ease-out both; min-width: 0; }
-.fcard:hover { transform: translateY(-2px); }
-.fcard.selected { box-shadow: inset 0 0 0 1.5px var(--accent); }
-.fcard .disc { width: 44px; height: 44px; flex: none; display: grid; place-items: center; border-radius: 50%; background: var(--s2); color: var(--muted); }
-.fcard .disc .ico { width: 20px; height: 20px; }
-.fcard.done .disc { background: var(--accent2-900); color: var(--accent2-300); }
-.fcard.selected .disc { background: var(--accent); color: var(--bg); }
-.fcard .t { flex: 1; min-width: 0; }
-.fcard .n { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.fcard .sub { font-size: 12px; color: var(--muted); }
-.fcard .profile { flex-wrap: nowrap; }
 .fcard-empty { grid-column: 1 / -1; border-radius: var(--radius-xl); background: var(--surface); }
 
 /* Réglages : systèmes en puces à cocher */

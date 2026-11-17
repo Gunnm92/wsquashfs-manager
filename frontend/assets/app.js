@@ -83,7 +83,8 @@ new ResizeObserver(([entry]) => document.documentElement.style.setProperty("--to
   `${Math.round(entry.target.getBoundingClientRect().height)}px`)).observe(document.querySelector("header.top"));
 
 // ------------------------------------------------------------------ illustrations
-// Jaquette d'ES, sinon icône de l'exécutable : chargée à la demande, 4 à la
+// Illustration intégrée à l'image (.wsquashfs/cover) ou au dossier à empaqueter
+// (.wsquashfs/cover du dossier) : seule source affichée. Chargée à la demande, 4 à la
 // fois, gardée pour la session. Repli : initiales sur un dégradé.
 
 // epoch : incrémentée à chaque Actualiser (illustrations Steam relues) ; purge : requête de purge serveur
@@ -96,29 +97,34 @@ function paintInitials(node, name) {
   node.style.background = `linear-gradient(145deg, oklch(0.56 0.12 ${hue}), oklch(0.3 0.07 ${(hue + 40) % 360}))`;
   node.classList.remove("icon", "es", "steam");
 }
-// Version de l'illustration : change avec l'image et avec l'exécutable de
-// CMD (adresse différente, donc jamais l'ancienne servie par le cache HTTP)
-const artVersion = (item) => `${item.mtime}|${item.dir || ""}|${item.cmd || ""}`;
-// Fiche et jaquettes (« cover ») demandent la jaquette ; les vignettes, l'icône
-const kindOf = (node) => (node.classList.contains("cover") || node.classList.contains("gcover") ? "cover" : "icon");
-const artKey = (item, kind) => `${item.id}:${kind}:${artVersion(item)}:${art.epoch}`;
-function loadArt(item, kind) {
-  const key = artKey(item, kind);
+// Version de l'illustration d'une image : change avec son mtime et avec l'exécutable de
+// CMD (adresse différente, donc jamais l'ancienne servie par le cache HTTP). Un dossier n'a
+// pas de version : sa route n'est pas mise en cache durablement (Actualiser la redemande).
+const artVersion = (item) => `${item.mtime ?? ""}|${item.dir || ""}|${item.cmd || ""}`;
+// source : « image » (/api/image/art) ou « folder » (/api/folders/art, dossier à empaqueter)
+const artKey = (item, source) => `${source}:${item.id}:${artVersion(item)}:${art.epoch}`;
+const artUrl = (item, source) => source === "folder"
+  ? `/api/folders/art?id=${encodeURIComponent(item.id)}&e=${art.epoch}`
+  : `/api/image/art?id=${encodeURIComponent(item.id)}&v=${encodeURIComponent(artVersion(item))}&e=${art.epoch}`;
+// Vignette → { item, source } : ce que l'observateur doit charger quand elle apparaît
+const artRefs = new WeakMap();
+function loadArt(item, source) {
+  const key = artKey(item, source);
   if (!art.cache.has(key)) {
-    art.cache.set(key, new Promise((resolve) => { art.waiting.push({ item, kind, resolve }); pumpArt(); })
+    art.cache.set(key, new Promise((resolve) => { art.waiting.push({ item, source, resolve }); pumpArt(); })
       .then((result) => { art.done.set(key, result); return result; }));
   }
   return art.cache.get(key);
 }
 function pumpArt() {
   while (art.active < 4 && art.waiting.length) {
-    const { item, kind, resolve } = art.waiting.shift();
+    const { item, source, resolve } = art.waiting.shift();
     art.active++;
-    const url = `/api/image/art?id=${encodeURIComponent(item.id)}&kind=${kind}&v=${encodeURIComponent(artVersion(item))}&e=${art.epoch}`;
+    const url = artUrl(item, source);
     // Après une purge (Actualiser), les images ne sont demandées qu'une fois le serveur purgé
     (art.purge || Promise.resolve())
       .then(() => fetch(url, { headers: { "x-wsfs-token": storage.get("wsfs-token") || "" } }))
-      .then(async (r) => r.ok ? { url: URL.createObjectURL(await r.blob()), kind: r.headers.get("X-Art-Kind") || "icon" } : null)
+      .then(async (r) => r.ok ? { url: URL.createObjectURL(await r.blob()), kind: r.headers.get("X-Art-Kind") || "embedded" } : null)
       .catch(() => null)
       .then((result) => { art.active--; resolve(result); pumpArt(); });
   }
@@ -130,17 +136,17 @@ function putArt(node, a, animate) {
   node.append(el("img", { src: a.url, alt: "", className: animate ? "fade-in" : "" }));
 }
 // Vrai si l'illustration était déjà connue (posée sans attendre)
-function artReady(node, item) {
-  const key = artKey(item, kindOf(node));
+function artReady(node, item, source = "image") {
+  const key = artKey(item, source);
   if (!art.done.has(key)) return false;
   const a = art.done.get(key);
   if (a) putArt(node, a, false); else paintInitials(node, item.name);
   return true;
 }
-async function showArt(node, item) {
-  if (artReady(node, item)) return;
+async function showArt(node, item, source = "image") {
+  if (artReady(node, item, source)) return;
   paintInitials(node, item.name);
-  const a = await loadArt(item, kindOf(node));
+  const a = await loadArt(item, source);
   if (!a || node.dataset.id !== item.id) return;
   putArt(node, a, true);
 }
@@ -148,14 +154,18 @@ const artObserver = new IntersectionObserver((entries) => {
   for (const entry of entries) {
     if (!entry.isIntersecting) continue;
     artObserver.unobserve(entry.target);
-    const item = state.byId.get(entry.target.dataset.id);
-    if (item) showArt(entry.target, item);
+    const ref = artRefs.get(entry.target);
+    // Une image est relue dans la bibliothèque (elle peut avoir changé depuis le rendu)
+    const item = ref && (ref.source === "folder" ? ref.item : state.byId.get(ref.item.id));
+    if (item) showArt(entry.target, item, ref.source);
   }
 }, { rootMargin: "200px" });
-function thumb(item, className = "thumb") {
+// source : « image » (bibliothèque) ou « folder » (dossiers à empaqueter)
+function thumb(item, className = "thumb", source = "image") {
   const node = el("span", { className });
   node.dataset.id = item.id;
-  if (!artReady(node, item)) {
+  artRefs.set(node, { item, source });
+  if (!artReady(node, item, source)) {
     paintInitials(node, item.name);
     artObserver.observe(node);
   }
@@ -3116,6 +3126,14 @@ function toggleFolder(f) {
   renderFolders();
 }
 
+// Case de sélection d'un dossier (liste et tuiles), comme selectBox pour les images
+function folderBox(f) {
+  const box = el("input", { type: "checkbox", checked: folders.selected.has(f.id), title: "Sélectionner" });
+  box.onclick = (event) => event.stopPropagation();
+  box.onchange = () => toggleFolder(f);
+  return box;
+}
+
 function renderFolderList(visible) {
   const { key, dir } = folders.sort;
   const text = (f) => key === "system" ? `${f.system || ""} ${f.folder}` : f.folder;
@@ -3133,12 +3151,9 @@ function renderFolderList(visible) {
     el("span", { className: "c-profile", textContent: "Contenu", title: "autorun.cmd, image .wsquashfs" }), sortBtn("state", "État", "c-state"));
   $("g-list-rows").replaceChildren(...rows.map((f) => {
     const selected = folders.selected.has(f.id), [label, cls] = folderStatus(f);
-    const box = el("input", { type: "checkbox", checked: selected, title: "Sélectionner" });
-    box.onclick = (event) => event.stopPropagation();
-    box.onchange = () => toggleFolder(f);
     const row = el("div", { className: `grow frow item${selected ? " selected" : ""}` },
-      box,
-      el("div", { className: "gname" }, el("span", { className: "thumb icon" }, icon("folder")),
+      folderBox(f),
+      el("div", { className: "gname" }, thumb(f, "thumb", "folder"),
         el("div", { className: "t" }, el("span", { className: "n", textContent: f.folder, title: f.folder }),
           el("span", { className: "sub" }, el("span", { textContent: `.${f.kind}` })))),
       el("span", { className: "c-system", textContent: cap(f.system) || "—" }),
@@ -3175,14 +3190,15 @@ function renderFolders() {
   }
   $("g-list-rows").replaceChildren();
   $("g-all").checked = visible.length > 0 && visible.every((f) => folders.selected.has(f.id));
+  // Tuiles comme la bibliothèque (jaquette = illustration du dossier, sinon initiales)
   $("g-rows").replaceChildren(...visible.map((f) => {
-    const selected = folders.selected.has(f.id);
-    const status = folderStatus(f)[0];
-    const card = el("div", { className: `fcard${selected ? " selected" : ""}${f.image_exists ? " done" : ""}`, tabIndex: 0, role: "checkbox" },
-      el("span", { className: "disc" }, icon(selected || f.image_exists ? "check" : "folder")),
-      el("div", { className: "t" }, el("div", { className: "n", textContent: f.folder, title: f.folder }),
-        el("div", { className: "sub", textContent: `${cap(f.system) || "—"} · .${f.kind} · ${status}` })),
-      folderProfile(f));
+    const selected = folders.selected.has(f.id), [label, cls] = folderStatus(f);
+    const card = el("div", { className: `gcard${selected ? " selected" : ""}`, tabIndex: 0, role: "checkbox" },
+      el("div", { className: "gart" }, thumb(f, "gcover", "folder"), folderBox(f),
+        el("span", { className: `state ${cls}`, textContent: label, title: label }), folderProfile(f)),
+      el("div", { className: "meta" }, el("div", { className: "n", textContent: f.folder, title: f.folder }),
+        el("div", { className: "sub" }, el("span", { textContent: cap(f.system) || "—" }), el("span", { textContent: `.${f.kind}` }))));
+    card.dataset.id = f.id;
     card.setAttribute("aria-checked", selected);
     const toggle = () => toggleFolder(f);
     card.onclick = toggle;

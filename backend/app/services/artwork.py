@@ -1,5 +1,10 @@
-"""Illustration d'un jeu pour la fiche.
+"""Illustration d'un jeu.
 
+Affichage (routes /api/image/art et /api/folders/art) : l'illustration INTÉGRÉE seulement,
+`.wsquashfs/cover` dans l'image (`embedded_cover`) ou dans le dossier à empaqueter
+(`folder_cover`) ; sans elle, les initiales sont affichées par l'interface.
+
+Ajout (run_cover, reconstruction : rebuild.add_cover) : `artwork()`, dans l'ordre
 0. SteamGridDB (services/sgdb.py) : icône ronde (`kind=icon`) ou jaquette 600×900
    (`kind=cover`), avec clé API réglée dans Réglages ; cache dans `<state_dir>/art/sgdb` ;
 1. Jaquette d'EmulationStation : `gamelist.xml` du dossier du système
@@ -8,6 +13,9 @@
 2. sinon, l'icône de l'exécutable de `CMD=`, lue dans l'image sans la monter
    (extrait le temps de la lecture, à côté de l'image), la plus grande
    disponible ; mise en cache dans `<state_dir>/art`, absence comprise.
+
+Illustration intégrée lue par `unsquashfs -cat` ; cache dans `<state_dir>/art/embedded`,
+absence comprise (`.none`), clé = chemin + date + taille de l'image.
 """
 
 from __future__ import annotations
@@ -45,7 +53,7 @@ _locks_guard = threading.Lock()
 class Artwork:
     path: Path
     media_type: str
-    kind: str           # "sgdb" (SteamGridDB) | "es" (jaquette) | "icon" (icône de l'exécutable)
+    kind: str           # "embedded" (illustration intégrée) | "sgdb" | "es" | "icon"
 
 
 # ------------------------------------------------------------------ ES
@@ -250,6 +258,98 @@ def exe_icon(settings: Settings, image: Path, cmd: str | None, dir_: str | None)
         out = cache / f"{stamp}{'.png' if media == 'image/png' else '.ico'}"
         out.write_bytes(data)
         return Artwork(out, media, "icon")
+
+
+# ------------------------------------------------------------------ illustration intégrée
+
+# Chemin de l'illustration dans l'image (même fichier que rebuild.COVER)
+EMBEDDED = ".wsquashfs/cover"
+_MAGIC = ((b"\x89PNG\r\n\x1a\n", ".png", "image/png"), (b"\xff\xd8\xff", ".jpg", "image/jpeg"),
+          (b"GIF87a", ".gif", "image/gif"), (b"GIF89a", ".gif", "image/gif"))
+
+
+def _sniff(data: bytes) -> tuple[str, str]:
+    """(extension, type MIME) d'après les premiers octets ; inconnu → PNG."""
+    for magic, ext, media in _MAGIC:
+        if data.startswith(magic):
+            return ext, media
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return ".webp", "image/webp"
+    return ".png", "image/png"
+
+
+def _embedded_dir(settings: Settings) -> Path:
+    return settings.state_dir / "art" / "embedded"
+
+
+def embedded_cover(settings: Settings, image: Path) -> Artwork | None:
+    """Illustration intégrée à l'image (`.wsquashfs/cover`), lue sans monter l'image.
+    Seule source de l'affichage. Mise en cache par chemin, taille et date : une absence
+    l'est aussi (`.none`), et l'image modifiée est relue."""
+    try:
+        st = image.stat()
+    except OSError:
+        return None
+    key = hashlib.sha1(str(image).encode()).hexdigest()
+    stamp = f"{key}-{st.st_mtime_ns}-{st.st_size}"
+    cache = _embedded_dir(settings)
+    for ext, media in ((".png", "image/png"), (".jpg", "image/jpeg"), (".webp", "image/webp"),
+                       (".gif", "image/gif")):
+        if (cache / f"{stamp}{ext}").is_file():
+            return Artwork(cache / f"{stamp}{ext}", media, "embedded")
+    if (cache / f"{stamp}.none").exists():
+        return None
+    with _locks_guard:
+        lock = _locks.setdefault(f"embedded:{key}", threading.Lock())
+    with lock:
+        for ext, media in ((".png", "image/png"), (".jpg", "image/jpeg"), (".webp", "image/webp"),
+                           (".gif", "image/gif")):
+            if (cache / f"{stamp}{ext}").is_file():
+                return Artwork(cache / f"{stamp}{ext}", media, "embedded")
+        if (cache / f"{stamp}.none").exists():
+            return None
+        try:
+            r = subprocess.run([settings.unsquashfs, "-cat", str(image), EMBEDDED],
+                               capture_output=True, timeout=60, check=False)
+        except (OSError, subprocess.TimeoutExpired):
+            return None                             # outil absent ou bloqué : rien en cache
+        data = r.stdout if r.returncode == 0 else b""
+        cache.mkdir(parents=True, exist_ok=True)
+        for old in cache.glob(f"{key}-*"):          # versions précédentes de l'image
+            old.unlink(missing_ok=True)
+        if not data:
+            (cache / f"{stamp}.none").touch()
+            return None
+        ext, media = _sniff(data)
+        out = cache / f"{stamp}{ext}"
+        out.write_bytes(data)
+        return Artwork(out, media, "embedded")
+
+
+def forget_embedded_misses(settings: Settings) -> None:
+    """Actualiser : les absences d'illustration intégrée sont revalidées au prochain affichage."""
+    for none in _embedded_dir(settings).glob("*.none"):
+        none.unlink(missing_ok=True)
+
+
+def folder_cover(folder: Path) -> Artwork | None:
+    """Illustration d'un dossier à empaqueter : `<dossier>/.wsquashfs/cover`, fichier régulier
+    qui reste dans le dossier."""
+    cand = folder / EMBEDDED
+    try:
+        resolved = cand.resolve(strict=True)
+        root = folder.resolve(strict=True)
+    except OSError:
+        return None
+    if not resolved.is_relative_to(root) or not resolved.is_file():
+        return None
+    try:
+        with open(resolved, "rb") as handle:
+            head = handle.read(16)
+    except OSError:
+        return None
+    _ext, media = _sniff(head)
+    return Artwork(resolved, media, "embedded")
 
 
 # ------------------------------------------------------------------ illustration

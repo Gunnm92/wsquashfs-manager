@@ -423,6 +423,13 @@ Chaque reconstruction dépose l'illustration du jeu à la racine de l'image,
 icône de l'exécutable de `CMD=`. Le fichier `.thumbnailer` installé par
 `wsquashfs-launcher --setup` la montre dans Thunar, Nautilus, Nemo, Caja.
 
+L'interface n'affiche que cette illustration intégrée : vignettes et fiche des
+images lisent `.wsquashfs/cover` (`GET /api/image/art`), la vue Dossiers lit
+`<dossier>/.wsquashfs/cover` (`GET /api/folders/art`). Sans elle, les initiales.
+Lue sans monter l'image (`unsquashfs -cat`), mise en cache dans
+`<dossier d'état>/art/embedded` ; l'absence y est gardée jusqu'à la prochaine
+modification de l'image ou **Actualiser**.
+
 Pour une image existante, **Illustration** (fiche) ou **Ajouter
 l'illustration** (sélection) l'ajoute sans reconstruire : `mksquashfs` en
 mode ajout écrit le fichier à la suite et ne réécrit que les tables
@@ -433,9 +440,9 @@ qui a déjà son illustration n'est pas touchée.
 
 ### Icônes et jaquettes SteamGridDB
 
-Les illustrations affichées (fiche, ludothèque) viennent de
-[SteamGridDB](https://www.steamgriddb.com) : **icônes rondes** (`kind=icon`) et
-**jaquettes 600×900** (`kind=cover`). Clé API : Profil › Préférences › API sur
+SteamGridDB ne sert plus à l'affichage : il fournit l'illustration **ajoutée**
+(reconstruction, « Ajouter l'illustration »), à partir de [SteamGridDB](https://www.steamgriddb.com)
+**icônes rondes** (`kind=icon`) et **jaquettes 600×900** (`kind=cover`). Clé API : Profil › Préférences › API sur
 steamgriddb.com, à coller dans **Réglages**. Sans clé, rien n'est demandé au site.
 
 - **Auteurs préférés** (Réglages) : une image de l'un d'eux passe avant les
