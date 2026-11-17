@@ -649,7 +649,7 @@ $("btn-sel-clear").onclick = () => { state.selected.clear(); renderLibrary(); };
 // Ligne d'état de l'en-tête : « Prêt » en vert, les exceptions en couleur
 const LINE_STATE = { ok: ["Prêt", "st"], in_use: ["En cours", "st accent"], modified: ["Tâche en file", "st accent"], has_old: ["Ancienne version à valider", "st warn"] };
 const TRIAL_DURS = [[30, "30 s"], [60, "60 s"], [120, "2 min"]];
-let trialSeconds = Number(storage.get("wsfs-trial-dur")) || 60;
+let trialSeconds = Number(storage.get("wsfs-trial-duration")) || 60;   // réglé dans la page Réglages
 // Clés de l'autorun, en français (le nom technique reste en dessous)
 const KEY_LABELS = { DIR: "Dossier du jeu", CMD: "Exécutable", GAME_VERSION: "Version du jeu", PRE: "Commande avant le jeu",
   ATTACH: "Commande pendant le jeu", ATTACH_PROCESS: "Processus attaché", WINE: "Version de Wine", PROTON: "Version de Proton",
@@ -1797,6 +1797,7 @@ async function loadSaves() {
     sv.error = error.message;
   }
   paintSaves();
+  paintSettingsClients();
   if (!$("main").hidden) renderLibrary();      // la colonne « Sauveg. » des images
 }
 
@@ -2442,36 +2443,59 @@ function openSavesFor(game) {
 
 // ------------------------------------------------------------------ état du lanceur (--doctor)
 
-// Diagnostic du client d'essai : fenêtre (#dlg-doctor) ou section des Réglages (body)
-async function loadDoctor(refresh = false, body = $("doc-body")) {
-  const inDialog = body === $("doc-body");
+// Diagnostic du client d'essai : fenêtre (#dlg-doctor) ou page Réglages (#st-doctor, inPage)
+const doctorAge = (d) => d.age ? `il y a ${Math.round(d.age / 60)} min` : "à l'instant";
+const DOCTOR_MARKS = { ok: "check", missing: "x", optional: "minus" };
+function doctorRow(item) {
+  return el("div", { className: `item ${item.status}` },
+    el("span", { className: "disc" }, icon(DOCTOR_MARKS[item.status] || "info")),
+    el("div", {}, el("span", { textContent: item.text }),
+      item.details.length ? el("span", { className: "details", textContent: item.details.join("\n") }) : null));
+}
+async function loadDoctor(refresh = false, inPage = false) {
+  const body = inPage ? $("st-doctor") : $("doc-body");
+  const button = inPage ? $("st-doctor-refresh") : $("doc-refresh");
   if (refresh || !state.doctor) body.replaceChildren(el("div", { className: "row muted" }, el("span", { className: "spinner" }), `vérification sur ${hostName()}…`));
-  const refreshButton = inDialog ? $("doc-refresh") : $("cfg-doctor-refresh");
-  refreshButton.disabled = true;
+  button.disabled = true;
   try {
     state.doctor = await api(`/api/launcher/doctor${refresh ? "?refresh=1" : ""}`);
-    renderDoctor(body);
+    if (inPage) renderDoctorPage(); else renderDoctor();
     runnerSuggestions();
   } catch (error) {
     body.replaceChildren(notice("", `État du lanceur indisponible : ${error.message}`, "alert"));
   } finally {
-    refreshButton.disabled = false;
+    button.disabled = false;
   }
 }
 
-function renderDoctor(body = $("doc-body")) {
+function renderDoctor() {
   const d = state.doctor;
-  $(body === $("doc-body") ? "doc-age" : "cfg-doctor-age").textContent = d.age ? `il y a ${Math.round(d.age / 60)} min` : "à l'instant";
+  $("doc-age").textContent = doctorAge(d);
   const ok = !d.sections.some((s) => s.items.some((i) => i.status === "missing"));
-  const marks = { ok: "check", missing: "x", optional: "minus" };
-  body.replaceChildren(
+  $("doc-body").replaceChildren(
     ...d.sections.flatMap((section) => [
       section.title ? el("h4", { textContent: section.title }) : null,
-      ...section.items.map((item) => el("div", { className: `item ${item.status}` },
-        el("span", { className: "disc" }, icon(marks[item.status] || "info")),
-        el("div", {}, el("span", { textContent: item.text }),
-          item.details.length ? el("span", { className: "details", textContent: item.details.join("\n") }) : null)))]),
+      ...section.items.map((item) => doctorRow(item))]),
     d.verdict ? (ok ? el("div", { className: "verdict", textContent: d.verdict }) : notice("err", d.verdict)) : null);
+}
+
+// Page Réglages : les problèmes d'abord (encart avec l'aide), les vérifications OK repliées
+function renderDoctorPage() {
+  const d = state.doctor, items = d.sections.flatMap((s) => s.items);
+  const problems = items.filter((i) => i.status === "missing");
+  const rest = items.filter((i) => i.status !== "missing");
+  const oks = rest.filter((i) => i.status === "ok").length;
+  $("st-doctor-age").textContent = `${hostName()} · ${doctorAge(d)}`;
+  $("st-toc-warn").hidden = !problems.length;
+  $("st-doctor").replaceChildren(
+    ...problems.map((item) => el("div", { className: "st-alert" }, icon("alert"),
+      el("div", { className: "st-alert-txt" }, el("b", { textContent: item.text }),
+        item.details.length ? el("span", { className: "mono", textContent: item.details.join("\n") }) : null),
+      el("button", { type: "button", className: "btn secondary sm", textContent: "Comment l'installer", onclick: () => openHelp("h-install") }))),
+    el("details", { className: "st-ok" },
+      el("summary", {}, icon("check", "sm"), el("span", { textContent: `${oks} vérification${oks > 1 ? "s" : ""} OK` })),
+      el("div", { className: "doctor" }, ...rest.map((item) => doctorRow(item)))),
+    ...(d.verdict && !problems.length ? [el("p", { className: "st-verdict", textContent: d.verdict })] : []));
 }
 
 // Runners installés sur le client d'essai : proposés pour PROTON= et WINE=
@@ -2488,13 +2512,135 @@ function runnerSuggestions() {
   }
 }
 $("doc-refresh").onclick = () => loadDoctor(true);
-// Bibliothèque : pour chaque dossier de base, « tout le dossier » (nouveaux
-// systèmes compris) ou une sélection de systèmes. Enregistré tel quel dans
-// roms_dirs : le dossier de base seul, ou les dossiers des systèmes choisis.
+$("st-doctor-refresh").onclick = () => loadDoctor(true, true);
+
+// ------------------------------------------------------------------ réglages (page)
+// Vue « settings » (menu ⚙). Chaque valeur vient de state.config ou de /api/config/systems ;
+// « Enregistrer » n'envoie que ce qui a changé, par les routes existantes ; « Annuler » relit
+// les valeurs enregistrées. Le mode choisi (segment) pilote les sections connectées.
+
 const trimSlash = (d) => d.replace(/\/+$/, "") || "/";
+const dirsKey = (list) => [...new Set(list.map(trimSlash))].sort().join("\n");
+const sgdbAuthors = (text) => [...new Set(text.split(/[\n,]+/).map((a) => a.trim()).filter(Boolean))];
 const countText = (images, folders) => [images && `${images} image${images > 1 ? "s" : ""}`,
   folders && `${folders} dossier${folders > 1 ? "s" : ""}`].filter(Boolean).join(" · ") || "vide";
+const SYNC_CHOICES = [[0, "Jamais"], [600, "10 min"], [3600, "1 h"], [21600, "6 h"]];
+const syncLabel = (s) => s % 3600 === 0 ? `${s / 3600} h` : s % 60 === 0 ? `${s / 60} min` : `${s} s`;
+const MODE_HINTS = {
+  autonome: "Construire et maintenir les images, sans client ni sauvegardes.",
+  connecte: "Sauvegardes entre clients, installation et lancement d'essai.",
+};
+const CHANGE_LABELS = { mode: "mode", dirs: "bibliothèque", night: "plage de nuit", sgdb: "illustrations",
+  machine: "adresse du manager", autopush: "synchro automatique", trial: "durée d'essai" };
+let settingsSystems = [];       // /api/config/systems, relu à chaque ouverture
+let settingsBase = null;        // valeurs affichées à l'ouverture : tout écart avec elles est une modification
+let settingsBusy = false;       // enregistrement en cours
 
+// Segments en pilule (.seg) : un bouton par choix (data-value) ; le choix courant est .on
+function buildSeg(seg, choices) {
+  seg.replaceChildren(el("span", { className: "ind", ariaHidden: "true" }),
+    ...choices.map(([value, text]) => {
+      const b = el("button", { type: "button", role: "radio", textContent: text });
+      b.dataset.value = String(value);
+      return b;
+    }));
+}
+const segValue = (seg) => seg.querySelector("button.on")?.dataset.value ?? null;
+function setSeg(seg, value) {
+  for (const b of seg.querySelectorAll("button[data-value]")) {
+    const on = b.dataset.value === String(value);
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-checked", String(on));
+  }
+  placeInd(seg);
+}
+function bindSeg(seg, onPick) {
+  seg.addEventListener("click", (event) => {
+    const b = event.target.closest("button[data-value]");
+    if (!b || b.classList.contains("on")) return;
+    setSeg(seg, b.dataset.value);
+    onPick(b.dataset.value);
+  });
+  new ResizeObserver(() => placeInd(seg)).observe(seg);   // page masquée à l'origine : largeur connue à l'affichage
+}
+buildSeg($("st-trial-dur"), TRIAL_DURS);
+bindSeg($("st-mode-seg"), onModeChoice);
+bindSeg($("st-autopush"), () => paintSettingsBar());
+bindSeg($("st-trial-dur"), () => paintSettingsBar());
+
+const settingsMode = () => segValue($("st-mode-seg")) || "autonome";
+function onModeChoice() {
+  paintPendingMode();
+  loadSettingsConnected();
+  paintSettingsBar();
+}
+// Le mode choisi (pas encore enregistré) montre ou cache les sections connectées
+function paintPendingMode() {
+  const mode = settingsMode();
+  $("settings-main").dataset.pending = mode;
+  $("st-mode-hint").textContent = MODE_HINTS[mode];
+}
+
+// Bibliothèque : un interrupteur par système (liste), la sélection dossier par dossier est dans « Avancé »
+function rootInput(path) {
+  return [...$("st-roots").querySelectorAll("input[data-path]")].find((i) => i.dataset.path === path);
+}
+const systemIsOn = (input) => input.closest(".root-block").dataset.mode === "all" || input.checked;
+function setSystem(path, on) {
+  const input = rootInput(path);
+  if (!input) return;
+  const block = input.closest(".root-block");
+  if (block.dataset.mode === "all" && !on) {
+    // « Tout le dossier » : tout cocher d'abord, pour garder la sélection effective, puis passer en choix
+    for (const i of block.querySelectorAll("input[data-path]")) i.checked = true;
+    block.setMode("pick");
+  }
+  input.checked = on;
+  paintLibrary();
+}
+function renderSystemRows(systems) {
+  $("st-libsys").replaceChildren(...systems.map((x) => {
+    const rootName = x.root.split("/").filter(Boolean).pop() || x.root;
+    const rel = x.path.startsWith(`${x.root}/`) ? x.path.slice(x.root.length + 1) : x.name;
+    const sw = el("input", { type: "checkbox", className: "switch" });
+    sw.dataset.path = x.path;
+    sw.setAttribute("aria-label", `${x.name} : lu par le gestionnaire`);
+    sw.onchange = () => setSystem(x.path, sw.checked);
+    const count = [`${x.images} image${x.images > 1 ? "s" : ""}`, x.folders && `${x.folders} dossier${x.folders > 1 ? "s" : ""}`]
+      .filter(Boolean).join(" · ");
+    return el("div", { className: "st-row st-sys" },
+      el("div", { className: "st-txt" }, el("b", { textContent: x.name }),
+        el("span", { className: "st-sub mono", title: x.path, textContent: `${rootName}/${rel} · ${count}` })),
+      sw);
+  }));
+}
+// Interrupteurs et total d'après la sélection dossier par dossier (source de vérité)
+function paintLibrary() {
+  for (const sw of $("st-libsys").querySelectorAll("input[data-path]")) {
+    const input = rootInput(sw.dataset.path);
+    sw.checked = Boolean(input) && systemIsOn(input);
+  }
+  paintRootsTotal();
+}
+function paintRootsTotal() {
+  let images = 0, folders = 0;
+  for (const block of $("st-roots").querySelectorAll(".root-block")) {
+    for (const i of block.querySelectorAll("input[data-path]")) {
+      if (systemIsOn(i)) {
+        images += Number(i.dataset.images) || 0;
+        folders += Number(i.dataset.folders) || 0;
+      }
+    }
+  }
+  const extra = extraDirs().length;
+  const total = $("st-total");
+  const none = !images && !folders && !extra;
+  total.classList.toggle("warn", none);
+  total.textContent = none ? "Rien de sélectionné : activer au moins un système."
+    : `Sélection : ${countText(images, folders)}${extra ? ` + ${extra} autre(s) dossier(s)` : ""}`;
+}
+
+// Dossiers de base (Avancé) : « Tout le dossier » (les systèmes ajoutés plus tard aussi) ou choix
 function renderRoots(systems, chosen) {
   const roots = [...new Set(systems.map((x) => x.root))];
   const blocks = roots.map((root) => {
@@ -2511,26 +2657,26 @@ function renderRoots(systems, chosen) {
       input.dataset.path = x.path;
       input.dataset.images = x.images;
       input.dataset.folders = x.folders;
-      input.onchange = paintRootsTotal;
+      input.onchange = paintLibrary;
       return el("label", { title: x.path }, input, el("span", { textContent: x.name }),
         el("span", { className: "n", textContent: [x.images || "", x.folders ? `${x.folders} dossier(s)` : ""].filter(Boolean).join(" · ") }));
     }));
-    const hint = el("p", { className: "dlg-intro root-hint" });
+    const hint = el("p", { className: "st-hint" });
     const setMode = (mode) => {
       block.dataset.mode = mode;
       for (const b of modes.children) {
         b.classList.toggle("on", b.dataset.mode === mode);
-        b.setAttribute("aria-checked", b.dataset.mode === mode);
+        b.setAttribute("aria-checked", String(b.dataset.mode === mode));
       }
       const boxes = [...chips.querySelectorAll("input")];
-      // Passer en sélection sans rien de coché : tout cocher, on décoche ce qu'on ne veut pas
+      // Passer en choix sans rien de coché : tout cocher, on décoche ce qu'on ne veut pas
       if (mode === "pick" && !boxes.some((i) => i.checked)) boxes.forEach((i) => { i.checked = true; });
       chips.classList.toggle("all", mode === "all");
       boxes.forEach((i) => { i.disabled = mode === "all"; });
       hint.textContent = mode === "all"
         ? "Tous les systèmes ci-dessous sont lus, et ceux ajoutés plus tard aussi."
         : "Seuls les systèmes cochés sont lus.";
-      paintRootsTotal();
+      paintLibrary();
     };
     modes.onclick = (event) => {
       const b = event.target.closest("button[data-mode]");
@@ -2545,73 +2691,184 @@ function renderRoots(systems, chosen) {
     block.setMode = setMode;
     return block;
   });
-  $("cfg-roots").replaceChildren(...blocks);
+  $("st-roots").replaceChildren(...blocks);
   for (const block of blocks) block.setMode(chosen.has(trimSlash(block.dataset.root)) ? "all" : "pick");
   if (!blocks.length) {
-    $("cfg-roots").replaceChildren(el("p", { className: "muted", textContent: "Aucun système trouvé dans les dossiers de base : saisir les dossiers ci-dessous." }));
+    $("st-roots").replaceChildren(el("p", { className: "muted st-hint", textContent: "Aucun système trouvé dans les dossiers de base : saisir les dossiers ci-dessous." }));
   }
   return new Set([...roots, ...systems.map((x) => x.path)].map(trimSlash));
 }
-
 function extraDirs() {
-  return $("cfg-dirs").value.split("\n").map((d) => d.trim()).filter(Boolean);
+  return $("st-dirs").value.split("\n").map((d) => d.trim()).filter(Boolean);
 }
 function chosenDirs() {
   const dirs = [];
-  for (const block of $("cfg-roots").querySelectorAll(".root-block")) {
+  for (const block of $("st-roots").querySelectorAll(".root-block")) {
     if (block.dataset.mode === "all") dirs.push(block.dataset.root);
     else dirs.push(...[...block.querySelectorAll("input:checked")].map((i) => i.dataset.path));
   }
   return [...new Set([...dirs, ...extraDirs()])];
 }
-function paintRootsTotal() {
-  let images = 0, folders = 0;
-  for (const block of $("cfg-roots").querySelectorAll(".root-block")) {
-    for (const i of block.querySelectorAll("input")) {
-      if (block.dataset.mode === "all" || i.checked) {
-        images += Number(i.dataset.images) || 0;
-        folders += Number(i.dataset.folders) || 0;
-      }
-    }
-  }
-  const extra = extraDirs().length;
-  const total = $("cfg-total");
-  const none = !images && !folders && !extra;
-  total.classList.toggle("warn", none);
-  total.textContent = none ? "Rien de sélectionné : cocher au moins un système."
-    : `Sélection : ${countText(images, folders)}${extra ? ` + ${extra} autre(s) dossier(s)` : ""}`;
-}
-$("cfg-dirs").addEventListener("input", paintRootsTotal);
+$("st-dirs").addEventListener("input", paintLibrary);
 
-// Réglages : une page. Mode, systèmes, nuit et illustrations ; lanceur et synchro seulement connectés.
-const CFG_MODE_HINTS = {
-  autonome: "Autonome : construire et maintenir les images, sans client ni sauvegardes.",
-  connecte: "Connecté : sauvegardes entre clients, installation, lancement d'essai.",
-};
-let cfgOpened = null;           // valeurs lues à l'ouverture : seules les parties modifiées sont envoyées
-const dirsKey = (list) => [...new Set(list.map(trimSlash))].sort().join("\n");
-const sgdbAuthors = (text) => [...new Set(text.split(/[\n,]+/).map((a) => a.trim()).filter(Boolean))];
-function paintCfgMode(mode) {
-  for (const b of $("cfg-mode").children) {
-    b.classList.toggle("on", b.dataset.mode === mode);
-    b.setAttribute("aria-checked", String(b.dataset.mode === mode));
+// Valeurs telles qu'affichées, et liste des réglages modifiés par rapport à l'ouverture
+function settingsValues() {
+  return {
+    mode: settingsMode(),
+    dirs: dirsKey(chosenDirs()),
+    night: [$("st-night-start").value, $("st-night-end").value].join(),
+    sgdb: JSON.stringify([sgdbAuthors($("st-sgdb-authors").value), Number($("st-sgdb-threshold").value)]),
+    sgdbKey: $("st-sgdb-key").value.trim(),
+    machine: $("st-machine-url").value.trim(),
+    autopush: segValue($("st-autopush")),
+    trial: segValue($("st-trial-dur")),
+  };
+}
+function settingsChanges() {
+  if (!settingsBase) return [];
+  const now = settingsValues(), b = settingsBase, online = now.mode === "connecte";
+  const out = [];
+  if (now.mode !== b.mode) out.push("mode");
+  if (now.dirs !== b.dirs) out.push("dirs");
+  if (now.night !== b.night) out.push("night");
+  if (now.sgdb !== b.sgdb || now.sgdbKey) out.push("sgdb");
+  if (online && now.machine !== b.machine) out.push("machine");
+  if (online && now.autopush !== b.autopush) out.push("autopush");
+  if (now.trial !== b.trial) out.push("trial");
+  return out;
+}
+function paintSettingsBar() {
+  const changes = settingsChanges(), bar = $("st-savebar"), shown = changes.length > 0;
+  bar.classList.toggle("show", shown);
+  bar.inert = !shown;
+  $("st-count").textContent = shown
+    ? `${changes.length} modification${changes.length > 1 ? "s" : ""} : ${changes.map((c) => CHANGE_LABELS[c]).join(", ")}`
+    : "";
+  $("st-save").disabled = settingsBusy || !shown;
+  $("st-cancel").disabled = settingsBusy;
+}
+$("settings-main").addEventListener("input", paintSettingsBar);
+$("settings-main").addEventListener("change", paintSettingsBar);
+
+// Clients et diagnostic : seulement en mode connecté (enregistré)
+const ONLY_CONNECTED_TEXT = "Disponible une fois le mode connecté enregistré.";
+function loadSettingsConnected() {
+  renderClients();
+  paintSettingsDoctor();
+  if (!connected()) return;
+  loadSaves();
+  loadInstall();
+}
+function paintSettingsDoctor() {
+  const body = $("st-doctor"), trial = hostOn();
+  $("st-doctor-refresh").hidden = !(connected() && trial);
+  $("st-doctor-age").textContent = "";
+  $("st-doctor-intro").textContent = `Vérifie ce dont le lanceur a besoin sur ${trial ? hostName() : "le client d'essai"}.`;
+  if (settingsMode() !== "connecte") return;
+  if (!connected()) body.replaceChildren(el("p", { className: "muted", textContent: ONLY_CONNECTED_TEXT }));
+  else if (!trial) body.replaceChildren(el("p", { className: "muted", textContent: "Aucun client d'essai : dans Clients, menu d'un client, « Utiliser pour les essais »." }));
+  else loadDoctor(false, true);
+}
+
+// Liste des clients associés (sv.machines), état et espace libre (inst.machines)
+function renderClients() {
+  const list = $("st-clients-list");
+  if (!connected()) { list.replaceChildren(el("p", { className: "st-empty muted", textContent: ONLY_CONNECTED_TEXT })); return; }
+  if (!sv.machines.length) {
+    list.replaceChildren(el("p", { className: "st-empty muted", textContent: sv.loaded ? "Aucun client associé." : "Lecture des clients…" }));
+    return;
   }
-  $("dlg-config").dataset.cmode = mode;         // masque les parties connectées tant que c'est autonome
-  $("cfg-mode-hint").textContent = CFG_MODE_HINTS[mode];
+  list.replaceChildren(...sv.machines.map(clientRow));
 }
-$("cfg-mode").onclick = (event) => {
-  const b = event.target.closest("button[data-mode]");
-  if (!b) return;
-  paintCfgMode(b.dataset.mode);
-  paintCfgDoctorSection(state.config, b.dataset.mode === "connecte");
-};
+function clientRow(m) {
+  const free = inst.machines.find((x) => x.id === m.id)?.free;
+  const ok = Boolean(m.ok);
+  const menu = el("button", { type: "button", className: "mcard-menu", title: "Actions sur ce client", "aria-label": `Actions sur ${m.name}`, "aria-haspopup": "menu" },
+    icon("chevd", "sm"));
+  menu.onclick = () => openMenuNode(menu.parentElement, machineMenu(m));
+  return el("div", { className: "st-row st-client" },
+    el("span", { className: "mcard-ico" }, osIcon(m.icon, "lg")),
+    el("div", { className: "st-txt" },
+      el("span", { className: "st-cname" }, el("b", { textContent: m.name }),
+        isTrial(m) ? el("span", { className: "chip plain t-accent", title: "Client d'essai", textContent: "essais" }) : null),
+      el("span", { className: "st-sub mono", textContent: m.url || "" })),
+    el("span", { className: `st-state${ok ? " ok" : ""}` }, el("span", { className: "st-led" }),
+      el("span", { textContent: ok ? (free ? `En ligne · ${bigSize(free)} libres` : "En ligne") : "Hors ligne" })),
+    el("div", { className: "dd" }, menu));
+}
+$("st-pair").onclick = openPair;
+// Appelé quand les clients sont relus (sauvegardes, installation) : la page suit
+function paintSettingsClients() {
+  if (document.body.dataset.view !== "settings") return;
+  renderClients();
+  paintSettingsTrial();
+}
+
+// Client d'essai : le nom, et le client choisi en haut de la page (s'il n'est pas l'essai, proposé)
+function paintSettingsTrial() {
+  const cfg = state.config || {};
+  $("st-trial-name").textContent = hostOn() ? hostName() : "Aucun";
+  const pick = connected() && state.client !== "all" ? sv.machines.find((m) => m.id === state.client) : null;
+  const use = $("st-trial-use");
+  use.hidden = !pick || pick.kind !== "saved" || pick.id === cfg.game_host_machine;
+  use.textContent = pick ? `Utiliser ${pick.name} pour les essais` : "";
+  use.onclick = async () => { await useForTrials(pick); paintSettingsTrial(); };
+}
+
+// Réglages lus de la configuration : les sections, puis la référence « modifié »
+function renderSettings(cfg, systems, systemsError = "") {
+  const chosen = new Set(cfg.roms_dirs.map(trimSlash));
+  const known = renderRoots(systems, chosen);
+  $("st-dirs").value = [...chosen].filter((d) => !known.has(d)).join("\n");
+  renderSystemRows(systems);
+  $("st-systems-err").textContent = systemsError;
+  $("st-systems-err").hidden = !systemsError;
+  paintLibrary();
+
+  setSeg($("st-mode-seg"), cfg.mode);
+  // Intervalle actuel hors des choix proposés : ajouté comme choix
+  const auto = cfg.auto_push_interval ?? 120;
+  buildSeg($("st-autopush"), SYNC_CHOICES.some(([v]) => v === auto) ? SYNC_CHOICES
+    : [...SYNC_CHOICES, [auto, syncLabel(auto)]].sort((a, b) => a[0] - b[0]));
+  setSeg($("st-autopush"), auto);
+  $("st-machine-url").value = cfg.machine_url || (cfg.machine_port ? `https://${location.hostname}:${cfg.machine_port}` : "");
+  $("st-machine-fp").textContent = !cfg.machine_port ? "Port des clients désactivé (WSQUASHFS_MGR_MACHINE_PORT=0)."
+    : cfg.machine_fingerprint ? `Empreinte du certificat du manager : ${cfg.machine_fingerprint}` : "Certificat du manager créé au prochain démarrage.";
+
+  $("st-night-start").value = cfg.night_start || "01:00";
+  $("st-night-end").value = cfg.night_end || "07:00";
+  $("st-concurrency").textContent = String(cfg.concurrency ?? "—");
+  $("st-retention").textContent = cfg.old_retention_days == null ? "manuelle" : `${cfg.old_retention_days} jours`;
+
+  $("st-sgdb-key").value = "";
+  $("st-sgdb-key").placeholder = cfg.sgdb_configured ? "enregistrée" : "clé API";
+  $("st-sgdb-msg").hidden = true;
+  $("st-sgdb-authors").value = (cfg.sgdb_authors || []).join("\n");
+  $("st-sgdb-threshold").value = cfg.sgdb_round_threshold ?? 0.85;
+  paintThreshold();
+
+  const trial = Number(storage.get("wsfs-trial-duration"));
+  setSeg($("st-trial-dur"), TRIAL_DURS.some(([s]) => s === trial) ? trial : 60);
+  $("st-info").replaceChildren(...[
+    ["Dossiers de base", (cfg.roms_roots || []).join(", ") || "—"],
+    ["Sauvegardes", cfg.saves_dir], ["Dossier de travail", cfg.tmp_dir], ["Reconstruction", cfg.rebuild_mode],
+    ["Tâches simultanées", cfg.concurrency],
+    ["Rétention .old", cfg.old_retention_days == null ? "manuelle" : `${cfg.old_retention_days} jours`],
+  ].flatMap(([k, v]) => [el("dt", { textContent: k }), el("dd", { textContent: v ?? "—" })]));
+
+  paintPendingMode();
+  paintSettingsTrial();
+  renderClients();
+  settingsBase = settingsValues();
+  paintSettingsBar();
+}
 function paintThreshold() {
-  $("cfg-sgdb-threshold-out").textContent = Number($("cfg-sgdb-threshold").value).toFixed(2).replace(".", ",");
+  $("st-sgdb-threshold-out").textContent = Number($("st-sgdb-threshold").value).toFixed(2).replace(".", ",");
 }
-$("cfg-sgdb-threshold").addEventListener("input", paintThreshold);
+$("st-sgdb-threshold").addEventListener("input", paintThreshold);
 // Essai de la clé enregistrée (POST /api/config/sgdb/test)
-$("cfg-sgdb-test").onclick = async () => {
-  const msg = $("cfg-sgdb-msg"), button = $("cfg-sgdb-test");
+$("st-sgdb-test").onclick = async () => {
+  const msg = $("st-sgdb-msg"), button = $("st-sgdb-test");
   button.disabled = true;
   msg.hidden = false;
   msg.className = "notice";
@@ -2627,154 +2884,132 @@ $("cfg-sgdb-test").onclick = async () => {
     button.disabled = false;
   }
 };
-$("cfg-doctor-refresh").onclick = () => loadDoctor(true, $("cfg-doctor"));
-// Lanceur du client d'essai dans Réglages : le diagnostic, sans fenêtre. `online` : le mode
-// choisi dans la boîte (pas encore enregistré) ; le diagnostic n'est lu qu'en connecté.
-function paintCfgDoctorSection(cfg, online) {
-  const body = $("cfg-doctor"), trial = Boolean(cfg.game_host && cfg.game_host !== "off");
-  $("cfg-doctor-title").textContent = trial ? `Lanceur dans ${cfg.game_host_name}` : "Lanceur du client d'essai";
-  $("cfg-doctor-age").textContent = "";
-  $("cfg-doctor-refresh").hidden = !(online && trial);
-  if (!online) body.replaceChildren(el("p", { className: "muted", textContent: "Disponible en mode connecté." }));
-  else if (!trial) body.replaceChildren(el("p", { className: "muted", textContent: "Aucun client d'essai : dans Sauvegardes, menu d'un client, « Utiliser pour les essais »." }));
-  else loadDoctor(false, body);
-}
 
-$("btn-config").onclick = async () => {
-  let cfg, systems = [], systemsError = null;
+// Ouverture de la page : configuration et systèmes relus, sections connectées chargées
+async function openSettings() {
+  let cfg;
   try {
     cfg = await api("/api/config");
   } catch (error) {
-    alert(`Réglages indisponibles : ${error.message}`);
+    toast(`Réglages indisponibles : ${error.message}`, "alert", true);
     return;
   }
   state.config = cfg;
   applyMode();
+  let systemsError = "";
   try {
-    systems = await api("/api/config/systems");
+    settingsSystems = await api("/api/config/systems");
   } catch (error) {
-    // Serveur plus ancien que la page : la fenêtre s'ouvre quand même, chemins à saisir
-    systemsError = `Liste des systèmes indisponible (${error.message}) — dossiers à saisir dans « Autres dossiers ».`;
+    // Serveur plus ancien que la page : la page s'ouvre quand même, chemins à saisir
+    settingsSystems = [];
+    systemsError = `Liste des systèmes indisponible (${error.message}) — dossiers à saisir dans « Avancé ».`;
   }
-  const chosen = new Set(cfg.roms_dirs.map(trimSlash));
-  const known = renderRoots(systems, chosen);
-  $("cfg-dirs").value = [...chosen].filter((d) => !known.has(d)).join("\n");
-  $("cfg-extra").open = !systems.length || Boolean($("cfg-dirs").value);
-  paintRootsTotal();
-  cfgOpened = { mode: cfg.mode, dirs: [...chosen], night: [cfg.night_start, cfg.night_end],
-    sgdbAuthors: cfg.sgdb_authors || [], threshold: cfg.sgdb_round_threshold ?? 0.85 };
-  paintCfgMode(cfg.mode);
-  $("cfg-info").replaceChildren(...[
-    ["Dossiers de base", (cfg.roms_roots || []).join(", ") || "—"],
-    ["Sauvegardes", cfg.saves_dir], ["Dossier de travail", cfg.tmp_dir], ["Reconstruction", cfg.rebuild_mode],
-    ["Tâches simultanées", cfg.concurrency],
-    ["Rétention .old", cfg.old_retention_days == null ? "manuelle" : `${cfg.old_retention_days} jours`],
-  ].flatMap(([k, v]) => [el("dt", { textContent: k }), el("dd", { textContent: v ?? "—" })]));
-  $("cfg-night-start").value = cfg.night_start || "01:00";
-  $("cfg-night-end").value = cfg.night_end || "07:00";
-  $("cfg-sgdb-key").value = "";
-  $("cfg-sgdb-key").placeholder = cfg.sgdb_configured ? "enregistrée" : "clé API";
-  $("cfg-sgdb-msg").hidden = true;
-  $("cfg-sgdb-authors").value = (cfg.sgdb_authors || []).join("\n");
-  $("cfg-sgdb-threshold").value = cfg.sgdb_round_threshold ?? 0.85;
-  paintThreshold();
-  // Adresse du manager pour les clients : suggérée à partir de l'adresse de cette page
-  $("cfg-machine-url").dataset.saved = cfg.machine_url || "";
-  $("cfg-machine-url").value = cfg.machine_url || (cfg.machine_port ? `https://${location.hostname}:${cfg.machine_port}` : "");
-  $("cfg-auto-push").value = cfg.auto_push_interval ?? 120;
-  $("cfg-auto-push").dataset.saved = String(cfg.auto_push_interval ?? 120);
-  $("cfg-machine-fp").textContent = !cfg.machine_port ? "Port des clients désactivé (WSQUASHFS_MGR_MACHINE_PORT=0)."
-    : cfg.machine_fingerprint ? `Empreinte du certificat du manager : ${cfg.machine_fingerprint}` : "Certificat du manager créé au prochain démarrage.";
-  paintCfgDoctorSection(cfg, cfg.mode === "connecte");
-  $("cfg-err").textContent = systemsError || "";
-  $("cfg-err").hidden = !systemsError;
-  $("dlg-config").scrollTop = 0;
-  $("dlg-config").showModal();
-};
-$("cfg-save").onclick = async () => {
-  const errBox = $("cfg-err"), save = $("cfg-save");
+  renderSettings(cfg, settingsSystems, systemsError);
+  $("st-adv").open = !settingsSystems.length || Boolean($("st-dirs").value);
+  loadSettingsConnected();
+  paintSettingsToc();
+}
+
+// Sommaire : liens ancrés ; l'entrée de la section visible est active
+for (const a of document.querySelectorAll(".settings-toc a")) {
+  a.addEventListener("click", (event) => {
+    event.preventDefault();
+    $(a.getAttribute("href").slice(1)).scrollIntoView({ block: "start" });
+  });
+}
+function paintSettingsToc() {
+  const secs = [...$("settings-main").querySelectorAll(".st-sec")].filter((s) => s.offsetParent !== null);
+  let current = secs[0];
+  for (const s of secs) if (s.getBoundingClientRect().top <= 160) current = s;
+  for (const a of document.querySelectorAll(".settings-toc a")) a.classList.toggle("on", a.dataset.st === current?.dataset.st);
+}
+window.addEventListener("scroll", () => { if (!$("settings-main").hidden) paintSettingsToc(); }, { passive: true });
+
+// Enregistrer : seuls les réglages modifiés sont envoyés, par les routes existantes
+async function saveSettings() {
+  const changes = settingsChanges();
+  if (!changes.length || settingsBusy) return;
+  const errBox = $("st-err"), save = $("st-save"), v = settingsValues();
   const fail = (text) => { errBox.textContent = text; errBox.hidden = false; };
-  const mode = $("dlg-config").dataset.cmode, online = mode === "connecte";
-  const dirs = chosenDirs();
-  const dirsChanged = dirsKey(dirs) !== dirsKey(cfgOpened.dirs);
-  const night = [$("cfg-night-start").value, $("cfg-night-end").value];
-  const nightChanged = night.join() !== cfgOpened.night.join();
-  const sgdbKey = $("cfg-sgdb-key").value.trim();
-  const authors = sgdbAuthors($("cfg-sgdb-authors").value);
-  const threshold = Number($("cfg-sgdb-threshold").value);
-  const sgdbChanged = Boolean(sgdbKey) || JSON.stringify(authors) !== JSON.stringify(cfgOpened.sgdbAuthors) || threshold !== cfgOpened.threshold;
-  const machineUrl = $("cfg-machine-url").value.trim();
-  const machineChanged = online && machineUrl !== $("cfg-machine-url").dataset.saved;
-  const autoPush = $("cfg-auto-push");
-  const seconds = autoPush.value.trim() === "" ? NaN : Number(autoPush.value);
-  const autoPushChanged = online && autoPush.value !== autoPush.dataset.saved;
   errBox.hidden = true;
-  if (dirsChanged && !dirs.length) { fail("Systèmes à gérer : cocher au moins un système."); return; }
-  if (autoPushChanged && (!Number.isInteger(seconds) || seconds < 0 || seconds > 86400)) {
-    fail("Mise à jour automatique : nombre de secondes entre 0 (désactivée) et 86400."); return;
-  }
-  save.disabled = true;
+  if (changes.includes("dirs") && !chosenDirs().length) { fail("Bibliothèque : activer au moins un système."); return; }
+  settingsBusy = true;
+  paintSettingsBar();
   try {
-    if (mode !== cfgOpened.mode) state.config = await api("/api/config/mode", { method: "PUT", body: { mode } });
-    if (machineChanged) {
-      state.config = await api("/api/config/machine_url", { method: "PUT", body: { url: machineUrl } });
-      $("cfg-machine-url").dataset.saved = state.config.machine_url;
+    if (changes.includes("mode")) state.config = await api("/api/config/mode", { method: "PUT", body: { mode: v.mode } });
+    if (changes.includes("machine")) state.config = await api("/api/config/machine_url", { method: "PUT", body: { url: v.machine } });
+    if (changes.includes("autopush")) state.config = await api("/api/config/auto_push", { method: "PUT", body: { seconds: Number(v.autopush) } });
+    if (changes.includes("night")) {
+      state.config = await api("/api/config/night", { method: "PUT", body: { start: $("st-night-start").value, end: $("st-night-end").value } });
     }
-    if (autoPushChanged) {
-      state.config = await api("/api/config/auto_push", { method: "PUT", body: { seconds } });
-      autoPush.dataset.saved = String(state.config.auto_push_interval);
-    }
-    if (nightChanged) {
-      state.config = await api("/api/config/night", { method: "PUT", body: { start: night[0], end: night[1] } });
-    }
-    if (sgdbChanged) {
+    if (changes.includes("sgdb")) {
       state.config = await api("/api/config/sgdb", { method: "PUT",
-        body: { ...(sgdbKey ? { api_key: sgdbKey } : {}), authors, threshold } });
+        body: { ...(v.sgdbKey ? { api_key: v.sgdbKey } : {}), authors: sgdbAuthors($("st-sgdb-authors").value), threshold: Number($("st-sgdb-threshold").value) } });
     }
   } catch (error) {
     fail(error.message);
-    save.disabled = false;
+    settingsBusy = false;
+    paintSettingsBar();
     return;
+  }
+  if (changes.includes("trial")) {
+    storage.set("wsfs-trial-duration", v.trial);
+    trialSeconds = Number(v.trial);
+    paintTrial();
   }
   applyMode();
-  if (!dirsChanged) {
-    save.disabled = false;
-    $("dlg-config").close();
-    toast("Réglages enregistrés");
-    return;
-  }
-  // Le serveur lit les images des dossiers choisis avant de répondre : long
-  // pour des dossiers nouveaux. Passé un instant, la fenêtre se ferme et le
-  // bandeau de la liste prend le relais.
-  save.disabled = true;
-  save.replaceChildren(el("span", { className: "spinner" }), "Lecture des dossiers…");
-  errBox.hidden = true;
-  let done = null;
-  const handOver = setTimeout(() => {
-    $("dlg-config").close();
-    showView("images");
-    done = libBusy("Lecture des dossiers choisis",
-      "Chaque nouvelle image est ouverte une fois pour lire son autorun et sa version : compter quelques secondes par image. Les prochaines ouvertures viendront du cache.");
-  }, 1500);
-  try {
-    await api("/api/config/roms_dirs", { method: "PUT", body: { roms_dirs: dirs }, timeout: SCAN_TIMEOUT });
-    clearTimeout(handOver);
-    if ($("dlg-config").open) $("dlg-config").close();
-    done?.();
-    done = null;
-    await loadLibrary();
-    toast(`Réglages enregistrés : ${state.items.length} image(s)`);
-  } catch (error) {
-    clearTimeout(handOver);
-    if ($("dlg-config").open) fail(error.message);
-    else toast(`Réglages : ${error.message}`, "alert", true);
-  } finally {
-    done?.();
-    save.disabled = false;
+  let libraryMessage = "Réglages enregistrés";
+  if (changes.includes("dirs")) {
+    // Le serveur lit les images des dossiers choisis avant de répondre : long pour des dossiers
+    // nouveaux. Passé un instant, la page cède la place à la bibliothèque, qui montre la lecture.
+    save.replaceChildren(el("span", { className: "spinner" }), "Lecture des dossiers…");
+    const dirs = chosenDirs();
+    let done = null;
+    const handOver = setTimeout(() => {
+      showView("images");
+      done = libBusy("Lecture des dossiers choisis",
+        "Chaque nouvelle image est ouverte une fois pour lire son autorun et sa version : compter quelques secondes par image. Les prochaines ouvertures viendront du cache.");
+    }, 1500);
+    try {
+      state.config = await api("/api/config/roms_dirs", { method: "PUT", body: { roms_dirs: dirs }, timeout: SCAN_TIMEOUT });
+      clearTimeout(handOver);
+      done?.();
+      done = null;
+      await loadLibrary();
+      libraryMessage = `Réglages enregistrés : ${state.items.length} image(s)`;
+    } catch (error) {
+      clearTimeout(handOver);
+      done?.();
+      done = null;
+      settingsBusy = false;
+      save.textContent = "Enregistrer";
+      if (document.body.dataset.view === "settings") fail(error.message);
+      else toast(`Réglages : ${error.message}`, "alert", true);
+      paintSettingsBar();
+      return;
+    }
     save.textContent = "Enregistrer";
-    loadConfig();
   }
+  settingsBusy = false;
+  toast(libraryMessage);
+  if (document.body.dataset.view === "settings") {
+    renderSettings(state.config, settingsSystems);
+    if (changes.includes("mode")) loadSettingsConnected();
+  }
+  paintSettingsBar();
+}
+$("st-save").onclick = saveSettings;
+// Annuler : relit les valeurs enregistrées
+$("st-cancel").onclick = () => {
+  if (state.config) renderSettings(state.config, settingsSystems);
+  loadSettingsConnected();
 };
+
+// Le menu ⚙ ouvre la page (une seule fois : un second clic ne vide pas les modifications)
+$("btn-config").onclick = () => {
+  if (document.body.dataset.view !== "settings") { showView("settings"); window.scrollTo(0, 0); }
+};
+
 for (const button of document.querySelectorAll("[data-close]")) button.onclick = () => button.closest("dialog").close();
 
 // ------------------------------------------------------------------ actions en masse
@@ -3025,7 +3260,7 @@ $("d-trial").onclick = () => runTrial(trialSeconds);
 $("d-trial-pick").onclick = () => openMenuNode($("d-trial-wrap"), [
   el("div", { className: "dd-sub", textContent: "Durée de l'essai" }),
   ...TRIAL_DURS.map(([s, label]) => menuItem(label, "flask", () => {
-    trialSeconds = s; storage.set("wsfs-trial-dur", String(s)); paintTrial();
+    trialSeconds = s; storage.set("wsfs-trial-duration", String(s)); paintTrial();
   }, { checked: s === trialSeconds })),
 ]);
 $("d-verify").onclick = () => verify([state.current.id]).catch((error) => alert(error.message));
@@ -3200,17 +3435,25 @@ async function applyRunner(id, sug, button) {
 
 function showView(name) {
   if (name === "saves" && !connected()) name = "images";     // autonome : pas d'onglet Sauvegardes
+  // Quitter la page Réglages avec des modifications non enregistrées : on demande d'abord
+  if (document.body.dataset.view === "settings" && name !== "settings" && !settingsBusy
+      && settingsChanges().length && !confirm("Quitter les réglages sans enregistrer les modifications ?")) {
+    return Promise.resolve();
+  }
   document.body.dataset.view = name;
   paintViews(name);
+  $("btn-menu").classList.toggle("on", name === "settings");   // le ⚙ de l'en-tête montre la page ouverte
   $("main").hidden = name !== "images";
   $("folders-main").hidden = name !== "folders";
   $("saves-main").hidden = name !== "saves";
   $("help-main").hidden = name !== "help";
+  $("settings-main").hidden = name !== "settings";
   storage.set("wsfs-view", name);
   if (name === "folders") loadFolders();
   if (name === "saves") loadSaves();
   if (name === "images" && state.items.length) renderLibrary();   // icônes « Sauveg. » à jour
   if (name === "help") return loadHelp();
+  if (name === "settings") return openSettings();
   return Promise.resolve();
 }
 $("views").onclick = (event) => {
@@ -3764,6 +4007,7 @@ async function loadInstall() {
     if (seq === inst.seq) inst.loading = false;
   }
   paintInstall();
+  paintSettingsClients();
 }
 
 function paintInstall() {
@@ -3993,7 +4237,7 @@ $("btn-inst-uninstall").onclick = () => openUninstall(selectedImages());
   // folders et help restent mémorisés
   // Sauvegardes par défaut en mode connecté, Images en autonome (folders et help restent mémorisés)
   const stored = storage.get("wsfs-view");
-  const view = ["folders", "help"].includes(stored) ? stored : connected() ? "saves" : "images";
+  const view = ["folders", "help", "settings"].includes(stored) ? stored : connected() ? "saves" : "images";
   showView(view);              // charge aussi les sauvegardes si c'est la vue
   if (connected() && view !== "saves") loadSaves();   // compteur de l'onglet
   await loadLibrary();

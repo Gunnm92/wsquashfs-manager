@@ -835,16 +835,9 @@ main.folders { max-width: 1200px; margin: 0 auto; padding: 28px 24px 130px; disp
 .root-name .mono { font-size: 11.5px; overflow-wrap: anywhere; }
 .root-modes > button { padding: 6px 12px; font-size: 12.5px; }
 .root-hint { margin: 10px 0 8px; font-size: 12.5px; }
-.cfg-extra { margin-top: 12px; }
-.cfg-extra > summary { cursor: pointer; font-size: 13px; color: var(--muted); }
-.cfg-extra textarea { width: 100%; margin-top: 8px; }
-.cfg-total { margin: 12px 0 0; font-size: 12.5px; font-weight: 600; color: var(--accent2-300, var(--muted)); font-variant-numeric: tabular-nums; }
-.cfg-total.warn { color: var(--err-200); }
-.night-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.night-row > .ico { color: var(--accent2-400); }
-dl.cfg-info { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 0; font-size: 12.5px; }
-dl.cfg-info dt { color: var(--muted); }
-dl.cfg-info dd { margin: 0; font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+dl.st-info { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 0; font-size: 12.5px; }
+dl.st-info dt { color: var(--muted); }
+dl.st-info dd { margin: 0; font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
 
 /* État du lanceur (--doctor) */
 .doctor { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
@@ -1356,21 +1349,132 @@ button.mcard:hover .chev { color: var(--muted); }
 
 /* Mode autonome : ce qui touche une machine disparaît (la fenêtre Réglages suit l'état affiché) */
 body[data-mode="autonome"] [data-connected] { display: none !important; }
-#dlg-config[data-cmode="autonome"] .conn-only { display: none; }
-/* Réglages : une page, sections en petites capitales */
-dialog.cfg { max-height: calc(100vh - 32px); overflow-y: auto; }
-dialog.cfg .section-label:first-of-type { margin-top: 12px; }
-.cfg-mode { margin-top: 8px; }
-.cfg-mode > button { padding: 7px 16px; font-size: 13px; }
-.cfg-sgdb-key { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
-.cfg-sgdb-key input { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12.5px; }
-#cfg-sgdb-threshold { width: 100%; margin-top: 6px; accent-color: var(--accent); }
-.cfg-thr-row { display: flex; justify-content: space-between; gap: 8px; }
-.cfg-threshold-out { font-variant-numeric: tabular-nums; color: var(--text); }
-.night-row input[type="time"] { min-width: 9.5em; }
-#cfg-sgdb-msg { margin-top: 8px; }
-.cfg-server { margin-top: 18px; }
-.cfg-server > summary { cursor: pointer; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
-.cfg-server > summary .ro-tag { text-transform: none; letter-spacing: 0; font-weight: 400; }
-.cfg .doctor { margin-top: 6px; }
-.cfg .section-label.row { align-items: center; }
+
+/* ------------------------------------------------------------------ Réglages (page, menu ⚙) */
+#btn-menu.on, #btn-menu.on:hover { background: var(--accent-900); color: var(--accent-300); }
+@keyframes pagein { from { opacity: 0; transform: translateY(8px); } }
+main.settings { display: grid; grid-template-columns: 210px minmax(0, 820px); gap: 56px; justify-content: center; align-items: start;
+  max-width: 1120px; margin: 0 auto; padding: 32px 24px 160px; animation: pagein var(--dur-med) var(--ease-out) both; }
+main.settings[hidden] { display: none; }
+/* Sommaire : liens ancrés avec icône ; l'entrée de la section visible est active */
+.settings-toc { position: sticky; top: calc(var(--top-h) + 24px); display: flex; flex-direction: column; gap: 2px; }
+.settings-toc a { position: relative; display: flex; align-items: center; gap: 11px; padding: 8px 12px; border-radius: var(--radius-pill);
+  color: var(--muted); font-size: 13.5px; font-weight: 600; text-decoration: none;
+  transition: background var(--dur-base) var(--ease-out), color var(--dur-base) var(--ease-out); }
+.settings-toc a .ico { width: 16px; height: 16px; flex: none; }
+.settings-toc a:hover { color: var(--text); background: var(--surface); }
+.settings-toc a.on { color: var(--text); background: var(--surface); }
+.settings-toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.st-dot { margin-left: auto; width: 8px; height: 8px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 0 3px rgba(240, 166, 108, .18); }
+/* Mode choisi (pas encore enregistré) : sections connectées visibles seulement en connecté */
+main.settings[data-pending="autonome"] [data-cfg-conn] { display: none; }
+.settings-body { min-width: 0; display: flex; flex-direction: column; gap: 40px; }
+.st-sec { display: flex; flex-direction: column; gap: 12px; scroll-margin-top: calc(var(--top-h) + 20px);
+  animation: fadeup var(--dur-slow) var(--ease-out) both; }
+.st-sec:nth-child(2) { animation-delay: 40ms; }
+.st-sec:nth-child(3) { animation-delay: 80ms; }
+.st-sec:nth-child(4) { animation-delay: 120ms; }
+.st-sec:nth-child(5) { animation-delay: 160ms; }
+.st-sec:nth-child(6) { animation-delay: 200ms; }
+.st-sec:nth-child(7) { animation-delay: 240ms; }
+.st-sec:nth-child(8) { animation-delay: 280ms; }
+.st-sec:nth-child(9) { animation-delay: 320ms; }
+.st-head h2 { margin: 0; font-size: 18px; font-weight: 700; }
+.st-head p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+.st-head-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
+.st-age { font-size: 12.5px; white-space: nowrap; padding-bottom: 2px; }
+.st-card { border-radius: var(--radius-lg); background: var(--surface); overflow: hidden; }
+/* Ligne : libellé et phrase à gauche, contrôle à droite, filet entre les lignes */
+.st-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 16px 20px; }
+.st-row + .st-row { border-top: 1px solid var(--divider); }
+.st-row-block { flex-direction: column; align-items: stretch; gap: 8px; padding-bottom: 6px; }
+.st-txt { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1 1 auto; }
+.st-txt b { font-size: 14px; font-weight: 700; }
+.st-txt > span { color: var(--muted); font-size: 12.5px; line-height: 1.5; max-width: 60ch; }
+.st-txt .notice { margin: 6px 0 0; }
+.st-sub { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.st-fp { font-size: 11.5px; overflow-wrap: anywhere; }
+.st-row.st-ro { color: var(--muted); background: rgba(232, 234, 239, .025); }
+.st-row.st-ro .st-txt b { color: var(--muted); font-weight: 600; }
+.st-fixed { font-family: var(--mono); font-size: 12.5px; color: var(--muted); white-space: nowrap; flex: none; }
+.st-foot { display: flex; align-items: center; gap: 10px; padding: 12px 20px; border-top: 1px solid var(--divider); }
+.st-total { font-size: 12.5px; font-weight: 600; color: var(--accent2-300); font-variant-numeric: tabular-nums; }
+.st-total.warn { color: var(--err-200); }
+.st-hint { margin: 0; color: var(--muted); font-size: 12.5px; }
+.st-empty { margin: 0; padding: 16px 20px; font-size: 13px; }
+.st-input { width: 280px; max-width: 100%; flex: none; }
+textarea.st-input { min-height: 64px; }
+.st-keyrow { display: flex; gap: 8px; align-items: center; flex: none; }
+.st-keyrow .st-input { width: 240px; font-size: 12.5px; }
+.st-times { display: flex; align-items: center; gap: 8px; flex: none; }
+.st-times input[type=time] { width: 136px; }
+.st-row-block textarea.st-input { width: 100%; max-width: none; }
+.st-range { display: flex; align-items: center; gap: 12px; flex: none; }
+.st-range input[type=range] { width: 200px; accent-color: var(--accent); }
+.st-range-out { font-variant-numeric: tabular-nums; min-width: 3em; text-align: right; }
+.st-seg { flex: none; background: var(--s2); }
+.st-trial-ctl { display: flex; align-items: center; gap: 10px; flex: none; }
+.st-trial-name { font-weight: 700; }
+/* Interrupteurs : l'anneau et le bouton glissent (--dur-base) */
+input[type=checkbox].switch { transition: background var(--dur-base) var(--ease-out); flex: none; }
+input[type=checkbox].switch::before { transition: left var(--dur-base) var(--ease-spring); }
+/* Clients associés */
+.st-client .mcard-ico { width: 42px; height: 42px; }
+.st-cname { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.st-cname b { font-weight: 700; }
+.st-state { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); white-space: nowrap; flex: none; }
+.st-state.ok { color: var(--ok); }
+.st-led { width: 8px; height: 8px; border-radius: 50%; background: var(--idle); flex: none; }
+.st-state.ok .st-led { background: var(--ok); box-shadow: 0 0 0 3px rgba(95, 209, 160, .18); }
+/* Avancé : dossier par dossier (sous la carte des systèmes) */
+.st-adv { margin-top: 2px; }
+.st-adv > summary { cursor: pointer; list-style: none; padding: 6px 4px; font-size: 13px; color: var(--muted); }
+.st-adv > summary::-webkit-details-marker { display: none; }
+.st-adv > summary::before { content: "›"; display: inline-block; margin-right: 8px; transition: transform var(--dur-base) var(--ease-out); }
+.st-adv[open] > summary { color: var(--text); }
+.st-adv[open] > summary::before { transform: rotate(90deg); }
+.st-adv > .st-card { margin-top: 8px; }
+.st-roots { display: flex; flex-direction: column; gap: 14px; padding: 0 20px 16px; }
+/* Diagnostic du lanceur : problèmes d'abord, vérifications OK repliées */
+#st-doctor { display: flex; flex-direction: column; gap: 10px; }
+.st-alert { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 14px 16px;
+  border-radius: var(--radius-sm); background: color-mix(in srgb, var(--warn) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 34%, transparent); }
+.st-alert > .ico { color: var(--warn); width: 18px; height: 18px; }
+.st-alert-txt { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.st-alert-txt .mono { font-size: 11.5px; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+.st-ok { border-radius: var(--radius-sm); background: var(--surface); padding: 10px 14px; }
+.st-ok > summary { cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; list-style: none; }
+.st-ok > summary::-webkit-details-marker { display: none; }
+.st-ok > summary .ico:first-child { color: var(--ok); }
+.st-ok[open] { padding-bottom: 12px; }
+.st-ok .doctor { margin-top: 10px; }
+.st-verdict { margin: 0; font-weight: 600; }
+/* Serveur (lecture seule) */
+.st-server > summary { cursor: pointer; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.st-server > summary .ro-tag { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.st-server dl { margin-top: 12px; }
+.st-server > .dlg-intro { margin-top: 10px; }
+/* Barre d'enregistrement : monte quand un réglage change */
+.savebar { position: fixed; z-index: 40; left: 50%; bottom: 22px; width: min(720px, calc(100vw - 32px));
+  transform: translate(-50%, calc(100% + 48px)); opacity: 0; visibility: hidden;
+  transition: transform var(--dur-med) var(--ease-out), opacity var(--dur-med) var(--ease-out), visibility var(--dur-med); }
+.savebar.show { transform: translate(-50%, 0); opacity: 1; visibility: visible; }
+.savebar-in { display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 20px; border-radius: var(--radius-lg);
+  background: var(--s3); box-shadow: var(--shadow-lg); }
+.savebar-count { font-size: 13px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.savebar .notice { margin: 8px 0 0; }
+@media (max-width: 820px) {
+  main.settings { grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 18px 12px 170px; }
+  .settings-toc { position: static; flex-direction: row; overflow-x: auto; scrollbar-width: none; }
+  .settings-toc a { flex: none; }
+  .st-row { flex-direction: column; align-items: stretch; gap: 10px; padding: 14px 16px; }
+  .st-row .seg.st-seg { align-self: flex-start; }
+  .st-times, .st-keyrow, .st-range, .st-trial-ctl { flex-wrap: wrap; }
+  .st-input, .st-keyrow .st-input { width: 100%; }
+  .st-client { flex-wrap: wrap; }
+  .st-alert { grid-template-columns: auto minmax(0, 1fr); }
+  .st-alert > .btn { grid-column: 2; justify-self: start; }
+  .savebar { bottom: 12px; width: calc(100vw - 24px); }
+  .savebar-count { white-space: normal; }
+}

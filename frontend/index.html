@@ -422,6 +422,167 @@
 <!-- ================================================================ Aide (contenu : assets/help.html, chargé à l'ouverture) -->
 <main id="help-main" class="help" hidden></main>
 
+<!-- ================================================================ Réglages (page, menu ⚙) -->
+<main id="settings-main" class="settings" hidden data-pending="autonome">
+  <nav class="settings-toc" aria-label="Sommaire des réglages">
+    <a href="#st-mode" data-st="mode"><svg class="ico"><use href="#i-cpu"/></svg>Mode</a>
+    <a href="#st-saves" data-st="saves" data-cfg-conn><svg class="ico"><use href="#i-save"/></svg>Sauvegardes</a>
+    <a href="#st-clients" data-st="clients" data-cfg-conn><svg class="ico"><use href="#i-server"/></svg>Clients</a>
+    <a href="#st-library" data-st="library"><svg class="ico"><use href="#i-book"/></svg>Bibliothèque</a>
+    <a href="#st-tasks" data-st="tasks"><svg class="ico"><use href="#i-moon"/></svg>Tâches</a>
+    <a href="#st-artwork" data-st="artwork"><svg class="ico"><use href="#i-image"/></svg>Illustrations</a>
+    <a href="#st-trial" data-st="trial" data-cfg-conn><svg class="ico"><use href="#i-flask"/></svg>Lancement d'essai</a>
+    <a href="#st-diag" data-st="diag" data-cfg-conn><svg class="ico"><use href="#i-shield"/></svg>Diagnostic<span class="st-dot" id="st-toc-warn" hidden></span></a>
+    <a href="#st-server" data-st="server"><svg class="ico"><use href="#i-monitor"/></svg>Serveur</a>
+  </nav>
+
+  <div class="settings-body">
+    <section class="st-sec" id="st-mode" data-st="mode">
+      <div class="st-head"><h2>Mode</h2><p>Ce que le manager fait, et avec quelles machines.</p></div>
+      <div class="st-card">
+        <div class="st-row">
+          <div class="st-txt"><b>Fonctionnement</b><span id="st-mode-hint"></span></div>
+          <div class="seg st-seg" id="st-mode-seg" role="radiogroup" aria-label="Mode">
+            <span class="ind" aria-hidden="true"></span>
+            <button type="button" role="radio" data-value="autonome">Autonome</button>
+            <button type="button" role="radio" data-value="connecte">Connecté</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="st-sec" id="st-saves" data-st="saves" data-cfg-conn>
+      <div class="st-head"><h2>Sauvegardes</h2><p>Partage des sauvegardes de jeu entre machines.</p></div>
+      <div class="st-card">
+        <div class="st-row">
+          <div class="st-txt"><b>Synchronisation automatique</b><span>Les clients dont la synchro auto est activée et qui sont en retard reçoivent la version du manager, à cet intervalle.</span></div>
+          <div class="seg st-seg" id="st-autopush" role="radiogroup" aria-label="Synchronisation automatique"><span class="ind" aria-hidden="true"></span></div>
+        </div>
+        <div class="st-row">
+          <div class="st-txt"><b>Adresse du manager pour les clients</b><span>Adresse par laquelle les clients joignent ce manager (HTTPS). Déclarée à chaque client associé (agent version 9 ou plus) ; vide : pas de synchro automatique.</span><span class="st-fp mono" id="st-machine-fp"></span></div>
+          <input class="st-input mono" id="st-machine-url" autocomplete="off" placeholder="https://192.168.1.10:8790" aria-label="Adresse du manager pour les clients">
+        </div>
+      </div>
+    </section>
+
+    <section class="st-sec" id="st-clients" data-st="clients" data-cfg-conn>
+      <div class="st-head"><h2>Clients</h2><p>Machines associées : leurs sauvegardes sont partagées avec le manager.</p></div>
+      <div class="st-card">
+        <div id="st-clients-list"></div>
+        <div class="st-foot"><button type="button" class="btn secondary sm" id="st-pair"><svg class="ico sm"><use href="#i-plus"/></svg>Associer un client</button></div>
+      </div>
+    </section>
+
+    <section class="st-sec" id="st-library" data-st="library">
+      <div class="st-head"><h2>Bibliothèque</h2><p>Systèmes pris en compte dans la liste des images.</p></div>
+      <div class="st-card">
+        <div id="st-libsys"></div>
+        <div class="st-foot"><span class="st-total" id="st-total"></span></div>
+      </div>
+      <p class="notice err" id="st-systems-err" hidden></p>
+      <details class="st-adv" id="st-adv">
+        <summary>Avancé : choisir dossier par dossier</summary>
+        <div class="st-card">
+          <div class="st-row st-row-block"><div class="st-txt"><b>Dossiers de base</b><span>« Tout le dossier » lit aussi les systèmes ajoutés plus tard ; « Choisir les systèmes » ne lit que les cochés.</span></div></div>
+          <div class="st-roots" id="st-roots"></div>
+          <div class="st-row st-row-block"><div class="st-txt"><b>Autres dossiers, hors du dossier des roms</b><span>Un chemin par ligne.</span></div>
+            <textarea id="st-dirs" rows="3" class="st-input mono" placeholder="/chemin/vers/un/dossier" aria-label="Autres dossiers"></textarea></div>
+        </div>
+      </details>
+    </section>
+
+    <section class="st-sec" id="st-tasks" data-st="tasks">
+      <div class="st-head"><h2>Tâches</h2><p>Reconstructions, vérifications et empaquetages lancés depuis le manager.</p></div>
+      <div class="st-card">
+        <div class="st-row">
+          <div class="st-txt"><b>Plage de nuit</b><span>Une tâche « cette nuit » ne démarre que dans cette plage.</span></div>
+          <div class="st-times">
+            <input type="time" id="st-night-start" required aria-label="Début de la plage de nuit">
+            <span class="muted">à</span>
+            <input type="time" id="st-night-end" required aria-label="Fin de la plage de nuit">
+          </div>
+        </div>
+        <div class="st-row st-ro">
+          <div class="st-txt"><b>Tâches en parallèle</b><span>Au-delà, les tâches attendent leur tour dans la file. Fixé au démarrage (WSQUASHFS_MGR_TASK_CONCURRENCY).</span></div>
+          <span class="st-fixed" id="st-concurrency"></span>
+        </div>
+        <div class="st-row st-ro">
+          <div class="st-txt"><b>Anciennes versions (.old)</b><span>Supprimées automatiquement après ce délai ; sinon à valider à la main. Fixé au démarrage (WSQUASHFS_MGR_OLD_RETENTION_DAYS).</span></div>
+          <span class="st-fixed" id="st-retention"></span>
+        </div>
+      </div>
+    </section>
+
+    <section class="st-sec" id="st-artwork" data-st="artwork">
+      <div class="st-head"><h2>Illustrations</h2><p>Jaquettes et icônes téléchargées depuis SteamGridDB.</p></div>
+      <div class="st-card">
+        <div class="st-row">
+          <div class="st-txt"><b>Clé API SteamGridDB</b><span>Sur steamgriddb.com : Profil › Préférences › API. Vide : la clé enregistrée reste.</span><span class="notice" id="st-sgdb-msg" hidden></span></div>
+          <div class="st-keyrow">
+            <input type="password" id="st-sgdb-key" autocomplete="off" class="st-input mono" placeholder="clé API" aria-label="Clé API SteamGridDB">
+            <button type="button" class="btn secondary sm" id="st-sgdb-test">Tester</button>
+          </div>
+        </div>
+        <div class="st-row">
+          <div class="st-txt"><b>Auteurs préférés</b><span>Ces auteurs passent avant les autres, dans l'ordre de la liste. Un par ligne, ou séparés par des virgules.</span></div>
+          <textarea id="st-sgdb-authors" rows="2" class="st-input" aria-label="Auteurs préférés"></textarea>
+        </div>
+        <div class="st-row">
+          <div class="st-txt"><b>Seuil de rondeur des icônes</b><span>Sans auteur préféré, une icône n'est retenue que si elle est assez ronde.</span></div>
+          <div class="st-range">
+            <input type="range" id="st-sgdb-threshold" min="0" max="1" step="0.05" aria-label="Seuil de rondeur des icônes">
+            <output id="st-sgdb-threshold-out" class="st-range-out"></output>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="st-sec" id="st-trial" data-st="trial" data-cfg-conn>
+      <div class="st-head"><h2>Lancement d'essai</h2><p>Lance le jeu sur le client d'essai, l'observe puis l'arrête.</p></div>
+      <div class="st-card">
+        <div class="st-row">
+          <div class="st-txt"><b>Client d'essai</b><span id="st-trial-hint">Se choisit dans le menu d'un client (section Clients). Le client choisi en haut de la page est proposé ici.</span></div>
+          <div class="st-trial-ctl">
+            <span class="st-trial-name" id="st-trial-name"></span>
+            <button type="button" class="btn secondary sm" id="st-trial-use" hidden></button>
+          </div>
+        </div>
+        <div class="st-row">
+          <div class="st-txt"><b>Durée par défaut</b><span>Reste modifiable au moment du lancement, dans la fiche du jeu.</span></div>
+          <div class="seg st-seg" id="st-trial-dur" role="radiogroup" aria-label="Durée par défaut de l'essai"><span class="ind" aria-hidden="true"></span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="st-sec" id="st-diag" data-st="diag" data-cfg-conn>
+      <div class="st-head st-head-row">
+        <div><h2>Diagnostic du lanceur</h2><p id="st-doctor-intro"></p></div>
+        <span class="st-age muted" id="st-doctor-age"></span>
+      </div>
+      <div id="st-doctor" class="doctor"><span class="muted">—</span></div>
+      <div class="row"><button type="button" class="btn secondary sm" id="st-doctor-refresh"><svg class="ico sm"><use href="#i-refresh"/></svg>Relancer le diagnostic</button></div>
+    </section>
+
+    <section class="st-sec" id="st-server" data-st="server">
+      <details class="st-server">
+        <summary>Serveur <span class="ro-tag">lecture seule</span></summary>
+        <dl id="st-info" class="st-info"></dl>
+        <p class="dlg-intro">Fixé au démarrage par les variables <code>WSQUASHFS_MGR_*</code> (voir le README).</p>
+      </details>
+    </section>
+  </div>
+
+  <div class="savebar" id="st-savebar" inert>
+    <div class="savebar-in">
+      <span class="savebar-count" id="st-count" role="status"></span>
+      <span class="spacer"></span>
+      <button type="button" class="btn secondary" id="st-cancel">Annuler</button>
+      <button type="button" class="btn primary" id="st-save">Enregistrer</button>
+    </div>
+    <p class="notice err" id="st-err" hidden></p>
+  </div>
+</main>
+
 <!-- ================================================================ Boîtes de dialogue -->
 <dialog id="dlg-pack" class="wide">
   <div class="dlg-head"><h2>Empaqueter <span id="p-count"></span> dossier(s)</h2><span id="p-progress" class="muted"></span>
@@ -506,71 +667,6 @@
     <p id="login-err" class="notice err" hidden></p>
     <div class="dlg-foot"><span class="spacer"></span><button class="btn primary">Se connecter</button></div>
   </form>
-</dialog>
-
-<dialog id="dlg-config" class="small cfg">
-  <div class="dlg-head"><h2>Réglages</h2><span class="spacer"></span>
-    <button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
-
-  <!-- Mode : autonome (construire seulement) ou connecté (clients) -->
-  <div class="section-label">Mode</div>
-  <div class="pills on-s2 cfg-mode" id="cfg-mode" role="radiogroup">
-    <button data-mode="autonome" role="radio">Autonome</button>
-    <button data-mode="connecte" role="radio">Connecté</button>
-  </div>
-  <p class="dlg-intro" id="cfg-mode-hint"></p>
-
-  <!-- Systèmes à gérer : quels dossiers de roms lire -->
-  <div class="section-label">Systèmes à gérer</div>
-  <p class="dlg-intro">Dossiers lus par le gestionnaire : images <code>.wsquashfs</code> et dossiers <code>.pc</code> / <code>.wine</code> à empaqueter.</p>
-  <div id="cfg-roots"></div>
-  <details class="cfg-extra" id="cfg-extra"><summary>Autres dossiers, hors du dossier des roms</summary>
-    <textarea id="cfg-dirs" rows="3" placeholder="/chemin/vers/un/dossier — un par ligne"></textarea>
-  </details>
-  <p class="cfg-total" id="cfg-total"></p>
-
-  <!-- Tâches de nuit -->
-  <div class="section-label">Tâches de nuit</div>
-  <div class="night-row"><svg class="ico"><use href="#i-moon"/></svg>
-    <input type="time" id="cfg-night-start" required aria-label="Début de la plage de nuit"><span class="muted">→</span>
-    <input type="time" id="cfg-night-end" required aria-label="Fin de la plage de nuit"></div>
-  <p class="dlg-intro">Une tâche « cette nuit » ne démarre que dans cette plage.</p>
-
-  <!-- Illustrations : SteamGridDB -->
-  <div class="section-label">Illustrations (SteamGridDB)</div>
-  <label class="field">Clé API<span class="cfg-sgdb-key"><input id="cfg-sgdb-key" type="password" autocomplete="off" placeholder="clé API"><button class="btn secondary sm" id="cfg-sgdb-test" type="button">Tester</button></span></label>
-  <p class="dlg-intro">Clé sur <a href="https://www.steamgriddb.com/" target="_blank" rel="noopener">steamgriddb.com</a> : Profil › Préférences › API. Vide : la clé enregistrée reste.</p>
-  <p id="cfg-sgdb-msg" class="notice" hidden></p>
-  <label class="field">Auteurs préférés<textarea id="cfg-sgdb-authors" rows="2" placeholder="un par ligne, ou séparés par des virgules"></textarea></label>
-  <label class="field"><span class="cfg-thr-row">Seuil de rondeur des icônes <span id="cfg-sgdb-threshold-out" class="cfg-threshold-out"></span></span><input id="cfg-sgdb-threshold" type="range" min="0" max="1" step="0.05"></label>
-
-  <!-- Lanceur du client d'essai (connecté seulement) -->
-  <div class="conn-only">
-    <div class="section-label row"><span id="cfg-doctor-title">Lanceur du client d'essai</span><span class="spacer"></span><span id="cfg-doctor-age" class="muted"></span>
-      <button class="iconbtn bare sm" id="cfg-doctor-refresh" title="Relancer le diagnostic"><svg class="ico sm"><use href="#i-refresh"/></svg></button></div>
-    <div id="cfg-doctor" class="doctor"><span class="muted">—</span></div>
-  </div>
-
-  <!-- Synchro automatique des clients (connecté seulement) -->
-  <div class="conn-only">
-    <div class="section-label">Synchro automatique des clients</div>
-    <label class="field">Adresse du manager pour les clients<input id="cfg-machine-url" autocomplete="off" placeholder="https://192.168.1.10:8790"></label>
-    <p class="dlg-intro">Adresse par laquelle les clients joignent ce manager (HTTPS, port 8790). Elle est déclarée à chaque client associé (agent version 9 ou plus) ; vide : pas de synchro automatique.</p>
-    <p class="muted" id="cfg-machine-fp" style="font-size:12.5px"></p>
-    <label class="field">Mise à jour automatique des clients (secondes ; 0 : désactivée)<input id="cfg-auto-push" type="number" min="0" max="86400" step="1" inputmode="numeric"></label>
-    <p class="dlg-intro">Les clients dont la synchro auto est activée et qui sont en retard reçoivent la version du manager, à cet intervalle.</p>
-  </div>
-
-  <!-- Serveur : lecture seule, replié -->
-  <details class="cfg-server">
-    <summary>Serveur <span class="ro-tag">lecture seule</span></summary>
-    <dl id="cfg-info" class="cfg-info"></dl>
-    <p class="dlg-intro" style="margin-top:8px">Fixé au démarrage par les variables <code>WSQUASHFS_MGR_*</code> (voir le README).</p>
-  </details>
-
-  <p id="cfg-err" class="notice err" hidden></p>
-  <div class="dlg-foot"><span class="spacer"></span>
-    <button class="btn secondary" data-close>Fermer</button><button class="btn primary" id="cfg-save">Enregistrer</button></div>
 </dialog>
 
 <dialog id="dlg-doctor" class="small">
