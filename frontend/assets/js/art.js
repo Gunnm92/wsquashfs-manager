@@ -58,11 +58,24 @@ function pumpArt() {
   }
 }
 
+// Images d'une illustration. Dans un cadre portrait (jaquette, galerie : .gcover, .frame), l'image
+// entière est posée (contain) par-dessus une copie floutée et assombrie qui remplit le cadre : pas de bande vide.
+export function artImages(node, url, animate = false) {
+  const out = [];
+  if (node.classList.contains("gcover") || node.classList.contains("frame")) {
+    const back = el("img", { src: url, alt: "", className: "bg" });
+    back.setAttribute("aria-hidden", "true");
+    out.push(back);
+  }
+  out.push(el("img", { src: url, alt: "", className: animate ? "fade-in" : "" }));
+  return out;
+}
+
 export function putArt(node, a, animate) {
   node.textContent = "";
   node.style.background = "";
   node.classList.add(a.kind);
-  node.append(el("img", { src: a.url, alt: "", className: animate ? "fade-in" : "" }));
+  node.append(...artImages(node, a.url, animate));
 }
 
 // Vrai si l'illustration était déjà connue (posée sans attendre)

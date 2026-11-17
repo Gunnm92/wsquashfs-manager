@@ -32,11 +32,11 @@
       <div data-f><dt>autorun.cmd</dt><dd>La petite fiche, dans l'image, qui dit quoi lancer et avec quels réglages.</dd></div>
       <div data-f><dt>Sauvegardes</dt><dd>Tout ce que le jeu écrit (parties, options), gardé à part dans <code>saves/&lt;jeu&gt;</code>.</dd></div>
       <div data-f><dt>Surcharge</dt><dd>Un réglage essayé à côté de l'image, sans la reconstruire. Batocera ne le voit pas.</dd></div>
-      <div data-f><dt>.old</dt><dd>L'ancienne version d'une image, gardée après une modification jusqu'à ce que tu la valides.</dd></div>
+      <div data-f><dt>.old</dt><dd>L'ancienne version d'une image, gardée après une modification jusqu'à ce que tu la supprimes ou la restaures.</dd></div>
       <div data-f><dt>Runner</dt><dd>Le Wine ou le Proton qui fait tourner le jeu Windows sous Linux.</dd></div>
     </dl>
 
-    <div class="tip" data-f><svg class="ico"><use href="#i-shield"/></svg><span>Rien n'est jamais détruit sans confirmation : une image modifiée est reconstruite à côté, et l'ancienne reste en <code>.old</code> tant que tu ne l'as pas validée.</span></div>
+    <div class="tip" data-f><svg class="ico"><use href="#i-shield"/></svg><span>Rien n'est jamais détruit sans confirmation : une image modifiée est reconstruite à côté, et l'ancienne reste en <code>.old</code> tant que tu ne l'as pas supprimée ou restaurée.</span></div>
   </section>
 
   <!-- ============================================================ Guides -->
@@ -86,12 +86,12 @@
     </details>
 
     <details class="guide" id="g-old" data-f>
-      <summary><svg class="ico"><use href="#i-history"/></svg><span>Valider ou annuler une modification (.old)</span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
+      <summary><svg class="ico"><use href="#i-history"/></svg><span>Supprimer ou restaurer l'ancienne version (.old)</span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
       <ol>
         <li>Après une reconstruction ou une mise à jour, la fiche affiche « Une ancienne version est conservée ».</li>
         <li>Lancer le jeu pour vérifier qu'il marche toujours.</li>
-        <li><b>Valider</b> supprime l'ancienne version ; <b>Revenir à l'ancienne</b> annule la modification.</li>
-        <li>Pour plusieurs jeux à la fois : les sélectionner, puis <b>Valider les .old</b>.</li>
+        <li><b>Supprimer l'ancienne version</b> l'efface définitivement ; <b>Restaurer l'ancienne version</b> remet l'image d'avant la modification.</li>
+        <li>Pour plusieurs jeux à la fois : les sélectionner, puis <b>Supprimer les anciennes versions (.old)</b> (confirmation avec le nombre d'images).</li>
       </ol>
     </details>
 
@@ -314,12 +314,12 @@ ENV=GAMEID=umu-monjeu</pre>
     <div class="klist">
       <details class="key" id="hk-HIDRAW" data-f><summary><code>HIDRAW</code><span>Manette Sony gérée par le jeu lui-même</span><code class="ex">1 · bt</code></summary>
         <div>
-          <p>Par défaut, la manette est vue comme une manette Xbox (XInput), comme sous Batocera. À changer seulement pour un jeu qui gère la DualSense lui-même (sans Steam Input) :</p>
+          <p>Par défaut, la manette est vue comme une manette Xbox, comme sous Batocera. À changer seulement pour un jeu qui gère la DualSense lui-même (sans Steam Input) :</p>
           <ul>
-            <li><code>1</code> : manette Sony par hidraw ; une DualSense Bluetooth est présentée en USB (<code>dualsense-usb-bridge</code>), car certains jeux refusent la Bluetooth. Repli XInput si illisible.</li>
+            <li><code>1</code> : manette Sony par hidraw ; une DualSense Bluetooth est présentée en USB (<code>dualsense-usb-bridge</code>), car certains jeux refusent la Bluetooth. Repli en manette Xbox si illisible.</li>
             <li><code>bt</code> : DualSense Bluetooth en direct, pour un jeu dont les vibrations haptiques passent par la Bluetooth.</li>
           </ul>
-          <p class="muted">Sous GE-Proton, le mode XInput passe aussi par hidraw (<code>PROTON_SONY_HIDRAW_XINPUT=1</code>, posé par le lanceur).</p>
+          <p class="muted">Sous GE-Proton, le mode manette Xbox passe aussi par hidraw (<code>PROTON_SONY_HIDRAW_XINPUT=1</code>, posé par le lanceur).</p>
         </div></details>
       <details class="key" id="hk-LANG" data-f><summary><code>LANG</code><span>La langue du jeu</span><code class="ex">fr_FR.UTF-8</code></summary>
         <div>Posée dans <code>LC_ALL</code>.</div></details>
@@ -385,7 +385,7 @@ HIDRAW=1</pre>
       <p>Sans <code>WINE</code>, <code>PROTON</code>, <code>RUNNER</code>, runner intégré ni <code>--wine</code> :</p>
       <ul>
         <li><b>Prefix proton</b> : la même version de Proton (Heroic, Steam, <code>/usr/share/steam/compatibilitytools.d</code>), sinon proton-cachyos, puis l'UMU-Proton le plus récent, puis GE-Proton, puis n'importe quel Proton. Lancé via umu, comme Heroic ; sans umu, le Wine du Proton est lancé directement (<code>WSQUASHFS_UMU=0</code> force ce mode).</li>
-        <li><b>Aucun prefix (jeu seul)</b> : proton-cachyos, sinon UMU-Proton, sinon GE-Proton. Les deux premiers gèrent la DualSense en manette XInput avec vibrations ; GE-Proton la force en hidraw.</li>
+        <li><b>Aucun prefix (jeu seul)</b> : proton-cachyos, sinon UMU-Proton, sinon GE-Proton. Les deux premiers gèrent la DualSense en manette Xbox avec vibrations ; GE-Proton la force en hidraw.</li>
         <li><b>Autres prefixes</b> (arcade Batocera) : wine-tkg, puis wine-ge/lutris, puis wine-proton, puis le Wine du système.</li>
       </ul>
       <p class="muted">Les DLL que Proton copie d'ordinaire dans chaque prefix (~190 Mo par jeu) y sont des liens ; <code>ENV=PROTON_DLL_COPY=&lt;motifs&gt;</code> pour un jeu qui doit les remplacer. Le lanceur ramène la pile à 8 Mo si elle est illimitée (Docker sur Unraid), sans quoi proton-cachyos ne démarre pas.</p>

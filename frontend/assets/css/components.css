@@ -197,7 +197,14 @@ pre.bat, pre.code { padding: 12px 14px; border-radius: 18px; background: var(--b
 /* Illustrations : jaquette, icône de l'exécutable ou initiales */
 .thumb { width: 38px; height: 38px; flex: none; display: grid; place-items: center; overflow: hidden; border-radius: 13px;
   color: #fff; font-weight: 700; font-size: 13px; }
-.thumb img, .cover img, .gcover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* Image entière visible : liste et fiche en contain sur le fond de la vignette ; jaquette et galerie
+   (.gcover, .frame) en contain par-dessus une copie floutée et assombrie qui remplit le cadre (img.bg) */
+.thumb, .cover { background: var(--s2); }
+.thumb img, .cover img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.gcover img, .frame img { width: 100%; height: 100%; object-fit: contain; display: block; position: relative; }
+.gcover img.bg, .frame img.bg { position: absolute; inset: 0; object-fit: cover; padding: 0;
+  filter: blur(14px) brightness(.45); transform: scale(1.15); }
+.frame { position: relative; display: block; aspect-ratio: 3 / 4; overflow: hidden; border-radius: var(--radius-md); background: var(--s2); }
 .thumb.icon, .cover.icon, .gcover.icon { background: var(--s3); }
 .thumb.icon img { object-fit: contain; padding: 5px; }
 .cover.icon img { object-fit: contain; padding: 12px; }

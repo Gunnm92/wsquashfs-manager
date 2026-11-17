@@ -22,6 +22,7 @@
 @import url("css/views/machines.css") layer(views);
 @import url("css/views/saves.css") layer(views);
 @import url("css/views/install.css") layer(views);
+@import url("css/views/art-choice.css") layer(views);
 @import url("css/views/settings.css");
 @import url("css/views/saves-folders.css");
 

@@ -408,8 +408,8 @@ Une image squashfs ne se modifie pas en place (SPEC § 3.1) :
 4. échange : l'original devient `<jeu>.wsquashfs.old`, refusé si le jeu a été
    lancé ou l'image modifiée entre-temps.
 
-L'`.old` n'est supprimé que sur « Valider » (ou après `OLD_RETENTION_DAYS`) ;
-« Revenir à l'ancienne » le remet en place. Une image qui a déjà un `.old`
+L'`.old` n'est supprimé que sur « Supprimer l'ancienne version » (ou après `OLD_RETENTION_DAYS`) ;
+« Restaurer l'ancienne version » le remet en place. Une image qui a déjà un `.old`
 n'est pas reconstruite.
 
 Les reconstructions passent par une file persistante (`STATE_DIR/tasks.json`) :
@@ -437,7 +437,7 @@ mode ajout écrit le fichier à la suite et ne réécrit que les tables
 est modifiée en place, sans `.old` : refusé pendant une partie, et quand
 `.wsquashfs/` existe déjà sans illustration (reconstruire alors). Une image
 qui a déjà son illustration n'est pas touchée.
-Pour remplacer l'illustration déjà intégrée, il faut une reconstruction : l'ancienne image est gardée en `.old`, et la tâche peut être programmée « cette nuit ». Le remplacement passe **toujours par un aperçu avec choix manuel** : `POST /api/mass/cover` avec `replace: true` n'accepte une image déjà illustrée que si `choices` donne le candidat choisi pour elle ; sans choix, elle est refusée dans `skipped` (« choisir l'illustration dans l'aperçu avant de remplacer »). Une image sans illustration s'ajoute comme avant, sans choix requis.
+Pour remplacer l'illustration déjà intégrée, il faut une reconstruction : l'ancienne image est gardée en `.old`, et la tâche peut être programmée « cette nuit ». Le remplacement passe **toujours par un aperçu avec choix manuel** : `POST /api/mass/cover` avec `replace: true` n'accepte une image déjà illustrée que si `choices` donne le candidat choisi pour elle ; sans choix, elle est refusée dans `skipped` (« choisir l'illustration dans l'aperçu avant de remplacer »). Une image sans illustration s'ajoute comme avant, sans choix requis. L'interface n'envoie rien sans cet aperçu : la fiche (badge de l'illustration, menu « … ») ouvre un dialogue par image, la sélection un dialogue en lot (`js/art-choice.js`) ; le choix automatique est présélectionné.
 
 **Aperçu** (`GET /api/image/art/candidates?id=<image>`) : aucune modification. Réponse :
 `current` (`present`, `sha1`, `url` de l'illustration intégrée), `sgdb_configured`, `game` (`{id, name}` SteamGridDB ou `null`), `candidates` (au plus 24 grilles SteamGridDB, puis la jaquette d'EmulationStation `es` et l'icône de l'exécutable `icon` si elles existent ; chacune a `key`, `source`, `label`, `author`, `score`, `width`, `height`, `thumb`, `full` et `same_as_current`), `preferred` (la clé que le choix automatique prendrait) et, si SteamGridDB a échoué, `sgdb_error`. Les grilles sont triées : auteurs préférés d'abord (ordre des Réglages), puis note décroissante. `same_as_current` compare les octets au sha1 de l'illustration intégrée ; pour SteamGridDB, seulement si le plein format est déjà en cache. La liste SteamGridDB d'une image est gardée 5 minutes en mémoire (**Actualiser** la vide).

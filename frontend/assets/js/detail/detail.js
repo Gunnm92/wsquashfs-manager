@@ -15,7 +15,7 @@ import { gameOfItem, presentIn, sv } from "../saves.js";
 import { setTasksOpen } from "../tasks.js";
 
 // Ligne d'état de l'en-tête : « Prêt » en vert, les exceptions en couleur
-const LINE_STATE = { ok: ["Prêt", "st"], in_use: ["En cours", "st accent"], modified: ["Tâche en file", "st accent"], has_old: ["Ancienne version à valider", "st warn"] };
+const LINE_STATE = { ok: ["Prêt", "st"], in_use: ["En cours", "st accent"], modified: ["Tâche en file", "st accent"], has_old: ["Ancienne version à supprimer ou restaurer", "st warn"] };
 
 export const TRIAL_DURS = [[30, "30 s"], [60, "60 s"], [120, "2 min"]];
 
@@ -94,13 +94,14 @@ function paintOld(i) {
   old.replaceChildren();
   if (i.state === "in_use") old.append(el("div", { className: "fbanner" }, icon("play"), el("span", { textContent: "Jeu en cours : aucune reconstruction possible." })));
   if (i.has_old) {
-    const keep = el("button", { className: "btn primary sm" }, icon("check", "sm"), "Valider");
-    const back = el("button", { className: "btn secondary sm on-accent" }, icon("undo", "sm"), "Revenir à l'ancienne");
-    keep.title = "Supprimer l'ancienne image (.old)";
-    keep.onclick = () => oldAction("validate", "Supprimer définitivement l'ancienne image (.old) ?");
-    back.onclick = () => oldAction("restore", "Remplacer l'image actuelle par l'ancienne (.old) ? La reconstruction sera perdue.");
+    const keep = el("button", { className: "btn primary sm" }, icon("check", "sm"), "Supprimer l'ancienne version");
+    const back = el("button", { className: "btn secondary sm on-accent" }, icon("undo", "sm"), "Restaurer l'ancienne version");
+    keep.title = "Supprimer définitivement l'ancienne version (.old)";
+    back.title = "Remettre l'ancienne version à la place de l'image actuelle";
+    keep.onclick = () => oldAction("validate", `Supprimer définitivement l'ancienne version de « ${i.name} » (.old) ?`);
+    back.onclick = () => oldAction("restore", "Remettre l'ancienne version à la place de l'image actuelle (.old) ? La reconstruction sera perdue.");
     old.append(el("div", { className: "fbanner tall" }, icon("history"), el("div", { className: "body" },
-      el("span", { textContent: "Une ancienne version (.old) est conservée : vérifier le jeu, puis valider ou revenir en arrière." }),
+      el("span", { textContent: "Une ancienne version (.old) est conservée : vérifier le jeu, puis la supprimer ou la restaurer." }),
       el("div", { className: "row" }, keep, back))));
   }
 }
@@ -120,7 +121,7 @@ function paintApercu() {
   const gfxNode = gfx.length ? el("span", {}, ...gfx.map((t) => el("span", { className: "chip plain t-accent", textContent: t }))) : null;
   const runner = i.runner === "default" ? "Aucun (choisi par le lanceur)"
     : i.runner_joined ? `Intégré${used ? ` (${used})` : ""}` : `Custom${used || i.runner_path ? ` (${used || i.runner_path})` : ""}`;
-  const pad = i.hidraw ? el("span", {}, icon("usb", "sm"), " DualSense (HIDRAW)") : el("span", {}, icon("gamepad", "sm"), " Xbox");
+  const pad = i.hidraw ? el("span", {}, icon("usb", "sm"), " DualSense") : el("span", {}, icon("gamepad", "sm"), " Xbox");
   const override = i.override || [];
   const g = connected() ? sv.games.find((x) => x.game === gameOfItem(i)) : null;
   const sync = g ? syncLine(g) : null;
@@ -153,12 +154,14 @@ function paintApercu() {
   const card = (title, linkText, action, rows) => el("div", {},
     el("div", { className: "dsec-row" }, el("p", { className: "dsec", textContent: title }), linkText ? link(linkText, action) : null),
     el("div", { className: "dcard" }, ...rows));
+  // « Installé sur » (mode connecté) fait partie de la carte Image. Le nœud est pris avant
+  // replaceChildren : la carte précédente le contient et le retire (sinon il serait introuvable)
+  const inst = $("d-inst");
   $("d-apercu").replaceChildren(
     card("Sauvegardes", "Gérer", () => showTab("saves"), saveRows),
     card("Lancement", "Détails", () => showTab("autorun"), launchRows),
     card("Image", null, null, imageRows));
-  // « Installé sur » (mode connecté) fait partie de la carte Image
-  $("d-apercu").querySelectorAll(".dcard")[2].append($("d-inst"));
+  $("d-apercu").querySelectorAll(".dcard")[2].append(inst);
   $("d-apercu-note").hidden = !hiddenFields.length;
   $("d-apercu-note").replaceChildren(icon("info"), document.createTextNode(`Champs vides masqués : ${hiddenFields.join(", ")}.`));
 }

@@ -1,5 +1,6 @@
 // actions.js — Vérification, essai et sauvegardes de la fiche, info-bulle.
 
+import { openCover, openCoverLot } from "./art-choice.js";
 import { api } from "./api.js";
 import { $, el, helpLink, icon, size, state, storage, toast } from "./core.js";
 import { notice } from "./detail/autorun.js";
@@ -23,12 +24,6 @@ async function verify(ids) {
   queued("Vérification ajoutée à la file");
 }
 
-async function addCover(ids) {
-  const data = await api("/api/mass/cover", { method: "POST", body: { ids } });
-  reportSkipped(data.skipped);
-  queued("Ajout de l'illustration ajouté à la file");
-}
-
 async function resetSaves(ids) {
   const names = ids.filter((id) => state.byId.get(id)?.saves_present);
   if (!names.length) { alert("Aucune image sélectionnée n'a de sauvegardes."); return; }
@@ -49,21 +44,10 @@ async function runTrial(duration) {
 
 const hasCover = () => $("d-cover").classList.contains("embedded");
 
+// Illustration de la fiche : l'aperçu (art-choice.js) décide, rien n'est lancé directement
 function coverItem() {
   const i = state.current;
-  return menuItem(hasCover() ? "Remplacer l'illustration" : "Ajouter l'illustration", "image",
-    () => (hasCover() ? replaceCover([i.id]) : addCover([i.id])).catch((error) => alert(error.message)));
-}
-
-// Remplacement de l'illustration : reconstruction de l'image (ancienne gardée en .old)
-async function replaceCover(ids) {
-  const n = ids.length;
-  if (!confirm(`${n > 1 ? `Remplacer l'illustration de ${n} images` : "Remplacer l'illustration"} ? Il s'agit d'une reconstruction : chaque image est reconstruite, l'original est gardé en .old jusqu'à validation.`)) return;
-  const night = n > 1 && confirm("Lancer cette nuit ? OK : cette nuit. Annuler : maintenant.");
-  const mode = n > 1 ? (night ? "night" : "now") : whenOf();
-  const data = await api("/api/mass/cover", { method: "POST", body: { ids, replace: true, when: mode } });
-  reportSkipped(data.skipped);
-  queued("Remplacement de l'illustration ajouté à la file");
+  return menuItem(hasCover() ? "Remplacer l'illustration" : "Ajouter l'illustration", "image", () => openCover(i));
 }
 
 // Action sur un jeu de la fiche (save, sync) : résultat par jeu dans un toast.
@@ -142,7 +126,7 @@ export function init() {
     }, { checked: s === trialPrefs.seconds })),
   ]);
   $("d-verify").onclick = () => verify([state.current.id]).catch((error) => alert(error.message));
-  $("d-cover-menu").onclick = () => openMenuNode($("d-cover-menu").parentElement, [coverItem()]);
+  $("d-cover-menu").onclick = () => openCover(state.current);
   $("d-more").onclick = () => {
     const i = state.current;
     const disabled = (node, off) => { node.disabled = off; return node; };
@@ -152,8 +136,8 @@ export function init() {
       el("div", { className: "dd-sub", textContent: "Illustration" }),
       coverItem(),
       ...(i.has_old ? [
-        menuItem("Valider (supprimer l'ancienne .old)", "check", () => oldAction("validate", "Supprimer définitivement l'ancienne image (.old) ?")),
-        menuItem("Restaurer l'ancienne version (.old)", "undo", () => oldAction("restore", "Remplacer l'image actuelle par l'ancienne (.old) ? La reconstruction sera perdue.")),
+        menuItem("Supprimer l'ancienne version", "check", () => oldAction("validate", `Supprimer définitivement l'ancienne version de « ${i.name} » (.old) ?`)),
+        menuItem("Restaurer l'ancienne version", "undo", () => oldAction("restore", "Remettre l'ancienne version à la place de l'image actuelle (.old) ? La reconstruction sera perdue.")),
       ] : []),
       ...(connected() && hostOn() ? [menuItem("Copier les sauvegardes", "save", () => copySaves())] : []),
       disabled(menuItem("Réinitialiser les sauvegardes", "trash", () => resetSaves([i.id]).catch((error) => alert(error.message)), { danger: true }), !i.saves_present),
@@ -165,8 +149,9 @@ export function init() {
   $("s-copy").onclick = () => copySaves();
   $("s-reset").onclick = () => resetSaves([state.current.id]).catch((error) => alert(error.message));
   $("btn-verify").onclick = () => verify([...state.selected]).catch((error) => alert(error.message));
-  $("btn-cover").onclick = () => addCover([...state.selected]).catch((error) => alert(error.message));
-  $("btn-cover-replace").onclick = () => replaceCover([...state.selected]).catch((error) => alert(error.message));
+  // Illustrations de la sélection : un aperçu par image, validé ensemble (ajout ou remplacement)
+  $("btn-cover").onclick = () => openCoverLot([...state.selected]);
+  $("btn-cover-replace").onclick = () => openCoverLot([...state.selected]);
   $("btn-saves-reset").onclick = () => resetSaves([...state.selected]).catch((error) => alert(error.message));
   // Info-bulle : délégation sur tout élément [data-tip], positionnée sous lui
   {

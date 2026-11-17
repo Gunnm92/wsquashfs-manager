@@ -143,11 +143,11 @@ export function init() {
   $("btn-mass-validate").onclick = async () => {
     const ids = [...state.selected].filter((id) => state.byId.get(id)?.has_old);
     if (!ids.length) { alert("Aucune image sélectionnée n'a de .old."); return; }
-    if (!confirm(`Supprimer définitivement l'ancienne version de ${ids.length} image(s) ?`)) return;
+    if (!confirm(`Supprimer les anciennes versions (.old) de ${ids.length} image(s) ? Elles sont effacées définitivement ; les images actuelles ne changent pas.`)) return;
     try {
       const data = await api("/api/mass/old/validate", { method: "POST", body: { ids } });
       if (data.skipped.length) alert(data.skipped.map((s) => `${s.id} : ${s.reason}`).join("\n"));
-      toast("Anciennes versions supprimées");
+      toast("Anciennes versions (.old) supprimées");
     } catch (error) { alert(error.message); }
     loadLibrary();
   };

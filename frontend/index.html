@@ -154,7 +154,7 @@
       <button class="iconbtn bare lg" id="btn-verify" title="Vérifier" aria-label="Vérifier l'intégrité des images sélectionnées"><svg class="ico"><use href="#i-shield"/></svg></button>
       <button class="iconbtn bare lg" id="btn-cover" title="Ajouter l'illustration" aria-label="Ajouter l'illustration aux images sélectionnées qui n'en ont pas, sans les reconstruire"><svg class="ico"><use href="#i-image"/></svg></button>
       <button class="iconbtn bare lg" id="btn-cover-replace" title="Remplacer l'illustration" aria-label="Remplacer l'illustration des images sélectionnées : reconstruction, l'original est gardé en .old"><svg class="ico"><use href="#i-refresh"/></svg></button>
-      <button class="iconbtn bare lg" id="btn-mass-validate" title="Valider les .old" aria-label="Supprimer l'ancienne version (.old) des images sélectionnées"><svg class="ico"><use href="#i-check"/></svg></button>
+      <button class="iconbtn bare lg" id="btn-mass-validate" title="Supprimer les anciennes versions (.old)" aria-label="Supprimer les anciennes versions (.old) des images sélectionnées"><svg class="ico"><use href="#i-trash"/></svg></button>
       <button class="iconbtn bare lg" id="btn-mass-commit" title="Inscrire les surcharges" aria-label="Reconstruire chaque image avec son autorun effectif, puis supprimer la surcharge"><svg class="ico"><use href="#i-filepen"/></svg></button>
       <button class="iconbtn bare lg" id="btn-saves-reset" title="Réinitialiser les sauvegardes" aria-label="Mettre de côté les sauvegardes (renommées, pas supprimées)"><svg class="ico"><use href="#i-save"/></svg></button>
       <span class="sep"></span>
@@ -498,7 +498,7 @@
           <span class="st-fixed" id="st-concurrency"></span>
         </div>
         <div class="st-row st-ro">
-          <div class="st-txt"><b>Anciennes versions (.old)</b><span>Supprimées automatiquement après ce délai ; sinon à valider à la main. Fixé au démarrage (WSQUASHFS_MGR_OLD_RETENTION_DAYS).</span></div>
+          <div class="st-txt"><b>Anciennes versions (.old)</b><span>Supprimées automatiquement après ce délai ; sinon à supprimer ou restaurer à la main. Fixé au démarrage (WSQUASHFS_MGR_OLD_RETENTION_DAYS).</span></div>
           <span class="st-fixed" id="st-retention"></span>
         </div>
       </div>

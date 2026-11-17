@@ -23,7 +23,7 @@ const TYPE_LOOK = { wine_batocera: ["wine", "t-accent"], wine_other: ["wine", "t
   game_only: ["app", "t-neutral"], unknown: ["alert", "t-err"] };
 
 export const STATES = { ok: ["Prêt", "Image saine"], in_use: ["En cours", "Jeu lancé : aucune reconstruction possible"],
-  modified: ["Tâche", "Une tâche est en file pour cette image"], has_old: [".old", "Ancienne version conservée : à valider"] };
+  modified: ["Tâche", "Une tâche est en file pour cette image"], has_old: [".old", "Ancienne version conservée : à supprimer ou restaurer"] };
 
 // Filtres (menus déroulants à côté de la recherche) : chaque choix montre la
 // même icône, de la même couleur, que dans la colonne « Prefix et réglages »
@@ -294,10 +294,10 @@ function listRow(i, enter) {
   return row;
 }
 
-// Réglages actifs seulement, nommés (HIDRAW, surcharge à inscrire)
+// Réglages actifs seulement, nommés (DualSense, surcharge à inscrire)
 function listFlags(i) {
   const flags = [];
-  if (i.hidraw) flags.push(el("span", { className: "flag hidraw", textContent: "HIDRAW", title: "Manettes en accès direct" }));
+  if (i.hidraw) flags.push(el("span", { className: "flag hidraw", textContent: "DualSense", title: "Manette DualSense (accès direct, clé HIDRAW)" }));
   if (i.attach) flags.push(el("span", { className: "flag attach", textContent: "ATTACH", title: `Commande pendant le jeu : ${i.attach}` }));
   if ((i.override || []).length) flags.push(el("span", { className: "flag warn", textContent: "Surcharge", title: "Surcharge à inscrire dans l'image" }));
   return el("span", { className: "flags c-profile" }, ...flags);
@@ -305,7 +305,7 @@ function listFlags(i) {
 
 // État : « Prêt » reste gris ; seules les exceptions sont en couleur
 function listState(i) {
-  const [cls, label, tip] = (i.override || []).length ? ["warn", "Surcharge à inscrire", "Réglage appliqué hors de l'image"]
+  const [cls, label, tip] = (i.override || []).length ? ["warn", "Surcharge", "Surcharge à inscrire : réglage appliqué hors de l'image"]
     : [i.state, ...(STATES[i.state] || [i.state, ""])];
   return el("span", { className: `state ${cls} c-state`, textContent: label, title: `${label} — ${tip}` });
 }
@@ -334,7 +334,7 @@ async function loadRecovery() {
 const SPECIALS = [   // [filtre, libellés (un, plusieurs), icône, ton, test]
   ["noversion", ["sans version", "sans version"], "tag", "accent", (i) => !i.version],
   ["override", ["surcharge à inscrire", "surcharges à inscrire"], "filepen", "warn", (i) => (i.override || []).length > 0],
-  ["old", ["ancienne image (.old)", "anciennes images (.old)"], "history", "accent", (i) => Boolean(i.has_old)],
+  ["old", ["ancienne version à supprimer ou restaurer", "anciennes versions à supprimer ou restaurer"], "history", "accent", (i) => Boolean(i.has_old)],
   ["inuse", ["en cours", "en cours"], "play", "accent", (i) => i.state === "in_use"],
   ["noautorun", ["sans autorun", "sans autorun"], "terminal", "accent", (i) => !i.cmd],
 ];

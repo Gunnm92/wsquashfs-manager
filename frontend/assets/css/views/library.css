@@ -22,7 +22,7 @@ main.images.with-detail { grid-template-columns: minmax(0, 1fr) minmax(380px, 44
   background: var(--accent-900); color: var(--accent-300); font-size: 12.5px; font-weight: 600; animation: pop var(--dur-base) ease-out; }
 
 /* Liste des images : colonnes Jeu, Prefix, Réglages, Taille, Sauveg., État */
-.ilist .grow { grid-template-columns: 28px minmax(240px, 2.2fr) 110px minmax(150px, 1.3fr) 90px 90px 150px; gap: 12px; padding: 8px 14px; }
+.ilist .grow { grid-template-columns: 28px minmax(240px, 2.2fr) 110px minmax(110px, 200px) 90px 90px 150px; gap: 12px; padding: 8px 14px; }
 .ilist .grow.head { padding: 10px 14px; }
 .ilist .grow.item { animation: none; }
 .ilist .grow.item.enter { animation: rowin var(--dur-slow) var(--ease-out) both; animation-delay: 360ms; }
@@ -54,14 +54,17 @@ main.images.with-detail { grid-template-columns: minmax(0, 1fr) minmax(380px, 44
 .flag.warn { background: rgba(240, 166, 108, .14); color: var(--warn); }
 .ilist .gsize { color: var(--text); }
 .ilist .c-saves { color: var(--muted); }
+/* État : « Prêt » discret ; les exceptions se lisent d'un coup d'œil (couleur + libellé court) */
 .ilist .state.ok { color: var(--idle); }
-.ilist .state.warn { color: var(--warn); }
-/* Fiche ouverte : Jeu, Prefix, Taille */
-main.images.with-detail .ilist .grow { grid-template-columns: 28px minmax(180px, 1fr) 100px 90px; }
+.ilist .state.warn, .ilist .state.has_old { color: var(--warn); }
+.ilist .state.in_use { color: var(--accent-300); font-weight: 700; }
+.ilist .state.modified { color: var(--accent-300); }
+/* Fiche ouverte : Jeu, Prefix, Taille, État (Réglages et Sauveg. masquées, l'état reste visible) */
+main.images.with-detail .ilist .grow { grid-template-columns: 28px minmax(180px, 1fr) 90px 80px 130px; }
 /* Barre d'outils de la vue Images : recherche et menus à 36 px, comme la v2 */
 .lib .search input:not([type=checkbox]) { height: 36px; }
 .lib .dd-btn { height: 36px; }
-main.images.with-detail .ilist .c-profile, main.images.with-detail .ilist .c-saves, main.images.with-detail .ilist .c-state { display: none; }
+main.images.with-detail .ilist .c-profile, main.images.with-detail .ilist .c-saves { display: none; }
 /* Écrans étroits (dans la couche views, après la grille de base de la liste) */
 @media (max-width: 1100px) {
   .ilist .grow { grid-template-columns: 28px minmax(200px, 1fr) 100px 90px 150px; }
@@ -69,8 +72,9 @@ main.images.with-detail .ilist .c-profile, main.images.with-detail .ilist .c-sav
   .ilist .c-profile, .ilist .c-saves { display: none; }
 }
 @media (max-width: 640px) {
-  .ilist .grow { grid-template-columns: 28px minmax(0, 1fr) 90px; }
-  .ilist .c-prefix, .ilist .c-state { display: none; }
+  .ilist .grow { grid-template-columns: 28px minmax(0, 1fr) 80px 110px; }
+  .ilist .c-prefix { display: none; }
+  .ilist .grow.item .state, .ilist .grow.head .c-state { visibility: visible; }
 }
 
 /* Jaquettes */
