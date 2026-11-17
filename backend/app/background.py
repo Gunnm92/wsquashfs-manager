@@ -21,14 +21,14 @@ AUTO_PUSH_IDLE = 5                      # secondes entre deux tours quand la syn
 
 
 def _auto_push_loop() -> None:
-    """Mise à jour automatique des clients en retard (services/saves.py push_behind), toutes les
+    """Mise à jour automatique des clients en retard (services/saves.py sync_auto), toutes les
     `auto_push_interval` secondes ; 0 : désactivée (tours vides). Relu à chaque tour : un réglage
     prend effet tout de suite."""
     while not _background_stop.wait(deps._settings.auto_push_interval or AUTO_PUSH_IDLE):
         if not deps._settings.auto_push_interval or deps._settings.mode == "autonome":
             continue
         try:
-            saves_svc.push_behind(deps._settings)
+            saves_svc.sync_auto(deps._settings)
         except Exception:  # tâche de fond : une erreur ne tue pas la boucle
             logger.exception("mise à jour automatique des clients impossible")
 

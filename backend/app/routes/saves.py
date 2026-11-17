@@ -29,12 +29,14 @@ def saves_art(game: str):
 
 
 @router.get("/api/saves/status")
-def saves_status(id: str | None = None):
+def saves_status(id: str | None = None, refresh: bool = False):
     """État par machine (identique, plus avancée, en retard, absente, injoignable) avec sa
     taille, son système et son icône ; par jeu : le manager, la suggestion (check,
-    check_by). Sans id : tous les jeux connus ; avec id d'image : ce jeu."""
+    check_by), l'action décidée par client (`action`) et les versions de conflit à départager
+    (`conflicts`). Sans id : tous les jeux connus ; avec id d'image : ce jeu. Un client injoignable
+    est sauté pendant 30 s ; refresh=1 l'interroge quand même."""
     games = [saves_svc.game_name(deps._find_image(id).path.name)] if id is not None else None
-    return saves_svc.status(deps._settings, games)
+    return saves_svc.status(deps._settings, games, refresh=refresh)
 
 
 class SavesSelection(BaseModel):
@@ -139,5 +141,25 @@ def saves_delete(body: SavesDelete):
                                           "le manager" if body.manager else "") if part)
     params = {"op": "delete", "machines": body.machines, "games": body.games, "manager": body.manager}
     title = f"sauvegardes : suppression de {len(body.games)} jeu(x) sur {where}"
+    task = deps.queue.submit("saves", None, None, params, title)
+    return {"task": task.id}
+
+
+class SavesResolve(BaseModel):
+    game: str = Field(min_length=1, max_length=200)
+    keep: str = Field(min_length=1, max_length=300)     # « manager » ou le nom d'une version de conflit
+    push: bool = True                                   # ensuite, envoyer aux clients qui ne sont pas à jour
+
+
+@router.post("/api/saves/resolve")
+def saves_resolve(body: SavesResolve):
+    """Départage les versions de conflit d'un jeu : garde la version du manager ou en retient une
+    (tâche « saves »). 422 si le jeu ou la version est inconnu."""
+    if not saves_svc.valid_game(body.game):
+        raise HTTPException(status_code=422, detail=f"nom de jeu invalide : {body.game}")
+    if body.keep != "manager" and body.keep not in {v["name"] for v in saves_svc.conflict_versions(deps._settings, body.game)}:
+        raise HTTPException(status_code=422, detail=f"version de conflit inconnue : {body.keep}")
+    params = {"op": "resolve", "game": body.game, "keep": body.keep, "push": body.push}
+    title = f"sauvegardes : départager {body.game} ({'manager' if body.keep == 'manager' else 'version retenue'})"
     task = deps.queue.submit("saves", None, None, params, title)
     return {"task": task.id}

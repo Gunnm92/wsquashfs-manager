@@ -422,10 +422,16 @@ def _prune(d: Path) -> None:
         (d / f"{name}.json").unlink(missing_ok=True)
 
 
+CONFLICT_RE = re.compile(r"^(\d{8}-\d{6}(?:-\d{3})?)-conflit-(.+)$")   # <horodatage>-conflit-<client>
+
+
 def archives_in(d: Path) -> list[str]:
+    """Versions datées normales (les versions de conflit, à départager, sont à part :
+    conflict_versions)."""
     if not d.is_dir():
         return []
-    return sorted((p.name[:-len(".tar.gz")] for p in d.glob("*.tar.gz") if p.name != CURRENT),
+    return sorted((p.name[:-len(".tar.gz")] for p in d.glob("*.tar.gz")
+                   if p.name != CURRENT and not CONFLICT_RE.match(p.name[:-len(".tar.gz")])),
                   reverse=True)
 
 
@@ -437,16 +443,18 @@ def _write_part(path: Path, text: str) -> None:
 
 
 def store(settings: Settings, game: str, part: Path, *, fingerprint: str, newest: int,
-          size: int, profile: str | None, source: str, dir_path: str | None = None) -> dict:
+          size: int, profile: str | None, source: str, dir_path: str | None = None,
+          content: str = "") -> dict:
     """Range une archive reçue (`part`, écrite entièrement) dans le manager ; renvoie les
     informations enregistrées (meta). Voir store_archived."""
     return store_archived(settings, game, part, fingerprint=fingerprint, newest=newest,
-                          size=size, profile=profile, source=source, dir_path=dir_path)[0]
+                          size=size, profile=profile, source=source, dir_path=dir_path,
+                          content=content)[0]
 
 
 def store_archived(settings: Settings, game: str, part: Path, *, fingerprint: str, newest: int,
                    size: int, profile: str | None, source: str,
-                   dir_path: str | None = None) -> tuple[dict, str]:
+                   dir_path: str | None = None, content: str = "") -> tuple[dict, str]:
     """Range une archive reçue (`part`, écrite entièrement) dans le manager. Renvoie (meta,
     nom de la version archivée ou "").
 
@@ -455,7 +463,8 @@ def store_archived(settings: Settings, game: str, part: Path, *, fingerprint: st
     `<AAAAMMJJ-HHMMSS>.tar.gz` (+ `.json`) et `part` prend sa place ; les
     versions datées au-delà de KEEP_ARCHIVES sont supprimées. `size` : octets
     des fichiers de sauvegarde, tels que le client les a comptés. Les états par
-    machine (meta « states ») sont gardés."""
+    machine (meta « states ») sont gardés. `content` : empreinte de contenu (sans dates) donnée
+    par les agents version 10 ; "" si inconnue (ancien agent)."""
     d = reserve_dir(settings, game)
     d.mkdir(parents=True, exist_ok=True)
     current, meta_path = d / CURRENT, d / META
@@ -463,7 +472,8 @@ def store_archived(settings: Settings, game: str, part: Path, *, fingerprint: st
     old = prior if current.exists() else None
     states = prior.get("states") if isinstance(prior.get("states"), dict) else {}
     meta = {"fingerprint": fingerprint, "newest": int(newest), "size": int(size), "profile": profile,
-            "source": source, "fetched_at": datetime.now(UTC).isoformat(timespec="seconds"), "states": states}
+            "source": source, "fetched_at": datetime.now(UTC).isoformat(timespec="seconds"), "states": states,
+            "content": content}
     # Dossier déclaré : son chemin à partir du HOME du client, transmis à un client qui ne l'a
     # pas déclaré (elle le déclare à la réception). Gardé d'une version à l'autre.
     dir_kept = dir_path or prior.get("dir")
@@ -471,6 +481,9 @@ def store_archived(settings: Settings, game: str, part: Path, *, fingerprint: st
         meta["dir"] = dir_kept
     text = json.dumps(meta, indent=2, ensure_ascii=False) + "\n"
     if old is not None and old.get("fingerprint") == fingerprint:
+        if not content and old.get("content"):
+            meta["content"] = str(old["content"])           # même empreinte : le contenu connu reste
+            text = json.dumps(meta, indent=2, ensure_ascii=False) + "\n"
         part.unlink(missing_ok=True)
         write_atomic(meta_path, text)
         return meta, ""
@@ -498,6 +511,13 @@ def current_fingerprint(settings: Settings, game: str) -> str:
     return str((reserve_meta(settings, game) or {}).get("fingerprint") or "")
 
 
+def current_content(settings: Settings, game: str) -> str:
+    """Empreinte de contenu (sans dates) de la version courante ; "" si inconnue ou sans version."""
+    if not (reserve_dir(settings, game) / CURRENT).is_file():
+        return ""
+    return str((reserve_meta(settings, game) or {}).get("content") or "")
+
+
 def machine_state(settings: Settings, game: str, machine_id: str) -> str:
     """Empreinte enregistrée pour un client (synchro automatique) ; "" sinon."""
     states = (reserve_meta(settings, game) or {}).get("states")
@@ -512,6 +532,119 @@ def record_state(settings: Settings, game: str, machine_id: str, fingerprint: st
     states[machine_id] = fingerprint
     meta["states"] = states
     write_atomic(reserve_dir(settings, game) / META, json.dumps(meta, indent=2, ensure_ascii=False) + "\n")
+
+
+def conflict_versions(settings: Settings, game: str) -> list[dict]:
+    """Versions de conflit du jeu (copies de clients à départager), la plus récente d'abord :
+    {name, machine_id, source, newest, size, fingerprint, content, path}. `name` est le nom du
+    fichier sans .tar.gz (« <horodatage>-conflit-<client> »)."""
+    d = reserve_dir(settings, game)
+    out = []
+    for name in sorted((p.name[:-len(".tar.gz")] for p in d.glob("*.tar.gz")) if d.is_dir() else (), reverse=True):
+        found = CONFLICT_RE.match(name)
+        if not found:
+            continue
+        try:
+            meta = json.loads((d / f"{name}.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            meta = {}
+        meta = meta if isinstance(meta, dict) else {}
+        out.append({"name": name, "machine_id": str(meta.get("machine_id") or found.group(2)),
+                    "source": str(meta.get("source") or ""), "newest": int(meta.get("newest") or 0),
+                    "size": int(meta.get("size") or 0), "fingerprint": str(meta.get("fingerprint") or ""),
+                    "content": str(meta.get("content") or ""), "path": d / f"{name}.tar.gz"})
+    return out
+
+
+def store_conflict(settings: Settings, game: str, part: Path, *, machine_id: str, fingerprint: str,
+                   newest: int, size: int, source: str, content: str = "",
+                   profile: str | None = None, dir_path: str | None = None) -> dict:
+    """Range la copie d'un client en vrai conflit SANS toucher à la version courante ni aux
+    états : `<horodatage>-conflit-<client>.tar.gz` + `.json` dans le dossier du jeu. Une version
+    de conflit de ce client de même empreinte existe déjà : rien n'est écrit (`part` supprimée).
+    Renvoie {name, created}. Appelant : sous STORE_LOCK. Ces versions ne sont pas élaguées
+    (_prune) : seul resolve les départage."""
+    d = reserve_dir(settings, game)
+    d.mkdir(parents=True, exist_ok=True)
+    for known in conflict_versions(settings, game):
+        if known["machine_id"] == machine_id and known["fingerprint"].lower() == fingerprint.lower():
+            part.unlink(missing_ok=True)
+            return {"name": known["name"], "created": False}
+    name = f"{_stamp(d)}-conflit-{machine_id}"
+    publish_new(part, d / f"{name}.tar.gz")
+    meta = {"machine_id": machine_id, "source": source, "newest": int(newest), "size": int(size),
+            "fingerprint": fingerprint, "content": content, "profile": profile,
+            "fetched_at": datetime.now(UTC).isoformat(timespec="seconds")}
+    if dir_path:
+        meta["dir"] = dir_path
+    write_atomic(d / f"{name}.json", json.dumps(meta, indent=2, ensure_ascii=False) + "\n")
+    return {"name": name, "created": True}
+
+
+def resolve(settings: Settings, game: str, keep: str, job: Job | None = None) -> dict:
+    """Départage les versions de conflit d'un jeu. `keep` : « manager » (la version courante
+    reste) ou le nom d'une version de conflit (elle devient la courante ; l'ancienne courante est
+    archivée comme lors d'un remplacement). Les autres versions de conflit deviennent des versions
+    datées normales (puis _prune). Le client dont la copie n'a pas été retenue est noté « à
+    l'empreinte de sa copie » : il apparaît alors en retard et reçoit la version du manager à la
+    synchro suivante (au lieu de repasser en conflit). RebuildError si `keep` est inconnu."""
+    check_game(game)
+    with STORE_LOCK:
+        d = reserve_dir(settings, game)
+        versions = conflict_versions(settings, game)
+        chosen = None
+        if keep != "manager":
+            chosen = next((v for v in versions if v["name"] == keep), None)
+            if chosen is None:
+                raise RebuildError(f"version de conflit inconnue : {keep}")
+        elif not versions:
+            return {"ok": True, "message": "aucune version de conflit", "kept": "manager", "archived": []}
+        current, meta_path = d / CURRENT, d / META
+        if chosen is not None:
+            prior = reserve_meta(settings, game) or {}
+            states = prior.get("states") if isinstance(prior.get("states"), dict) else {}
+            try:
+                chosen_meta = json.loads((d / f"{chosen['name']}.json").read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                chosen_meta = {}
+            meta = {"fingerprint": chosen["fingerprint"], "newest": chosen["newest"], "size": chosen["size"],
+                    "profile": chosen_meta.get("profile"), "source": chosen["source"],
+                    "fetched_at": datetime.now(UTC).isoformat(timespec="seconds"), "states": states,
+                    "content": chosen["content"]}
+            dir_kept = chosen_meta.get("dir") or prior.get("dir")
+            if game.startswith(DIR_PREFIX) and isinstance(dir_kept, str) and dir_kept:
+                meta["dir"] = dir_kept
+            text = json.dumps(meta, indent=2, ensure_ascii=False) + "\n"
+            stamp = _stamp(d)
+            if current.exists():
+                swap_keep_old(current, chosen["path"], d / f"{stamp}.tar.gz")
+                if prior:
+                    meta_part = d / "meta.json.part"
+                    _write_part(meta_part, text)
+                    swap_keep_old(meta_path, meta_part, d / f"{stamp}.json")
+                else:
+                    write_atomic(meta_path, text)
+            else:
+                publish_new(chosen["path"], current)
+                write_atomic(meta_path, text)
+            (d / f"{chosen['name']}.json").unlink(missing_ok=True)
+        archived = []
+        for version in versions:
+            if chosen is not None and version["name"] == chosen["name"]:
+                continue
+            stamp = CONFLICT_RE.match(version["name"]).group(1)
+            if (d / f"{stamp}.tar.gz").exists() or (d / f"{stamp}.json").exists():
+                stamp = _stamp(d)
+            os.replace(version["path"], d / f"{stamp}.tar.gz")
+            if (d / f"{version['name']}.json").exists():
+                os.replace(d / f"{version['name']}.json", d / f"{stamp}.json")
+            archived.append(f"{stamp}.tar.gz")
+            record_state(settings, game, version["machine_id"], version["fingerprint"])
+        fsync_dir(d)
+        _prune(d)
+    where = "version du manager gardée" if chosen is None else f"version de {chosen['source'] or chosen['machine_id']} retenue"
+    return {"ok": True, "message": f"{where} ; {len(archived)} version(s) de conflit archivée(s)",
+            "kept": keep, "archived": archived}
 
 
 def remove_from_manager(settings: Settings, game: str) -> dict:
@@ -585,9 +718,11 @@ def _pull_one(settings: Settings, host: AgentHost, source: str, game: str,
         d.mkdir(parents=True, exist_ok=True)
         fingerprint, profile = host.saves_get(game, part)
         newest = int(entry.get("newest") or 0)
-        store(settings, game, part, fingerprint=fingerprint, newest=newest,
-              size=_size_of(entry), profile=profile, source=source,
-              dir_path=str(entry.get("dir") or "") or None)
+        with STORE_LOCK:
+            store(settings, game, part, fingerprint=fingerprint, newest=newest,
+                  size=_size_of(entry), profile=profile, source=source,
+                  dir_path=str(entry.get("dir") or "") or None,
+                  content=str(entry.get("content") or ""))
     except SavesBusy:
         result["message"] = f"jeu en cours sur {source} : non récupéré"
         return result
@@ -987,10 +1122,18 @@ def _systems_scan(settings: Settings, ttl: float = 300) -> dict:
         return cache
 
 
-def status(settings: Settings, games: list[str] | None = None) -> dict:
+UNREACHABLE_TTL = 30                # secondes pendant lesquelles un client injoignable est sauté par status()
+_unreachable: dict[str, tuple[float, str]] = {}      # identifiant du client → (instant, message)
+_unreachable_lock = threading.Lock()
+
+
+def status(settings: Settings, games: list[str] | None = None, refresh: bool = False) -> dict:
     """État de la synchronisation : par machine (une requête saves_list et une requête
-    info, en parallèle) et par jeu (libellés, manager, suggestion à vérifier).
-    `games` None : tous les jeux connus."""
+    info, en parallèle) et par jeu (libellés, manager, suggestion à vérifier, décision
+    `action`, versions de conflit). `games` None : tous les jeux connus. Un client qui n'a pas
+    répondu est sauté (réponse immédiate « injoignable », même message) pendant UNREACHABLE_TTL
+    secondes, pour qu'un client éteint ne ralentisse pas chaque lecture ; `refresh` vrai l'interroge
+    quand même."""
     rows = machine_rows(settings)
 
     try:
@@ -1003,11 +1146,21 @@ def status(settings: Settings, games: list[str] | None = None) -> dict:
         """(jeux, erreur, système, info) : un échec de info laisse le système vide, sans
         rendre le client injoignable si saves_list a répondu. Un client (version 9 ou plus)
         qui ne déclare pas ce manager reçoit la déclaration ; erreurs ignorées."""
+        key = row["id"]
+        if not refresh:
+            with _unreachable_lock:
+                seen = _unreachable.get(key)
+            if seen and time.monotonic() - seen[0] < UNREACHABLE_TTL:
+                return None, seen[1], "", {}
         try:
             host = open_machine(settings, row["id"], timeout=15)
             listing = _present_listing(host.saves_list(timeout=15))
         except RebuildError as exc:
+            with _unreachable_lock:
+                _unreachable[key] = (time.monotonic(), str(exc))
             return None, str(exc), "", {}
+        with _unreachable_lock:
+            _unreachable.pop(key, None)
         try:
             info = host.info()
         except RebuildError:
@@ -1038,84 +1191,121 @@ def status(settings: Settings, games: list[str] | None = None) -> dict:
                          "games": len(listing) if listing is not None else None,
                          "os": system, "icon": row["icon"] or (system if system in ICONS else "linux"),
                          "icon_set": row["icon"] is not None, "auto": bool(info.get("auto"))})
-    auto_of = {row["id"]: bool(info.get("auto")) for row, (_, _, _, info) in zip(rows, fetched)}
     out = []
     for game in wanted:
         states = []
+        contents = {}
         for row, (listing, error, _, _) in zip(rows, fetched):
             state = {"id": row["id"], "name": row["name"], "state": "absente",
-                     "fingerprint": "", "newest": 0, "size": 0, "message": ""}
+                     "fingerprint": "", "newest": 0, "size": 0, "message": "", "content": ""}
             if listing is None:
                 state.update(state="injoignable", message=error)
             elif game in listing:
                 entry = listing[game]
                 state.update(state="présente", fingerprint=str(entry.get("fingerprint") or ""),
-                             newest=int(entry.get("newest") or 0), size=_size_of(entry))
+                             newest=int(entry.get("newest") or 0), size=_size_of(entry),
+                             content=str(entry.get("content") or ""))
             states.append(state)
         verdict = label_states(states)
         current = current_fingerprint(settings, game)
-        for state in states:        # « conflit » : synchro auto, modifiée sur le client (push_behind n'y touche pas)
-            state["conflict"] = bool(current and auto_of.get(state["id"]) and state["fingerprint"]
-                                     and behind_action(current, state["fingerprint"],
-                                                       machine_state(settings, game, state["id"])) == "conflit")
+        manager_meta = (reserve_meta(settings, game) or {}) if current else {}
+        manager_newest = int(manager_meta.get("newest") or 0)
+        manager_content = str(manager_meta.get("content") or "")
+        versions = conflict_versions(settings, game)
+        in_conflict = {v["machine_id"] for v in versions}
+        for state in states:
+            state["action"] = "" if state["state"] == "injoignable" else decide(
+                machine_state(settings, game, state["id"]), state["fingerprint"], current,
+                client_newest=state["newest"], manager_newest=manager_newest,
+                client_content=state["content"], manager_content=manager_content)
+            state["conflict"] = state["action"] == "conflit" or state["id"] in in_conflict
         kind = kind_of(game)
         out.append({"game": game, "label": label_of(game, [listing for listing, _, _, _ in fetched]),
                     "kind": kind, "system": system_of(settings, game) if kind == "jeu" else "",
                     "reserve": _reserve_summary(settings, game), "machines": states,
                     "check": verdict["check"], "check_by": verdict["check_by"],
-                    "conflict": any(state["conflict"] for state in states)})
+                    "conflict": any(state["conflict"] for state in states),
+                    "conflicts": [{k: v[k] for k in ("name", "machine_id", "source", "newest", "size", "fingerprint")}
+                                  for v in versions]})
     return {"machines": machines, "games": out}
 
 
-# ------------------------------------------------------------------ mise à jour automatique
+# ------------------------------------------------------------------ synchronisation automatique
 
-BEHIND_LOCK = threading.Lock()      # un seul passage de push_behind à la fois
+BEHIND_LOCK = threading.Lock()      # un seul passage de sync_auto à la fois
 HISTORY_FILE = "history.jsonl"      # même journal que la file de tâches (TaskQueue.history_file)
 
 
-def behind_action(current: str, machine_fp: str, recorded: str) -> str:
-    """Décision pour un client en synchro auto, d'après l'empreinte du manager (`current`), celle
-    du client (`machine_fp`, "" si elle n'a pas le jeu) et l'état enregistré à son dernier
-    échange avec le manager (`recorded`, "" si inconnu) :
-    - « rien » : le manager n'a pas de version du jeu ;
+def decide(base: str, client: str, manager: str, *, client_newest: int, manager_newest: int,
+           client_content: str = "", manager_content: str = "") -> str:
+    """Décision à trois points (modèle d'Unison) pour un client : `base` est l'empreinte au dernier
+    échange du client avec le manager ("" si inconnue), `client` celle de sa copie ("" s'il n'a pas
+    le jeu), `manager` celle du manager ("" s'il n'a pas de version). `*_content` : empreintes de
+    contenu (sans dates), "" si inconnues (ancien agent). Valeurs :
+    - « rien » : ni le manager ni le client n'ont le jeu ;
     - « absente » : le client n'a pas le jeu ;
-    - « enregistrer » : le client a déjà la version, à noter ;
-    - « pousser » : le client n'a pas bougé depuis son dernier échange, il est en retard ;
-    - « conflit » : modifiée sur le client, ou état inconnu : on n'y touche pas."""
-    if not current:
-        return "rien"
-    if not machine_fp:
-        return "absente"
-    # Hexadécimal : la casse ne compte pas (le lanceur l'écrit en minuscules, un en-tête peut varier).
-    current, machine_fp, recorded = current.lower(), machine_fp.lower(), recorded.lower()
-    if machine_fp == current:
-        return "rien" if recorded == current else "enregistrer"
-    return "pousser" if machine_fp == recorded else "conflit"
+    - « à jour » : même empreinte, ou même contenu (faux conflit : l'appelant note la base) ;
+    - « remonter » : le client est en avance (le manager n'a pas bougé depuis la base, ou n'a pas
+      le jeu, ou la base est inconnue et la copie du client est plus récente : le manager archive) ;
+    - « descendre » : le client est en retard (il n'a pas bougé depuis la base) ;
+    - « conflit » : les deux ont changé depuis la base, ou base inconnue et copie du client pas plus
+      récente."""
+    if not client:
+        return "absente" if manager else "rien"
+    if not manager:
+        return "remonter"
+    base, client, manager = base.lower(), client.lower(), manager.lower()
+    if client == manager or (client_content and manager_content
+                             and client_content.lower() == manager_content.lower()):
+        return "à jour"
+    if base:
+        if client != base:
+            return "remonter" if manager == base else "conflit"
+        return "descendre"
+    return "remonter" if client_newest > manager_newest else "conflit"
 
 
-def push_behind(settings: Settings, games: list[str] | None = None,
-                exclude: set[str] | None = None) -> list[dict]:
-    """Mise à jour automatique : pousse la version du manager vers les clients en retard qui ont la
-    synchro auto activée (`auto` de /v1/info). `games` : None pour toute la réserve ; `exclude` :
-    machines à ne pas viser (celle qui vient d'envoyer). Un client sans auto, injoignable ou sans le
-    jeu n'est pas touché et n'a pas de résultat ; un client modifié depuis son dernier échange
-    est « conflit », sans être modifiée. Un seul passage à la fois : si un passage tourne, celui-ci
-    est sauté (liste vide). Résultats par (jeu, machine) : {game, machine, machine_id, ok, message,
-    archived, fingerprint, busy, action} ; poussées et échecs vont au journal des tâches."""
+def sync_auto(settings: Settings, games: list[str] | None = None,
+              exclude: set[str] | None = None) -> list[dict]:
+    """Synchronisation automatique des clients qui ont la synchro auto activée (`auto` de
+    /v1/info), par comparaison à trois points (decide). Par jeu et par client, d'abord toutes les
+    remontées (client en avance → manager ; un jeu absent du manager mais présent chez un client
+    aussi), puis les descentes (manager → clients en retard) : une remontée peut rendre les autres
+    clients « en retard » dans le même passage. Un vrai conflit range la copie du client sur le
+    manager (store_conflict) sans rien remplacer. `games` : None pour toute la réserve et les jeux des
+    clients ; `exclude` : clients à ne pas viser (celui qui vient d'envoyer). Un client sans auto ou
+    injoignable n'est pas touché. Un seul passage à la fois : si un passage tourne, celui-ci est
+    sauté (liste vide). Résultats : {game, machine, machine_id, ok, message, archived, fingerprint,
+    busy, action} avec action « remontée », « poussée », « conflit », « échec » ou « jeu en cours » ;
+    tout sauf « jeu en cours » va au journal des tâches (un conflit déjà rangé, une seule fois)."""
     if not BEHIND_LOCK.acquire(blocking=False):
         return []
     try:
-        return _push_behind(settings, games, set(exclude or ()))
+        return _sync_auto(settings, games, set(exclude or ()))
     finally:
         BEHIND_LOCK.release()
 
 
-def _push_behind(settings: Settings, games: list[str] | None, exclude: set[str]) -> list[dict]:
-    wanted = [g for g in (_dedupe(games) if games is not None else reserve_games(settings))
-              if current_fingerprint(settings, g)]
-    results: list[dict] = []
-    if not wanted:
-        return results
+push_behind = sync_auto             # ancien nom (machine_api)
+
+
+def _result(game: str, row: dict, **kw) -> dict:
+    return {"game": game, "machine": row["name"], "machine_id": row["id"], "ok": False, "message": "",
+            "archived": None, "fingerprint": "", "busy": False, **kw}
+
+
+def _decision(settings: Settings, game: str, row: dict, entry: dict | None) -> str:
+    meta = (reserve_meta(settings, game) or {}) if current_fingerprint(settings, game) else {}
+    return decide(machine_state(settings, game, row["id"]), str((entry or {}).get("fingerprint") or ""),
+                  current_fingerprint(settings, game),
+                  client_newest=int((entry or {}).get("newest") or 0),
+                  manager_newest=int(meta.get("newest") or 0),
+                  client_content=str((entry or {}).get("content") or ""),
+                  manager_content=str(meta.get("content") or ""))
+
+
+def _sync_auto(settings: Settings, games: list[str] | None, exclude: set[str]) -> list[dict]:
+    clients = []
     for row in machine_rows(settings):
         if row["id"] in exclude:
             continue
@@ -1130,46 +1320,116 @@ def _push_behind(settings: Settings, games: list[str] | None, exclude: set[str])
             listing = _present_listing(host.saves_list(timeout=15))
         except RebuildError:
             continue
-        for game in wanted:
-            current = current_fingerprint(settings, game)
+        clients.append((row, host, listing))
+    results: list[dict] = []
+    if not clients:
+        return results
+    if games is not None:
+        names = [g for g in _dedupe(games) if valid_game(g)]
+    else:
+        names = sorted({*reserve_games(settings), *(n for _, _, listing in clients for n in listing if valid_game(n))})
+    for game in names:                                  # 1) remontées, états, conflits
+        for row, host, listing in clients:
             entry = listing.get(game)
-            machine_fp = str(entry.get("fingerprint") or "") if entry else ""
-            action = behind_action(current, machine_fp, machine_state(settings, game, row["id"]))
-            if action == "enregistrer":
-                with STORE_LOCK:
-                    record_state(settings, game, row["id"], current)
-            elif action == "conflit":
-                results.append({"game": game, "machine": row["name"], "machine_id": row["id"], "ok": False,
-                                "message": "conflit : à départager (modifiée sur le client depuis son dernier échange)",
-                                "archived": None, "fingerprint": "", "busy": False, "action": "conflit"})
-            elif action == "pousser":
-                result = _push_one(settings, game, row["id"], row["name"], host, "")
-                if result["ok"]:
-                    # Empreinte du manager, pas celle que renvoie le client : si elles différaient (fichier
-                    # hors du profil…), le client paraîtrait encore en retard et recevrait la même version
-                    # à chaque passage ; elle apparaît « à départager » à la place.
+            action = _decision(settings, game, row, entry)
+            if action == "à jour":
+                current = current_fingerprint(settings, game)
+                if machine_state(settings, game, row["id"]).lower() != current.lower():
                     with STORE_LOCK:
                         record_state(settings, game, row["id"], current)
-                    result.update(action="poussée", message=f"mise à jour auto : {result['message']}")
-                elif result["busy"]:
-                    result.update(action="jeu en cours", message=f"jeu en cours sur {row['name']} : "
-                                                                 "mise à jour retentée au prochain passage")
+            elif action == "remonter":
+                result = _pull_one(settings, host, row["name"], game, entry)
+                out = _result(game, row, ok=result["ok"], fingerprint=result["fingerprint"])
+                if result["ok"]:
+                    with STORE_LOCK:
+                        record_state(settings, game, row["id"], result["fingerprint"])
+                    out.update(action="remontée", message=f"synchro auto : {result['message']}")
+                elif "en cours" in result["message"]:
+                    out.update(action="jeu en cours", busy=True,
+                               message=f"jeu en cours sur {row['name']} : remontée retentée au prochain passage")
                 else:
-                    result.update(action="échec", message=f"mise à jour auto : {result['message']}")
-                if result["action"] != "jeu en cours":
-                    log.info("%s : %s", game, result["message"])
-                    _journal_behind(settings, result)
-                results.append(result)
+                    out.update(action="échec", message=f"synchro auto : {result['message']}")
+                results.append(_finish(settings, out))
+            elif action == "conflit":
+                results.append(_keep_conflict(settings, host, row, game, entry))
+    for game in names:                                  # 2) descentes
+        for row, host, listing in clients:
+            entry = listing.get(game)
+            if _decision(settings, game, row, entry) != "descendre":
+                continue
+            current = current_fingerprint(settings, game)
+            result = _push_one(settings, game, row["id"], row["name"], host, "")
+            out = _result(game, row, ok=result["ok"], archived=result["archived"],
+                          fingerprint=result["fingerprint"], busy=result["busy"])
+            if result["ok"]:
+                # Empreinte du manager, pas celle que renvoie le client : si elles différaient (fichier
+                # hors du profil…), le client paraîtrait encore en retard et recevrait la même version
+                # à chaque passage ; elle apparaît « à départager » à la place.
+                with STORE_LOCK:
+                    record_state(settings, game, row["id"], current)
+                out.update(action="poussée", message=f"mise à jour auto : {result['message']}")
+            elif result["busy"]:
+                out.update(action="jeu en cours", message=f"jeu en cours sur {row['name']} : "
+                                                          "mise à jour retentée au prochain passage")
+            else:
+                out.update(action="échec", message=f"mise à jour auto : {result['message']}")
+            results.append(_finish(settings, out))
     return results
 
 
+def _finish(settings: Settings, result: dict) -> dict:
+    """Journalise le résultat (sauf « jeu en cours », retenté au prochain passage) et le rend."""
+    if result["action"] != "jeu en cours":
+        log.info("%s : %s", result["game"], result["message"])
+        _journal_behind(settings, result)
+    return result
+
+
+def _keep_conflict(settings: Settings, host: AgentHost, row: dict, game: str, entry: dict | None) -> dict:
+    """Vrai conflit : la copie du client est rangée sur le manager comme version de conflit (sans
+    rien remplacer, nulle part). Déjà rangée (même client, même empreinte) : pas de doublon, ni
+    de téléchargement, ni de nouvelle entrée au journal."""
+    fingerprint = str((entry or {}).get("fingerprint") or "")
+    out = _result(game, row, action="conflit", fingerprint=fingerprint,
+                  message="conflit : à départager (copie du client rangée sur le manager)")
+    with STORE_LOCK:
+        known = any(v["machine_id"] == row["id"] and v["fingerprint"].lower() == fingerprint.lower()
+                    for v in conflict_versions(settings, game))
+    if known:
+        return out
+    d = reserve_dir(settings, game)
+    part = d / f"conflit-{row['id']}.part"
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+        got, profile = host.saves_get(game, part)
+        with STORE_LOCK:
+            stored = store_conflict(settings, game, part, machine_id=row["id"], fingerprint=got,
+                                    newest=int((entry or {}).get("newest") or 0), size=_size_of(entry),
+                                    source=row["name"], content=str((entry or {}).get("content") or ""),
+                                    profile=profile, dir_path=str((entry or {}).get("dir") or "") or None)
+        out["fingerprint"] = got
+        if not stored["created"]:
+            return out
+    except SavesBusy:
+        out.update(action="jeu en cours", busy=True,
+                   message=f"jeu en cours sur {row['name']} : conflit retenté au prochain passage")
+    except (RebuildError, OSError) as exc:
+        out.update(action="échec", message=f"conflit : copie de {row['name']} non rangée : {exc}")
+    finally:
+        part.unlink(missing_ok=True)
+    return _finish(settings, out)
+
+
 def _journal_behind(settings: Settings, result: dict) -> None:
-    """Une entrée du journal des tâches pour une poussée (ou un échec) de la synchro auto."""
+    """Une entrée du journal des tâches pour une remontée, une poussée, un conflit ou un échec de la
+    synchro auto."""
     now = time.time()
     ok = result["ok"]
+    arrow = "←" if result["action"] in ("remontée", "conflit") else "→"
     task = Task(id=secrets.token_hex(6), kind="saves",
-                title=f"sauvegardes : mise à jour auto → {result['machine']}",
-                params={"op": "push_behind", "game": result["game"], "machine_id": result["machine_id"]},
+                title=f"sauvegardes : synchro auto ({result['action']}) {arrow} {result['machine']}",
+                params={"op": "sync_auto", "action": result["action"], "game": result["game"],
+                        "machine_id": result["machine_id"]},
                 status=TaskStatus.DONE if ok else TaskStatus.FAILED, error=None if ok else result["message"],
                 log=[result["message"]], progress=1.0 if ok else 0.0,
                 created_at=now, started_at=now, finished_at=now)
@@ -1183,8 +1443,9 @@ def _journal_behind(settings: Settings, result: dict) -> None:
 
 def run_saves(settings: Settings, task: Task, job: Job) -> str:
     """Gestionnaire de la tâche « saves » (file de tâches, comme la vérification).
-    params : {op: pull|pull_auto|push|push_from|push_auto|delete, source?, targets?, games (liste ou null = tous)} ;
-    delete : {machines (ids), manager (bool), games (liste)}.
+    params : {op: pull|pull_auto|push|push_from|push_auto|delete|resolve, source?, targets?, games (liste ou null = tous)} ;
+    delete : {machines (ids), manager (bool), games (liste)} ;
+    resolve : {game, keep (« manager » ou version de conflit), push (bool)}.
     Le résultat détaillé est gardé dans params.result ; un échec partiel fait
     échouer la tâche (le détail reste lisible)."""
     p = task.params
@@ -1216,6 +1477,18 @@ def run_saves(settings: Settings, task: Task, job: Job) -> str:
         where = " et ".join(part for part in (f"{len(machines)} client(s)" if machines else "",
                                               "le manager" if p.get("manager") else "") if part)
         label = f"sur {where}"
+    elif op == "resolve":
+        game, keep = str(p.get("game") or ""), str(p.get("keep") or "")
+        done = resolve(settings, game, keep, job)
+        result = {"resolve": done, "push": {"results": []}}
+        items = [{"game": game, "ok": done["ok"], "message": done["message"]}]
+        label = f"de {game}"
+        if p.get("push"):
+            behind = [m["id"] for entry in status(settings, [game], refresh=True)["games"]
+                      for m in entry["machines"] if m["action"] == "descendre"]
+            if behind:
+                result["push"] = push(settings, behind, [game], job)
+                items += result["push"]["results"]
     else:
         raise RebuildError(f"opération de sauvegardes inconnue : {op}")
     task.params["result"] = result

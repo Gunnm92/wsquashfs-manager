@@ -127,6 +127,7 @@ class SavesAgent(BaseHTTPRequestHandler):
                 return self._send(404, b"404 page not found\n", ctype="text/plain; charset=utf-8")
             games = [{"name": name, "fingerprint": "" if g.get("gone") else fp_of(g["data"]),
                       "newest": g["newest"], "size": g["size"], "state": "",
+                      "content": self.st["contents"].get(name, ""),
                       **({"label": self.st["labels"][name]} if name in self.st["labels"] else {}),
                       **({"dir": self.st["dirpaths"][name]} if name in self.st["dirpaths"] else {})}
                      for name, g in sorted(self.st["games"].items())]
@@ -257,14 +258,14 @@ def agents(tmp_path):
     def make(host: str, games=None, busy=(), conflict=(), now=1000, token=TOKEN, cert_dir=None,
              os_name="linux", info_fail=False, old_status=None, no_saves_routes=False,
              secret=SECRET, old_pair=False, labels=None, dirs=None, no_dirs=False, dirpaths=None,
-             version="4", auto=False, no_manager=False):
+             version="4", auto=False, no_manager=False, contents=None):
         cert, key = make_cert(tmp_path / (cert_dir or host))
         st = {"host": host, "token": token, "busy": set(busy), "conflict": set(conflict),
               "now": now, "archived": [], "log": [], "os": os_name, "info_fail": info_fail,
               "old_status": old_status, "deleted": [], "no_saves_routes": no_saves_routes,
               "secret": secret, "pair_open": True, "old_pair": old_pair, "pairs": [], "bound": None,
               "labels": dict(labels or {}), "dirs": list(dirs or []), "no_dirs": no_dirs,
-              "dirpaths": dict(dirpaths or {}),
+              "dirpaths": dict(dirpaths or {}), "contents": dict(contents or {}),
               "version": version, "auto": auto, "no_manager": no_manager, "manager": None, "manager_fp": "",
               "games": {name: fake_game(spec) for name, spec in (games or {}).items()}}
         handler = type("H", (SavesAgent,), {"st": st})
@@ -1649,7 +1650,7 @@ def test_behind_pushes_the_manager_version_to_an_auto_machine_that_is_behind(age
     b["st"]["log"].clear()
     saves.record_state(settings, "Jeu", bid, fp_of(gz("v1")))
     current = store_manager_version(settings, "Jeu", gz("v2"))
-    results = saves.push_behind(settings)
+    results = saves.sync_auto(settings)
     assert [(r["action"], r["machine"], r["ok"]) for r in results] == [("poussée", "b-machine", True)]
     assert b["st"]["games"]["Jeu"]["data"] == gz("v2")
     assert saves.machine_state(settings, "Jeu", bid) == current
@@ -1671,7 +1672,7 @@ def test_behind_never_overwrites_a_machine_changed_locally(agents, tmp_path, rec
     b["st"]["log"].clear()
     saves.record_state(settings, "Jeu", bid, recorded and fp_of(gz(recorded)))
     store_manager_version(settings, "Jeu", gz("v2"))
-    results = saves.push_behind(settings)
+    results = saves.sync_auto(settings)
     assert [r["action"] for r in results] == ["conflit"]
     assert not writes(b) and b["st"]["games"]["Jeu"]["data"] == gz("local")
     assert saves.machine_state(settings, "Jeu", bid) == (recorded and fp_of(gz(recorded)))
@@ -1688,7 +1689,7 @@ def test_behind_never_touches_a_machine_without_auto(agents, tmp_path):
     b["st"]["log"].clear()
     saves.record_state(settings, "Jeu", bid, fp_of(gz("v1")))
     store_manager_version(settings, "Jeu", gz("v2"))
-    assert saves.push_behind(settings) == []
+    assert saves.sync_auto(settings) == []
     assert not writes(b) and b["st"]["games"]["Jeu"]["data"] == gz("v1")
     status = saves.status(settings, ["Jeu"])
     assert status["games"][0]["conflict"] is False
@@ -1701,17 +1702,18 @@ def test_behind_reports_a_busy_machine_and_retries_it_later(agents, tmp_path):
     bid = machine_ids(settings)["b-machine"]
     saves.record_state(settings, "Jeu", bid, fp_of(gz("v1")))
     current = store_manager_version(settings, "Jeu", gz("v2"))
-    results = saves.push_behind(settings)                       # pas d'exception
+    results = saves.sync_auto(settings)                       # pas d'exception
     assert [(r["action"], r["ok"]) for r in results] == [("jeu en cours", False)]
     assert saves.machine_state(settings, "Jeu", bid) == fp_of(gz("v1"))
     b["st"]["busy"].clear()                                     # le jeu est fermé : au passage suivant
-    assert [r["action"] for r in saves.push_behind(settings)] == ["poussée"]
+    assert [r["action"] for r in saves.sync_auto(settings)] == ["poussée"]
     assert saves.machine_state(settings, "Jeu", bid) == current
 
 
 def test_behind_does_not_push_again_when_the_machine_reports_another_fingerprint(agents, tmp_path):
     """Après un envoi, la machine donne une empreinte différente de celle du manager : pas de nouvel
-    envoi au passage suivant (pas de boucle), la machine est « à départager »."""
+    envoi au passage suivant (pas de boucle) ; sa copie (qui paraît en avance) remonte une fois sur
+    le manager, puis tout est stable."""
     b = agents("b-machine", games={"Jeu": (gz("v1"), None, 100)}, auto=True)
     settings = make_settings(tmp_path)
     associate(settings, b)
@@ -1720,10 +1722,12 @@ def test_behind_does_not_push_again_when_the_machine_reports_another_fingerprint
     data = gz("v2")
     saves.store(settings, "Jeu", part_with(settings, "Jeu", data), fingerprint="A" * 64, newest=900,
                 size=len(data), profile=None, source="manager")
-    assert [r["action"] for r in saves.push_behind(settings)] == ["poussée"]
+    assert [r["action"] for r in saves.sync_auto(settings)] == ["poussée"]
     b["st"]["log"].clear()
-    assert [r["action"] for r in saves.push_behind(settings)] == ["conflit"]
-    assert not writes(b)
+    assert [r["action"] for r in saves.sync_auto(settings)] == ["remontée"]
+    assert not [e for e in writes(b) if e["method"] == "PUT"]
+    assert saves.sync_auto(settings) == []
+    assert not [e for e in writes(b) if e["method"] == "PUT"]
 
 
 def test_behind_ignores_a_machine_without_the_game(agents, tmp_path):
@@ -1733,7 +1737,7 @@ def test_behind_ignores_a_machine_without_the_game(agents, tmp_path):
     bid = machine_ids(settings)["b-machine"]
     b["st"]["log"].clear()
     store_manager_version(settings, "Jeu", gz("v2"))
-    assert saves.push_behind(settings) == []
+    assert saves.sync_auto(settings) == []
     assert not writes(b) and saves.machine_state(settings, "Jeu", bid) == ""
 
 
@@ -1744,7 +1748,7 @@ def test_behind_records_a_machine_that_already_has_the_version(agents, tmp_path)
     bid = machine_ids(settings)["b-machine"]
     b["st"]["log"].clear()
     current = store_manager_version(settings, "Jeu", gz("v2"))
-    assert saves.push_behind(settings) == []
+    assert saves.sync_auto(settings) == []
     assert not writes(b) and saves.machine_state(settings, "Jeu", bid) == current
 
 
@@ -1756,7 +1760,7 @@ def test_behind_skips_a_pass_while_another_one_runs(agents, tmp_path):
     store_manager_version(settings, "Jeu", gz("v2"))
     saves.BEHIND_LOCK.acquire()
     try:
-        assert saves.push_behind(settings) == []
+        assert saves.sync_auto(settings) == []
     finally:
         saves.BEHIND_LOCK.release()
     assert not writes(b)
@@ -1810,7 +1814,7 @@ def test_auto_push_loop_runs_each_interval_until_shutdown(tmp_path, monkeypatch)
     monkeypatch.setattr(deps, "_settings", settings)
     monkeypatch.setattr(background, "_background_stop", threading.Event())
     calls = []
-    monkeypatch.setattr(saves, "push_behind", lambda s, *a, **k: calls.append(s) or [])
+    monkeypatch.setattr(saves, "sync_auto", lambda s, *a, **k: calls.append(s) or [])
     thread = threading.Thread(target=background._auto_push_loop, daemon=True)
     thread.start()
     deadline = time.monotonic() + 10
@@ -1828,7 +1832,7 @@ def test_auto_push_loop_does_nothing_when_disabled(tmp_path, monkeypatch):
     monkeypatch.setattr(background, "_background_stop", threading.Event())
     monkeypatch.setattr(background, "AUTO_PUSH_IDLE", 0.02)
     calls = []
-    monkeypatch.setattr(saves, "push_behind", lambda s, *a, **k: calls.append(s) or [])
+    monkeypatch.setattr(saves, "sync_auto", lambda s, *a, **k: calls.append(s) or [])
     thread = threading.Thread(target=background._auto_push_loop, daemon=True)
     thread.start()
     time.sleep(0.3)
@@ -1868,8 +1872,301 @@ def test_manager_ui_url_given_to_the_machines(tmp_path):
     assert saves.manager_ui_url(settings) == "https://wsq.example.lan/"
 
 
-@pytest.mark.parametrize(("current", "machine", "recorded", "action"), [
-    ("AB", "ab", "", "enregistrer"), ("AB", "ab", "ab", "rien"), ("AB", "cd", "CD", "pousser"),
-    ("AB", "cd", "ef", "conflit"), ("AB", "", "", "absente"), ("", "cd", "cd", "rien")])
-def test_behind_action_ignores_the_case_of_fingerprints(current, machine, recorded, action):
-    assert saves.behind_action(current, machine, recorded) == action
+HEX_A, HEX_B, HEX_C = "ab" * 32, "cd" * 32, "ef" * 32
+
+
+@pytest.mark.parametrize(("base", "client", "manager", "cn", "mn", "action"), [
+    ("", "", "", 0, 0, "rien"),                              # ni l'un ni l'autre
+    ("x", "", "", 0, 0, "rien"),
+    ("x", "", "AB", 0, 0, "absente"),                        # le client n'a pas le jeu
+    ("", "", "AB", 9, 1, "absente"),
+    ("", "cd", "", 0, 0, "remonter"),                        # le manager n'a pas le jeu
+    ("ef", "cd", "", 0, 0, "remonter"),
+    ("", "ab", "AB", 0, 0, "à jour"),                        # même empreinte (casse ignorée)
+    ("ab", "AB", "ab", 0, 0, "à jour"),
+    ("zz", "ab", "AB", 0, 0, "à jour"),
+    ("ab", "cd", "ab", 0, 0, "remonter"),                    # client en avance
+    ("AB", "cd", "ab", 0, 0, "remonter"),
+    ("cd", "CD", "ab", 0, 0, "descendre"),                   # client en retard
+    ("cd", "cd", "AB", 9, 1, "descendre"),
+    ("ef", "cd", "ab", 9, 1, "conflit"),                     # les deux ont changé
+    ("EF", "cd", "AB", 0, 0, "conflit"),
+    ("", "cd", "ab", 10, 5, "remonter"),                     # base inconnue : le plus récent
+    ("", "cd", "ab", 5, 5, "conflit"),
+    ("", "cd", "ab", 4, 5, "conflit"),
+])
+def test_decide_three_way_table(base, client, manager, cn, mn, action):
+    assert saves.decide(base, client, manager, client_newest=cn, manager_newest=mn) == action
+
+
+def test_decide_equal_content_is_a_false_conflict():
+    kw = {"client_newest": 1, "manager_newest": 9}
+    assert saves.decide("ef", "cd", "ab", **kw, client_content="C1", manager_content="c1") == "à jour"
+    assert saves.decide("", "cd", "ab", **kw, client_content="C1", manager_content="C1") == "à jour"
+    assert saves.decide("ef", "cd", "ab", **kw, client_content="C1", manager_content="C2") == "conflit"
+    assert saves.decide("ef", "cd", "ab", **kw, client_content="", manager_content="") == "conflit"
+    assert saves.decide("ef", "cd", "ab", **kw, client_content="C1", manager_content="") == "conflit"
+
+
+def test_decide_replaces_behind_action():
+    assert not hasattr(saves, "behind_action")
+
+
+def store_v(settings, game, text, newest=900, content=""):
+    data = gz(text)
+    saves.store(settings, game, part_with(settings, game, data), fingerprint=fp_of(data), newest=newest,
+                size=len(data), profile=None, source="manager", content=content)
+    return fp_of(data)
+
+
+def one_auto(agents, tmp_path, games, **kw):
+    b = agents("b-machine", games=games, auto=True, **kw)
+    settings = make_settings(tmp_path)
+    associate(settings, b)
+    return b, settings, machine_ids(settings)["b-machine"]
+
+
+def test_sync_false_conflict_with_equal_content_is_resolved_silently(agents, tmp_path):
+    b, settings, bid = one_auto(agents, tmp_path, {"Jeu": (gz("local"), None, 500)}, contents={"Jeu": "C" * 64})
+    store_v(settings, "Jeu", "manager", content="c" * 64)
+    saves.record_state(settings, "Jeu", bid, "autre")
+    b["st"]["log"].clear()
+    assert saves.sync_auto(settings) == []
+    assert saves.machine_state(settings, "Jeu", bid) == fp_of(gz("manager"))
+    assert saves.conflict_versions(settings, "Jeu") == [] and not writes(b)
+    assert b["st"]["games"]["Jeu"]["data"] == gz("local")
+    assert saves.current_content(settings, "Jeu") == "c" * 64
+
+
+def test_sync_ahead_client_goes_up_then_down_to_the_other_in_the_same_pass(agents, tmp_path):
+    a = agents("a-machine", games={"Jeu": (gz("v2"), None, 950)}, auto=True)
+    b = agents("b-machine", games={"Jeu": (gz("v1"), None, 100)}, auto=True)
+    settings = make_settings(tmp_path)
+    associate(settings, a)
+    associate(settings, b)
+    ids = machine_ids(settings)
+    v1 = store_v(settings, "Jeu", "v1")
+    for name in ("a-machine", "b-machine"):
+        saves.record_state(settings, "Jeu", ids[name], v1)
+    results = saves.sync_auto(settings)
+    assert [(r["action"], r["machine"], r["ok"]) for r in results] == [
+        ("remontée", "a-machine", True), ("poussée", "b-machine", True)]
+    v2 = fp_of(gz("v2"))
+    assert saves.current_fingerprint(settings, "Jeu") == v2
+    assert b["st"]["games"]["Jeu"]["data"] == gz("v2")
+    assert [saves.machine_state(settings, "Jeu", ids[n]) for n in ("a-machine", "b-machine")] == [v2, v2]
+    assert len(saves.archives(settings, "Jeu")) == 1               # l'ancienne version du manager
+    journal = (settings.state_dir / "history.jsonl").read_text(encoding="utf-8")
+    assert "remontée" in journal and "poussée" in journal
+    assert saves.sync_auto(settings) == []                         # stable
+
+
+def test_sync_true_conflict_keeps_the_client_copy_aside_without_touching_anything(agents, tmp_path):
+    b, settings, bid = one_auto(agents, tmp_path, {"Jeu": (gz("local"), None, 500)})
+    v1 = fp_of(gz("v1"))
+    saves.record_state(settings, "Jeu", bid, v1)
+    current = store_v(settings, "Jeu", "v2")
+    b["st"]["log"].clear()
+    first = saves.sync_auto(settings)
+    assert [(r["action"], r["ok"]) for r in first] == [("conflit", False)] and "à départager" in first[0]["message"]
+    versions = saves.conflict_versions(settings, "Jeu")
+    assert len(versions) == 1 and versions[0]["machine_id"] == bid
+    assert versions[0]["fingerprint"] == fp_of(gz("local")) and versions[0]["name"].endswith(f"-conflit-{bid}")
+    d = saves.reserve_dir(settings, "Jeu")
+    assert (d / "current.tar.gz").read_bytes() == gz("v2") and saves.current_fingerprint(settings, "Jeu") == current
+    assert versions[0]["path"].read_bytes() == gz("local")
+    assert saves.machine_state(settings, "Jeu", bid) == v1
+    assert b["st"]["games"]["Jeu"]["data"] == gz("local") and not writes(b)
+    journal_size = (settings.state_dir / "history.jsonl").stat().st_size
+    second = saves.sync_auto(settings)                              # pas de doublon, pas de nouvelle entrée
+    assert [r["action"] for r in second] == ["conflit"]
+    assert len(saves.conflict_versions(settings, "Jeu")) == 1
+    assert (settings.state_dir / "history.jsonl").stat().st_size == journal_size
+    # jamais élaguée, et absente des versions datées
+    for n in range(6):
+        store_v(settings, "Jeu", f"w{n}")
+    assert len(saves.archives(settings, "Jeu")) == saves.KEEP_ARCHIVES
+    assert len(saves.conflict_versions(settings, "Jeu")) == 1 and versions[0]["path"].exists()
+    status = saves.status(settings, ["Jeu"])["games"][0]
+    assert status["conflict"] is True
+    assert [c["machine_id"] for c in status["conflicts"]] == [bid]
+
+
+def test_sync_game_missing_from_the_manager_comes_up(agents, tmp_path):
+    b, settings, bid = one_auto(agents, tmp_path, {"Jeu": (gz("seul"), None, 500)})
+    results = saves.sync_auto(settings)
+    assert [(r["game"], r["action"], r["ok"]) for r in results] == [("Jeu", "remontée", True)]
+    assert saves.reserve_games(settings) == ["Jeu"]
+    assert saves.machine_state(settings, "Jeu", bid) == fp_of(gz("seul"))
+
+
+def agent_put(settings, monkeypatch, agent_id, data, **headers):
+    monkeypatch.setattr(deps, "_settings", settings)
+    monkeypatch.setattr(machine_api, "_background", lambda target, *args, **kwargs: target(*args, **kwargs))
+    monkeypatch.setattr(machine_api, "GZIP_MAGIC", b"GZ")
+    set_saves_machine_field(settings, agent_id, "manager_token_sha256", hashlib.sha256(b"jeton-a").hexdigest())
+    return TestClient(machines.machine_app).put(
+        "/v1/saves/tar", params={"game": "Jeu"}, content=data,
+        headers={"Authorization": "Bearer jeton-a", "X-Wsq-Machine": "a-sync", "Content-Type": "application/gzip",
+                 "X-Wsq-Fingerprint": hashlib.sha256(data).hexdigest(), **headers})
+
+
+def test_agent_upload_in_conflict_is_kept_aside(agents, tmp_path, monkeypatch):
+    a, settings, aid = one_auto(agents, tmp_path, {})
+    store_v(settings, "Jeu", "manager")
+    saves.record_state(settings, "Jeu", aid, fp_of(gz("ancien")))
+    data = gz("a-new")
+    response = agent_put(settings, monkeypatch, aid, data, **{"X-Wsq-Content": "d" * 64, "X-Wsq-Newest": "5"})
+    assert response.status_code == 200 and response.json()["conflict"] is True
+    assert saves.reserve_dir(settings, "Jeu").joinpath("current.tar.gz").read_bytes() == gz("manager")
+    versions = saves.conflict_versions(settings, "Jeu")
+    assert [(v["machine_id"], v["content"]) for v in versions] == [(aid, "d" * 64)]
+    assert versions[0]["path"].read_bytes() == data
+    assert saves.machine_state(settings, "Jeu", aid) == fp_of(gz("ancien"))
+    again = agent_put(settings, monkeypatch, aid, data)             # même copie : pas de doublon
+    assert again.json()["conflict"] is True and len(saves.conflict_versions(settings, "Jeu")) == 1
+    assert agent_put(settings, monkeypatch, aid, data, **{"X-Wsq-Content": "zz"}).status_code == 400
+
+
+def test_agent_upload_behind_replaces_nothing_and_triggers_a_push(agents, tmp_path, monkeypatch):
+    a, settings, aid = one_auto(agents, tmp_path, {"Jeu": (gz("ancien"), None, 100)})
+    old = hashlib.sha256(gz("ancien")).hexdigest()               # empreinte envoyée par agent_put
+    saves.record_state(settings, "Jeu", aid, old)
+    manager = store_v(settings, "Jeu", "manager")
+    archives_before = saves.archives(settings, "Jeu")
+    a["st"]["log"].clear()
+    settings.auto_push_interval = 0                                # synchro lancée à la main plus bas
+    response = agent_put(settings, monkeypatch, aid, gz("ancien"))
+    assert response.status_code == 200 and response.json() == {"fingerprint": manager, "archived": "", "behind": True}
+    d = saves.reserve_dir(settings, "Jeu")
+    assert (d / "current.tar.gz").read_bytes() == gz("manager") and saves.archives(settings, "Jeu") == archives_before
+    assert saves.conflict_versions(settings, "Jeu") == []
+    settings.auto_push_interval = 120
+    calls = []
+    monkeypatch.setattr(saves, "sync_auto", lambda *args, **kw: calls.append((args[1:], kw)) or [])
+    agent_put(settings, monkeypatch, aid, gz("ancien"))
+    assert calls == [((['Jeu'],), {})]                            # lancée sans exclure ce client
+
+
+def test_agent_upload_same_content_writes_nothing_but_the_base(agents, tmp_path, monkeypatch):
+    a, settings, aid = one_auto(agents, tmp_path, {})
+    manager = store_v(settings, "Jeu", "manager", content="c" * 64)
+    saves.record_state(settings, "Jeu", aid, "autre")
+    response = agent_put(settings, monkeypatch, aid, gz("differente"), **{"X-Wsq-Content": "C" * 64})
+    assert response.json() == {"fingerprint": manager, "archived": "", "same": True}
+    assert saves.reserve_dir(settings, "Jeu").joinpath("current.tar.gz").read_bytes() == gz("manager")
+    assert saves.archives(settings, "Jeu") == [] and saves.conflict_versions(settings, "Jeu") == []
+    assert saves.machine_state(settings, "Jeu", aid) == manager
+    assert saves.reserve_meta(settings, "Jeu")["fingerprint"] == manager
+
+
+def test_agent_upload_ahead_stores_content(agents, tmp_path, monkeypatch):
+    a, settings, aid = one_auto(agents, tmp_path, {})
+    v1 = store_v(settings, "Jeu", "v1")
+    saves.record_state(settings, "Jeu", aid, v1)
+    data = gz("v2")
+    response = agent_put(settings, monkeypatch, aid, data, **{"X-Wsq-Content": "e" * 64})
+    assert response.status_code == 200 and "conflict" not in response.json()
+    assert saves.current_content(settings, "Jeu") == "e" * 64
+    assert saves.conflict_versions(settings, "Jeu") == []
+
+
+def make_conflict(settings, game, machine_id, text, fingerprint=None):
+    return saves.store_conflict(settings, game, part_with(settings, game, gz(text)), machine_id=machine_id,
+                                fingerprint=fingerprint or fp_of(gz(text)), newest=700, size=3,
+                                source="steamdeck", content="k" * 64)
+
+
+def test_resolve_keep_manager_archives_the_conflict_versions(tmp_path):
+    settings = make_settings(tmp_path)
+    current = store_v(settings, "Jeu", "manager")
+    made = make_conflict(settings, "Jeu", "m1", "client")
+    assert made["created"] and not make_conflict(settings, "Jeu", "m1", "client")["created"]
+    result = saves.resolve(settings, "Jeu", "manager")
+    assert result["ok"] and saves.conflict_versions(settings, "Jeu") == []
+    assert saves.current_fingerprint(settings, "Jeu") == current
+    assert len(saves.archives(settings, "Jeu")) == 1
+    d = saves.reserve_dir(settings, "Jeu")
+    assert (d / f"{saves.archives(settings, 'Jeu')[0]}.tar.gz").read_bytes() == gz("client")
+    assert saves.machine_state(settings, "Jeu", "m1") == fp_of(gz("client"))    # il descendra à la synchro
+
+
+def test_resolve_keep_a_conflict_version_makes_it_current(tmp_path):
+    settings = make_settings(tmp_path)
+    store_v(settings, "Jeu", "manager")
+    first = make_conflict(settings, "Jeu", "m1", "client1")
+    make_conflict(settings, "Jeu", "m2", "client2")
+    saves.resolve(settings, "Jeu", first["name"])
+    d = saves.reserve_dir(settings, "Jeu")
+    assert (d / "current.tar.gz").read_bytes() == gz("client1")
+    assert saves.current_fingerprint(settings, "Jeu") == fp_of(gz("client1"))
+    assert saves.current_content(settings, "Jeu") == "k" * 64
+    assert saves.conflict_versions(settings, "Jeu") == []
+    datas = sorted((d / f"{n}.tar.gz").read_bytes() for n in saves.archives(settings, "Jeu"))
+    assert datas == [gz("client2"), gz("manager")]                  # ancienne courante + version écartée
+    assert saves.machine_state(settings, "Jeu", "m2") == fp_of(gz("client2"))
+    with pytest.raises(RebuildError, match="inconnue"):
+        saves.resolve(settings, "Jeu", "n'existe-pas")
+
+
+def test_resolve_task_pushes_to_clients_that_are_behind(agents, tmp_path):
+    a = agents("a-machine", games={"Jeu": (gz("client"), None, 700)}, auto=True)
+    b = agents("b-machine", games={"Jeu": (gz("manager"), None, 100)}, auto=True)
+    settings = make_settings(tmp_path)
+    associate(settings, a)
+    associate(settings, b)
+    ids = machine_ids(settings)
+    manager = store_v(settings, "Jeu", "manager")
+    saves.record_state(settings, "Jeu", ids["a-machine"], fp_of(gz("ancien")))
+    saves.record_state(settings, "Jeu", ids["b-machine"], manager)
+    saves.sync_auto(settings)                                       # vrai conflit pour A
+    [version] = saves.conflict_versions(settings, "Jeu")
+    task = Task(id="r1", kind="saves", params={"op": "resolve", "game": "Jeu", "keep": "manager", "push": True})
+    saves.run_saves(settings, task, Job())
+    assert a["st"]["games"]["Jeu"]["data"] == gz("manager")         # A descend
+    assert b["st"]["games"]["Jeu"]["data"] == gz("manager")
+    assert saves.conflict_versions(settings, "Jeu") == []
+
+
+def test_status_exposes_action_content_and_conflicts(agents, tmp_path):
+    b, settings, bid = one_auto(agents, tmp_path, {"Jeu": (gz("v1"), None, 100), "Autre": (gz("x"), None, 5)},
+                                contents={"Jeu": "c" * 64})
+    v1 = store_v(settings, "Jeu", "v1")
+    saves.record_state(settings, "Jeu", bid, v1)
+    store_v(settings, "Jeu", "v2")
+    games = {g["game"]: g for g in saves.status(settings)["games"]}
+    machine = games["Jeu"]["machines"][0]
+    assert (machine["action"], machine["content"], machine["conflict"]) == ("descendre", "c" * 64, False)
+    assert games["Jeu"]["conflicts"] == []
+    assert games["Autre"]["machines"][0]["action"] == "remonter"
+    made = make_conflict(settings, "Jeu", bid, "copie")
+    jeu = saves.status(settings, ["Jeu"])["games"][0]
+    assert jeu["conflict"] is True and jeu["machines"][0]["conflict"] is True
+    assert jeu["conflicts"] == [{"name": made["name"], "machine_id": bid, "source": "steamdeck", "newest": 700,
+                                 "size": 3, "fingerprint": fp_of(gz("copie"))}]
+
+
+def test_status_skips_an_unreachable_client_for_a_while(agents, tmp_path):
+    b, settings, bid = one_auto(agents, tmp_path, {"Jeu": (gz("v1"), None, 100)})
+    b["st"]["token"] = "autre"                                      # refuse désormais : injoignable
+    first = saves.status(settings)
+    assert first["machines"][0]["ok"] is False and first["machines"][0]["message"]
+    b["st"]["log"].clear()
+    second = saves.status(settings)
+    assert not b["st"]["log"]                                       # sautée : aucune requête
+    assert second["machines"][0]["ok"] is False and second["machines"][0]["message"] == first["machines"][0]["message"]
+    saves.status(settings, refresh=True)
+    assert b["st"]["log"]                                           # refresh la contourne
+    b["st"]["token"] = TOKEN
+    assert saves.status(settings, refresh=True)["machines"][0]["ok"] is True
+    assert saves.status(settings)["machines"][0]["ok"] is True      # la réussite efface le cache
+
+
+def test_api_resolve_validates_the_version(api):
+    client, settings, queue = api
+    store_v(settings, "Jeu", "manager")
+    made = make_conflict(settings, "Jeu", "m1", "client")
+    assert client.post("/api/saves/resolve", json={"game": "Jeu", "keep": "inconnue"}).status_code == 422
+    assert client.post("/api/saves/resolve", json={"game": "../x", "keep": "manager"}).status_code == 422
+    response = client.post("/api/saves/resolve", json={"game": "Jeu", "keep": made["name"], "push": False})
+    assert response.status_code == 200 and "task" in response.json()

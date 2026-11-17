@@ -101,7 +101,7 @@ class Settings(BaseSettings):
     # Adresse de l'interface donnée aux clients (« Ouvrir le manager » de wsquashfs-launcher --tray) ;
     # vide : http://<hôte de machine_url>:<port>. WSQUASHFS_MGR_UI_URL derrière un proxy.
     ui_url: str = ""
-    # Mise à jour automatique des clients en retard (services/saves.py push_behind) : intervalle
+    # Mise à jour automatique des clients en retard (services/saves.py sync_auto) : intervalle
     # en secondes entre deux passages ; 0 : désactivée. Modifiable dans Réglages.
     auto_push_interval: int = 120
 

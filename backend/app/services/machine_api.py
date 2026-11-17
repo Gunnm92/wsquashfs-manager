@@ -12,7 +12,7 @@ Chaque requête porte :
 Routes : GET /v1/info, GET /v1/saves/list, GET et PUT /v1/saves/tar?game=,
 POST /v1/saves/state. Les états par machine sont dans meta.json de la réserve du jeu.
 Après un envoi réussi, les autres clients en retard (synchro auto) reçoivent la version du
-manager (saves.push_behind, en arrière-plan).
+manager (saves.sync_auto, en arrière-plan).
 """
 
 import hashlib
@@ -125,6 +125,9 @@ def build_router(settings_of: Callable[[], Settings]) -> APIRouter:
                 profile.encode("ascii")
             except UnicodeEncodeError:
                 raise HTTPException(status_code=400, detail="profil non ASCII") from None
+        content = request.headers.get("x-wsq-content", "")      # empreinte de contenu (agent version 10)
+        if content and not _FINGERPRINT.fullmatch(content):
+            raise HTTPException(status_code=400, detail="empreinte de contenu invalide (X-Wsq-Content)")
         declared = request.headers.get("content-length", "")
         if declared.isdigit() and int(declared) > MAX_ARCHIVE:
             raise HTTPException(status_code=413, detail="archive trop volumineuse")
@@ -133,6 +136,7 @@ def build_router(settings_of: Callable[[], Settings]) -> APIRouter:
         fd, name = tempfile.mkstemp(dir=folder, prefix="upload-", suffix=".part")
         part = Path(name)
         size, head = 0, b""
+        behind = False
         try:
             with os.fdopen(fd, "wb") as out:
                 async for chunk in request.stream():
@@ -152,17 +156,41 @@ def build_router(settings_of: Callable[[], Settings]) -> APIRouter:
             dir_path = unquote(request.headers.get("x-wsq-dir", "")) or None
             newest = _header_int(request, "x-wsq-newest", int(time.time()))
             with saves_svc.STORE_LOCK:      # un envoi à la fois dans la réserve (pas d'entrelacement)
-                _, archived = saves_svc.store_archived(settings, game, part, fingerprint=fingerprint,
-                                                       newest=newest, size=files_size, profile=profile,
-                                                       source=machine["name"], dir_path=dir_path)
-                saves_svc.record_state(settings, game, machine["id"], fingerprint)
+                meta = saves_svc.reserve_meta(settings, game) or {}
+                current = saves_svc.current_fingerprint(settings, game)
+                action = saves_svc.decide(
+                    saves_svc.machine_state(settings, game, machine["id"]), fingerprint, current,
+                    client_newest=newest, manager_newest=int(meta.get("newest") or 0),
+                    client_content=content, manager_content=saves_svc.current_content(settings, game))
+                if action == "conflit":     # les deux ont changé : la copie est rangée à part, rien n'est remplacé
+                    stored = saves_svc.store_conflict(
+                        settings, game, part, machine_id=machine["id"], fingerprint=fingerprint,
+                        newest=newest, size=files_size, source=machine["name"], content=content,
+                        profile=profile, dir_path=dir_path)
+                    return {"fingerprint": fingerprint, "archived": "", "conflict": True,
+                            "version": stored["name"]}
+                if action == "à jour":      # même contenu : rien n'est écrit, seule la base est notée
+                    saves_svc.record_state(settings, game, machine["id"], current)
+                    return {"fingerprint": current, "archived": "", "same": True}
+                if action == "descendre":   # copie plus ancienne que celle du manager : rien n'est remplacé
+                    behind = True
+                else:
+                    _, archived = saves_svc.store_archived(settings, game, part, fingerprint=fingerprint,
+                                                           newest=newest, size=files_size, profile=profile,
+                                                           source=machine["name"], dir_path=dir_path,
+                                                           content=content)
+                    saves_svc.record_state(settings, game, machine["id"], fingerprint)
         except OSError as exc:
             raise HTTPException(status_code=500, detail=f"écriture dans le manager impossible : {exc}") from exc
         finally:
             part.unlink(missing_ok=True)
+        if behind:                  # ce client reçoit la version du manager (pas d'exclusion)
+            if settings.auto_push_interval:
+                _background(saves_svc.sync_auto, settings, [game])
+            return {"fingerprint": current, "archived": "", "behind": True}
         # Les autres clients en retard (synchro auto) reçoivent cette version, sans retarder la réponse
         if settings.auto_push_interval:
-            _background(saves_svc.push_behind, settings, [game], exclude={machine["id"]})
+            _background(saves_svc.sync_auto, settings, [game], exclude={machine["id"]})
         return {"fingerprint": fingerprint, "archived": archived}
 
     @router.post("/v1/saves/state")
