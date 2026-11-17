@@ -387,6 +387,7 @@ def run_cover(settings: Settings, task: Task, job: Job) -> str:
     from .rebuild import COVER
 
     replace = bool(task.params.get("replace"))
+    choice = task.params.get("choice")          # clé d'un candidat de l'aperçu (art_choice)
     image, _ = _task_image(task)
     job.progress("arborescence", 0.01)
     files = scan._list_files_uncached(settings, image)
@@ -399,14 +400,25 @@ def run_cover(settings: Settings, task: Task, job: Job) -> str:
         # mksquashfs renommerait le nouveau dossier (.wsquashfs_1) : passer
         # par une reconstruction, qui la dépose (add_cover)
         raise RebuildError(f"{COVER_DIR}/ existe sans illustration : reconstruire l'image")
-    data = scan.read_autorun_bytes(settings, image)
-    a = Autorun.parse(decode_autorun(data)[0]) if data is not None else None
-    art = artwork(settings, image, a.get("CMD") if a else None, a.get("DIR") if a else None)
-    if art is None:
-        return "Aucune illustration trouvée (ni jaquette d'EmulationStation ni icône d'exécutable)"
-    job.log(f"Illustration : {art.path.name} (source : {art.kind})")
+    if choice:
+        # Candidat choisi dans l'aperçu : exactement celui-là, sans repli sur une autre source
+        from .art_choice import CandidatError, candidat_fichier
+        try:
+            art = candidat_fichier(settings, image, str(choice), "full")
+        except CandidatError as exc:
+            raise RebuildError(f"illustration choisie indisponible ({exc}) : "
+                               "aucune autre source n'est utilisée") from exc
+    else:
+        data = scan.read_autorun_bytes(settings, image)
+        a = Autorun.parse(decode_autorun(data)[0]) if data is not None else None
+        art = artwork(settings, image, a.get("CMD") if a else None, a.get("DIR") if a else None)
+        if art is None:
+            return ("Aucune illustration trouvée (ni jaquette d'EmulationStation ni icône "
+                    "d'exécutable)")
+    job.log(f"Illustration : {art.path.name} (source : {art.kind}"
+            f"{', choisie' if choice else ''})")
     if replace and (present or COVER_DIR in files):
-        return _replace_cover(settings, image, art, present, job)
+        return _replace_cover(settings, image, art, present, job, choisie=bool(choice))
     if scan.image_in_use(image):
         raise RebuildError("jeu en cours d'utilisation")
     cover = art.path.read_bytes()
@@ -437,7 +449,8 @@ _SOURCE_LABEL = {"sgdb": "SteamGridDB, jaquette", "es": "jaquette EmulationStati
                  "icon": "icône de l'exécutable"}
 
 
-def _replace_cover(settings: Settings, image: Path, art, present: bool, job: Job) -> str:
+def _replace_cover(settings: Settings, image: Path, art, present: bool, job: Job,
+                   choisie: bool = False) -> str:
     """Remplace l'illustration par une reconstruction ciblée (mksquashfs en ajout ne
     peut pas remplacer un fichier) : l'original reste en .old. Rien si l'illustration
     intégrée est déjà identique octet pour octet."""
@@ -446,7 +459,7 @@ def _replace_cover(settings: Settings, image: Path, art, present: bool, job: Job
     cover = art.path.read_bytes()
     current = scan._unsquashfs_cat(settings, image, COVER) if present else None
     if current == cover:
-        if art.kind != "sgdb" and not settings.sgdb_api_key:
+        if not choisie and art.kind != "sgdb" and not settings.sgdb_api_key:
             # Sans clé, la source est la jaquette ES ou l'icône : souvent celle déjà intégrée
             return ("Illustration déjà à jour : rien à faire (SteamGridDB n'est pas configuré : "
                     "ajouter la clé API dans Réglages › Illustrations)")

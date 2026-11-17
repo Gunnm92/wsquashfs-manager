@@ -416,3 +416,77 @@ def forget_sgdb_misses(settings: Settings) -> None:
         meta = _lire_json(game)
         if meta is not None and not meta.get("game_id"):
             game.unlink(missing_ok=True)
+
+
+# ------------------------------------------------------------------ aperçu (choix manuel)
+
+CANDIDATS_MAX = 24                # grilles proposées dans l'aperçu, au plus
+MEDIA_PAR_EXTENSION = {".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp",
+                       ".gif": "image/gif"}
+
+
+def _ordonner(items: list[dict], authors: list[str]) -> list[dict]:
+    """Grilles avec une adresse : auteurs préférés dans l'ordre de la liste, puis note décroissante."""
+    rang: dict[str, int] = {}
+    for n, name in enumerate(authors):
+        rang.setdefault(name.lower(), n)
+    return sorted(_trier(items), key=lambda i: rang.get(_auteur(i), len(rang)))
+
+
+def grilles_candidates(settings: Settings, image: Path) -> tuple[dict | None, list[dict], dict | None]:
+    """Pour l'aperçu : (jeu {"id", "name"} ou None, grilles triées (CANDIDATS_MAX au plus), grille
+    que le choix automatique prendrait ou None). Sans clé ou jeu introuvable : rien, sans appel
+    au-delà de la recherche. Lève SgdbError (réseau, clé refusée)."""
+    titre = nettoyer_titre(image.stem)
+    if not settings.sgdb_api_key or not titre:
+        return None, [], None
+    base = _dossier(settings)
+    base.mkdir(parents=True, exist_ok=True)
+    authors = list(settings.sgdb_authors)
+    with _client(settings.sgdb_api_key) as client:
+        game_id, game_name = _jeu(client, base, titre)
+        if game_id is None:
+            return None, [], None
+        items = _get(client, f"/grids/game/{game_id}", COVER_PARAMS) or []
+    retenue = choisir_jaquette(items, authors)
+    return ({"id": game_id, "name": game_name}, _ordonner(items, authors)[:CANDIDATS_MAX],
+            retenue[0] if retenue else None)
+
+
+def format_image(data: bytes) -> tuple[str, str] | None:
+    """(extension, type MIME) d'après les octets ; None si ce n'est pas une image gérée."""
+    for magic, ext, media in ((b"\x89PNG\r\n\x1a\n", ".png", "image/png"),
+                              (b"\xff\xd8\xff", ".jpg", "image/jpeg"),
+                              (b"GIF87a", ".gif", "image/gif"), (b"GIF89a", ".gif", "image/gif")):
+        if data.startswith(magic):
+            return ext, media
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return ".webp", "image/webp"
+    return None
+
+
+def grille_en_cache(settings: Settings, grid_id: int, size: str) -> _art.Artwork | None:
+    """Image d'une grille déjà téléchargée (`candidates/<id>-<size>.<ext>`), sans appel."""
+    base = _dossier(settings) / "candidates"
+    for path in base.glob(f"{int(grid_id)}-{size}.*"):
+        if path.suffix in MEDIA_PAR_EXTENSION and path.is_file():
+            return _art.Artwork(path, MEDIA_PAR_EXTENSION[path.suffix], "sgdb")
+    return None
+
+
+def fichier_grille(settings: Settings, grid_id: int, url: str, size: str) -> _art.Artwork:
+    """Image d'une grille (`size` « thumb » ou « full »), téléchargée depuis `url` (adresse
+    tirée de la liste des candidats de l'image, jamais de la requête) puis mise en cache.
+    Lève SgdbError."""
+    if (cached := grille_en_cache(settings, grid_id, size)) is not None:
+        return cached
+    data, _announced = _telecharger(url)
+    fmt = format_image(data)
+    if fmt is None:
+        raise SgdbError("format d'image non géré")
+    ext, media = fmt
+    base = _dossier(settings) / "candidates"
+    base.mkdir(parents=True, exist_ok=True)
+    out = base / f"{int(grid_id)}-{size}{ext}"
+    _ecrire(out, data)
+    return _art.Artwork(out, media, "sgdb")

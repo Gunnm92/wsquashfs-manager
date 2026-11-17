@@ -33,8 +33,8 @@ from .config import (
 )
 from .models import ImageInfo, ImageState, Task
 from .services import analyze as analyze_mod
+from .services import art_choice, machine_api, scan
 from .services import install as install_svc
-from .services import machine_api, scan
 from .services import saves as saves_svc
 from .services.analyze import FolderAnalysis, add_local_game, analyze_folder, analyze_image, report
 from .services.artwork import embedded_cover, folder_cover, forget_embedded_misses, switch_artwork
@@ -641,6 +641,7 @@ def image_art_forget():
     prochain affichage."""
     forget_sgdb_misses(_settings)
     forget_embedded_misses(_settings)
+    art_choice.oublier()
     return {"ok": True}
 
 
@@ -653,6 +654,28 @@ def image_art(id: str, kind: Literal["cover", "icon"] = "cover"):
     art = embedded_cover(_settings, info.path)
     if art is None:
         raise HTTPException(status_code=404, detail="aucune illustration")
+    return FileResponse(art.path, media_type=art.media_type,
+                        headers={"X-Art-Kind": art.kind, "Cache-Control": "private, max-age=3600"})
+
+
+@app.get("/api/image/art/candidates")
+def image_art_candidates(id: str):
+    """Aperçu du remplacement de l'illustration : candidats (SteamGridDB, jaquette
+    d'EmulationStation, icône de l'exécutable) et illustration intégrée actuelle. Aucune
+    modification. Voir services/art_choice.py."""
+    info = _find_image(id)
+    return art_choice.apercu(_settings, info.id, info.path)
+
+
+@app.get("/api/image/art/candidate")
+def image_art_candidate(id: str, key: str, size: Literal["thumb", "full"] = "thumb"):
+    """Image d'un candidat de l'aperçu. Clé inconnue pour cette image : 404 ; SteamGridDB
+    injoignable ou clé refusée : 502. Seules les adresses de la liste de l'image sont suivies."""
+    info = _find_image(id)
+    try:
+        art = art_choice.candidat_fichier(_settings, info.path, key, size)
+    except art_choice.CandidatError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
     return FileResponse(art.path, media_type=art.media_type,
                         headers={"X-Art-Kind": art.kind, "Cache-Control": "private, max-age=3600"})
 
@@ -1244,19 +1267,40 @@ def mass_verify(body: MassIds):
 class MassCover(MassIds):
     # replace : remplace l'illustration intégrée par reconstruction (ancienne en .old)
     replace: bool = False
+    # choices : {id d'image: clé du candidat de l'aperçu} (GET /api/image/art/candidates)
+    choices: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("choices")
+    @classmethod
+    def _cles(cls, value: dict[str, str]) -> dict[str, str]:
+        if not all(art_choice.cle_valide(key) for key in value.values()):
+            raise ValueError("clé de candidat invalide (sgdb:<id>, es ou icon)")
+        return value
+
+
+REFUS_REMPLACEMENT = "choisir l'illustration dans l'aperçu avant de remplacer"
 
 
 @app.post("/api/mass/cover")
 def mass_cover(body: MassCover):
     """Illustration ajoutée aux images qui n'en ont pas, sans reconstruction
     (mksquashfs en ajout), une tâche par image. Avec `replace`, l'illustration
-    déjà intégrée est remplacée par reconstruction (ancienne image gardée en .old)."""
+    déjà intégrée est remplacée par reconstruction (ancienne image gardée en .old) ;
+    ce remplacement exige un choix (`choices`) pour chaque image déjà illustrée : sans
+    choix, l'image est refusée dans `skipped`. Un choix porte exactement le candidat choisi."""
     created, skipped = [], []
     title = "Remplacement de l'illustration" if body.replace else "illustration"
     for image_id in body.ids:
         try:
             info = _find_image(image_id)
-            created.append(_submit(info, "cover", {"replace": body.replace}, title,
+            choice = body.choices.get(image_id)
+            if body.replace and choice is None and embedded_cover(_settings, info.path) is not None:
+                skipped.append({"id": image_id, "reason": REFUS_REMPLACEMENT})
+                continue
+            params: dict = {"replace": body.replace}
+            if choice is not None:
+                params["choice"] = choice
+            created.append(_submit(info, "cover", params, title,
                                    rebuild=body.replace, night=body.when == "night").id)
         except HTTPException as exc:
             skipped.append({"id": image_id, "reason": exc.detail})
