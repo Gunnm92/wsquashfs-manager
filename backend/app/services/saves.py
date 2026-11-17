@@ -1,7 +1,7 @@
 """Manager de sauvegardes et synchronisation entre machines (SPEC « Manager de sauvegardes »).
 
 - Machines : celles de config.json (`saves_machines`, associées par code
-  wsq://), plus la machine de jeu en mode agent (id « game-host », d'office).
+  wsq://), plus la machine d'essai en mode agent (id « game-host », d'office).
 - Manager : `state_dir/saves-reserve/<jeu>/` avec `current.tar.gz`, `meta.json`
   et, avant chaque remplacement, l'ancienne version datée (3 gardées).
 - Opérations : pull (machine → manager), push (manager → machines),
@@ -55,7 +55,7 @@ from .trial import (
 )
 
 log = logging.getLogger("wsquashfs-manager")
-GAME_HOST_ID = "game-host"          # machine de jeu en mode agent : toujours listée, non supprimable
+GAME_HOST_ID = "game-host"          # machine d'essai en mode agent : toujours listée, non supprimable
 KEEP_ARCHIVES = 3                   # versions datées gardées par jeu
 RESERVE_DIR = "saves-reserve"
 CURRENT = "current.tar.gz"
@@ -130,14 +130,14 @@ def machine_rows(settings: Settings) -> list[dict]:
         cert = agent_cert_path(settings)
         pem = cert.read_text() if cert.exists() else None
         url = settings.agent_url.rstrip("/")
-        rows.insert(0, {"id": GAME_HOST_ID, "name": f"machine de jeu ({_host_of(url)})", "url": url,
+        rows.insert(0, {"id": GAME_HOST_ID, "name": f"machine d'essai ({_host_of(url)})", "url": url,
                         "fingerprint": _fingerprint_or_empty(pem), "kind": "game_host", "removable": False,
                         "icon": _chosen_icon(settings.saves_game_host_icon)})
     return rows
 
 
 def game_host_machine(settings: Settings) -> str:
-    """Machine associée qui sert de machine de jeu (même adresse), "" sinon."""
+    """Machine associée qui sert de machine d'essai (même adresse), "" sinon."""
     if settings.game_host != "agent" or not settings.agent_url:
         return ""
     for machine in saves_machines(settings):
@@ -147,7 +147,7 @@ def game_host_machine(settings: Settings) -> str:
 
 
 def use_as_game_host(settings: Settings, machine_id: str) -> None:
-    """Fait d'une machine associée la machine de jeu (Réglages) : même adresse, même jeton,
+    """Fait d'une machine associée la machine d'essai (Réglages) : même adresse, même jeton,
     même certificat épinglé, sans nouvelle association. KeyError si elle est inconnue. Le
     processus de session vient de son /v1/info s'il répond, sinon le réglage actuel reste."""
     machine = next((m for m in saves_machines(settings) if m["id"] == machine_id), None)
@@ -186,7 +186,7 @@ def open_machine(settings: Settings, machine_id: str, timeout: float = 3600) -> 
     client_id = saves_client_id(settings)
     if machine_id == GAME_HOST_ID:
         if settings.game_host != "agent" or not settings.agent_url:
-            raise RebuildError("machine de jeu : plus en mode agent")
+            raise RebuildError("machine d'essai : plus en mode agent")
         return AgentHost(settings, timeout, client_id=client_id)
     for machine in saves_machines(settings):
         if machine["id"] == machine_id:
@@ -320,12 +320,12 @@ def redeclare_manager(settings: Settings) -> list[str]:
 
 
 def remove_machine(settings: Settings, machine_id: str) -> None:
-    """KeyError si la machine n'est pas enregistrée ; la machine de jeu ne se retire pas.
-    Si la machine oubliée était la machine de jeu (Réglages), la machine de jeu est
-    désactivée : sinon son adresse resterait listée comme « machine de jeu », injoignable.
+    """KeyError si la machine n'est pas enregistrée ; la machine d'essai ne se retire pas.
+    Si la machine oubliée était la machine d'essai, celle-ci n'est plus choisie et
+    désactivée : sinon son adresse resterait listée comme « machine d'essai », injoignable.
     """
     if machine_id == GAME_HOST_ID:
-        raise ValueError("machine de jeu : non supprimable (la désactiver dans Réglages)")
+        raise ValueError("machine d'essai : non supprimable (choisir une autre machine d'essai dans le bandeau Machines)")
     machines = saves_machines(settings)
     kept = [m for m in machines if m["id"] != machine_id]
     if len(kept) == len(machines):

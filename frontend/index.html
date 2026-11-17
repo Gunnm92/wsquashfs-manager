@@ -82,7 +82,7 @@
     <div class="name">wsquashfs</div>
   </div>
   <nav class="views" id="views">
-    <button data-view="saves" class="active" title="Sauvegardes entre machines"><svg class="ico"><use href="#i-save"/></svg><span>Sauvegardes</span><span class="count" id="count-saves"></span></button>
+    <button data-view="saves" class="active" data-connected title="Sauvegardes entre machines"><svg class="ico"><use href="#i-save"/></svg><span>Sauvegardes</span><span class="count" id="count-saves"></span></button>
     <button data-view="images" title="Images"><svg class="ico"><use href="#i-layers"/></svg><span>Images</span><span class="count" id="count-images"></span></button>
     <button data-view="folders" title="Dossiers à empaqueter"><svg class="ico"><use href="#i-package"/></svg><span>Dossiers à empaqueter</span><span class="count" id="count-folders"></span></button>
     <button data-view="help" title="Aide : images, autorun.cmd, lanceur"><svg class="ico"><use href="#i-book"/></svg><span>Aide</span></button>
@@ -91,7 +91,7 @@
   <span class="spacer"></span>
   <div class="top-actions">
     <button class="iconbtn bare lg" id="btn-refresh" title="Actualiser : relit les images ajoutées ou modifiées (les autres viennent du cache)"><svg class="ico lg"><use href="#i-refresh"/></svg></button>
-    <button class="iconbtn bare lg" id="btn-config" title="Réglages : systèmes, tâches de nuit, lanceur" aria-label="Réglages"><svg class="ico lg"><use href="#i-settings"/></svg></button>
+    <button class="iconbtn bare lg" id="btn-config" title="Réglages : mode, systèmes, tâches de nuit, lanceur, illustrations" aria-label="Réglages"><svg class="ico lg"><use href="#i-settings"/></svg></button>
   </div>
 </header>
 
@@ -141,8 +141,8 @@
       <button class="iconbtn bare lg" id="btn-mass-commit" title="Inscrire les surcharges" aria-label="Reconstruire chaque image avec son autorun effectif, puis supprimer la surcharge"><svg class="ico"><use href="#i-filepen"/></svg></button>
       <button class="iconbtn bare lg" id="btn-saves-reset" title="Réinitialiser les sauvegardes" aria-label="Mettre de côté les sauvegardes (renommées, pas supprimées)"><svg class="ico"><use href="#i-save"/></svg></button>
       <span class="sep"></span>
-      <button class="iconbtn bare lg" id="btn-inst-install" title="Installer sur…" aria-label="Copier les images sélectionnées (.wsquashfs) dans le dossier des jeux des machines associées"><svg class="ico"><use href="#i-drive"/></svg></button>
-      <button class="iconbtn bare lg" id="btn-inst-uninstall" title="Désinstaller de…" aria-label="Retirer les images sélectionnées (.wsquashfs) des machines associées ; elles restent dans la bibliothèque"><svg class="ico"><use href="#i-trash"/></svg></button>
+      <button class="iconbtn bare lg" id="btn-inst-install" data-connected title="Installer sur…" aria-label="Copier les images sélectionnées (.wsquashfs) dans le dossier des jeux des machines associées"><svg class="ico"><use href="#i-drive"/></svg></button>
+      <button class="iconbtn bare lg" id="btn-inst-uninstall" data-connected title="Désinstaller de…" aria-label="Retirer les images sélectionnées (.wsquashfs) des machines associées ; elles restent dans la bibliothèque"><svg class="ico"><use href="#i-trash"/></svg></button>
       <button class="iconbtn bare lg" id="btn-sel-clear" title="Désélectionner" aria-label="Désélectionner"><svg class="ico"><use href="#i-x"/></svg></button>
     </div>
   </section>
@@ -169,19 +169,19 @@
     <div data-pane="info">
       <div class="tiles">
         <button class="tile" id="d-verify" title="Vérifier l'intégrité de l'image"><span class="disc t-sage"><svg class="ico sm"><use href="#i-shield"/></svg></span><span>Vérifier</span></button>
-        <div class="dd tile-wrap" id="d-trial-wrap"><button class="tile" id="d-trial" title="Lance le jeu sur la machine de jeu, l'observe puis l'arrête : tient-il, fenêtre, erreurs, capture"><span class="disc t-accent"><svg class="ico sm"><use href="#i-flask"/></svg></span><span>Essai</span></button></div>
-        <div class="dd tile-wrap"><button class="tile" id="d-saves" title="Sauvegardes de ce jeu entre machines"><span class="disc t-neutral"><svg class="ico sm"><use href="#i-save"/></svg></span><span>Sauvegardes</span></button></div>
+        <div class="dd tile-wrap" id="d-trial-wrap" data-connected><button class="tile" id="d-trial" title="Lance le jeu sur la machine d'essai, l'observe puis l'arrête : tient-il, fenêtre, erreurs, capture"><span class="disc t-accent"><svg class="ico sm"><use href="#i-flask"/></svg></span><span>Essai</span></button></div>
+        <div class="dd tile-wrap" data-connected><button class="tile" id="d-saves" title="Sauvegardes de ce jeu entre machines"><span class="disc t-neutral"><svg class="ico sm"><use href="#i-save"/></svg></span><span>Sauvegardes</span></button></div>
         <button class="tile" id="d-propose" title="Proposer un autorun (exécutables, règles, base de connaissances)"><span class="disc t-neutral"><svg class="ico sm"><use href="#i-sparkles"/></svg></span><span>Proposer</span></button>
       </div>
       <dl class="facts" id="d-info"></dl>
       <dl class="facts">
-        <div id="d-inst" hidden><svg class="ico"><use href="#i-drive"/></svg><dt>Installé sur</dt>
+        <div id="d-inst" data-connected hidden><svg class="ico"><use href="#i-drive"/></svg><dt>Installé sur</dt>
           <dd><span id="d-inst-where"></span>
             <span class="fact-acts"><button class="linklike" id="d-inst-install">Installer sur…</button><button class="linklike" id="d-inst-uninstall">Désinstaller de…</button></span></dd></div>
       </dl>
       <div class="box">
         <div class="box-head"><svg class="ico"><use href="#i-link"/></svg><strong>Liens du runner</strong>
-          <button class="btn secondary sm" id="d-links" title="Liens du prefix vers un runner hors de l'image ou absent, et réparation avec les runners installés sur la machine de jeu">Analyser</button></div>
+          <button class="btn secondary sm" id="d-links" title="Liens du prefix vers un runner hors de l'image ou absent, et réparation avec les runners installés sur la machine d'essai">Analyser</button></div>
         <div id="d-links-result" class="msg">Vérifie que l'image ne dépend pas d'un runner installé sur la machine.</div>
       </div>
     </div>
@@ -431,106 +431,65 @@
   </form>
 </dialog>
 
-<dialog id="dlg-config" class="small">
+<dialog id="dlg-config" class="small cfg">
   <div class="dlg-head"><h2>Réglages</h2><span class="spacer"></span>
     <button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
-  <div class="pills on-s2 cfg-tabs" id="cfg-tabs" role="tablist">
-    <button data-cpane="dirs" class="on" role="tab">Bibliothèque</button>
-    <button data-cpane="host" role="tab">Machine de jeu</button>
-    <button data-cpane="tools" role="tab">Outils</button>
-    <button data-cpane="general" role="tab">Général</button>
+
+  <!-- Mode : autonome (construire seulement) ou connecté (machines) -->
+  <div class="section-label">Mode</div>
+  <div class="pills on-s2 cfg-mode" id="cfg-mode" role="radiogroup">
+    <button data-mode="autonome" role="radio">Autonome</button>
+    <button data-mode="connecte" role="radio">Connecté</button>
+  </div>
+  <p class="dlg-intro" id="cfg-mode-hint"></p>
+
+  <!-- Systèmes à gérer : quels dossiers de roms lire -->
+  <div class="section-label">Systèmes à gérer</div>
+  <p class="dlg-intro">Dossiers lus par le gestionnaire : images <code>.wsquashfs</code> et dossiers <code>.pc</code> / <code>.wine</code> à empaqueter.</p>
+  <div id="cfg-roots"></div>
+  <details class="cfg-extra" id="cfg-extra"><summary>Autres dossiers, hors du dossier des roms</summary>
+    <textarea id="cfg-dirs" rows="3" placeholder="/chemin/vers/un/dossier — un par ligne"></textarea>
+  </details>
+  <p class="cfg-total" id="cfg-total"></p>
+
+  <!-- Tâches de nuit -->
+  <div class="section-label">Tâches de nuit</div>
+  <div class="night-row"><svg class="ico"><use href="#i-moon"/></svg>
+    <input type="time" id="cfg-night-start" required aria-label="Début de la plage de nuit"><span class="muted">→</span>
+    <input type="time" id="cfg-night-end" required aria-label="Fin de la plage de nuit"></div>
+  <p class="dlg-intro">Une tâche « cette nuit » ne démarre que dans cette plage.</p>
+
+  <!-- Illustrations : SteamGridDB -->
+  <div class="section-label">Illustrations (SteamGridDB)</div>
+  <label class="field">Clé API<span class="cfg-sgdb-key"><input id="cfg-sgdb-key" type="password" autocomplete="off" placeholder="clé API"><button class="btn secondary sm" id="cfg-sgdb-test" type="button">Tester</button></span></label>
+  <p class="dlg-intro">Clé sur <a href="https://www.steamgriddb.com/" target="_blank" rel="noopener">steamgriddb.com</a> : Profil › Préférences › API. Vide : la clé enregistrée reste.</p>
+  <p id="cfg-sgdb-msg" class="notice" hidden></p>
+  <label class="field">Auteurs préférés<textarea id="cfg-sgdb-authors" rows="2" placeholder="un par ligne, ou séparés par des virgules"></textarea></label>
+  <label class="field"><span class="cfg-thr-row">Seuil de rondeur des icônes <span id="cfg-sgdb-threshold-out" class="cfg-threshold-out"></span></span><input id="cfg-sgdb-threshold" type="range" min="0" max="1" step="0.05"></label>
+
+  <!-- Lanceur de la machine d'essai (connecté seulement) -->
+  <div class="conn-only">
+    <div class="section-label row"><span id="cfg-doctor-title">Lanceur de la machine d'essai</span><span class="spacer"></span><span id="cfg-doctor-age" class="muted"></span>
+      <button class="iconbtn bare sm" id="cfg-doctor-refresh" title="Relancer le diagnostic"><svg class="ico sm"><use href="#i-refresh"/></svg></button></div>
+    <div id="cfg-doctor" class="doctor"><span class="muted">—</span></div>
   </div>
 
-  <!-- Bibliothèque : quels dossiers de roms lire -->
-  <section class="cfg-pane" data-pane-name="dirs">
-    <p class="dlg-intro">Dossiers lus par le gestionnaire : images <code>.wsquashfs</code> et dossiers <code>.pc</code> / <code>.wine</code> à empaqueter.</p>
-    <div id="cfg-roots"></div>
-    <details class="cfg-extra" id="cfg-extra"><summary>Autres dossiers, hors du dossier des roms</summary>
-      <textarea id="cfg-dirs" rows="3" placeholder="/chemin/vers/un/dossier — un par ligne"></textarea>
-    </details>
-    <p class="cfg-total" id="cfg-total"></p>
-  </section>
-
-  <!-- Machine de jeu : connexion seulement -->
-  <section class="cfg-pane" data-pane-name="host" hidden>
-    <p class="dlg-intro">Machine où le lanceur est installé : sert au lancement d'essai, au diagnostic et aux runners proposés. Sans elle, le reste fonctionne.</p>
-    <div class="host-card">
-      <span class="host-status" id="host-status"><span class="led"></span><span id="host-status-text">vérification…</span></span>
-      <span class="spacer"></span>
-      <button class="iconbtn bare sm" id="host-check" title="Tester la connexion enregistrée"><svg class="ico sm"><use href="#i-refresh"/></svg></button>
-    </div>
-    <div class="section-label">Mode</div>
-    <div class="pills on-s2 host-modes" id="cfg-host" role="radiogroup">
-      <button data-host="off" role="radio">Désactivée</button>
-      <button data-host="local" role="radio">Cette machine</button>
-      <button data-host="agent" role="radio">Agent réseau</button>
-    </div>
-    <p class="dlg-intro host-hint" id="cfg-host-hint"></p>
-    <div class="host-summary" id="host-summary" hidden><span id="host-summary-text"></span>
-      <button class="btn bare sm" id="host-edit" type="button"><svg class="ico sm"><use href="#i-pen"/></svg>Modifier la connexion</button></div>
-    <div class="host-fields" id="cfg-agent-pick" hidden>
-      <div class="section-label">Machine</div>
-      <label class="field">Machine associée (onglet Sauvegardes)<select id="cfg-agent-machine"></select></label>
-    </div>
-    <div class="host-fields" id="cfg-agent" hidden>
-      <div class="section-label">Association</div>
-      <label class="field">Code d'association<input id="cfg-agent-code" autocomplete="off" placeholder="wsq://… affiché par « wsquashfs-launcher --pair »"></label>
-      <div class="agent-assoc">
-        <div class="row"><button class="btn secondary sm" id="cfg-agent-probe" type="button">Associer</button>
-          <span class="muted" style="font-size:12.5px">Le certificat est vérifié contre le code. Le code ne sert qu'une fois : relancer <code>--pair</code> pour un nouveau.</span></div>
-        <div id="cfg-agent-result" class="msg">Pas encore associé.</div>
-      </div>
-    </div>
-    <div class="host-fields" id="cfg-host-adv" hidden>
-      <div class="section-label">Session graphique</div>
-      <label class="field">Processus de la session (son affichage est repris pour l'essai)<input id="cfg-session" placeholder="emulationstation — vide : environnement du gestionnaire"></label>
-    </div>
-  </section>
-
-  <!-- Outils : actions immédiates sur la machine de jeu enregistrée -->
-  <section class="cfg-pane" data-pane-name="tools" hidden>
-    <div class="notice tools-off" id="tools-off" hidden>
-      <svg class="ico"><use href="#i-info"/></svg>
-      <div class="body"><span id="tools-off-text">Machine de jeu non connectée.</span>
-        <button class="btn bare sm" id="tools-goto-host" type="button">Configurer la machine de jeu</button></div>
-    </div>
-    <p class="dlg-intro" id="tools-intro">Actions immédiates sur la machine de jeu : elles ne passent pas par « Enregistrer ».</p>
-    <div class="tool-list" id="tools-list">
-      <div class="tool"><div><b>Diagnostic du lanceur</b><span>Vérifie l'installation, les dépendances et les runners présents.</span></div>
-        <button class="btn secondary sm" id="host-diag" type="button"><svg class="ico sm"><use href="#i-info"/></svg>Ouvrir</button></div>
-      <div class="tool"><div><b>Lister les jeux</b><span>Jeux montés ou en cours.</span></div>
-        <button class="btn secondary sm" data-maint="list">Lister</button></div>
-      <div class="tool"><div><b>Démonter les jeux</b><span>Un jeu en cours est arrêté.</span></div>
-        <button class="btn secondary sm" data-maint="umount">Démonter</button></div>
-      <div class="tool"><div><b>Nettoyer</b><span>Copies de travail, doublons de sauvegardes, anciennes archives. Ce que les jeux ont écrit est gardé.</span></div>
-        <button class="btn secondary sm" data-maint="clean">Nettoyer</button></div>
-      <div class="tool"><div><b>Copier les sauvegardes</b><span>De tous les jeux vers saves/&lt;système&gt;/&lt;jeu&gt; dans la ludothèque. Rien n'est supprimé.</span></div>
-        <button class="btn secondary sm" data-maint="saves">Copier</button></div>
-      <div class="tool"><div><b>Synchroniser les sauvegardes</b><span>Avec les autres machines associées du réseau local : la plus lourde gagne (à taille égale, la plus récente), l'autre est archivée. Association une fois, en ligne de commande : <code>wsquashfs-launcher --pair</code> sur l'autre machine, puis <code>wsquashfs-launcher --sync wsq://…</code> sur celle-ci.</span></div>
-        <button class="btn secondary sm" data-maint="sync">Synchroniser</button></div>
-      <div class="tool"><div><b>État de la synchro</b><span>Ce qui serait synchronisé, sans rien changer.</span></div>
-        <button class="btn secondary sm" data-maint="sync-status">Voir l'état</button></div>
-    </div>
-    <pre class="maint-out" id="maint-out" hidden></pre>
-  </section>
-
-  <!-- Général : plage de nuit (modifiable) et configuration du serveur (lecture seule) -->
-  <section class="cfg-pane" data-pane-name="general" hidden>
-    <div class="section-label">Plage des tâches programmées</div>
-    <div class="night-row"><svg class="ico"><use href="#i-moon"/></svg>
-      <input type="time" id="cfg-night-start" required aria-label="Début de la plage de nuit"><span class="muted">→</span>
-      <input type="time" id="cfg-night-end" required aria-label="Fin de la plage de nuit"></div>
-    <p class="dlg-intro" style="margin-top:8px">Une tâche « cette nuit » ne démarre que dans cette plage.</p>
+  <!-- Synchro automatique des machines (connecté seulement) -->
+  <div class="conn-only">
     <div class="section-label">Synchro automatique des machines</div>
     <label class="field">Adresse du manager pour les machines<input id="cfg-machine-url" autocomplete="off" placeholder="https://192.168.1.10:8790"></label>
     <p class="dlg-intro">Adresse par laquelle les machines joignent ce manager (HTTPS, port 8790). Elle est déclarée à chaque machine associée (agent version 9 ou plus) ; vide : pas de synchro automatique.</p>
     <p class="muted" id="cfg-machine-fp" style="font-size:12.5px"></p>
     <label class="field">Mise à jour automatique des machines (secondes ; 0 : désactivée)<input id="cfg-auto-push" type="number" min="0" max="86400" step="1" inputmode="numeric"></label>
     <p class="dlg-intro">Les machines dont la synchro auto est activée et qui sont en retard reçoivent la version du manager, à cet intervalle.</p>
-    <div class="section-label">Serveur <span class="ro-tag">lecture seule</span></div>
+  </div>
+
+  <!-- Serveur : lecture seule, replié -->
+  <details class="cfg-server">
+    <summary>Serveur <span class="ro-tag">lecture seule</span></summary>
     <dl id="cfg-info" class="cfg-info"></dl>
     <p class="dlg-intro" style="margin-top:8px">Fixé au démarrage par les variables <code>WSQUASHFS_MGR_*</code> (voir le README).</p>
-  </section>
+  </details>
 
   <p id="cfg-err" class="notice err" hidden></p>
   <div class="dlg-foot"><span class="spacer"></span>
@@ -541,8 +500,30 @@
   <div class="dlg-head"><h2>Diagnostic du lanceur</h2><span class="spacer"></span><span id="doc-age" class="muted"></span>
     <button class="iconbtn bare sm" id="doc-refresh" title="Relancer le diagnostic"><svg class="ico sm"><use href="#i-refresh"/></svg></button>
     <button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
-  <p class="dlg-intro" id="doc-title">wsquashfs-launcher --doctor sur la machine de jeu</p>
+  <p class="dlg-intro" id="doc-title">wsquashfs-launcher --doctor sur la machine d'essai</p>
   <div id="doc-body" class="doctor"><span class="muted">—</span></div>
+  <div class="dlg-foot"><span class="spacer"></span><button class="btn secondary" data-close>Fermer</button></div>
+</dialog>
+
+<dialog id="dlg-maint" class="small">
+  <div class="dlg-head"><h2>Maintenance du lanceur</h2><span class="spacer"></span>
+    <button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
+  <p class="dlg-intro" id="maint-intro">Actions immédiates : elles ne passent pas par « Enregistrer ».</p>
+  <div class="tool-list" id="tools-list">
+    <div class="tool"><div><b>Lister les jeux</b><span>Jeux montés ou en cours.</span></div>
+      <button class="btn secondary sm" data-maint="list">Lister</button></div>
+    <div class="tool"><div><b>Démonter les jeux</b><span>Un jeu en cours est arrêté.</span></div>
+      <button class="btn secondary sm" data-maint="umount">Démonter</button></div>
+    <div class="tool"><div><b>Nettoyer</b><span>Copies de travail, doublons de sauvegardes, anciennes archives. Ce que les jeux ont écrit est gardé.</span></div>
+      <button class="btn secondary sm" data-maint="clean">Nettoyer</button></div>
+    <div class="tool"><div><b>Copier les sauvegardes</b><span>De tous les jeux vers saves/&lt;système&gt;/&lt;jeu&gt; dans la ludothèque. Rien n'est supprimé.</span></div>
+      <button class="btn secondary sm" data-maint="saves">Copier</button></div>
+    <div class="tool"><div><b>Synchroniser les sauvegardes</b><span>Avec les autres machines associées du réseau local : la plus lourde gagne (à taille égale, la plus récente), l'autre est archivée. Association une fois, en ligne de commande : <code>wsquashfs-launcher --pair</code> sur l'autre machine, puis <code>wsquashfs-launcher --sync wsq://…</code> sur celle-ci.</span></div>
+      <button class="btn secondary sm" data-maint="sync">Synchroniser</button></div>
+    <div class="tool"><div><b>État de la synchro</b><span>Ce qui serait synchronisé, sans rien changer.</span></div>
+      <button class="btn secondary sm" data-maint="sync-status">Voir l'état</button></div>
+  </div>
+  <pre class="maint-out" id="maint-out" hidden></pre>
   <div class="dlg-foot"><span class="spacer"></span><button class="btn secondary" data-close>Fermer</button></div>
 </dialog>
 

@@ -261,6 +261,7 @@ def test_saves_reset(client, monkeypatch, tmp_path):
 
 # ------------------------------------------------------------------ maintenance du lanceur
 def test_maintenance_rejects_unlisted_actions_and_bad_game(client, monkeypatch):
+    monkeypatch.setattr(main._settings, "mode", "connecte")
     calls = []
     monkeypatch.setattr(main, "maintenance", lambda settings, action, image=None: calls.append((action, image)) or {})
     post = lambda body: client.post("/api/game_host/maintenance", json=body).status_code
@@ -274,6 +275,7 @@ def test_maintenance_rejects_unlisted_actions_and_bad_game(client, monkeypatch):
 
 
 def test_maintenance_sync_with_or_without_game(client, monkeypatch):
+    monkeypatch.setattr(main._settings, "mode", "connecte")
     calls = []
     monkeypatch.setattr(main, "maintenance", lambda settings, action, image=None: calls.append((action, image)) or {})
     assert client.post("/api/game_host/maintenance", json={"action": "sync"}).status_code == 200

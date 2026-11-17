@@ -988,41 +988,7 @@ details.more > h3 { margin: 18px 0 0; font-size: 12px; font-weight: 700; letter-
 .lib-loading .body { gap: 2px; }
 .lib-loading .body span { color: var(--muted); font-size: 12.5px; }
 
-.host-modes { margin: 10px 0 0; }
-.host-modes > button { padding: 7px 14px; font-size: 13px; }
-.host-hint { margin-top: 8px; }
-.host-fields { display: flex; flex-direction: column; gap: 10px; }
-.host-fields > .section-label { margin-bottom: 0; }
-/* Voyant de la machine de jeu */
-.host-status { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--muted);
-  max-width: 62%; min-width: 0; }
-.host-status > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.host-status .led { width: 9px; height: 9px; flex: none; border-radius: 50%; background: var(--faint); }
-.host-status.ok { color: #6fd9a0; }
-.host-status.ok .led { background: #45c486; box-shadow: 0 0 0 3px rgba(69, 196, 134, .18); }
-.host-status.ko { color: #f58d8d; }
-.host-status.ko .led { background: #f07070; box-shadow: 0 0 0 3px rgba(240, 112, 112, .18); }
 #dlg-doctor .doctor { margin-top: 6px; }
-/* Réglages : champs contenus dans la fenêtre */
-.host-fields .field { min-width: 0; }
-.host-fields .field input { width: 100%; min-width: 0; }
-.agent-assoc .msg { overflow-wrap: anywhere; }
-.agent-assoc .msg strong { display: block; }
-.agent-assoc { display: flex; flex-direction: column; gap: 8px; }
-.host-summary { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; padding: 10px 14px;
-  border-radius: 16px; background: var(--s2); font-size: 13px; color: var(--muted); }
-.host-summary > span:first-child { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--text-2, var(--muted)); }
-/* Réglages en onglets */
-.cfg-tabs { display: flex; margin: 4px 0 6px; }
-.cfg-tabs > button { flex: 1 1 0; justify-content: center; white-space: nowrap; }
-@media (max-width: 640px) {
-  .cfg-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
-  .cfg-tabs > button { flex: 1 0 auto; padding: 5px 10px; font-size: 12.5px; }
-}
-.cfg-pane { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; min-height: 240px; }
-.cfg-pane .section-label:first-child { margin-top: 10px; }
-/* Onglet Outils : grisé tant que la machine de jeu enregistrée ne répond pas */
-.cfg-tabs > button.dim:not(.on) { opacity: .55; }
 .tool-list { display: flex; flex-direction: column; margin-top: 6px; border-radius: var(--radius-md); background: var(--s2); }
 .tool { display: flex; align-items: center; gap: 14px; padding: 11px 14px; }
 .tool + .tool { border-top: 1px solid var(--divider); }
@@ -1030,13 +996,7 @@ details.more > h3 { margin: 18px 0 0; font-size: 12px; font-weight: 700; letter-
 .tool > div b { font-size: 13.5px; }
 .tool > div span { font-size: 12.5px; color: var(--muted); }
 .tool > .btn { flex: none; gap: 7px; }
-.tool-list.off .tool > div { opacity: .5; }
-.tools-off { margin-bottom: 4px; }
-.tools-off .body { gap: 6px; align-items: flex-start; }
 .ro-tag { margin-left: 6px; padding: 1px 8px; border-radius: var(--radius-pill); background: var(--s2); font-size: 10.5px; letter-spacing: .04em; }
-/* Machine de jeu : voyant en tête */
-.host-card { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 10px 14px; border-radius: 16px; background: var(--s2); }
-.host-card .host-status { max-width: none; flex: 1; }
 .maint-out { margin-top: 10px; max-height: 220px; overflow: auto; padding: 10px 12px; border-radius: 14px;
   background: var(--bg); font: 11.5px/1.55 var(--mono); color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
 /* Couleurs du lanceur (16 couleurs de base, thème sombre) */
@@ -1220,3 +1180,24 @@ button.mcard:hover .chev { color: var(--muted); }
 .sync-list li.ok { color: var(--accent2-300); }
 .sync-list li.err { color: var(--err-200); }
 }
+
+/* Mode autonome : ce qui touche une machine disparaît (la fenêtre Réglages suit l'état affiché) */
+body[data-mode="autonome"] [data-connected] { display: none !important; }
+#dlg-config[data-cmode="autonome"] .conn-only { display: none; }
+/* Réglages : une page, sections en petites capitales */
+dialog.cfg { max-height: calc(100vh - 32px); overflow-y: auto; }
+dialog.cfg .section-label:first-of-type { margin-top: 12px; }
+.cfg-mode { margin-top: 8px; }
+.cfg-mode > button { padding: 7px 16px; font-size: 13px; }
+.cfg-sgdb-key { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+.cfg-sgdb-key input { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12.5px; }
+#cfg-sgdb-threshold { width: 100%; margin-top: 6px; accent-color: var(--accent); }
+.cfg-thr-row { display: flex; justify-content: space-between; gap: 8px; }
+.cfg-threshold-out { font-variant-numeric: tabular-nums; color: var(--text); }
+.night-row input[type="time"] { min-width: 9.5em; }
+#cfg-sgdb-msg { margin-top: 8px; }
+.cfg-server { margin-top: 18px; }
+.cfg-server > summary { cursor: pointer; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.cfg-server > summary .ro-tag { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.cfg .doctor { margin-top: 6px; }
+.cfg .section-label.row { align-items: center; }

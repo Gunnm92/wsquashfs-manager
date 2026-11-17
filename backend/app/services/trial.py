@@ -1,6 +1,6 @@
-"""Machine de jeu et lancement d'essai chronométré (SPEC § 2.5, étape 7).
+"""Machine d'essai et lancement d'essai chronométré (SPEC § 2.5, étape 7).
 
-La machine de jeu est là où tourne wsquashfs-launcher (réglage game_host) :
+La machine d'essai est là où tourne wsquashfs-launcher (réglage game_host) :
 - « local » : la machine du gestionnaire, commandes lancées directement ;
 - « agent » : wsquashfs-launcher --agent sur cette machine ou sur le réseau
   (code d'association), y compris dans un conteneur ;
@@ -12,7 +12,7 @@ donnée, puis arrêté. Rapport : le jeu a-t-il tenu, ses fenêtres (minimisée 
 erreurs connues du journal, une capture d'écran.
 
 Garde-fous (leçons des essais faits à la main, 01/10) :
-- refus si un jeu .wsquashfs tourne déjà sur la machine de jeu (lancements
+- refus si un jeu .wsquashfs tourne déjà sur la machine d'essai (lancements
   croisés : les montages de l'un et de l'autre se gêneraient) ;
 - processus du jeu trouvés par leur WINEPREFIX et leur ligne de commande,
   jamais par leur nom (un jeu peut renommer son processus) ;
@@ -112,7 +112,7 @@ def report_from_json(data: dict) -> TrialReport:
 
 
 class LocalHost:
-    """Machine de jeu = celle du gestionnaire : commandes lancées directement,
+    """Machine d'essai = celle du gestionnaire : commandes lancées directement,
     sous l'utilisateur du service."""
 
     name = "cette machine"
@@ -284,7 +284,7 @@ OLD_AGENT_MESSAGE = ("agent trop ancien : wsquashfs-launcher --update sur cette 
 
 
 class AgentHost:
-    """Machine de jeu = wsquashfs-agent sur le réseau (HTTPS, jeton, certificat épinglé)."""
+    """Machine d'essai = wsquashfs-agent sur le réseau (HTTPS, jeton, certificat épinglé)."""
 
     def __init__(self, settings: Settings, timeout: float, pem: str | None = None,
                  url: str | None = None, token: str | None = None, client_id: str | None = None):
@@ -293,7 +293,7 @@ class AgentHost:
         if pem is None:
             cert = agent_cert_path(settings)
             if not cert.exists():
-                raise RebuildError("agent non associé : Réglages → Machine de jeu → Agent réseau")
+                raise RebuildError("agent non associé : associer la machine (bandeau Machines de Sauvegardes)")
             pem = cert.read_text()
         self.name = f"l'agent ({self.url})"
         self.timeout = timeout
@@ -580,15 +580,15 @@ GAME_HOST_LABELS ={"off": "désactivée", "local": "cette machine", "agent": "ag
 
 
 def game_host(settings: Settings, timeout: float = 120) -> LocalHost | AgentHost:
-    """Machine de jeu configurée ; RebuildError si elle est désactivée."""
+    """Machine d'essai configurée ; RebuildError si elle est désactivée."""
     if settings.game_host == "local":
         return LocalHost(settings, timeout)
     if settings.game_host == "agent" and settings.agent_url:
         return AgentHost(settings, timeout)
-    raise RebuildError("machine de jeu désactivée : à activer dans Réglages → Machine de jeu")
+    raise RebuildError("machine d'essai non choisie : Sauvegardes › menu d'une machine › « Utiliser pour les essais »")
 
 
-# Maintenance du lanceur (Réglages → Machine de jeu) : liste fermée, comme celle de l'agent.
+# Maintenance du lanceur (menu d'une machine d'essai) : liste fermée, comme celle de l'agent.
 # Table action → (arguments de la ligne de commande, règle sur le jeu) :
 #   "obligatoire" : une image (fiche du jeu) est requise (save) ;
 #   "facultatif"  : sans image, tous les jeux ; avec une image, ce seul jeu (sync) ;
@@ -614,7 +614,7 @@ def maintenance_game_rule(action: str) -> str:
 
 
 def maintenance(settings: Settings, action: str, image: Path | None = None) -> dict:
-    """Lance une action de maintenance du lanceur sur la machine de jeu."""
+    """Lance une action de maintenance du lanceur sur la machine d'essai."""
     rule = maintenance_game_rule(action)
     flags, _ = MAINTENANCE_COMMANDS[action]
     shown = " ".join(flags)
@@ -634,7 +634,7 @@ def maintenance(settings: Settings, action: str, image: Path | None = None) -> d
 
 
 def host_status(settings: Settings) -> dict:
-    """Voyant de la machine de jeu : ok (connectée), ko (injoignable ou sans
+    """Voyant de la machine d'essai : ok (connectée), ko (injoignable ou sans
     lanceur) ou off (désactivée). Test léger, sans --doctor."""
     if settings.game_host in (None, "off"):
         return {"state": "off", "name": GAME_HOST_LABELS["off"], "detail": ""}
@@ -647,7 +647,7 @@ def host_status(settings: Settings) -> dict:
                     "detail": f"{info.get('host', '')} · utilisateur {info.get('user', '')} · agent {info.get('version', '')}"}
         code, out = host.exec(["bash", "-lc", "command -v wsquashfs-launcher"])
         if code != 0:
-            return {"state": "ko", "name": name, "detail": "wsquashfs-launcher introuvable sur la machine de jeu"}
+            return {"state": "ko", "name": name, "detail": "wsquashfs-launcher introuvable sur la machine d'essai"}
         return {"state": "ok", "name": name, "detail": out.decode("utf-8", "replace").strip()}
     except RebuildError as exc:
         return {"state": "ko", "name": name, "detail": str(exc)}
@@ -660,7 +660,7 @@ def host_name(settings: Settings) -> str:
 
 
 def run_doctor(settings: Settings) -> dict:
-    """`wsquashfs-launcher --doctor json` sur la machine de jeu, sous l'utilisateur
+    """`wsquashfs-launcher --doctor json` sur la machine d'essai, sous l'utilisateur
     des jeux : l'état du lanceur tel qu'il lancera les jeux."""
     host = game_host(settings, 120)
     if isinstance(host, AgentHost):
@@ -676,10 +676,10 @@ def run_doctor(settings: Settings) -> dict:
     return {"container": host.name, **data}
 
 
-# ------------------------------------------------------------------ fichiers de la machine de jeu
+# ------------------------------------------------------------------ fichiers de la machine d'essai
 
 def steambox_listing(settings: Settings, path: str) -> dict[str, int]:
-    """Arborescence d'un dossier de la machine de jeu (runner) : chemin
+    """Arborescence d'un dossier de la machine d'essai (runner) : chemin
     relatif → taille (0 pour un dossier ou un lien)."""
     host = game_host(settings, 120)
     if isinstance(host, AgentHost):
@@ -696,8 +696,8 @@ def steambox_listing(settings: Settings, path: str) -> dict[str, int]:
 
 def steambox_fetch(settings: Settings, path: str, dest: Path, job: Job | None = None,
                    total: int = 0) -> None:
-    """Copie un dossier de la machine de jeu dans `dest` (créé), liens
-    symboliques gardés : `tar` sur la machine de jeu, lu en flux (API Docker ou
+    """Copie un dossier de la machine d'essai dans `dest` (créé), liens
+    symboliques gardés : `tar` sur la machine d'essai, lu en flux (API Docker ou
     processus local) et extrait au fil de l'eau, sans archive intermédiaire."""
     dest.mkdir(parents=True, exist_ok=True)
     parent, name = path.rstrip("/").rsplit("/", 1)
@@ -735,7 +735,7 @@ def trial_dir(settings: Settings) -> Path:
 
 def run_trial(settings: Settings, task: Task, job: Job) -> str:
     """Gestionnaire de la tâche « trial » : `wsquashfs-launcher --trial` sur la
-    machine de jeu (local, Docker, ou agent) ; rapport JSON."""
+    machine d'essai (local, Docker, ou agent) ; rapport JSON."""
     image = Path(task.image_path or "")
     duration = int(task.params.get("duration", settings.trial_duration))
     host = game_host(settings, duration + 180)

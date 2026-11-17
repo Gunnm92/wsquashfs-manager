@@ -39,7 +39,7 @@ class Settings(BaseSettings):
 
     # Sauvegardes (même convention que wsquashfs-launcher)
     saves_dir: Path = Path.home() / ".local/share/wsquashfs/saves"
-    # Icône choisie à la main pour la machine de jeu (Sauvegardes) ; None = détection
+    # Icône choisie à la main pour la machine d'essai (Sauvegardes) ; None = détection
     saves_game_host_icon: str | None = None
 
     # Cache de wsquashfs-launcher (son WSQUASHFS_CACHE) : montages des jeux et
@@ -70,7 +70,7 @@ class Settings(BaseSettings):
     night_start: str = "01:00"
     night_end: str = "07:00"
 
-    # Machine de jeu : là où tourne wsquashfs-launcher pour le lancement
+    # Machine d'essai : là où tourne wsquashfs-launcher pour le lancement
     # d'essai, l'état du lanceur (--doctor) et les runners installés.
     #   off    : fonctions désactivées (défaut d'une installation neuve) ;
     #   local  : sur cette machine (lanceur installé ici, session graphique) ;
@@ -79,11 +79,18 @@ class Settings(BaseSettings):
     # Non renseigné : « off ». Modifiable dans Réglages.
     game_host: Literal["off", "local", "agent"] | None = None
     agent_url: str = ""                           # https://hôte:port (mode agent)
-    agent_token: str = ""                         # jeton durable de la machine de jeu (config.json, jamais exposé)
+    agent_token: str = ""                         # jeton durable de la machine d'essai (config.json, jamais exposé)
     # Processus de la session graphique dont l'environnement (DISPLAY…) est
     # repris pour l'essai ; vide = environnement du gestionnaire
     session_process: str = "emulationstation"
     trial_duration: int = 60
+
+    # Mode du manager. « autonome » : il ne fait que construire (Images, Dossiers) ; aucune
+    # machine, aucune écoute des machines, aucune synchro. « connecte » : sauvegardes entre
+    # machines, installation, essais. Non renseigné dans config.json : « connecte » s'il y a
+    # une machine associée ou une machine d'essai en agent/local, sinon « autonome » (get_settings).
+    # Modifiable dans Réglages.
+    mode: Literal["autonome", "connecte"] = "autonome"
 
     # Manager vu par les machines (synchro automatique à la sortie d'un jeu) : écoute HTTPS
     # sur machine_port (0 = désactivé), services/machine_api.py. machine_url : adresse du
@@ -205,18 +212,18 @@ GAME_HOST_KEYS = ("game_host", "session_process", "agent_url", "agent_token")
 
 
 def save_game_host(settings: Settings, values: dict) -> None:
-    """Machine de jeu choisie dans « Réglages » (config.json)."""
+    """Machine d'essai choisie dans « Réglages » (config.json)."""
     clean = {k: str(values[k]).strip() for k in GAME_HOST_KEYS if k in values}
     if clean.get("game_host") not in ("off", "local", "agent"):
-        raise ValueError("mode de la machine de jeu : off, local ou agent")
+        raise ValueError("mode de la machine d'essai : off, local ou agent")
     if clean["game_host"] == "agent":
-        # Pas de saisie d'adresse ni de jeton : la machine de jeu est une machine associée
+        # Pas de saisie d'adresse ni de jeton : la machine d'essai est une machine associée
         # (code wsq://, puis choix) ; son adresse et son jeton durable viennent d'elle
         url = clean.get("agent_url", settings.agent_url)
         if not re.match(r"^https://[^\s/]+:\d+$", url or ""):
-            raise ValueError("machine de jeu : associer une machine d'abord (code wsq://)")
+            raise ValueError("machine d'essai : associer une machine d'abord (code wsq://)")
         if not clean.get("agent_token") and not settings.agent_token:
-            raise ValueError("machine de jeu : associer une machine d'abord (code wsq://)")
+            raise ValueError("machine d'essai : associer une machine d'abord (code wsq://)")
     _save_runtime(settings, **clean)
     for key, value in clean.items():
         setattr(settings, key, value)
@@ -243,7 +250,7 @@ def save_saves_machines(settings: Settings, machines: list[dict]) -> None:
 
 
 def save_saves_game_host_icon(settings: Settings, icon: str | None) -> None:
-    """Icône choisie pour la machine de jeu (None : retour à la détection).
+    """Icône choisie pour la machine d'essai (None : retour à la détection).
     ValueError si la valeur n'est pas dans ICONS."""
     if icon is not None and icon not in ICONS:
         raise ValueError(f"icône inconnue : {icon} (valeurs : {', '.join(ICONS)})")
@@ -295,6 +302,17 @@ def save_sgdb(settings: Settings, api_key: str | None, authors: list[str], thres
 AUTO_PUSH_MAX = 86400               # un passage au moins par jour, au plus
 
 
+MODES = ("autonome", "connecte")
+
+
+def save_mode(settings: Settings, mode: str) -> None:
+    """Mode du manager (« autonome » ou « connecte »), dans config.json. ValueError si inconnu."""
+    if mode not in MODES:
+        raise ValueError("mode : autonome ou connecte")
+    _save_runtime(settings, mode=mode)
+    settings.mode = mode
+
+
 def save_auto_push_interval(settings: Settings, seconds: int) -> None:
     """Intervalle de la mise à jour automatique (0 : désactivée). ValueError hors de 0..AUTO_PUSH_MAX."""
     if not 0 <= seconds <= AUTO_PUSH_MAX:
@@ -344,7 +362,7 @@ def get_settings() -> Settings:
         if isinstance(runtime.get(key), str):
             setattr(settings, key, runtime[key])
     if settings.game_host not in ("off", "local", "agent"):
-        # Ancien mode « docker » (retiré) : la machine de jeu est désactivée
+        # Ancien mode « docker » (retiré) : la machine d'essai est désactivée
         settings.game_host = "off"
     if runtime.get("saves_game_host_icon") in ICONS:
         settings.saves_game_host_icon = runtime["saves_game_host_icon"]
@@ -361,4 +379,10 @@ def get_settings() -> Settings:
     threshold = runtime.get("sgdb_round_threshold")
     if type(threshold) in (int, float) and 0 <= threshold <= 1:
         settings.sgdb_round_threshold = float(threshold)
+    if runtime.get("mode") in MODES:
+        settings.mode = runtime["mode"]
+    else:
+        # Pas de choix enregistré : connecté seulement s'il y a de quoi se connecter
+        connected = bool(saves_machines(settings)) or settings.game_host in ("agent", "local")
+        settings.mode = "connecte" if connected else "autonome"
     return settings

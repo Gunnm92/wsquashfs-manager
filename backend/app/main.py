@@ -25,9 +25,11 @@ from .config import (
     save_auto_push_interval,
     save_game_host,
     save_machine_url,
+    save_mode,
     save_night,
     save_roms_dirs,
     save_sgdb,
+    saves_machines,
 )
 from .models import ImageInfo, ImageState, Task
 from .services import analyze as analyze_mod
@@ -113,15 +115,28 @@ queue = TaskQueue(
         "cover": lambda task, job: run_cover(_settings, task, job),
         "pack": lambda task, job: run_pack(_settings, task, job),
         "update": lambda task, job: run_update(_settings, task, job),
-        "trial": lambda task, job: run_trial(_settings, task, job),
-        "runner": lambda task, job: run_runner(_settings, task, job),
+        "trial": lambda task, job: _connected_task(run_trial)(task, job),
+        "runner": lambda task, job: _connected_task(run_runner)(task, job),
         "relink": lambda task, job: run_relink(_settings, task, job),
-        "saves": lambda task, job: run_saves(_settings, task, job),
-        "install": lambda task, job: run_install(_settings, task, job),
+        "saves": lambda task, job: _connected_task(run_saves)(task, job),
+        "install": lambda task, job: _connected_task(run_install)(task, job),
     },
     concurrency=_settings.task_concurrency,
     night_now=lambda: in_night(_settings),
 )
+
+
+MODE_AUTONOME_DETAIL = "mode autonome : fonction connectée désactivée (Réglages › Mode)"
+
+
+def _connected_task(handler):
+    """Gestionnaire d'une tâche qui touche une machine : refusé en mode autonome (une tâche
+    restée en file avant le passage en autonome échoue au lieu de se connecter)."""
+    def run(task, job):
+        if _settings.mode == "autonome":
+            raise RebuildError(MODE_AUTONOME_DETAIL)
+        return handler(task, job)
+    return run
 
 
 def _serve_machines(server: uvicorn.Server) -> None:
@@ -150,6 +165,23 @@ def _start_machine_server(settings: Settings) -> uvicorn.Server | None:
     return server
 
 
+# Écoute HTTPS des machines : seulement en mode connecté ; suit le passage d'un mode à l'autre
+_machine_server: uvicorn.Server | None = None
+_machine_lock = threading.Lock()
+
+
+def _sync_machine_listener() -> None:
+    """Démarre l'écoute des machines si le mode est connecté, l'arrête sinon. Appelé sous
+    _machine_lock, au démarrage et à chaque changement de mode."""
+    global _machine_server
+    if _settings.mode == "connecte":
+        if _machine_server is None:
+            _machine_server = _start_machine_server(_settings)
+    elif _machine_server is not None:
+        _machine_server.should_exit = True
+        _machine_server = None
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     try:
@@ -159,13 +191,15 @@ async def lifespan(_app: FastAPI):
     queue.load()
     queue.start()
     threading.Thread(target=_purge_old_backups, daemon=True).start()
-    machine_server = _start_machine_server(_settings)
+    with _machine_lock:
+        _sync_machine_listener()
     auto_push = threading.Thread(target=_auto_push_loop, name="synchro-auto-boucle", daemon=True)
     auto_push.start()
     yield
     _background_stop.set()
-    if machine_server is not None:
-        machine_server.should_exit = True
+    with _machine_lock:
+        if _machine_server is not None:
+            _machine_server.should_exit = True
     auto_push.join(timeout=10)
     queue.stop()
 
@@ -189,6 +223,26 @@ def _token(password: str) -> str:
 def _same(a: str | bytes, b: str) -> bool:
     """Comparaison à temps constant (compare_digest refuse les str non ASCII)."""
     return hmac.compare_digest(a if isinstance(a, bytes) else a.encode(), b.encode())
+
+
+# Routes qui touchent une machine (sauvegardes, installation, essais, lanceur de la machine
+# d'essai) : 409 en mode autonome. Les vignettes des sauvegardes restent servies.
+CONNECTED_PREFIXES = ("/api/saves/", "/api/install", "/api/uninstall", "/api/game_host/", "/api/launcher/")
+CONNECTED_EXACT = ("/api/image/trial", "/api/image/runner")
+CONNECTED_FREE = ("/api/saves/art",)
+
+
+def _needs_connection(path: str) -> bool:
+    if path in CONNECTED_FREE:
+        return False
+    return path in CONNECTED_EXACT or path.startswith(CONNECTED_PREFIXES)
+
+
+@app.middleware("http")
+async def autonome_guard(request: Request, call_next):
+    if _settings.mode == "autonome" and _needs_connection(request.url.path):
+        return JSONResponse({"detail": MODE_AUTONOME_DETAIL}, status_code=409)
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -224,6 +278,8 @@ def login(req: LoginReq):
 @app.get("/api/config")
 def get_config():
     return {
+        "mode": _settings.mode,                                  # autonome : rien de connecté ; connecte : le reste
+        "machine_listening": _machine_server is not None,        # écoute HTTPS des machines active
         "roms_dirs": _settings.roms_dirs,
         "saves_dir": str(_settings.saves_dir),
         "tmp_dir": str(_settings.tmp_dir) if _settings.tmp_dir else "à côté de chaque image",
@@ -235,9 +291,9 @@ def get_config():
         "old_retention_days": _settings.old_retention_days,
         "rebuild_mode": _settings.rebuild_mode,
         "tool_user": _settings.tool_user,
-        # Machine de jeu (lancement d'essai, --doctor, runners installés)
+        # Machine d'essai (lancement d'essai, --doctor, runners installés)
         "game_host": _settings.game_host,
-        "game_host_name": host_name(_settings),
+        "game_host_name": _trial_name(),
         "session_process": _settings.session_process,
         "agent_url": _settings.agent_url,
         "agent_fingerprint": _agent_fingerprint(),
@@ -252,6 +308,13 @@ def get_config():
         "sgdb_authors": _settings.sgdb_authors,
         "sgdb_round_threshold": _settings.sgdb_round_threshold,
     }
+
+
+def _trial_name() -> str:
+    """Nom de la machine d'essai (celui de l'association), sinon sa description technique."""
+    machine_id = saves_svc.game_host_machine(_settings)
+    name = next((m["name"] for m in saves_machines(_settings) if m["id"] == machine_id), "")
+    return name or host_name(_settings)
 
 
 def _agent_fingerprint() -> str:
@@ -269,7 +332,7 @@ class GameHostConfig(BaseModel):
 
 @app.put("/api/config/game_host")
 def set_game_host(body: GameHostConfig):
-    """Machine de jeu : désactivée, cette machine, ou la machine associée déjà choisie (agent).
+    """Machine d'essai : désactivée, cette machine, ou la machine associée déjà choisie (agent).
     Le mode agent ne associe rien : l'adresse et le jeton viennent de la machine choisie
     (PUT /api/config/game_host/machine), refusé tant qu'aucune machine n'est associée."""
     values = {"game_host": body.game_host, "session_process": body.session_process}
@@ -287,7 +350,7 @@ class GameHostMachine(BaseModel):
 
 @app.put("/api/config/game_host/machine")
 def set_game_host_machine(body: GameHostMachine):
-    """Machine de jeu = une machine déjà associée (onglet Sauvegardes) : son adresse, son
+    """Machine d'essai = une machine déjà associée (onglet Sauvegardes) : son adresse, son
     jeton et son certificat sont repris, sans nouveau code d'association."""
     try:
         saves_svc.use_as_game_host(_settings, body.id)
@@ -374,7 +437,7 @@ class MaintenanceRequest(BaseModel):
 
 @app.post("/api/game_host/maintenance")
 def game_host_maintenance(body: MaintenanceRequest):
-    """Maintenance du lanceur sur la machine de jeu : lister, démonter, nettoyer,
+    """Maintenance du lanceur sur la machine d'essai : lister, démonter, nettoyer,
     copier les sauvegardes d'un jeu (save) ou de tous (saves), synchroniser les
     sauvegardes avec les autres machines associées (sync, un jeu ou tous) et
     afficher l'état de la synchro (sync-status, sans rien changer)."""
@@ -397,7 +460,7 @@ _STATUS_TTL = 20            # s : le voyant ne refait pas le test à chaque ouve
 
 @app.get("/api/game_host/status")
 def game_host_status(refresh: bool = False):
-    """Voyant de la machine de jeu (connectée, injoignable, désactivée)."""
+    """Voyant de la machine d'essai (connectée, injoignable, désactivée)."""
     now = time.monotonic()
     cached = _status_cache.get("value")
     if cached and not refresh and now - cached[0] < _STATUS_TTL and cached[2] == _settings.game_host:
@@ -409,7 +472,7 @@ def game_host_status(refresh: bool = False):
 
 @app.get("/api/launcher/doctor")
 def launcher_doctor(refresh: bool = False):
-    """État du lanceur sur la machine de jeu (`wsquashfs-launcher --doctor`) :
+    """État du lanceur sur la machine d'essai (`wsquashfs-launcher --doctor`) :
     sections vérifiées et runners installés. Mis en cache quelques minutes."""
     try:
         return _doctor(refresh)
@@ -442,6 +505,23 @@ def config_systems():
                 out.append({"path": str(d), "name": d.name, "root": str(base),
                             "images": images, "folders": folders})
     return out
+
+
+class ModeConfig(BaseModel):
+    mode: Literal["autonome", "connecte"]
+
+
+@app.put("/api/config/mode")
+def set_mode(body: ModeConfig):
+    """Mode du manager. Passer en connecté démarre l'écoute des machines, passer en autonome
+    l'arrête (sans redémarrer le manager)."""
+    try:
+        save_mode(_settings, body.mode)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    with _machine_lock:
+        _sync_machine_listener()
+    return get_config()
 
 
 class NightWindow(BaseModel):
@@ -885,7 +965,7 @@ def _auto_push_loop() -> None:
     `auto_push_interval` secondes ; 0 : désactivée (tours vides). Relu à chaque tour : un réglage
     prend effet tout de suite."""
     while not _background_stop.wait(_settings.auto_push_interval or AUTO_PUSH_IDLE):
-        if not _settings.auto_push_interval:
+        if not _settings.auto_push_interval or _settings.mode == "autonome":
             continue
         try:
             saves_svc.push_behind(_settings)
@@ -1418,14 +1498,18 @@ class TrialRequest(BaseModel):
 @app.get("/api/image/links")
 def image_links_report(id: str):
     """Liens du prefix vers un runner hors de l'image ou absent, et
-    réparations proposées avec les runners installés sur la machine de jeu."""
+    réparations proposées avec les runners installés sur la machine d'essai."""
     info = _find_image(id)
     steambox_error = None
-    try:
-        runners = _doctor().get("runners", [])
-    except RebuildError as exc:
-        runners = []            # machine de jeu désactivée ou injoignable : constat sans proposition
-        steambox_error = str(exc)
+    if _settings.mode == "autonome":
+        runners = []            # pas de machine en autonome : constat seul, sans proposition
+        steambox_error = MODE_AUTONOME_DETAIL
+    else:
+        try:
+            runners = _doctor().get("runners", [])
+        except RebuildError as exc:
+            runners = []        # machine d'essai désactivée ou injoignable : constat sans proposition
+            steambox_error = str(exc)
     try:
         return {**suggest(_settings, info.path, runners), "steambox_error": steambox_error}
     except RebuildError as exc:
@@ -1433,7 +1517,7 @@ def image_links_report(id: str):
 
 
 class RunnerRequest(BaseModel):
-    source: str = Field(min_length=2, pattern=r"^/")    # dossier du runner sur la machine de jeu
+    source: str = Field(min_length=2, pattern=r"^/")    # dossier du runner sur la machine d'essai
     sub: str = ""
     dest: str
     set_key: bool = False
@@ -1442,7 +1526,7 @@ class RunnerRequest(BaseModel):
 
 @app.post("/api/image/runner")
 def image_runner(id: str, body: RunnerRequest):
-    """Joint un runner de la machine de jeu à l'image (ou complète un runner joint),
+    """Joint un runner de la machine d'essai à l'image (ou complète un runner joint),
     liens du prefix réécrits ; seulement depuis un runner installé (--doctor)."""
     info = _find_image(id)
     try:
@@ -1477,7 +1561,7 @@ def image_relink(id: str, body: RelinkRequest):
 
 @app.post("/api/image/trial")
 def image_trial(id: str, body: TrialRequest):
-    """Lancement d'essai chronométré sur la machine de jeu (le jeu s'affiche
+    """Lancement d'essai chronométré sur la machine d'essai (le jeu s'affiche
     sur l'écran de la session pendant la durée choisie, puis est arrêté)."""
     info = _find_image(id)
     try:
@@ -1537,7 +1621,7 @@ def saves_machine_remove(machine_id: str):
         raise HTTPException(status_code=404, detail=f"machine inconnue : {machine_id}") from None
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    _doctor_cache.clear()           # la machine de jeu a pu être désactivée avec elle
+    _doctor_cache.clear()           # la machine d'essai a pu être désactivée avec elle
     return {"removed": machine_id}
 
 

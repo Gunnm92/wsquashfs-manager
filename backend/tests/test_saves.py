@@ -975,6 +975,7 @@ def test_fingerprint_less_entry_counts_as_absent(agents, tmp_path):
 @pytest.fixture
 def api(tmp_path, monkeypatch):
     settings = make_settings(tmp_path)
+    settings.mode = "connecte"                  # API des machines : hors mode autonome
     queue = TaskQueue(tmp_path / "state" / "tasks.json", main.queue.handlers)
     monkeypatch.setattr(main, "_settings", settings)
     monkeypatch.setattr(main, "queue", queue)
@@ -1356,7 +1357,7 @@ def test_status_names_an_agent_too_old_for_saves(agents, tmp_path):
     assert "agent trop ancien" in machine["message"] and "--update" in machine["message"]
 
 
-# ------------------------------------------------------------------ machine de jeu choisie parmi les associées
+# ------------------------------------------------------------------ machine d'essai choisie parmi les associées
 
 def test_associated_machine_becomes_the_game_host(agents, api):
     client, settings, _ = api
@@ -1366,18 +1367,18 @@ def test_associated_machine_becomes_the_game_host(agents, api):
     config = client.put("/api/config/game_host/machine", json={"id": mid}).json()
     assert config["game_host"] == "agent" and config["agent_url"] == aibox["url"]
     assert config["game_host_machine"] == mid
-    # Même certificat épinglé que l'association : la machine de jeu répond sans nouveau code
+    # Même certificat épinglé que l'association : la machine d'essai répond sans nouveau code
     assert saves.agent_cert_path(settings).read_text().strip() == aibox["pem"].strip()
     assert saves.AgentHost(settings, 15).info()["host"] == "aibox"
-    # Pas de doublon « machine de jeu » dans la liste : même adresse que la machine associée
+    # Pas de doublon « machine d'essai » dans la liste : même adresse que la machine associée
     assert [r["id"] for r in saves.machine_rows(settings)] == [mid]
     assert client.put("/api/config/game_host/machine", json={"id": "inconnue"}).status_code == 404
     assert client.put("/api/config/game_host/machine", json={"id": saves.GAME_HOST_ID}).status_code == 404
 
 
 def test_forgetting_the_game_host_machine_leaves_no_ghost(agents, api):
-    """Oublier la machine choisie comme machine de jeu : plus de « machine de jeu (adresse) »
-    injoignable dans la liste ; la machine de jeu est désactivée. Une autre machine oubliée ne touche pas à la machine de jeu."""
+    """Oublier la machine choisie comme machine d'essai : plus de « machine d'essai (adresse) »
+    injoignable dans la liste ; la machine d'essai est désactivée. Une autre machine oubliée ne touche pas à la machine d'essai."""
     client, settings, _ = api
     aibox, deck = agents("aibox"), agents("deck")
     associate(settings, aibox)
@@ -1801,6 +1802,7 @@ def test_auto_push_interval_is_checked_saved_and_read_back(tmp_path, monkeypatch
 def test_auto_push_loop_runs_each_interval_until_shutdown(tmp_path, monkeypatch):
     settings = make_settings(tmp_path)
     settings.auto_push_interval = 1
+    settings.mode = "connecte"
     monkeypatch.setattr(main, "_settings", settings)
     monkeypatch.setattr(main, "_background_stop", threading.Event())
     calls = []

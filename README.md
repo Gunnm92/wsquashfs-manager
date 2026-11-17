@@ -40,7 +40,14 @@ Une seule instance à la fois : une seconde refuse de démarrer (elle prendrait
 les mêmes tâches). Tests : `backend/.venv/bin/python -m pytest` (dans
 `backend/`, les reconstructions réelles exigent squashfs-tools).
 
-Les systèmes se choisissent dans l'interface (Réglages → Bibliothèque),
+**Mode** (Réglages, section « Mode ») : *autonome* — le manager ne fait que construire
+(Images, Dossiers) : aucune machine, pas d'écoute des machines, pas de sauvegardes
+ni d'installation ; les routes qui touchent une machine répondent 409. *connecté* —
+sauvegardes entre machines, installation, lancement d'essai. Sans choix enregistré,
+le mode est connecté dès qu'une machine est associée ou qu'un lanceur local est
+configuré, autonome sinon (`PUT /api/config/mode {"mode"}`).
+
+Les systèmes se choisissent dans l'interface (Réglages → Systèmes à gérer),
 parmi ceux du dossier de base `WSQUASHFS_MGR_ROMS_DIRS` (`/roms` dans le
 conteneur) : « Tout le dossier » (les systèmes ajoutés plus tard compris) ou
 une sélection de systèmes ; ce choix l'emporte sur la variable. D'autres
@@ -73,13 +80,13 @@ puis Docker → Add Container → Template : `wsquashfs-manager`. Champs :
 | Mot de passe | `WSQUASHFS_MGR_PASSWORD` | obligatoire : sans lui, le conteneur refuse de démarrer |
 | PUID / PGID (avancé) | 99 / 100 | propriétaire des images créées (nobody:users = `arcade` de SteamBox) |
 
-**Machine de jeu** (Réglages → Machine de jeu) : là où tourne
+**Machine d'essai** (menu d'une machine du bandeau Machines de Sauvegardes, « Utiliser pour les essais ») : là où tourne
 `wsquashfs-launcher`, pour le **lancement d'essai** (le jeu tient-il,
 fenêtre minimisée, erreurs connues, capture ; refusé si un jeu .wsquashfs
 tourne déjà), l'état du lanceur (`--doctor`) et les runners installés
 (réparation des liens du runner). Facultative : tout le reste fonctionne
-sans. Le diagnostic et la maintenance du lanceur sont dans Réglages → Outils,
-utilisables une fois la machine de jeu enregistrée et joignable : lister,
+sans. Le diagnostic et la maintenance du lanceur sont dans ce même menu (« Diagnostic du lanceur… », « Maintenance… »),
+utilisables une fois la machine d'essai enregistrée et joignable : lister,
 démonter, nettoyer, copier les sauvegardes (tous les jeux), synchroniser les
 sauvegardes avec les autres machines associées, voir l'état de la synchro.
 La fiche d'un jeu a « Copier les sauvegardes » et « Synchroniser » (ce jeu), et
@@ -89,11 +96,15 @@ deux machines : `wsquashfs-launcher --pair` sur l'autre, puis
 `wsquashfs-launcher --sync wsq://…` sur celle-ci (le manager ne l'expose pas ;
 le code ne sert qu'une fois, voir ci-dessous).
 
-| Mode | Usage |
+Dans l'interface, la machine d'essai est une machine associée (`game_host` = `agent`).
+Le lanceur local (`game_host` = `local`, variable `WSQUASHFS_MGR_GAME_HOST=local` :
+lanceur installé sur la machine du gestionnaire, avec un écran) n'y est plus proposé.
+
+| Valeur de `game_host` | Usage |
 |---|---|
-| Désactivée | défaut d'une installation neuve |
-| Cette machine | lanceur installé sur la machine du gestionnaire, avec un écran ; le service tourne sous l'utilisateur de la session graphique |
-| Agent réseau | **Une machine déjà associée** (onglet Sauvegardes : SteamBox, AIBox, Deck…) se choisit dans la liste « Machine associée » : son adresse, son jeton et son certificat sont repris, sans nouveau code (`PUT /api/config/game_host/machine {"id"}`). **Autre machine** : sur la machine de jeu, ou dans son conteneur (ex. SteamBox) : `wsquashfs-launcher --pair` affiche le code `wsq://…` et attend qu'il soit collé dans **Associer** (le certificat est vérifié contre le code, puis le code est échangé contre un jeton propre à ce manager ; le code ne sert qu'une fois, pendant que `--pair` attend ; une machine se révoque côté machine par `wsquashfs-launcher --pair forget <machine>` ou `--pair reset`) ; ensuite `wsquashfs-launcher --agent` lance l'agent en arrière-plan (`--agent stop` l'arrête ; rien ne le démarre tout seul, aucun port ouvert en dehors de `--agent`). Voir `docs/agent.md` du lanceur. |
+| `off` | défaut d'une installation neuve |
+| `local` | lanceur installé sur la machine du gestionnaire, avec un écran ; le service tourne sous l'utilisateur de la session graphique |
+| `agent` | **Une machine déjà associée** (onglet Sauvegardes : SteamBox, AIBox, Deck…) se choisit dans la liste « Machine associée » : son adresse, son jeton et son certificat sont repris, sans nouveau code (`PUT /api/config/game_host/machine {"id"}`). **Autre machine** : sur la machine d'essai, ou dans son conteneur (ex. SteamBox) : `wsquashfs-launcher --pair` affiche le code `wsq://…` et attend qu'il soit collé dans **Associer** (le certificat est vérifié contre le code, puis le code est échangé contre un jeton propre à ce manager ; le code ne sert qu'une fois, pendant que `--pair` attend ; une machine se révoque côté machine par `wsquashfs-launcher --pair forget <machine>` ou `--pair reset`) ; ensuite `wsquashfs-launcher --agent` lance l'agent en arrière-plan (`--agent stop` l'arrête ; rien ne le démarre tout seul, aucun port ouvert en dehors de `--agent`). Voir `docs/agent.md` du lanceur. |
 
 Le mode Conteneur Docker (API Docker, `docker-socket-proxy`) a été retiré : un
 conteneur se joint par l'agent. Une configuration qui le mentionne repasse en
@@ -124,7 +135,7 @@ machine **source** (celle qui est la plus avancée) vers les autres machines.
   supprimable) sauf si une machine de la liste a la même adresse.
 - **Icône** : `os` de `/v1/info` (ID de `/etc/os-release` : `steamos`,
   `batocera`, sinon `linux`), remplaçable à la main (`PATCH`, champ `icon` de
-  la machine ; `saves_game_host_icon` pour la machine de jeu).
+  la machine ; `saves_game_host_icon` pour la machine d'essai).
 - **Copie du manager** : `state_dir/saves-reserve/<jeu>/` : `current.tar.gz`,
   `meta.json` (empreinte, newest, taille, profil, source, date de réception) ;
   avant chaque remplacement, l'ancienne version devient
@@ -169,7 +180,7 @@ machine **source** (celle qui est la plus avancée) vers les autres machines.
     injoignable, nombre de jeux) et une carte Manager. Un clic sur une machine
     n'affiche que ses sauvegardes, sa colonne en premier (second clic : tout) ;
     le chevron à droite de la carte propose son icône et « Oublier » (pas pour
-    la machine de jeu). « Associer
+    la machine d'essai). « Associer
     une machine » prend le code `wsq://` ; sur la machine :
     `wsquashfs-launcher --pair`, puis `wsquashfs-launcher --agent` pour
     qu'elle reste joignable. Sans machine, un encadré explique ces étapes.
@@ -240,7 +251,7 @@ envoie sa partie **à la sortie d'un jeu**, quand il est joignable. Rien n'est
 récupéré automatiquement au lancement ; un manager absent ou injoignable ne
 gêne pas le jeu (une ligne d'information sur la machine).
 
-- **Réglage** : Réglages → Général → « Adresse du manager pour les machines »
+- **Réglage** : Réglages → « Synchro automatique des machines » → « Adresse du manager pour les machines »
   (`PUT /api/config/machine_url {"url"}`, `https://hôte:port` ou vide). Pré-remplie
   avec l'adresse de cette page et le port 8790 ; l'empreinte du certificat du
   manager est affichée à côté (`machine_fingerprint` dans `GET /api/config`).
@@ -257,7 +268,7 @@ gêne pas le jeu (une ligne d'information sur la machine).
   machine ; l'état de chaque machine (dernière empreinte échangée) est dans
   `meta.json` de la réserve du jeu (`states`).
 - **Mise à jour automatique** : toutes les `auto_push_interval` secondes (Réglages
-  → Général, 120 par défaut, 0 : désactivée ; `config.json`), et juste après un
+  → Synchro automatique des machines, 120 par défaut, 0 : désactivée ; `config.json`), et juste après un
   envoi, le manager pousse sa version vers les machines dont la synchro auto est
   activée (`auto` de `GET /v1/info`) et qui sont en retard : celles dont l'état
   enregistré correspond encore à leur empreinte actuelle. Une machine modifiée
@@ -318,7 +329,7 @@ Variables `WSQUASHFS_MGR_*` (ou fichier `backend/.env`) :
 | `HOST`, `PORT`, `PASSWORD` | `127.0.0.1`, `8765`, — | accès (voir ci-dessous) |
 | `MACHINE_PORT` | `8790` | HTTPS où les machines envoient leurs sauvegardes (`0` : désactivé) ; certificat auto-signé dans `STATE_DIR/tls/` |
 | `MACHINE_HOST` | `0.0.0.0` | adresse d'écoute de ce port (les machines doivent l'atteindre) |
-| `MACHINE_URL` | — | adresse du manager vue par les machines, ex. `https://192.168.1.10:8790` ; réglée aussi dans Réglages → Général |
+| `MACHINE_URL` | — | adresse du manager vue par les machines, ex. `https://192.168.1.10:8790` ; réglée aussi dans Réglages |
 | `UI_URL` | `http://<hôte de MACHINE_URL>:<PORT>` | adresse de l'interface donnée aux machines (« Ouvrir le manager » de `wsquashfs-launcher --tray`) ; à régler derrière un proxy |
 
 ## Personnaliser l'apparence
@@ -487,7 +498,7 @@ Les images sont désignées par leur identifiant `<système>/<nom>` en paramètr
 | POST | `/api/image/autorun/preview?id=` · `/api/image/autorun?id=` | vérifier, reconstruire |
 | POST | `/api/image/old/validate?id=` · `/api/image/old/restore?id=` | `.old` |
 | POST | `/api/image/saves/reset?id=` | sauvegardes → `<jeu>.avant-<date>` |
-| POST | `/api/game_host/maintenance` | lanceur sur la machine de jeu : corps `{"action", "id"?}` ; `list`, `umount`, `clean`, `saves` (sans jeu) ; `save` (jeu requis) ; `sync` (jeu facultatif) ; `sync-status` (sans jeu) |
+| POST | `/api/game_host/maintenance` | lanceur sur la machine d'essai : corps `{"action", "id"?}` ; `list`, `umount`, `clean`, `saves` (sans jeu) ; `save` (jeu requis) ; `sync` (jeu facultatif) ; `sync-status` (sans jeu) |
 | POST | `/api/mass/autorun[/preview]` · `/api/mass/files[/preview]` | masse : autorun, fichiers/registre |
 | POST | `/api/mass/verify` · `/api/mass/cover` · `/api/mass/old/validate` · `/api/mass/saves/reset` | masse : intégrité, illustration, `.old`, sauvegardes |
 | GET | `/api/folders` · `/api/folders/analyze?id=&exe=` | dossiers à empaqueter, analyse |

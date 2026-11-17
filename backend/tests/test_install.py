@@ -477,6 +477,7 @@ def test_run_install_keeps_the_result_and_fails_partially(games_agents, tmp_path
 @pytest.fixture
 def api(tmp_path, monkeypatch):
     settings = make_settings(tmp_path)
+    settings.mode = "connecte"                  # API des machines : hors mode autonome
     queue = TaskQueue(tmp_path / "state" / "tasks.json", main.queue.handlers)
     monkeypatch.setattr(main, "_settings", settings)
     monkeypatch.setattr(main, "queue", queue)

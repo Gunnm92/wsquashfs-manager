@@ -41,7 +41,7 @@ def test_verdicts():
     assert fine.verdict == (True, "le jeu a tenu 60 s")
 
 
-# ------------------------------------------------------------------ machine de jeu
+# ------------------------------------------------------------------ machine d'essai
 
 def _settings(tmp_path, monkeypatch, **env):
     from app import config
@@ -56,7 +56,7 @@ def test_game_host_off_by_default_and_legacy_docker_becomes_off(tmp_path, monkey
     assert _settings(tmp_path, monkeypatch).game_host == "off"
     (tmp_path / "config.json").write_text('{"game_host": "docker", "steambox_container": "SteamBox"}')
     assert _settings(tmp_path, monkeypatch).game_host == "off"
-    with pytest.raises(RebuildError, match="désactivée"):
+    with pytest.raises(RebuildError, match="non choisie"):
         trial.game_host(_settings(tmp_path, monkeypatch))
 
 

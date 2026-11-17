@@ -576,9 +576,10 @@ for (const b of $("layout").children) {
   b.onclick = () => { state.layout = b.dataset.layout; storage.set("wsfs-layout", state.layout); renderLibrary(); };
 }
 $("btn-refresh").onclick = () => { loadLibrary(); loadConfig(); };
-// Relit la configuration (Réglages, machine de jeu…) : Actualiser, fin des Réglages
+// Relit la configuration (Réglages, machine d'essai…) : Actualiser, fin des Réglages
 async function loadConfig() {
   try { state.config = await api("/api/config"); } catch { /* garde la configuration déjà lue */ }
+  applyMode();
 }
 $("btn-sel-clear").onclick = () => { state.selected.clear(); renderLibrary(); };
 
@@ -787,7 +788,7 @@ function setKey(key, value) {
   syncForm();
 }
 
-// Valeurs proposées par clé (datalists), y compris les runners de la machine de jeu
+// Valeurs proposées par clé (datalists), y compris les runners de la machine d'essai
 function buildForm() {
   $("a-lists").replaceChildren(...state.keys.map(({ key, values }) =>
     el("datalist", { id: `v-${key}` }, ...values.map((v) => new Option(v, v)))));
@@ -1355,80 +1356,54 @@ document.addEventListener("click", (event) => {
 });
 $("tasks-clear").onclick = async () => { await api("/api/tasks/finished", { method: "DELETE" }); refreshTasks(); };
 
-// ------------------------------------------------------------------ machine de jeu
-// Désactivée, cette machine ou un agent (Réglages) : sans elle, pas
-// de lancement d'essai ni d'état du lanceur ; le reste fonctionne.
+// ------------------------------------------------------------------ mode et machine d'essai
+// Mode autonome : le manager ne fait que construire (Images, Dossiers), rien n'est connecté.
+// Mode connecté : sauvegardes entre machines, installation, lancement d'essai. La machine
+// d'essai se choisit dans le bandeau Machines de Sauvegardes (menu d'une machine).
 
+const connected = () => state.config?.mode !== "autonome";
 const hostOn = () => Boolean(state.config && state.config.game_host && state.config.game_host !== "off");
-const hostName = () => state.config?.game_host_name || "la machine de jeu";
-function applyHost() {
-  const on = hostOn();
-  $("d-trial-wrap").hidden = !on;
-  $("d-links").title = on ? `Liens du prefix vers un runner hors de l'image ou absent, et réparation avec les runners de ${hostName()}`
-    : "Liens du prefix vers un runner hors de l'image ou absent";
-}
-const HOST_HINTS = {
-  off: "Pas de lancement d'essai, de diagnostic ni de maintenance du lanceur.",
-  local: "Le lanceur est installé sur la machine du gestionnaire, avec un écran.",
-  agent: "Le lanceur tourne sur une autre machine : choisis-la parmi les machines associées (onglet Sauvegardes), ou associe-en une autre avec son code wsq:// (wsquashfs-launcher --pair l'affiche ; le code ne sert qu'une fois, pendant que --pair attend).",
-};
-// Connexion établie : les paramètres de connexion se replient (résumé), sauf
-// si l'on demande à les modifier ; mode changé = champs visibles.
-function paintConnection(mode = $("cfg-host").dataset.mode) {
-  const saved = state.config?.game_host;
-  const connected = state.hostStatus?.state === "ok" && mode === saved;
-  const folded = connected && !state.hostEditing && mode === "agent";
-  // Agent : une machine déjà associée (onglet Sauvegardes) ou « Autre » (code wsq://)
-  const picked = hostPick();
-  $("cfg-agent-pick").hidden = mode !== "agent" || folded || !state.hostMachines.length;
-  $("cfg-agent").hidden = mode !== "agent" || folded || Boolean(picked);
-  $("host-summary").hidden = !folded;
-  if (folded) {
-    const c = state.config;
-    const m = state.hostMachines.find((x) => x.id === c.game_host_machine);
-    $("host-summary-text").textContent = `Agent : ${m ? `${m.name} (${c.agent_url})` : c.agent_url}${c.agent_fingerprint ? " · empreinte vérifiée" : ""}`;
-  }
-  paintTools();
-}
-$("host-edit").onclick = () => { state.hostEditing = true; paintConnection(); };
-// Machine associée choisie comme machine de jeu ("" : autre machine, par code wsq://)
-const hostPick = () => (state.hostMachines.length ? $("cfg-agent-machine").value : "");
-state.hostMachines = [];
-async function loadHostMachines(pickId = "") {
-  try {
-    const data = await api("/api/saves/machines");
-    state.hostMachines = data.machines.filter((m) => m.kind === "saved");
-  } catch { state.hostMachines = []; }
-  $("cfg-agent-machine").replaceChildren(...state.hostMachines.map((m) => new Option(m.url ? `${m.name} — ${m.url}` : m.name, m.id)),
-    new Option("Autre machine (code wsq://)", ""));
-  // Machine qu'on vient d'associer, sinon machine de jeu actuelle si elle est associée ;
-  // sans machine de jeu, la première ; sinon « Autre »
-  const cfg = state.config || {};
-  $("cfg-agent-machine").value = pickId || cfg.game_host_machine
-    || (cfg.game_host !== "agent" && state.hostMachines[0]?.id) || "";
-  paintConnection();
-}
-$("cfg-agent-machine").onchange = () => paintConnection();
+const hostName = () => state.config?.game_host_name || "la machine d'essai";
+const isTrial = (m) => m.id === state.config?.game_host_machine || m.kind === "game_host";
+let appliedMode = null;         // mode affiché : le passage d'un mode à l'autre relance les lectures
 
-// Outils : toujours présents, utilisables quand la machine de jeu ENREGISTRÉE
-// répond (un mode choisi mais pas encore enregistré ne compte pas).
-function paintTools() {
-  const s = state.hostStatus?.state;
-  const saved = state.config?.game_host || "off";
-  const ready = s === "ok" && saved !== "off";
-  const text = saved === "off" ? "Machine de jeu désactivée : le diagnostic et la maintenance du lanceur en ont besoin."
-    : !s ? "Vérification de la connexion à la machine de jeu…"
-    : ready ? "" : `Machine de jeu injoignable${state.hostStatus?.detail ? ` : ${state.hostStatus.detail}` : ""}.`;
-  $("tools-off").hidden = ready;
-  $("tools-off-text").textContent = text;
-  $("tools-goto-host").hidden = !s && saved !== "off";
-  $("tools-intro").hidden = !ready;
-  $("tools-intro").textContent = `Actions immédiates sur ${hostName()} : elles ne passent pas par « Enregistrer ».`;
-  $("tools-list").classList.toggle("off", !ready);
-  for (const b of $("tools-list").querySelectorAll("button")) if (!state.maintBusy) b.disabled = !ready;
-  document.querySelector('#cfg-tabs [data-cpane="tools"]').classList.toggle("dim", !ready);
+// Applique le mode sans recharger la page : ce qui touche une machine disparaît (attribut
+// data-connected, voir app.css) ; en autonome, les machines lues sont oubliées.
+function applyMode() {
+  const mode = connected() ? "connecte" : "autonome";
+  const previous = appliedMode;
+  appliedMode = mode;
+  document.body.dataset.mode = mode;
+  $("d-trial-wrap").hidden = !(connected() && hostOn());
+  $("d-links").title = hostOn() ? `Liens du prefix vers un runner hors de l'image ou absent, et réparation avec les runners de ${hostName()}`
+    : "Liens du prefix vers un runner hors de l'image ou absent";
+  if (previous === null) return;                  // premier affichage : le démarrage charge tout
+  if (mode === "autonome") {
+    clearConnected();
+    if (document.body.dataset.view === "saves") showView("images");
+  } else if (previous === "autonome") {
+    loadInstall();
+    if (document.body.dataset.view === "saves") loadSaves();
+  }
 }
-$("tools-goto-host").onclick = () => showCfgPane("host");
+// Mode autonome : plus rien de connecté à montrer (machines, installation, diagnostic)
+function clearConnected() {
+  inst.machines = []; inst.loaded = false; inst.error = "";
+  sv.machines = []; sv.games = []; sv.loaded = false; sv.error = "";
+  state.doctor = null;
+  paintInstall();
+  paintSaves();
+}
+// Machine associée choisie comme machine d'essai (menu d'une machine du bandeau)
+async function useForTrials(m) {
+  try {
+    state.config = await api("/api/config/game_host/machine", { method: "PUT", body: { id: m.id } });
+    state.doctor = null;
+    applyMode();
+    paintSaves();
+    toast(`${m.name} : machine d'essai`);
+  } catch (error) { toast(error.message, "alert", true); }
+}
 
 // Sortie colorée du lanceur (codes ANSI, couleurs forcées pour la maintenance) → HTML.
 // Gras, atténué et les 16 couleurs de base ; le reste des codes est ignoré.
@@ -1491,66 +1466,26 @@ for (const button of document.querySelectorAll("[data-maint]")) {
       out.textContent = `${label} : ${error.message}`;
     } finally {
       state.maintBusy = false;
-      paintTools();
+      paintMaint();
     }
   };
 }
-// Réglages en onglets : Bibliothèque, Machine de jeu, Outils, Général
-function showCfgPane(name) {
-  for (const b of $("cfg-tabs").children) {
-    b.classList.toggle("on", b.dataset.cpane === name);
-    b.setAttribute("aria-selected", b.dataset.cpane === name);
-  }
-  for (const pane of document.querySelectorAll(".cfg-pane")) pane.hidden = pane.dataset.paneName !== name;
+// Maintenance de la machine d'essai (menu d'une machine, #dlg-maint)
+function paintMaint() {
+  for (const b of $("tools-list").querySelectorAll("button")) b.disabled = Boolean(state.maintBusy) || !hostOn();
 }
-$("cfg-tabs").onclick = (event) => {
-  const b = event.target.closest("button[data-cpane]");
-  if (b) showCfgPane(b.dataset.cpane);
-};
-
-function paintHostForm(mode) {
-  for (const b of $("cfg-host").children) {
-    b.classList.toggle("on", b.dataset.host === mode);
-    b.setAttribute("aria-checked", b.dataset.host === mode);
-  }
-  $("cfg-host").dataset.mode = mode;
-  $("cfg-host-hint").textContent = HOST_HINTS[mode];
-  paintConnection(mode);
-  $("cfg-host-adv").hidden = mode !== "local";
+function openMaint(m) {
+  $("maint-intro").textContent = `Actions immédiates sur ${m.name} : elles ne passent pas par « Enregistrer ».`;
+  $("maint-out").hidden = true;
+  paintMaint();
+  $("dlg-maint").showModal();
 }
-$("cfg-host").onclick = (event) => {
-  const b = event.target.closest("button[data-host]");
-  if (b) paintHostForm(b.dataset.host);
-};
-const hostBody = () => ({ game_host: $("cfg-host").dataset.mode || "off",
-  session_process: $("cfg-session").value.trim() });
-
-// Association par code wsq:// (Réglages) : même échange que l'onglet Sauvegardes, fait
-// côté serveur ; le code ne sert qu'une fois. La machine associée est ensuite choisie
-// comme machine de jeu par « Enregistrer ».
-$("cfg-agent-probe").onclick = async () => {
-  const result = $("cfg-agent-result"), button = $("cfg-agent-probe");
-  const code = $("cfg-agent-code").value.trim();
-  if (!code) {
-    result.className = "notice err";
-    result.textContent = "Colle le code wsq:// affiché par « wsquashfs-launcher --pair ».";
-    return;
-  }
-  button.disabled = true;
-  result.className = "msg";
-  result.replaceChildren(el("span", { className: "row" }, el("span", { className: "spinner" }), "association en cours…"));
-  try {
-    const r = await api("/api/saves/machines", { method: "POST", body: { code } });
-    $("cfg-agent-code").value = "";
-    result.textContent = `Associée : ${r.name}. Empreinte vérifiée : ${r.fingerprint}. « Enregistrer » en fait la machine de jeu.`;
-    await loadHostMachines(r.id);
-  } catch (error) {
-    result.className = "notice err";
-    result.textContent = error.message;
-  } finally {
-    button.disabled = false;
-  }
-};
+// Diagnostic du lanceur de la machine d'essai (menu d'une machine, #dlg-doctor)
+function openDoctor() {
+  $("doc-title").textContent = `wsquashfs-launcher --doctor sur ${hostName()}`;
+  $("dlg-doctor").showModal();
+  loadDoctor(true);
+}
 
 // ------------------------------------------------------------------ sauvegardes entre machines
 // Onglet « Sauvegardes » (services/saves.py via /api/saves/*) : bandeau des machines,
@@ -1635,6 +1570,7 @@ const sizeDate = (bytes, t) => [bytes ? size(bytes) : "", shortDate(t)].filter(B
 const osIcon = (key, cls = "") => icon(OS_ICONS.includes(key) || key === "server" ? key : "linux", cls);
 
 async function loadSaves() {
+  if (!connected()) return;
   const seq = ++sv.seq;               // seule la dernière lecture compte
   paintSaves();
   try {
@@ -1687,16 +1623,16 @@ function paintChips() {
 }
 
 function machineCard(m) {
-  const isHost = m.kind === "game_host";
+  const trial = isTrial(m);
   const title = m.ok ? `${m.url} : joignable` : `Injoignable : ${m.message || "pas de réponse"}`;
   const active = filteredMachine() === m.id;
   // Clic sur la carte : n'affiche que les sauvegardes de cette machine ; le chevron à droite ouvre le menu
   const card = el("button", { type: "button", className: `mcard${m.ok ? "" : " off"}${active ? " on" : ""}`, "aria-pressed": String(active),
-    title: `${isHost ? `${title} · configurée dans Réglages › Machine de jeu` : title} · cliquer : ses sauvegardes seulement` },
+    title: `${title}${trial ? " · machine d'essai" : ""} · cliquer : ses sauvegardes seulement` },
     el("span", { className: "mcard-ico" }, osIcon(m.icon, "lg")),
     el("span", { className: "mcard-txt" },
       el("span", { className: "mcard-name" }, el("b", { textContent: m.name }),
-        isHost ? el("span", { className: "chip plain t-accent", textContent: "machine de jeu" }) : null,
+        trial ? el("span", { className: "chip plain t-accent", title: "Machine d'essai : lancement d'essai, diagnostic du lanceur et maintenance (menu de la machine)", textContent: "essais" }) : null,
         m.auto ? el("span", { className: "chip plain t-sage", title: "Synchro automatique : envoie ses sauvegardes au manager à la sortie d'un jeu (--sync auto on)" },
           icon("refresh", "xs"), el("span", { textContent: "auto" })) : null),
       el("span", { className: "mcard-sub" }, el("span", { className: "led" }),
@@ -1709,14 +1645,18 @@ function machineCard(m) {
   return wrap;
 }
 
-// Menu d'une machine : icône (détectée ou choisie), puis oubli (sauf machine de jeu)
+// Menu d'une machine : machine d'essai (choix, diagnostic, maintenance), icône (détectée ou
+// choisie), dossiers synchronisés, puis oubli (sauf la machine d'essai du lanceur local ou agent)
 function machineMenu(m) {
   const choice = (label, key, checked, onpick) => menuItem(label, key, onpick, { checked, role: "menuitemradio" });
-  const nodes = [
+  const trial = isTrial(m);
+  const nodes = [];
+  if (m.kind === "saved") nodes.push(choice("Utiliser pour les essais", "flask", trial, () => useForTrials(m)));
+  if (trial) nodes.push(menuItem("Diagnostic du lanceur…", "info", openDoctor), menuItem("Maintenance…", "settings", () => openMaint(m)));
+  nodes.push(
     el("div", { className: "dd-sub", textContent: "Icône" }),
     choice(`Détectée (${({ linux: "Linux", steamos: "SteamOS", batocera: "Batocera" })[m.os] || m.os || "Linux"})`, m.icon || "linux", !m.icon_set, () => setMachineIcon(m, null)),
-    ...OS_ICONS.map((key) => choice(OS_LABELS[key], key, m.icon_set && m.icon === key, () => setMachineIcon(m, key))),
-  ];
+    ...OS_ICONS.map((key) => choice(OS_LABELS[key], key, m.icon_set && m.icon === key, () => setMachineIcon(m, key))));
   if (m.ok) nodes.push(menuItem("Dossiers synchronisés…", "folder", () => openDirs(m)));
   if (m.removable) nodes.push(menuItem("Oublier cette machine", "trash", () => forgetMachine(m), { danger: true }));
   return nodes;
@@ -2065,7 +2005,7 @@ $("s-refresh").onclick = () => loadSaves();
 const SAVES_POLL_MS = 20000;
 let savesPolling = false;
 async function pollSaves() {
-  if (savesPolling || document.hidden || document.body.dataset.view !== "saves" || !sv.loaded
+  if (savesPolling || !connected() || document.hidden || document.body.dataset.view !== "saves" || !sv.loaded
     || busy() || openMenu || document.querySelector("dialog[open]")) return;
   savesPolling = true;
   try { await loadSaves(); } finally { savesPolling = false; }
@@ -2306,27 +2246,29 @@ function savesCell(i) {
 
 // ------------------------------------------------------------------ état du lanceur (--doctor)
 
-async function loadDoctor(refresh = false) {
-  const body = $("doc-body");
+// Diagnostic de la machine d'essai : fenêtre (#dlg-doctor) ou section des Réglages (body)
+async function loadDoctor(refresh = false, body = $("doc-body")) {
+  const inDialog = body === $("doc-body");
   if (refresh || !state.doctor) body.replaceChildren(el("div", { className: "row muted" }, el("span", { className: "spinner" }), `vérification sur ${hostName()}…`));
-  $("doc-refresh").disabled = true;
+  const refreshButton = inDialog ? $("doc-refresh") : $("cfg-doctor-refresh");
+  refreshButton.disabled = true;
   try {
     state.doctor = await api(`/api/launcher/doctor${refresh ? "?refresh=1" : ""}`);
-    renderDoctor();
+    renderDoctor(body);
     runnerSuggestions();
   } catch (error) {
     body.replaceChildren(notice("", `État du lanceur indisponible : ${error.message}`, "alert"));
   } finally {
-    $("doc-refresh").disabled = false;
+    refreshButton.disabled = false;
   }
 }
 
-function renderDoctor() {
+function renderDoctor(body = $("doc-body")) {
   const d = state.doctor;
-  $("doc-age").textContent = d.age ? `il y a ${Math.round(d.age / 60)} min` : "à l'instant";
+  $(body === $("doc-body") ? "doc-age" : "cfg-doctor-age").textContent = d.age ? `il y a ${Math.round(d.age / 60)} min` : "à l'instant";
   const ok = !d.sections.some((s) => s.items.some((i) => i.status === "missing"));
   const marks = { ok: "check", missing: "x", optional: "minus" };
-  $("doc-body").replaceChildren(
+  body.replaceChildren(
     ...d.sections.flatMap((section) => [
       section.title ? el("h4", { textContent: section.title }) : null,
       ...section.items.map((item) => el("div", { className: `item ${item.status}` },
@@ -2336,7 +2278,7 @@ function renderDoctor() {
     d.verdict ? (ok ? el("div", { className: "verdict", textContent: d.verdict }) : notice("err", d.verdict)) : null);
 }
 
-// Runners installés sur la machine de jeu : proposés pour PROTON= et WINE=
+// Runners installés sur la machine d'essai : proposés pour PROTON= et WINE=
 function runnerSuggestions() {
   const names = [...new Set((state.doctor?.runners || []).map((r) => r.name))];
   for (const key of ["PROTON", "WINE"]) {
@@ -2350,32 +2292,6 @@ function runnerSuggestions() {
   }
 }
 $("doc-refresh").onclick = () => loadDoctor(true);
-$("host-diag").onclick = () => { $("dlg-doctor").showModal(); loadDoctor(true); };
-$("host-check").onclick = () => loadHostStatus(true);
-
-// Voyant : vert quand la machine de jeu répond, rouge sinon
-async function loadHostStatus(refresh = false) {
-  const box = $("host-status"), text = $("host-status-text");
-  box.className = "host-status";
-  text.textContent = "vérification…";
-  state.hostStatus = null;
-  paintTools();
-  try {
-    const s = await api(`/api/game_host/status${refresh ? "?refresh=true" : ""}`);
-    state.hostStatus = s;
-    paintConnection();
-    box.classList.add(s.state);
-    text.textContent = s.state === "ok" ? `Connectée · ${s.name}`
-      : s.state === "off" ? "Désactivée" : `Non connectée · ${s.detail}`;
-    text.title = s.detail || "";
-  } catch (error) {
-    state.hostStatus = { state: "ko", detail: error.message };
-    paintConnection();
-    box.classList.add("ko");
-    text.textContent = `Non connectée · ${error.message}`;
-  }
-}
-
 // Bibliothèque : pour chaque dossier de base, « tout le dossier » (nouveaux
 // systèmes compris) ou une sélection de systèmes. Enregistré tel quel dans
 // roms_dirs : le dossier de base seul, ou les dossiers des systèmes choisis.
@@ -2471,6 +2387,63 @@ function paintRootsTotal() {
 }
 $("cfg-dirs").addEventListener("input", paintRootsTotal);
 
+// Réglages : une page. Mode, systèmes, nuit et illustrations ; lanceur et synchro seulement connectés.
+const CFG_MODE_HINTS = {
+  autonome: "Autonome : construire et maintenir les images, sans machine ni sauvegardes.",
+  connecte: "Connecté : sauvegardes entre machines, installation, lancement d'essai.",
+};
+let cfgOpened = null;           // valeurs lues à l'ouverture : seules les parties modifiées sont envoyées
+const dirsKey = (list) => [...new Set(list.map(trimSlash))].sort().join("\n");
+const sgdbAuthors = (text) => [...new Set(text.split(/[\n,]+/).map((a) => a.trim()).filter(Boolean))];
+function paintCfgMode(mode) {
+  for (const b of $("cfg-mode").children) {
+    b.classList.toggle("on", b.dataset.mode === mode);
+    b.setAttribute("aria-checked", String(b.dataset.mode === mode));
+  }
+  $("dlg-config").dataset.cmode = mode;         // masque les parties connectées tant que c'est autonome
+  $("cfg-mode-hint").textContent = CFG_MODE_HINTS[mode];
+}
+$("cfg-mode").onclick = (event) => {
+  const b = event.target.closest("button[data-mode]");
+  if (!b) return;
+  paintCfgMode(b.dataset.mode);
+  paintCfgDoctorSection(state.config, b.dataset.mode === "connecte");
+};
+function paintThreshold() {
+  $("cfg-sgdb-threshold-out").textContent = Number($("cfg-sgdb-threshold").value).toFixed(2).replace(".", ",");
+}
+$("cfg-sgdb-threshold").addEventListener("input", paintThreshold);
+// Essai de la clé enregistrée (POST /api/config/sgdb/test)
+$("cfg-sgdb-test").onclick = async () => {
+  const msg = $("cfg-sgdb-msg"), button = $("cfg-sgdb-test");
+  button.disabled = true;
+  msg.hidden = false;
+  msg.className = "notice";
+  msg.textContent = "Essai de la clé enregistrée…";
+  try {
+    const r = await api("/api/config/sgdb/test", { method: "POST", timeout: 60000 });
+    msg.className = r.ok ? "notice ok" : "notice err";
+    msg.textContent = r.message;
+  } catch (error) {
+    msg.className = "notice err";
+    msg.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+};
+$("cfg-doctor-refresh").onclick = () => loadDoctor(true, $("cfg-doctor"));
+// Lanceur de la machine d'essai dans Réglages : le diagnostic, sans fenêtre. `online` : le mode
+// choisi dans la boîte (pas encore enregistré) ; le diagnostic n'est lu qu'en connecté.
+function paintCfgDoctorSection(cfg, online) {
+  const body = $("cfg-doctor"), trial = Boolean(cfg.game_host && cfg.game_host !== "off");
+  $("cfg-doctor-title").textContent = trial ? `Lanceur dans ${cfg.game_host_name}` : "Lanceur de la machine d'essai";
+  $("cfg-doctor-age").textContent = "";
+  $("cfg-doctor-refresh").hidden = !(online && trial);
+  if (!online) body.replaceChildren(el("p", { className: "muted", textContent: "Disponible en mode connecté." }));
+  else if (!trial) body.replaceChildren(el("p", { className: "muted", textContent: "Aucune machine d'essai : dans Sauvegardes, menu d'une machine, « Utiliser pour les essais »." }));
+  else loadDoctor(false, body);
+}
+
 $("btn-config").onclick = async () => {
   let cfg, systems = [], systemsError = null;
   try {
@@ -2479,6 +2452,8 @@ $("btn-config").onclick = async () => {
     alert(`Réglages indisponibles : ${error.message}`);
     return;
   }
+  state.config = cfg;
+  applyMode();
   try {
     systems = await api("/api/config/systems");
   } catch (error) {
@@ -2490,25 +2465,23 @@ $("btn-config").onclick = async () => {
   $("cfg-dirs").value = [...chosen].filter((d) => !known.has(d)).join("\n");
   $("cfg-extra").open = !systems.length || Boolean($("cfg-dirs").value);
   paintRootsTotal();
+  cfgOpened = { mode: cfg.mode, dirs: [...chosen], night: [cfg.night_start, cfg.night_end],
+    sgdbAuthors: cfg.sgdb_authors || [], threshold: cfg.sgdb_round_threshold ?? 0.85 };
+  paintCfgMode(cfg.mode);
   $("cfg-info").replaceChildren(...[
     ["Dossiers de base", (cfg.roms_roots || []).join(", ") || "—"],
     ["Sauvegardes", cfg.saves_dir], ["Dossier de travail", cfg.tmp_dir], ["Reconstruction", cfg.rebuild_mode],
     ["Tâches simultanées", cfg.concurrency],
     ["Rétention .old", cfg.old_retention_days == null ? "manuelle" : `${cfg.old_retention_days} jours`],
   ].flatMap(([k, v]) => [el("dt", { textContent: k }), el("dd", { textContent: v ?? "—" })]));
-  $("cfg-session").value = cfg.session_process ?? "";
-  $("cfg-agent-code").value = "";
-  $("cfg-agent-result").className = "msg";
-  $("cfg-agent-result").textContent = cfg.agent_fingerprint
-    ? `Associé. Empreinte enregistrée : ${cfg.agent_fingerprint}` : "Pas encore associé.";
-  state.hostEditing = false;
-  paintHostForm(cfg.game_host || "off");
-  loadHostMachines();
-  $("doc-title").textContent = `wsquashfs-launcher --doctor — ${cfg.game_host_name}`;
-  $("maint-out").hidden = true;
-  loadHostStatus();
   $("cfg-night-start").value = cfg.night_start || "01:00";
   $("cfg-night-end").value = cfg.night_end || "07:00";
+  $("cfg-sgdb-key").value = "";
+  $("cfg-sgdb-key").placeholder = cfg.sgdb_configured ? "enregistrée" : "clé API";
+  $("cfg-sgdb-msg").hidden = true;
+  $("cfg-sgdb-authors").value = (cfg.sgdb_authors || []).join("\n");
+  $("cfg-sgdb-threshold").value = cfg.sgdb_round_threshold ?? 0.85;
+  paintThreshold();
   // Adresse du manager pour les machines : suggérée à partir de l'adresse de cette page
   $("cfg-machine-url").dataset.saved = cfg.machine_url || "";
   $("cfg-machine-url").value = cfg.machine_url || (cfg.machine_port ? `https://${location.hostname}:${cfg.machine_port}` : "");
@@ -2516,64 +2489,70 @@ $("btn-config").onclick = async () => {
   $("cfg-auto-push").dataset.saved = String(cfg.auto_push_interval ?? 120);
   $("cfg-machine-fp").textContent = !cfg.machine_port ? "Port des machines désactivé (WSQUASHFS_MGR_MACHINE_PORT=0)."
     : cfg.machine_fingerprint ? `Empreinte du certificat du manager : ${cfg.machine_fingerprint}` : "Certificat du manager créé au prochain démarrage.";
+  paintCfgDoctorSection(cfg, cfg.mode === "connecte");
   $("cfg-err").textContent = systemsError || "";
   $("cfg-err").hidden = !systemsError;
-  showCfgPane("dirs");
+  $("dlg-config").scrollTop = 0;
   $("dlg-config").showModal();
 };
 $("cfg-save").onclick = async () => {
+  const errBox = $("cfg-err"), save = $("cfg-save");
+  const fail = (text) => { errBox.textContent = text; errBox.hidden = false; };
+  const mode = $("dlg-config").dataset.cmode, online = mode === "connecte";
   const dirs = chosenDirs();
+  const dirsChanged = dirsKey(dirs) !== dirsKey(cfgOpened.dirs);
+  const night = [$("cfg-night-start").value, $("cfg-night-end").value];
+  const nightChanged = night.join() !== cfgOpened.night.join();
+  const sgdbKey = $("cfg-sgdb-key").value.trim();
+  const authors = sgdbAuthors($("cfg-sgdb-authors").value);
+  const threshold = Number($("cfg-sgdb-threshold").value);
+  const sgdbChanged = Boolean(sgdbKey) || JSON.stringify(authors) !== JSON.stringify(cfgOpened.sgdbAuthors) || threshold !== cfgOpened.threshold;
+  const machineUrl = $("cfg-machine-url").value.trim();
+  const machineChanged = online && machineUrl !== $("cfg-machine-url").dataset.saved;
+  const autoPush = $("cfg-auto-push");
+  const seconds = autoPush.value.trim() === "" ? NaN : Number(autoPush.value);
+  const autoPushChanged = online && autoPush.value !== autoPush.dataset.saved;
+  errBox.hidden = true;
+  if (dirsChanged && !dirs.length) { fail("Systèmes à gérer : cocher au moins un système."); return; }
+  if (autoPushChanged && (!Number.isInteger(seconds) || seconds < 0 || seconds > 86400)) {
+    fail("Mise à jour automatique : nombre de secondes entre 0 (désactivée) et 86400."); return;
+  }
+  save.disabled = true;
   try {
-    if (!dirs.length) {
-      showCfgPane("dirs");
-      throw new Error("Bibliothèque : cocher au moins un système.");
-    }
-    if ($("cfg-host").dataset.mode === "agent" && !hostPick()) {
-      showCfgPane("host");
-      throw new Error("Machine de jeu : associer une machine avec son code wsq:// (Associer), ou en choisir une dans la liste.");
-    }
-    const machineUrl = $("cfg-machine-url").value.trim();
-    if (machineUrl !== $("cfg-machine-url").dataset.saved) {
-      try {
-        state.config = await api("/api/config/machine_url", { method: "PUT", body: { url: machineUrl } });
-      } catch (error) {
-        showCfgPane("general");
-        throw error;
-      }
+    if (mode !== cfgOpened.mode) state.config = await api("/api/config/mode", { method: "PUT", body: { mode } });
+    if (machineChanged) {
+      state.config = await api("/api/config/machine_url", { method: "PUT", body: { url: machineUrl } });
       $("cfg-machine-url").dataset.saved = state.config.machine_url;
     }
-    const autoPush = $("cfg-auto-push");
-    if (autoPush.value !== autoPush.dataset.saved) {
-      const seconds = autoPush.value.trim() === "" ? NaN : Number(autoPush.value);
-      if (!Number.isInteger(seconds) || seconds < 0 || seconds > 86400) {
-        showCfgPane("general");
-        throw new Error("Mise à jour automatique : nombre de secondes entre 0 (désactivée) et 86400.");
-      }
+    if (autoPushChanged) {
       state.config = await api("/api/config/auto_push", { method: "PUT", body: { seconds } });
       autoPush.dataset.saved = String(state.config.auto_push_interval);
     }
-    state.config = await api("/api/config/night", { method: "PUT",
-      body: { start: $("cfg-night-start").value, end: $("cfg-night-end").value } });
-    const before = JSON.stringify([state.config.game_host, state.config.session_process]);
-    state.config = $("cfg-host").dataset.mode === "agent" && hostPick()
-      ? await api("/api/config/game_host/machine", { method: "PUT", body: { id: hostPick() } })
-      : await api("/api/config/game_host", { method: "PUT", body: hostBody() });
-    if (JSON.stringify([state.config.game_host, state.config.session_process]) !== before) state.doctor = null;
-    fillWhen();
-    applyHost();
-    loadHostStatus(true);
+    if (nightChanged) {
+      state.config = await api("/api/config/night", { method: "PUT", body: { start: night[0], end: night[1] } });
+    }
+    if (sgdbChanged) {
+      state.config = await api("/api/config/sgdb", { method: "PUT",
+        body: { ...(sgdbKey ? { api_key: sgdbKey } : {}), authors, threshold } });
+    }
   } catch (error) {
-    $("cfg-err").textContent = error.message;
-    $("cfg-err").hidden = false;
+    fail(error.message);
+    save.disabled = false;
+    return;
+  }
+  applyMode();
+  if (!dirsChanged) {
+    save.disabled = false;
+    $("dlg-config").close();
+    toast("Réglages enregistrés");
     return;
   }
   // Le serveur lit les images des dossiers choisis avant de répondre : long
-  // pour des dossiers nouveaux. Une erreur de saisie revient tout de suite ;
-  // passé un instant, la fenêtre se ferme et le bandeau de la liste prend le relais.
-  const save = $("cfg-save");
+  // pour des dossiers nouveaux. Passé un instant, la fenêtre se ferme et le
+  // bandeau de la liste prend le relais.
   save.disabled = true;
   save.replaceChildren(el("span", { className: "spinner" }), "Lecture des dossiers…");
-  $("cfg-err").hidden = true;
+  errBox.hidden = true;
   let done = null;
   const handOver = setTimeout(() => {
     $("dlg-config").close();
@@ -2591,13 +2570,8 @@ $("cfg-save").onclick = async () => {
     toast(`Réglages enregistrés : ${state.items.length} image(s)`);
   } catch (error) {
     clearTimeout(handOver);
-    if ($("dlg-config").open) {
-      showCfgPane("dirs");
-      $("cfg-err").textContent = error.message;
-      $("cfg-err").hidden = false;
-    } else {
-      toast(`Réglages : ${error.message}`, "alert", true);
-    }
+    if ($("dlg-config").open) fail(error.message);
+    else toast(`Réglages : ${error.message}`, "alert", true);
   } finally {
     done?.();
     save.disabled = false;
@@ -2872,7 +2846,7 @@ async function gameSaveAction(button, body, label, doneText) {
     else toast(out || doneText, "save");
   } catch (error) { alert(error.message); } finally { button.disabled = false; }
 }
-// Menu de la tuile Sauvegardes : « Copier » et « Synchroniser » n'existent que si une machine de jeu est active
+// Menu de la tuile Sauvegardes : « Copier » et « Synchroniser » n'existent que si une machine d'essai est active
 function savesItems() {
   const i = state.current, on = hostOn();
   return [
@@ -2916,7 +2890,7 @@ $("btn-saves-reset").onclick = () => resetSaves([...state.selected]).catch((erro
   document.addEventListener("keydown", (event) => { if (event.key === "Escape") hide(); });
 }
 
-// Liens du runner : constat et réparation proposée (runner de la machine de jeu joint ou complété)
+// Liens du runner : constat et réparation proposée (runner de la machine d'essai joint ou complété)
 $("d-links").onclick = async () => {
   const id = state.current.id, box = $("d-links-result");
   box.className = "msg";
@@ -2942,8 +2916,9 @@ $("d-links").onclick = async () => {
           el("div", { className: "split", style: "margin-top:8px" }, apply, whenButton()));
       }),
       ...(r.suggestions.length ? [] : [r.steambox_error
-        ? (hostOn() ? notice("err", `Réparation impossible, ${hostName()} injoignable : ${r.steambox_error}`)
-          : notice("", "Réparation automatique indisponible : elle reprend un runner installé sur la machine de jeu (Réglages → Machine de jeu). Sinon, joindre le runner à la main (voir l'aide).", "info"))
+        ? (!connected() ? notice("info", "Mode autonome : la réparation par runner de la machine d'essai est désactivée (Réglages › Mode).")
+          : hostOn() ? notice("err", `Réparation impossible, ${hostName()} injoignable : ${r.steambox_error}`)
+          : notice("", "Réparation automatique indisponible : elle reprend un runner installé sur la machine d'essai (menu d'une machine, « Utiliser pour les essais »). Sinon, joindre le runner à la main (voir l'aide).", "info"))
         : el("p", { className: "muted", textContent: `Aucun runner de ${hostName()} ne contient les fichiers visés : joindre le runner à la main (voir l'aide).` })]));
   } catch (error) {
     box.replaceChildren(notice("err", error.message));
@@ -2985,6 +2960,7 @@ async function applyRunner(id, sug, button) {
 // ------------------------------------------------------------------ vues
 
 function showView(name) {
+  if (name === "saves" && !connected()) name = "images";     // autonome : pas d'onglet Sauvegardes
   document.body.dataset.view = name;
   for (const b of $("views").children) b.classList.toggle("active", b.dataset.view === name);
   $("main").hidden = name !== "images";
@@ -3436,6 +3412,7 @@ function instPlan(m, images) {
 const canInstallOn = (m, plan) => m.ok && plan.todo.length > 0 && plan.fits;
 
 async function loadInstall() {
+  if (!connected()) return;
   const seq = ++inst.seq;
   inst.loading = true;
   paintInstDialog();
@@ -3672,17 +3649,19 @@ $("btn-inst-uninstall").onclick = () => openUninstall(selectedImages());
   renderFilters();
   state.keys = await api("/api/autorun/keys");
   try { state.config = await api("/api/config"); } catch { state.config = null; }
+  applyMode();
   fillWhen();
-  applyHost();
   $("known-keys").replaceChildren(...state.keys.map((k) => new Option(k.key, k.key)));
   buildForm();
   // La vue par défaut s'affiche tout de suite (Sauvegardes ne dépend pas de la bibliothèque) ;
   // folders et help restent mémorisés
-  const view = ["folders", "help"].includes(storage.get("wsfs-view")) ? storage.get("wsfs-view") : "saves";
+  // Sauvegardes par défaut en mode connecté, Images en autonome (folders et help restent mémorisés)
+  const stored = storage.get("wsfs-view");
+  const view = ["folders", "help"].includes(stored) ? stored : connected() ? "saves" : "images";
   showView(view);              // charge aussi les sauvegardes si c'est la vue
-  if (view !== "saves") loadSaves();   // compteur de l'onglet
+  if (connected() && view !== "saves") loadSaves();   // compteur de l'onglet
   await loadLibrary();
   paintSaves();                // les liens vers les images attendent la bibliothèque
-  loadInstall();               // images installées par machine : filtre, pastilles, fiche
+  loadInstall();               // images installées par machine : filtre, pastilles, fiche (connecté)
   refreshTasks();
 })();
