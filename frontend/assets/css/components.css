@@ -184,7 +184,7 @@ pre.bat, pre.code { padding: 12px 14px; border-radius: 18px; background: var(--b
 .grow.head button.r { text-align: right; }
 .grow.item { cursor: pointer; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-base) var(--ease-out); }
 /* Entrée en cascade des lignes (filtre, recherche, tri, client) : --i posé par stagger(), plafonné à 12 (30 ms par ligne) */
-.grow.item.enter { animation: rowin var(--dur-slow) var(--ease-out) both; animation-delay: calc(min(var(--i, 0), 12) * 30ms); }
+.grow.item.enter { animation: rowin var(--dur-slow) var(--ease-out) backwards; animation-delay: calc(min(var(--i, 0), 12) * 30ms); }
 .grow.item:hover { background: var(--s2); }
 .grow.item.selected { background: rgba(109, 135, 245, .08); }
 .grow.item.selected, .grow.item.current { box-shadow: inset 0 0 0 1.5px var(--accent); }
@@ -229,7 +229,7 @@ img.fade-in { animation: fadeup .3s ease-out; }
 .selbar { position: fixed; z-index: 30; left: 0; right: 0; bottom: 24px; margin: 0 auto; width: max-content;
   max-width: calc(100vw - 48px); display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px;
   padding: 6px 6px 6px 18px; border-radius: var(--radius-pill); background: var(--s2); box-shadow: var(--shadow-lg);
-  animation: selup var(--dur-med) cubic-bezier(.2, .9, .3, 1.2) both; }
+  animation: selup var(--dur-med) cubic-bezier(.2, .9, .3, 1.2) backwards; }
 .selbar .lbl { margin-right: 8px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .selbar .btn { height: 38px; }
 .selbar .btn.bare { color: var(--text); }

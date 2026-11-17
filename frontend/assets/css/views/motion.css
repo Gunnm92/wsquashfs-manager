@@ -7,8 +7,8 @@
 @keyframes viewin-r { from { opacity: 0; transform: translateX(32px); } }
 @keyframes viewin-l { from { opacity: 0; transform: translateX(-32px); } }
 .view-out { animation: viewout .14s ease-in both; pointer-events: none; }
-.view-in-r { animation: viewin-r .38s cubic-bezier(.2, .8, .3, 1) both; }
-.view-in-l { animation: viewin-l .38s cubic-bezier(.2, .8, .3, 1) both; }
+.view-in-r { animation: viewin-r .38s cubic-bezier(.2, .8, .3, 1) backwards; }
+.view-in-l { animation: viewin-l .38s cubic-bezier(.2, .8, .3, 1) backwards; }
 
 /* Sorties animées (hideAnimated) : la classe is-leaving joue la sortie, puis le nœud passe hidden */
 .is-leaving { pointer-events: none; }
@@ -18,4 +18,4 @@ aside.panel.is-leaving { animation: slideout .2s ease-in both; }
 
 /* Un bandeau (.notice) se déploie à son apparition : hors ligne, erreurs, résultats d'une action.
    Le bandeau de chargement (#lib-loading) n'est pas recréé à chaque seconde : il ne rejoue pas. */
-.notice, #d-old > *, #a-override-box > * { animation: expand var(--dur-med) var(--ease-out) both; }
+.notice, #d-old > *, #a-override-box > * { animation: expand var(--dur-med) var(--ease-out) backwards; }

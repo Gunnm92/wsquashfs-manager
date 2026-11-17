@@ -53,6 +53,14 @@ function swapView(name) {
     if (motionOff() || !prev || prev === name) return;
     const dir = VIEW_ORDER.indexOf(name) >= VIEW_ORDER.indexOf(prev) ? "view-in-r" : "view-in-l";
     replay(target, dir);
+    // Classe retirée à la fin : une animation de transformation encore attachée à la vue servirait de
+    // repère aux éléments fixes qu'elle contient (barre « Enregistrer », barres de sélection, menus)
+    const done = (event) => {
+      if (event.target !== target) return;              // fin d'une animation d'un enfant (lignes…)
+      target.classList.remove("view-in-r", "view-in-l");
+      target.removeEventListener("animationend", done);
+    };
+    target.addEventListener("animationend", done);
   };
   if (motionOff() || !leaving.length || leaving.includes(target)) { reveal(); return; }
   for (const n of leaving) n.classList.add("view-out");

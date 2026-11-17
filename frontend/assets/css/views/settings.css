@@ -5,7 +5,7 @@ body[data-mode="autonome"] [data-connected] { display: none !important; }
 #btn-menu.on, #btn-menu.on:hover { background: var(--accent-900); color: var(--accent-300); }
 @keyframes pagein { from { opacity: 0; transform: translateY(8px); } }
 main.settings { display: grid; grid-template-columns: 210px minmax(0, 820px); gap: 56px; justify-content: center; align-items: start;
-  max-width: 1120px; margin: 0 auto; padding: 32px 24px 160px; animation: pagein var(--dur-med) var(--ease-out) both; }
+  max-width: 1120px; margin: 0 auto; padding: 32px 24px 160px; animation: pagein var(--dur-med) var(--ease-out) backwards; }
 main.settings[hidden] { display: none; }
 /* Sommaire : liens ancrés avec icône ; l'entrée de la section visible est active */
 .settings-toc { position: sticky; top: calc(var(--top-h) + 24px); display: flex; flex-direction: column; gap: 2px; }
@@ -21,7 +21,7 @@ main.settings[hidden] { display: none; }
 main.settings[data-pending="autonome"] [data-cfg-conn] { display: none; }
 .settings-body { min-width: 0; display: flex; flex-direction: column; gap: 40px; }
 .st-sec { display: flex; flex-direction: column; gap: 12px; scroll-margin-top: calc(var(--top-h) + 20px);
-  animation: fadeup var(--dur-slow) var(--ease-out) both; }
+  animation: fadeup var(--dur-slow) var(--ease-out) backwards; }
 .st-sec:nth-child(2) { animation-delay: 40ms; }
 .st-sec:nth-child(3) { animation-delay: 80ms; }
 .st-sec:nth-child(4) { animation-delay: 120ms; }

@@ -57,7 +57,7 @@ aside.panel { position: sticky; top: calc(var(--top-h) + 19px); z-index: 25; max
 .dtabs > button[aria-selected="true"], .dtabs > button.on { color: var(--text); }
 .dtabs .tdot { position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--edit); }
 .dtabs .count { font-size: 10.5px; padding: 0 6px; border-radius: var(--radius-pill); background: rgba(232, 234, 239, .1); color: var(--text); }
-.dpane:not([hidden]) { animation: fadeup var(--dur-med) var(--ease-out) both; }
+.dpane:not([hidden]) { animation: fadeup var(--dur-med) var(--ease-out) backwards; }
 
 /* Cartes et lignes clé / valeur */
 .dcards { display: flex; flex-direction: column; gap: 16px; }
