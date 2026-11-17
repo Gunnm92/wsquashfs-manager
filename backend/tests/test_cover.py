@@ -177,7 +177,7 @@ def test_replace_true_rebuilds_with_new_cover(monkeypatch, tmp_path: Path):
     from app.services import scan
     image, calls = _replace_setup(monkeypatch, tmp_path, present=True, current=b"ancienne")
     message = _run_replace(image, tmp_path, replace=True)
-    assert "Illustration remplacée (SteamGridDB, jaquette)" in message
+    assert "Illustration remplacée (icône SteamGridDB)" in message
     assert "Jeu.wsquashfs.old" in message
     assert len(calls) == 1
     img, changes, in_use = calls[0]

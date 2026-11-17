@@ -16,3 +16,15 @@ _HOME = tempfile.mkdtemp(prefix="wsqfs-tests-home-")
 os.environ["HOME"] = _HOME
 for _name in [n for n in os.environ if n.startswith("WSQUASHFS_MGR_")]:
     del os.environ[_name]
+
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _taille_des_sauvegardes_oubliee():
+    """Cache de la taille des sauvegardes (scan) : propre à chaque test."""
+    from app.services import scan
+    scan.forget_saves()
+    yield
+    scan.forget_saves()

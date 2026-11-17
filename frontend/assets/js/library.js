@@ -126,13 +126,15 @@ export function libBusy(text, hint) {
   };
 }
 
-export async function loadLibrary(refresh = false) {
+// refresh : relire toutes les images ; saves : recalculer la taille des sauvegardes (Actualiser)
+export async function loadLibrary(refresh = false, saves = false) {
   // Bandeau seulement si la lecture dure : un chargement depuis le cache ne clignote pas
   let done = null;
   const slow = setTimeout(() => { done = libBusy(refresh ? "Lecture de toutes les images" : "Chargement de la bibliothèque",
     "Les images ajoutées ou modifiées sont ouvertes une fois ; les autres viennent du cache."); }, 600);
   try {
-    state.items = await api(`/api/library${refresh ? "?refresh=true" : ""}`, { timeout: SCAN_TIMEOUT });
+    const query = [refresh && "refresh=true", saves && "saves=true"].filter(Boolean).join("&");
+    state.items = await api(`/api/library${query ? `?${query}` : ""}`, { timeout: SCAN_TIMEOUT });
     $("status").textContent = "";
   } catch (error) {
     $("status").textContent = `erreur : ${error.message}`;
@@ -424,6 +426,6 @@ export function init() {
   for (const b of $("layout").children) {
     b.onclick = () => { state.layout = b.dataset.layout; storage.set("wsfs-layout", state.layout); renderLibrary(); };
   }
-  $("btn-refresh").onclick = () => { loadLibrary(); loadConfig(); loadSaves(); };
+  $("btn-refresh").onclick = () => { loadLibrary(false, true); loadConfig(); loadSaves(); };
   $("btn-sel-clear").onclick = () => { state.selected.clear(); renderLibrary(); };
 }

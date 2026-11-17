@@ -93,6 +93,22 @@ def test_login_throttled_after_repeated_failures(client, monkeypatch):
     assert client.post("/login", json={"password": "sésame"}).status_code == 200
 
 
+def test_mass_old_validate_scans_the_library_once(client, monkeypatch, tmp_path):
+    """Suppression des .old en masse : une seule relecture de la bibliothèque à la fin (un scan
+    complet par image faisait dépasser le délai de l'interface, qui perdait le suivi)."""
+    olds = [tmp_path / "arcade/jeu.wsquashfs.old", tmp_path / "windows/jeu.wsquashfs.old"]
+    for old in olds:
+        old.write_bytes(b"ancienne")
+    client.get("/api/library")                      # bibliothèque en mémoire
+    scans = []
+    real_scan = scan.scan_all
+    monkeypatch.setattr(scan, "scan_all", lambda settings, force=False: scans.append(1) or real_scan(settings))
+    result = client.post("/api/mass/old/validate", json={"ids": ["arcade/jeu", "windows/jeu"]}).json()
+    assert result == {"done": ["arcade/jeu", "windows/jeu"], "skipped": []}
+    assert not any(old.exists() for old in olds)
+    assert len(scans) == 1
+
+
 # ------------------------------------------------------------------ personnalisation
 
 def test_custom_css_absent_gives_empty_css(client, monkeypatch, tmp_path):

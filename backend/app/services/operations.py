@@ -335,6 +335,7 @@ def run_files(settings: Settings, task: Task, job: Job) -> str:
         raise RebuildError("jeu en cours d'utilisation")
     if plan.saves_writes:
         _write_saves(plan.saves_writes)
+        scan.forget_saves(image.stem)
         message += f" ; registre des sauvegardes mis à jour ({len(plan.saves_writes)} fichier(s))"
     return message
 
@@ -449,7 +450,7 @@ def run_cover(settings: Settings, task: Task, job: Job) -> str:
     return f"Illustration ajoutée ({'jaquette' if art.kind == 'es' else 'icône'}, {len(cover) // 1024} Kio)"
 
 
-_SOURCE_LABEL = {"sgdb": "SteamGridDB, jaquette", "es": "jaquette EmulationStation",
+_SOURCE_LABEL = {"sgdb": "icône SteamGridDB", "es": "jaquette EmulationStation",
                  "icon": "icône de l'exécutable"}
 
 
@@ -489,6 +490,7 @@ def reset_saves(settings: Settings, image: Path) -> Path:
     target = saves.with_name(f"{saves.name}.avant-{time.strftime('%Y%m%d-%H%M%S')}")
     os.rename(saves, target)
     fsync_dir(saves.parent)
+    scan.forget_saves(image.stem)
     return target
 
 

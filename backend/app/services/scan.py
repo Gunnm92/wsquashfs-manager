@@ -16,6 +16,8 @@ import os
 import re
 import shutil
 import subprocess
+import threading
+import time
 from pathlib import Path
 
 from ..config import Settings
@@ -346,18 +348,68 @@ def image_in_use(image: Path) -> bool:
                      _held_lock_inodes())
 
 
-def _saves_size(settings: Settings, stem: str) -> tuple[bool, int]:
+def _tree_size(root: Path) -> int:
+    """Octets des fichiers ordinaires sous `root`, liens non suivis : un seul stat par fichier
+    (le type vient de readdir)."""
+    total, pending = 0, [str(root)]
+    while pending:
+        try:
+            with os.scandir(pending.pop()) as entries:
+                for entry in entries:
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            pending.append(entry.path)
+                        elif entry.is_file(follow_symlinks=False):
+                            total += entry.stat(follow_symlinks=False).st_size
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+    return total
+
+
+def _saves_size_uncached(settings: Settings, stem: str) -> tuple[bool, int]:
     d = settings.saves_dir / stem
     if not d.is_dir():
         return False, 0
-    total = 0
-    for p in d.rglob("*"):
-        try:
-            if p.is_file() and not p.is_symlink():
-                total += p.stat().st_size
-        except OSError:
-            pass
-    return True, total
+    return True, _tree_size(d)
+
+
+# Taille des sauvegardes par jeu : parcourir saves/<jeu> (prefix Proton, des milliers de
+# fichiers) à chaque scan coûtait l'essentiel du scan (12 s sur 193 jeux, partage Unraid).
+# Recalculée seulement si le jeu vient de se terminer (« en cours » au scan précédent), sur
+# Actualiser (force), après forget_saves (réinitialisation), ou au-delà de SAVES_TTL (une
+# synchro venue d'un autre client écrit sans que le manager le voie).
+SAVES_TTL = 600
+_saves_cache: dict[tuple[str, str], tuple[float, bool, int]] = {}
+_saves_in_use: set[tuple[str, str]] = set()
+_saves_lock = threading.Lock()
+
+
+def _saves_size(settings: Settings, stem: str, in_use: bool = False,
+                force: bool = False) -> tuple[bool, int]:
+    key = (str(settings.saves_dir), stem)
+    now = time.monotonic()
+    with _saves_lock:
+        cached = _saves_cache.get(key)
+        just_ended = key in _saves_in_use and not in_use
+        if in_use:
+            _saves_in_use.add(key)
+        else:
+            _saves_in_use.discard(key)
+    if cached is not None and not force and not just_ended and now - cached[0] < SAVES_TTL:
+        return cached[1], cached[2]
+    present, size = _saves_size_uncached(settings, stem)
+    with _saves_lock:
+        _saves_cache[key] = (now, present, size)
+    return present, size
+
+
+def forget_saves(stem: str | None = None) -> None:
+    """Oublie la taille mise en cache des sauvegardes d'un jeu (toutes si None)."""
+    with _saves_lock:
+        for key in [k for k in _saves_cache if stem is None or k[1] == stem]:
+            del _saves_cache[key]
 
 
 def _old_size(image: Path) -> int:
@@ -369,10 +421,13 @@ def _old_size(image: Path) -> int:
 
 
 def _apply_dynamic(settings: Settings, info: ImageInfo, prefixes: set[str],
-                   mounts: list[str], held: set[int] | None = None) -> ImageInfo:
-    """État qui change sans que l'image change : recalculé à chaque scan."""
+                   mounts: list[str], held: set[int] | None = None,
+                   force: bool = False) -> ImageInfo:
+    """État qui change sans que l'image change : recalculé à chaque scan (la taille des
+    sauvegardes, coûteuse, est mise en cache : voir _saves_size)."""
     image = info.path
-    info.saves_present, info.saves_size = _saves_size(settings, image.stem)
+    in_use = is_in_use(image.stem, prefixes, mounts, settings.launcher_cache, held)
+    info.saves_present, info.saves_size = _saves_size(settings, image.stem, in_use, force)
     info.has_old = image.with_name(image.name + ".old").exists()
     info.old_size = _old_size(image) if info.has_old else 0
     info.extras = [e for e in info.extras if e != ".keys"]
@@ -385,7 +440,7 @@ def _apply_dynamic(settings: Settings, info: ImageInfo, prefixes: set[str],
         base = _read_autorun_from_image(settings, image)
         _autorun_fields(info, merge_override(Autorun.parse(base) if base else None, override))
         _apply_joined(info, _list_files(settings, image) if len(info.joined_runners) == 1 else None)
-    if is_in_use(image.stem, prefixes, mounts, settings.launcher_cache, held):
+    if in_use:
         info.state = ImageState.IN_USE
     elif info.has_old:
         info.state = ImageState.HAS_OLD
@@ -491,7 +546,7 @@ def scan_all(settings: Settings, force: bool = False) -> list[ImageInfo]:
             "mtime": info.mtime,
             "info": info.model_dump(mode="json"),
         }
-        results.append(_apply_dynamic(settings, info, prefixes, mounts, held))
+        results.append(_apply_dynamic(settings, info, prefixes, mounts, held, force))
 
     _write_atomic(cache_file, json.dumps({"version": _CACHE_VERSION, "images": new_entries},
                                          indent=1))

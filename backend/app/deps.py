@@ -162,7 +162,10 @@ def _submit(info: ImageInfo, kind: str, params: dict, title: str,
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
-def _old_action(image_id: str, action) -> ImageInfo:
+def _old_action(image_id: str, action, fresh: bool = True) -> ImageInfo:
+    """Valide ou restaure le .old d'une image. `fresh` : bibliothèque relue après coup (une
+    action en masse la relit une seule fois à la fin : un scan complet par image prend des
+    secondes)."""
     info = _find_image(image_id)
     if queue.active_for(info.id):
         raise HTTPException(status_code=409, detail="une tâche est en cours sur cette image")
@@ -172,6 +175,8 @@ def _old_action(image_id: str, action) -> ImageInfo:
         action(info.path)
     except RebuildError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not fresh:
+        return info
     return _fresh_image(image_id)
 
 

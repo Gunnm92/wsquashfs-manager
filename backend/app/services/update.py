@@ -193,6 +193,7 @@ def set_aside_masked(settings: Settings, image: Path, paths: list[str]) -> Path 
             target = aside / safe_rel(rel)
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(src), str(target))
+    scan.forget_saves(image.stem)
     return aside
 
 

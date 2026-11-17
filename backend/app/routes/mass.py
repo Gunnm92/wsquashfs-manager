@@ -3,6 +3,7 @@ sauvegardes, inscription des surcharges, validation des .old."""
 
 from __future__ import annotations
 
+import logging
 import shutil
 from pathlib import Path
 from typing import Literal
@@ -24,6 +25,7 @@ from ..services.operations import (
 from ..services.rebuild import RebuildError, existing_parent, validate_backup
 
 router = APIRouter()
+logger = logging.getLogger("wsquashfs-manager")
 
 
 class AutorunOp(BaseModel):
@@ -358,8 +360,11 @@ def mass_old_validate(body: MassIds):
     done, skipped = [], []
     for image_id in body.ids:
         try:
-            deps._old_action(image_id, validate_backup)
+            deps._old_action(image_id, validate_backup, fresh=False)
             done.append(image_id)
+            logger.info(".old supprimé : %s", image_id)
         except HTTPException as exc:
             skipped.append({"id": image_id, "reason": exc.detail})
+    if done:
+        deps._refresh_library(force=False)      # une seule relecture, pas une par image
     return {"done": done, "skipped": skipped}

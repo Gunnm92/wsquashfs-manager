@@ -146,7 +146,8 @@ export function init() {
     const libres = ids.reduce((total, id) => total + (state.byId.get(id).old_size || 0), 0);
     if (!confirm(`Supprimer les anciennes versions (.old) de ${ids.length} image(s) (${size(libres)} libérés) ? Elles sont effacées définitivement ; les images actuelles ne changent pas.`)) return;
     try {
-      const data = await api("/api/mass/old/validate", { method: "POST", body: { ids } });
+      // Suppression de gros fichiers sur le partage : jusqu'à 30 min avant d'abandonner l'attente
+      const data = await api("/api/mass/old/validate", { method: "POST", body: { ids }, timeout: 30 * 60000 });
       if (data.skipped.length) alert(data.skipped.map((s) => `${s.id} : ${s.reason}`).join("\n"));
       toast("Anciennes versions (.old) supprimées");
     } catch (error) { alert(error.message); }

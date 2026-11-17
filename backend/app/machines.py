@@ -36,9 +36,11 @@ def _start_machine_server(settings: Settings) -> uvicorn.Server | None:
     except RebuildError as exc:
         logger.error("clients : %s", exc)
         return None
+    # log_config et log_level à None : uvicorn configure la journalisation pour tout le processus ;
+    # « warning » ou access_log=False ici couperaient aussi les journaux de l'interface
     config = uvicorn.Config(machine_app, host=settings.machine_host, port=settings.machine_port,
-                            ssl_certfile=str(cert), ssl_keyfile=str(key), log_level="warning",
-                            access_log=False)
+                            ssl_certfile=str(cert), ssl_keyfile=str(key), log_config=None,
+                            log_level=None)
     server = uvicorn.Server(config)
     threading.Thread(target=_serve_machines, args=(server,), name="machines", daemon=True).start()
     logger.info("clients : écoute HTTPS sur le port %s", settings.machine_port)

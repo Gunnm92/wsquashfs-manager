@@ -190,3 +190,35 @@ def test_old_size_is_the_backup_size_next_to_the_image(tmp_path):
     image.with_name("Jeu.wsquashfs.old").write_bytes(b"x" * 1234)
     info = scanne()
     assert (info.has_old, info.old_size) == (True, 1234)
+
+
+def test_saves_size_cached_until_game_ends_or_forgotten(tmp_path, monkeypatch):
+    """Taille des sauvegardes : mise en cache d'un scan à l'autre ; recalculée quand le jeu
+    vient de se terminer, après forget_saves, sur force, ou au-delà de SAVES_TTL."""
+    from app.services import scan
+    saves = tmp_path / "saves" / "Jeu"
+    (saves / "pfx" / "drive_c").mkdir(parents=True)
+    (saves / "pfx" / "drive_c" / "save.dat").write_bytes(b"x" * 100)
+    (saves / "lien").symlink_to(saves / "pfx" / "drive_c" / "save.dat")    # pas compté
+    settings = Settings(saves_dir=tmp_path / "saves", state_dir=tmp_path / "state")
+    walks = []
+    real = scan._saves_size_uncached
+    monkeypatch.setattr(scan, "_saves_size_uncached",
+                        lambda s, stem: walks.append(stem) or real(s, stem))
+
+    assert scan._saves_size(settings, "Jeu") == (True, 100)
+    (saves / "pfx" / "drive_c" / "save2.dat").write_bytes(b"y" * 50)
+    assert scan._saves_size(settings, "Jeu") == (True, 100)          # cache : pas de parcours
+    assert len(walks) == 1
+    assert scan._saves_size(settings, "Jeu", in_use=True) == (True, 100)
+    assert scan._saves_size(settings, "Jeu", in_use=False) == (True, 150)   # partie terminée
+    assert len(walks) == 2
+    (saves / "pfx" / "drive_c" / "save3.dat").write_bytes(b"z")
+    scan.forget_saves("Jeu")
+    assert scan._saves_size(settings, "Jeu") == (True, 151)
+    (saves / "pfx" / "drive_c" / "save3.dat").write_bytes(b"zz")
+    assert scan._saves_size(settings, "Jeu", force=True) == (True, 152)
+    monkeypatch.setattr(scan, "SAVES_TTL", 0)
+    (saves / "pfx" / "drive_c" / "save3.dat").write_bytes(b"zzz")
+    assert scan._saves_size(settings, "Jeu") == (True, 153)
+    assert scan._saves_size(settings, "Absent") == (False, 0)

@@ -512,7 +512,7 @@ def test_run_cover_utilise_exactement_le_choix(monkeypatch, tmp_path, cfg, api):
     api.add_grid(2, 8, "Carl", PNG2)
     image, calls = _run_setup(monkeypatch, tmp_path, present=True, current=b"ancienne")
     message = run_cover(cfg, _cover_task(image, {"replace": True, "choice": "sgdb:2"}), Job())
-    assert message.startswith("Illustration remplacée (SteamGridDB, jaquette)")
+    assert message.startswith("Illustration remplacée (icône SteamGridDB)")
     assert len(calls) == 1
     fichier = calls[0].copy[COVER]
     assert fichier.read_bytes() == PNG2                  # pas la mieux notée (sgdb:1)

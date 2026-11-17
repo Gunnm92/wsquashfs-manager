@@ -123,5 +123,8 @@ def check_access(settings: Settings) -> None:
 
 
 def run() -> None:
+    # Journaux de l'application (purge des .old, synchro, tâches…) : sans handler, seuls les
+    # avertissements sortaient. Les journaux d'uvicorn ont leurs propres handlers.
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(name)s: %(message)s")
     check_access(deps._settings)
     uvicorn.run(app, host=deps._settings.host, port=deps._settings.port)

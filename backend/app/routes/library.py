@@ -21,8 +21,11 @@ router = APIRouter()
 
 
 @router.get("/api/library", response_model=list[ImageInfo])
-def library(refresh: bool = False):
-    """Ludothèque : toutes les images des dossiers roms/, avec cache."""
+def library(refresh: bool = False, saves: bool = False):
+    """Ludothèque : toutes les images des dossiers roms/, avec cache. `refresh` : contenu des
+    images relu ; `saves` : taille des sauvegardes recalculée (Actualiser), sans relire les images."""
+    if saves:
+        scan.forget_saves()
     return [deps._with_task_state(info) for info in deps._refresh_library(force=refresh)]
 
 
