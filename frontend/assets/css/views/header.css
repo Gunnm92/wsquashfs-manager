@@ -50,6 +50,8 @@ body[data-view="folders"] #client-seg, body[data-view="folders"] #client-info { 
 /* Menu ⚙ : Réglages, Actualiser, Aide */
 .menu-wrap { position: relative; flex: none; }
 #btn-menu[aria-expanded=true] { background: var(--s3); color: var(--text); }
+#btn-menu svg { transition: transform var(--dur-slow) ease-out; }
+#btn-menu:hover svg { transform: rotate(30deg); }
 #btn-menu.spin .ico { animation: spin .9s linear infinite; }
 .menu { position: absolute; right: 0; top: calc(100% + 10px); z-index: 40; width: 250px; padding: 6px; display: flex; flex-direction: column;
   border-radius: 18px; background: var(--s3); box-shadow: var(--shadow-lg); transform-origin: top right; animation: menupop var(--dur-med) var(--ease-out); }

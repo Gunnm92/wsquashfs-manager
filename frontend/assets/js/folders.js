@@ -4,7 +4,7 @@ import { openCover, openCoverLot } from "./art-choice.js";
 import { reportSkipped } from "./actions.js";
 import { api } from "./api.js";
 import { forgetArt, thumb } from "./art.js";
-import { $, badge, cap, dotIc, el, emptyState, helpLink, icon, size, storage } from "./core.js";
+import { $, badge, cap, dotIc, el, emptyState, helpLink, hideAnimated, icon, showAnimated, size, stagger, storage } from "./core.js";
 import { notice, proposalItems } from "./detail/autorun.js";
 import { todoChip } from "./library.js";
 import { queued } from "./tasks.js";
@@ -98,8 +98,13 @@ function renderFolderTodo() {
   $("g-clear-filter-label").textContent = active ? cap(active[1]) : "";
 }
 
+let listSig = null;      // filtre, système, recherche et tri : les lignes entrent en cascade
+
 function renderFolderList(visible) {
   const { key, dir } = folders.sort;
+  const sig = JSON.stringify([folders.state, folders.system, folders.sort, $("g-search").value.trim()]);
+  const enter = sig !== listSig;
+  listSig = sig;
   const text = (f) => key === "system" ? `${f.system || ""} ${f.folder}` : f.folder;
   const rows = [...visible].sort((a, b) => (key === "state" ? folderStatus(a)[2] - folderStatus(b)[2] : 0) * dir
     || text(a).localeCompare(text(b), "fr", { numeric: true, sensitivity: "base" }) * (key === "state" ? 1 : dir));
@@ -113,9 +118,9 @@ function renderFolderList(visible) {
   };
   $("g-thead").replaceChildren(all, sortBtn("folder", "Dossier"), sortBtn("system", "Système", "c-system"),
     el("span", { className: "c-profile", textContent: "Contenu", title: "autorun.cmd, image .wsquashfs" }), sortBtn("state", "État", "c-state"));
-  $("g-list-rows").replaceChildren(...rows.map((f) => {
+  $("g-list-rows").replaceChildren(...stagger(rows.map((f) => {
     const selected = folders.selected.has(f.id), [label, cls] = folderStatus(f);
-    const row = el("div", { className: `grow item${selected ? " selected" : ""}` },
+    const row = el("div", { className: `grow item${selected ? " selected" : ""}${enter ? " enter" : ""}` },
       folderBox(f),
       el("div", { className: "iname" }, openable(thumb(f, "thumb", "folder"), f),
         el("div", { className: "t" }, el("span", { className: "n", textContent: f.folder, title: f.folder }),
@@ -127,7 +132,7 @@ function renderFolderList(visible) {
       el("span", { className: `state ${cls} c-state`, textContent: label, title: label }));
     row.onclick = () => toggleFolder(f);
     return row;
-  }));
+  })));
   if (!rows.length) $("g-list-rows").append(folders.items.length
     ? emptyState("search", "Aucun dossier pour ces filtres", null)
     : emptyState("folder", "Aucun dossier à traiter", "Les dossiers *.pc et *.wine des systèmes choisis dans « Réglages » apparaissent ici."));
@@ -180,7 +185,7 @@ function renderFolders() {
 }
 
 function renderFolderSelection() {
-  $("g-selection").hidden = folders.selected.size === 0;
+  if (folders.selected.size) showAnimated($("g-selection"), "is-leaving"); else hideAnimated($("g-selection"), "is-leaving", 220);
   $("g-count").textContent = folders.selected.size > 1 ? `${folders.selected.size} dossiers` : "1 dossier";
 }
 

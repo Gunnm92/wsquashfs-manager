@@ -1,6 +1,6 @@
 // help.js — Aide : chargement du fragment, affichage, recherche.
 
-import { $, storage } from "./core.js";
+import { $, replay, storage } from "./core.js";
 import { notice } from "./detail/autorun.js";
 import { showView } from "./header.js";
 
@@ -37,9 +37,7 @@ export async function openHelp(anchor) {
   if (page) showHelpPage(page.dataset.page);
   if (target.tagName === "DETAILS") target.open = true;
   target.scrollIntoView({ block: target.matches("details.key") ? "center" : "start" });
-  target.classList.remove("flash");
-  void target.offsetWidth;          // relance l'animation
-  target.classList.add("flash");
+  replay(target, "flash");
 }
 
 function setupHelp() {

@@ -3,7 +3,7 @@
 import { paintSaves } from "../actions.js";
 import { api } from "../api.js";
 import { showArt } from "../art.js";
-import { $, cap, el, icon, setUnavailable, size, state, storage, toast, when } from "../core.js";
+import { $, cap, el, hideAnimated, icon, setUnavailable, showAnimated, size, state, storage, toast, when } from "../core.js";
 import { loadAutorun, syncForm } from "./autorun.js";
 import { loadFiles, renderHistory } from "./files.js";
 import { loadUpdateDefaults } from "./version.js";
@@ -38,7 +38,7 @@ export async function openDetail(id) {
   $("u-source").value = ""; $("u-version").value = "";
   state.pendingKeys.clear();
   $("main").classList.add("with-detail");
-  $("detail").hidden = false;
+  showAnimated($("detail"), "is-leaving");
   markCurrent();
   renderDetailHeader();
   showTab("apercu");
@@ -47,8 +47,8 @@ export async function openDetail(id) {
 
 function closeDetail() {
   if (!leaveEdit()) return;
-  $("detail").hidden = true;
-  $("main").classList.remove("with-detail");
+  // Sortie en glissement ; la colonne de la liste ne reprend sa place qu'à la fin
+  hideAnimated($("detail"), "is-leaving", 200, () => $("main").classList.remove("with-detail"));
   state.current = null;
   state.tab = null;
   markCurrent();

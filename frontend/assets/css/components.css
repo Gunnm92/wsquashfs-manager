@@ -11,7 +11,16 @@
 @keyframes pop { from { opacity: 0; transform: translateY(8px) scale(.98); } }
 @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(109, 135, 245, .6); } 70% { box-shadow: 0 0 0 7px rgba(109, 135, 245, 0); } 100% { box-shadow: 0 0 0 0 rgba(109, 135, 245, 0); } }
 @keyframes flash { from { box-shadow: inset 0 0 0 2px var(--accent); background: var(--accent-900); } }
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+@keyframes pagein { from { opacity: 0; transform: translateY(8px); } }
+@keyframes popout { to { opacity: 0; transform: translateY(-4px) scale(.97); } }
+@keyframes slideout { to { opacity: 0; transform: translateX(18px); } }
+@keyframes selout { to { opacity: 0; transform: translateY(16px); } }
+/* Mouvements réduits (règle unique) : plus aucune animation ni transition ; hideAnimated masque tout de suite */
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
+
+/* Appui : léger rétrécissement ; les couleurs et fonds gardent les transitions de chaque composant */
+button { transition: transform var(--dur-fast) var(--ease-out); }
+button:not(:disabled):active { transform: scale(.97); }
 
 /* Tons : fond + couleur d'une pastille ou d'une puce */
 .t-accent { background: var(--tone-accent-bg); color: var(--tone-accent-fg); }
@@ -173,8 +182,9 @@ pre.bat, pre.code { padding: 12px 14px; border-radius: 18px; background: var(--b
 .grow.head button { all: unset; cursor: pointer; white-space: nowrap; }
 .grow.head button:hover { color: var(--text); }
 .grow.head button.r { text-align: right; }
-.grow.item { cursor: pointer; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-base) var(--ease-out);
-  animation: fadeup var(--dur-med) var(--ease-out) both; }
+.grow.item { cursor: pointer; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-base) var(--ease-out); }
+/* Entrée en cascade des lignes (filtre, recherche, tri, client) : --i posé par stagger(), plafonné à 12 (30 ms par ligne) */
+.grow.item.enter { animation: rowin var(--dur-slow) var(--ease-out) both; animation-delay: calc(min(var(--i, 0), 12) * 30ms); }
 .grow.item:hover { background: var(--s2); }
 .grow.item.selected { background: rgba(109, 135, 245, .08); }
 .grow.item.selected, .grow.item.current { box-shadow: inset 0 0 0 1.5px var(--accent); }
@@ -332,5 +342,3 @@ dialog > p, .dlg-intro { color: var(--muted); font-size: 13px; }
 
 .dd-menu button.danger:hover { background: var(--err-900); }
 
-/* Mouvements réduits : durées ramenées à ~0 (transitions, animations, défilement) */
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }

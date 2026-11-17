@@ -1,10 +1,16 @@
 // menu.js — Menus déroulants et menus d'actions : ouverture, positionnement, fermeture.
 
-import { el } from "./core.js";
+import { el, hideAnimated } from "./core.js";
 
 export const menus = { open: null };
 
-export function closeMenu() { if (menus.open) { menus.open.remove(); menus.open = null; } }
+// Fermeture en fondu (classe is-leaving), puis retrait du menu
+export function closeMenu() {
+  const menu = menus.open;
+  if (!menu) return;
+  menus.open = null;
+  hideAnimated(menu, "is-leaving", 160, () => menu.remove());
+}
 
 // Menu sous (ou au-dessus de) son déclencheur, aligné à droite ; position fixe : il n'est
 // pas rogné par les tableaux et barres qui défilent, et suit son déclencheur au défilement

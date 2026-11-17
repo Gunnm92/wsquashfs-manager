@@ -2,7 +2,7 @@
 
 import { api } from "./api.js";
 import { paintInitials, putArt, showArt } from "./art.js";
-import { $, bigSize, el, emptyState, icon, setUnavailable, size, state, storage, when } from "./core.js";
+import { $, bigSize, el, emptyState, hideAnimated, icon, setUnavailable, showAnimated, size, stagger, state, storage, when } from "./core.js";
 import { notice } from "./detail/autorun.js";
 import { openDetail } from "./detail/detail.js";
 import { paintClients, showView } from "./header.js";
@@ -307,7 +307,7 @@ function paintSvList() {
   if (!visible.length) rows.push(el("div", { className: "svempty" }, base.length
     ? emptyState("search", "Aucun jeu pour ces filtres", "Élargir la recherche ou retirer le filtre.")
     : emptyState("save", "Aucune sauvegarde", "Les clients associés n'ont aucune sauvegarde de partie.")));
-  $("s-rows").replaceChildren(...rows);
+  $("s-rows").replaceChildren(...stagger(rows));
 }
 
 // Ouvre la fiche de l'image du jeu (onglet Images)
@@ -498,8 +498,8 @@ function targetItems() {
 // Supprimer… ; une action impossible reste visible, grisée, avec sa raison (setUnavailable)
 function paintSelection() {
   const bar = $("s-selection"), n = sv.selected.size;
-  bar.hidden = n === 0 || !sv.loaded;
-  if (bar.hidden) return;
+  if (n === 0 || !sv.loaded) { hideAnimated(bar, "is-leaving", 220); return; }
+  showAnimated(bar, "is-leaving");
   if (!sv.machines.some((m) => m.id === sv.source) && sv.source !== AUTO && sv.source !== RESERVE) sv.source = AUTO;
   $("s-count").textContent = n > 1 ? `${n} jeux` : "1 jeu";
   const games = sv.games.filter((g) => sv.selected.has(g.game));

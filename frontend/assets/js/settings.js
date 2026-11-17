@@ -46,7 +46,9 @@ export let settingsBusy = false;       // enregistrement en cours
 
 // Segments en pilule (.seg) : un bouton par choix (data-value) ; le choix courant est .on
 function buildSeg(seg, choices) {
-  seg.replaceChildren(el("span", { className: "ind", ariaHidden: "true" }),
+  // L'indicateur est gardé (il glisse jusqu'au nouveau choix au lieu de repartir de zéro)
+  const ind = seg.querySelector(":scope > .ind") ?? el("span", { className: "ind", ariaHidden: "true" });
+  seg.replaceChildren(ind,
     ...choices.map(([value, text]) => {
       const b = el("button", { type: "button", role: "radio", textContent: text });
       b.dataset.value = String(value);

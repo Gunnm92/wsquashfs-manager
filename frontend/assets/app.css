@@ -25,6 +25,7 @@
 @import url("css/views/art-choice.css") layer(views);
 @import url("css/views/settings.css");
 @import url("css/views/saves-folders.css");
+@import url("css/views/motion.css") layer(views);
 
 @font-face { font-family: "Figtree"; font-style: normal; font-weight: 300 900; font-display: swap;
   src: url("fonts/figtree-latin-ext.woff2") format("woff2");

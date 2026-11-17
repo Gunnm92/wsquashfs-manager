@@ -1,7 +1,7 @@
 // tasks.js — File de tâches : panneau, rafraîchissement et actions sur les tâches.
 
 import { api } from "./api.js";
-import { $, el, icon, state, storage, toast, when } from "./core.js";
+import { $, el, hideAnimated, icon, isShown, showAnimated, state, storage, toast, when } from "./core.js";
 import { loadAutorun } from "./detail/autorun.js";
 import { renderHistory } from "./detail/files.js";
 import { loadFolders } from "./folders.js";
@@ -165,7 +165,7 @@ export async function refreshTasks() {
 }
 
 export function setTasksOpen(open) {
-  $("tasks-panel").hidden = !open;
+  if (open) showAnimated($("tasks-panel"), "is-leaving"); else hideAnimated($("tasks-panel"), "is-leaving", 180);
   $("btn-tasks").setAttribute("aria-expanded", String(open));
   if (open) setTopMenu(false);
 }
@@ -191,7 +191,7 @@ export function queued(message = whenOf() === "night" ? "Programmé pour cette n
 }
 
 export function init() {
-  $("btn-tasks").onclick = (event) => { event.stopPropagation(); setTasksOpen($("tasks-panel").hidden); };
+  $("btn-tasks").onclick = (event) => { event.stopPropagation(); setTasksOpen(!isShown($("tasks-panel"))); };
   $("tasks-close").onclick = () => setTasksOpen(false);
   // Un clic ailleurs referme le panneau des tâches
   document.addEventListener("click", (event) => {

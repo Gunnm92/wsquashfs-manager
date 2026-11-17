@@ -1,6 +1,6 @@
 // header.js — En-tête : vues, clients, menu ⚙, actualisation.
 
-import { $, bigSize, el, state, storage } from "./core.js";
+import { $, bigSize, el, hideAnimated, isShown, replay, showAnimated, state, storage } from "./core.js";
 import { loadFolders } from "./folders.js";
 import { loadHelp } from "./help.js";
 import { inst } from "./install.js";
@@ -97,7 +97,9 @@ export function paintClients() {
   if (sig !== clientsSig) {
     clientsSig = sig;
     const choices = [...list, { id: "all", name: "Tous", ok: null }];
-    seg.replaceChildren(el("span", { className: "ind", ariaHidden: "true" }), ...choices.map((c) => {
+    // L'indicateur est gardé : recréé, il repartirait de zéro au lieu de glisser jusqu'au choix
+    const ind = seg.querySelector(":scope > .ind") ?? el("span", { className: "ind", ariaHidden: "true" });
+    seg.replaceChildren(ind, ...choices.map((c) => {
       const b = el("button", { type: "button", role: "radio",
         title: c.ok === null ? `${list.length} clients` : `${c.name} : ${c.ok ? "en ligne" : "hors ligne"}` },
         c.ok === null ? null : el("span", { className: `dot${c.ok ? " ok" : ""}` }), el("span", { textContent: c.name }));
@@ -116,9 +118,7 @@ export function paintClients() {
   const info = $("client-info");
   if (info.textContent !== text) {
     info.textContent = text;
-    info.classList.remove("fade");
-    void info.offsetWidth;
-    info.classList.add("fade");
+    replay(info, "fade");
   }
 }
 
@@ -129,7 +129,7 @@ export function paintRefreshAgo() {
 }
 
 export function setTopMenu(open) {
-  $("top-menu").hidden = !open;
+  if (open) showAnimated($("top-menu"), "is-leaving"); else hideAnimated($("top-menu"), "is-leaving", 180);
   $("btn-menu").setAttribute("aria-expanded", String(open));
   if (open) { paintRefreshAgo(); setTasksOpen(false); }
 }
@@ -146,7 +146,7 @@ export function init() {
     if (!b) return;
     chooseClient(b.dataset.client);
   };
-  $("btn-menu").onclick = (event) => { event.stopPropagation(); setTopMenu($("top-menu").hidden); };
+  $("btn-menu").onclick = (event) => { event.stopPropagation(); setTopMenu(!isShown($("top-menu"))); };
   $("top-menu").addEventListener("click", (event) => { if (event.target.closest("button")) setTopMenu(false); });
   document.addEventListener("click", (event) => {
     if (!$("top-menu").hidden && !event.target.closest("#top-menu, #btn-menu")) setTopMenu(false);

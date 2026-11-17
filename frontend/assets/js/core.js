@@ -94,15 +94,59 @@ export function setUnavailable(node, reason) {
   return node;
 }
 
+// Animations : une entrée joue l'animation CSS de l'élément dès qu'il redevient visible (hidden
+// retiré) ; une sortie passe par la classe `cls` (animation CSS de sortie), puis hidden.
+
+const motionOff = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// Relance une animation CSS déjà posée sur un nœud affiché : retire la classe, force un reflow, la remet
+export function replay(node, cls) {
+  node.classList.remove(cls);
+  void node.offsetWidth;
+  node.classList.add(cls);
+}
+
+// Sortie animée : joue `cls` pendant `ms`, puis masque le nœud et appelle `done`.
+// Mouvement réduit : masqué tout de suite. Une seconde sortie pendant la première ne fait rien.
+export function hideAnimated(node, cls, ms, done) {
+  if (node.hidden) { done?.(); return; }
+  if (node.classList.contains(cls)) return;
+  const finish = () => {
+    clearTimeout(node.leaveTimer);
+    node.classList.remove(cls);
+    node.hidden = true;
+    done?.();
+  };
+  if (motionOff()) { finish(); return; }
+  node.classList.add(cls);
+  node.leaveTimer = setTimeout(finish, ms);
+}
+
+// Visible et pas en sortie : base des bascules (un clic pendant une sortie doit rouvrir, pas refermer)
+export const isShown = (node) => !node.hidden && !node.classList.contains("is-leaving");
+
+// Affichage : annule une sortie en cours (ouverture rapide après fermeture) puis rend le nœud visible
+export function showAnimated(node, cls) {
+  clearTimeout(node.leaveTimer);
+  node.classList.remove(cls);
+  node.hidden = false;
+}
+
+// Décale l'entrée en cascade des lignes : --i (0, 1, 2…) plafonné à 12, soit 30 ms par ligne au plus
+export function stagger(nodes) {
+  nodes.forEach((node, i) => node.style.setProperty("--i", String(i)));
+  return nodes;
+}
+
 let toastTimer = null;
 
 export function toast(message, iconName = "check", error = false) {
   const node = $("toast");
   node.replaceChildren(icon(iconName), el("span", { textContent: message }));
   node.classList.toggle("err", error);
-  node.hidden = false;
+  showAnimated(node, "is-leaving");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { node.hidden = true; }, error ? 6000 : 3500);
+  toastTimer = setTimeout(() => hideAnimated(node, "is-leaving", 180), error ? 6000 : 3500);
 }
 
 export const emptyState = (iconName, title, hint) => el("div", { className: "empty-state" }, icon(iconName),

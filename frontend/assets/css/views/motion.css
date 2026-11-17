@@ -1,0 +1,15 @@
+/* Animations : sorties (hideAnimated), entrées des vues et bandeaux. Couche « views » : elle passe
+   après les composants et les menus d'en-tête, qui ont leur propre animation d'entrée. */
+
+/* Changement de vue : le contenu entre en fondu et monte de 8 px (display retiré = animation rejouée) */
+#main, #saves-main, #folders-main, #help-main, #settings-main { animation: pagein .4s cubic-bezier(.2, .8, .3, 1) both; }
+
+/* Sorties animées (hideAnimated) : la classe is-leaving joue la sortie, puis le nœud passe hidden */
+.is-leaving { pointer-events: none; }
+.dd-menu.is-leaving, .sv-menu.is-leaving, .menu.is-leaving, #tasks-panel.is-leaving, #toast.is-leaving { animation: popout .18s ease-in both; }
+aside.panel.is-leaving { animation: slideout .2s ease-in both; }
+.selbar.is-leaving { animation: selout .22s ease-in both; }
+
+/* Un bandeau (.notice) se déploie à son apparition : hors ligne, erreurs, résultats d'une action.
+   Le bandeau de chargement (#lib-loading) n'est pas recréé à chaque seconde : il ne rejoue pas. */
+.notice, #d-old > *, #a-override-box > * { animation: expand var(--dur-med) var(--ease-out) both; }

@@ -2,7 +2,7 @@
 
 import { api } from "./api.js";
 import { thumb } from "./art.js";
-import { $, bigSize, cap, dotIc, el, emptyState, icon, size, state, storage, toast } from "./core.js";
+import { $, bigSize, cap, dotIc, el, emptyState, hideAnimated, icon, showAnimated, size, stagger, state, storage, toast } from "./core.js";
 import { markCurrent, openDetail, renderDetailHeader } from "./detail/detail.js";
 import { chosenClient, paintRefreshAgo } from "./header.js";
 import { gamesOf, imageFile, inst, instPins, machineOf } from "./install.js";
@@ -300,7 +300,7 @@ export function renderLibrary() {
     $("thead").replaceChildren(all, sortBtn("name", "Jeu"), el("span", { className: "c-prefix", textContent: "Prefix" }),
       el("span", { className: "c-profile", textContent: "Réglages" }),
       sortBtn("size", "Taille", "r"), sortBtn("saves_size", "Sauveg.", "r c-saves"), sortBtn("state", "État", "c-state"));
-    $("rows").replaceChildren(...visible.map((i) => listRow(i, enter)));
+    $("rows").replaceChildren(...stagger(visible.map((i) => listRow(i, enter))));
     if (!visible.length) $("rows").append(empty);
     $("grid").replaceChildren();
   }
@@ -407,7 +407,7 @@ function paintFilterClear() {
 
 function renderSelection() {
   const n = state.selected.size;
-  $("selection").hidden = n === 0;
+  if (n) showAnimated($("selection"), "is-leaving"); else hideAnimated($("selection"), "is-leaving", 220);
   $("sel-count").textContent = n > 1 ? `${n} images` : "1 image";
   paintSelectionActions();
 }

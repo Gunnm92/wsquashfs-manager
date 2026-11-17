@@ -1,16 +1,6 @@
 /* Sauvegardes et Dossiers : même structure que la liste des images (titre, « À traiter », tableau, barre de sélection) */
 .svlist .grow { grid-template-columns: 28px minmax(230px, 2.4fr) 96px 200px minmax(190px, 1.5fr) 34px; gap: 12px; padding: 8px 14px; }
 .svlist .grow.head { padding: 10px 14px; }
-.svlist .grow.item { animation: none; }
-.svlist .grow.item.enter { animation: rowin var(--dur-slow) var(--ease-out) both; animation-delay: 360ms; }
-.svlist .grow.item.enter:nth-child(2) { animation-delay: 0ms; }
-.svlist .grow.item.enter:nth-child(3) { animation-delay: 30ms; }
-.svlist .grow.item.enter:nth-child(4) { animation-delay: 60ms; }
-.svlist .grow.item.enter:nth-child(5) { animation-delay: 90ms; }
-.svlist .grow.item.enter:nth-child(6) { animation-delay: 120ms; }
-.svlist .grow.item.enter:nth-child(7) { animation-delay: 150ms; }
-.svlist .grow.item.enter:nth-child(8) { animation-delay: 180ms; }
-.svlist .grow.item.enter:nth-child(n+9) { animation-delay: 210ms; }
 .svlist .iname .sub { font-size: 11.5px; color: var(--muted); }
 .svlist .gsize { color: var(--text); }
 .svlist .sv-when { font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -46,7 +36,6 @@ button.n.sv-open:focus-visible { outline: 2px solid var(--accent); outline-offse
 
 .flist .grow { grid-template-columns: 28px minmax(240px, 2.2fr) 120px minmax(150px, 1.3fr) 150px; gap: 12px; padding: 8px 14px; }
 .flist .grow.head { padding: 10px 14px; }
-.flist .grow.item { animation: none; }
 .flist .grow .profile { flex-wrap: nowrap; }
 .flist .c-system { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .flist .iname .sub { font-size: 11.5px; color: var(--muted); }
