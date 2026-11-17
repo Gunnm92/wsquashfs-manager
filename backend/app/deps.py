@@ -79,7 +79,7 @@ def _connected_task(handler):
     def run(task, job):
         if _settings.mode == "autonome":
             raise RebuildError(MODE_AUTONOME_DETAIL)
-        return handler(task, job)
+        return handler(_settings, task, job)
     return run
 
 

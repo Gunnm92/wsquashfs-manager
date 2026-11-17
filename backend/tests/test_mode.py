@@ -162,9 +162,37 @@ def test_connected_task_refused_in_autonomous_mode(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(deps, "_settings", _settings(tmp_path))
     deps._settings.mode = "autonome"
-    handler = deps._connected_task(lambda task, job: calls.append(task) or "fait")
+    handler = deps._connected_task(lambda settings, task, job: calls.append((settings, task)) or "fait")
     with pytest.raises(RebuildError, match="mode autonome"):
         handler("tâche", None)
     assert calls == []
     deps._settings.mode = "connecte"
     assert handler("tâche", None) == "fait"
+    assert calls == [(deps._settings, "tâche")]      # le gestionnaire reçoit les réglages en premier
+
+
+def test_every_queue_handler_receives_settings_task_job(tmp_path, monkeypatch):
+    """Chaque gestionnaire de la file appelle sa fonction métier avec (réglages, tâche, job)."""
+    monkeypatch.setattr(deps, "_settings", _settings(tmp_path))
+    deps._settings.mode = "connecte"
+    appels: dict[str, tuple] = {}
+
+    def espion(nom):
+        def f(*args):
+            appels[nom] = args
+            return nom
+        return f
+
+    fonctions = {
+        "autorun": "run_autorun", "files": "run_files", "verify": "run_verify",
+        "cover": "run_cover", "pack": "run_pack", "update": "run_update",
+        "trial": "run_trial", "runner": "run_runner", "relink": "run_relink",
+        "saves": "run_saves", "install": "run_install",
+    }
+    assert set(deps.queue.handlers) == set(fonctions)
+    for nom in fonctions.values():
+        monkeypatch.setattr(deps, nom, espion(nom))
+    task, job = object(), object()
+    for kind, nom in fonctions.items():
+        assert deps.queue.handlers[kind](task, job) == nom
+        assert appels[nom] == (deps._settings, task, job), kind
