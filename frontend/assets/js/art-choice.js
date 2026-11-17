@@ -1,10 +1,10 @@
 // art-choice.js — Aperçu avant de remplacer ou d'ajouter une illustration : galerie des
-// propositions, dialogue d'une image (ou choix d'une proposition), dialogue en lot.
-// Aucune reconstruction sans validation de cet aperçu.
+// propositions, dialogue d'une image ou d'un dossier (ou choix d'une proposition), dialogue en lot.
+// Aucune reconstruction sans validation de cet aperçu. Chercher sous un autre nom : SteamGridDB.
 
 import { api } from "./api.js";
 import { artImages } from "./art.js";
-import { $, el, icon, state, storage } from "./core.js";
+import { $, el, icon, state, storage, toast } from "./core.js";
 import { notice } from "./detail/autorun.js";
 import { showView } from "./header.js";
 import { queued } from "./tasks.js";
@@ -121,47 +121,117 @@ function gallery(data, selected, onSelect) {
   return { node, paint };
 }
 
-// Dialogue d'une image. choose : renvoie la clé choisie (sans rien envoyer) ; sinon envoie la tâche.
-// data : aperçu déjà chargé (dialogue en lot) ; sinon chargé ici.
-export function openCover(item, { choose = false, data = null, selected = undefined } = {}) {
+// Adresses de l'aperçu : une image de la bibliothèque, ou un dossier à empaqueter
+const previewBase = (dossier) => (dossier ? "/api/folders" : "/api/image");
+const TEXTE_DOSSIER = "Écrit l'illustration dans le dossier : elle sera intégrée à l'empaquetage.";
+
+// Dialogue d'une image ou d'un dossier. choose : renvoie { key, data } (sans rien envoyer) ;
+// sinon envoie la validation (image : tâche ; dossier : écriture dans .wsquashfs/cover).
+// data : aperçu déjà chargé (dialogue en lot) ; sinon chargé ici. onApplied : après écriture.
+export function openCover(item, { choose = false, data = null, selected = undefined, dossier = false, onApplied = null } = {}) {
+  const base = previewBase(dossier);
+  const noun = dossier ? "ce dossier" : "cette image";
   return new Promise((resolve) => {
     let result;
+    let latest = null;
+    let initialKey = selected;              // clé imposée à l'ouverture (dialogue en lot), puis jamais
+    let key = null;
     const dlg = newDialog("art-dlg", () => resolve(result));
     const msg = el("div", { className: "art-msg" });
     const cur = el("div", { className: "art-cur" }, el("span", { className: "art-cur-label", textContent: "Actuelle" }));
     const galBox = el("div", { className: "art-galbox" }, el("div", { className: "notice info" },
       el("span", { className: "spinner" }), el("span", { textContent: "Recherche des illustrations…" })));
+    const nameBox = el("div", { className: "art-name-box" });
+    nameBox.hidden = true;
     const hint = el("span", { className: "muted art-hint" });
     const apply = el("button", { type: "button", className: "btn primary", disabled: true }, choose ? "Choisir" : "Remplacer");
     const cancel = el("button", { type: "button", className: "btn secondary" }, "Annuler");
     cancel.onclick = () => dlg.close();
     const when = whenButton();
     const foot = el("div", { className: "dlg-foot" }, hint, el("span", { className: "spacer" }), cancel,
-      choose ? apply : el("div", { className: "split" }, apply, when));
+      choose || dossier ? apply : el("div", { className: "split" }, apply, when));
     dlg.append(dialogHead(choose ? `Choisir l'illustration de ${item.name}` : `Illustration de ${item.name}`, dlg),
-      msg, el("div", { className: "art-body" }, cur, galBox), foot);
+      msg, nameBox, el("div", { className: "art-body" }, cur, galBox), foot);
     dlg.showModal();
 
-    const show = (d) => {
+    // Recherche en cours : spinner à la place des propositions, nom et jeu figés
+    const setBusy = (on) => {
+      nameBox.toggleAttribute("inert", on);
+      if (on) apply.disabled = true;
+      if (on) galBox.replaceChildren(el("div", { className: "notice info" },
+        el("span", { className: "spinner" }), el("span", { textContent: "Recherche des illustrations…" })));
+    };
+    // Aperçu : extra = { q } (nom saisi, vide : nom de l'image) et/ou { game_id } (jeu choisi)
+    const load = (extra = {}, searched = false) => {
+      setBusy(true);
+      const qs = new URLSearchParams({ id: item.id, ...extra });
+      api(`${base}/art/candidates?${qs}`).then((d) => { setBusy(false); show(d, searched); }, (error) => {
+        setBusy(false);
+        galBox.replaceChildren(notice("err", error.message));
+      });
+    };
+
+    // Chercher sous un autre nom : jeu trouvé, choix parmi les jeux, retour au nom de l'image
+    const renderName = (d, searched) => {
+      nameBox.hidden = !d.sgdb_configured;
+      if (!d.sgdb_configured) return;
+      const g = d.game, games = d.games || [];
+      const input = el("input", { type: "text", maxLength: 200, placeholder: "Nom du jeu", autocomplete: "off" });
+      const search = el("button", { type: "button", className: "btn secondary", disabled: true }, icon("search", "sm"), "Rechercher");
+      const doSearch = () => { const q = input.value.trim(); if (q) load({ q }, true); };
+      input.oninput = () => { search.disabled = !input.value.trim(); };
+      input.onkeydown = (event) => { if (event.key === "Enter") { event.preventDefault(); doSearch(); } };
+      search.onclick = doSearch;
+      const found = g
+        ? el("div", { className: "art-game-line" }, "Jeu SteamGridDB : ", el("strong", { textContent: g.name || `n° ${g.id}` }))
+        : el("div", { className: "art-game-line art-game-none", textContent: d.query ? `Aucun jeu trouvé sous « ${d.query} ».` : "Aucun jeu trouvé." });
+      const origine = d.alias && d.alias.query === d.query ? "nom choisi"
+        : d.query === d.default_query ? (dossier ? "nom du dossier" : "nom de l'image") : "recherche";
+      const rows = [found, el("div", { className: "muted art-sous", textContent: `Recherche sous « ${d.query} »${origine === "recherche" ? "" : ` (${origine})`}` })];
+      if (games.length > 1) {
+        const select = el("select", {}, ...games.map((j) => new Option(`${j.name || "(sans nom)"} · n° ${j.id}`, String(j.id))));
+        select.setAttribute("aria-label", "Jeu trouvé");
+        select.value = String(g ? g.id : games[0].id);
+        select.onchange = () => load({ q: d.query, game_id: select.value });
+        rows.push(el("label", { className: "art-game-pick" }, el("span", { textContent: "Jeu trouvé" }), select));
+      }
+      // « Revenir au nom de l'image » : efface le nom mémorisé pour ce jeu
+      const back = d.alias ? el("button", { type: "button", className: "linklike art-back", textContent: "Revenir au nom de l'image" }) : null;
+      if (back) back.onclick = () => load({ q: "" });
+      nameBox.replaceChildren(
+        el("div", { className: "art-name-head" }, icon("search", "sm"), el("strong", { textContent: "Chercher sous un autre nom" })),
+        ...rows,
+        el("div", { className: "art-name-row" }, el("label", { className: "art-name-label" }, input), search, back));
+      if (searched && !g) input.focus();
+    };
+
+    const show = (d, searched = false) => {
+      latest = d;
       const present = d.current.present;
       const frame = present ? el("span", { className: "frame" }) : el("span", { className: "art-none", textContent: "aucune" });
       cur.replaceChildren(el("span", { className: "art-cur-label", textContent: "Actuelle" }), frame);
       if (present) fillFrame(frame, `${d.current.url}&v=${d.current.sha1}`);
+      msg.replaceChildren();
       if (!d.sgdb_configured) {
         const link = el("button", { type: "button", className: "linklike", textContent: "Réglages › Illustrations" });
         link.onclick = () => { dlg.close(); showView("settings"); };
-        msg.append(notice("info", "SteamGridDB n'est pas configuré : seules les propositions locales sont offertes. ", "info"));
+        msg.append(notice("info", dossier ? "SteamGridDB n'est pas configuré : pas de proposition pour ce dossier. "
+          : "SteamGridDB n'est pas configuré : seules les propositions locales sont offertes. ", "info"));
         msg.lastChild.append(link);
       }
       if (d.sgdb_error) msg.append(notice("err", `SteamGridDB : ${d.sgdb_error}`, "alert"));
+      renderName(d, searched);
       apply.textContent = choose ? "Choisir" : present ? "Remplacer" : "Ajouter";
-      hint.textContent = choose ? "" : present ? "Remplacer réécrit l'image (reconstruction, l'ancienne est gardée en .old)."
+      hint.textContent = choose ? "" : dossier ? TEXTE_DOSSIER : present ? "Remplacer réécrit l'image (reconstruction, l'ancienne est gardée en .old)."
         : "Ajout instantané, sans reconstruction.";
       if (!d.candidates.length) {
-        galBox.replaceChildren(el("div", { className: "notice info", textContent: "Aucune proposition pour cette image." }));
+        galBox.replaceChildren(el("div", { className: "notice info", textContent: `Aucune proposition pour ${noun}.` }));
+        apply.disabled = true;
         return;
       }
-      let key = candidateOf(d, selected ?? d.preferred) ? (selected ?? d.preferred) : null;
+      const wanted = initialKey ?? d.preferred;
+      initialKey = undefined;
+      key = candidateOf(d, wanted) ? wanted : null;
       const g = gallery(d, key, (k) => { key = k; g.paint(k); refresh(); });
       galBox.replaceChildren(g.node);
       const refresh = () => {
@@ -173,8 +243,20 @@ export function openCover(item, { choose = false, data = null, selected = undefi
       };
       refresh();
       apply.onclick = async () => {
-        if (choose) { result = key; dlg.close(); return; }
+        if (choose) { result = { key, data: latest }; dlg.close(); return; }
         apply.disabled = true;
+        if (dossier) {
+          try {
+            await api("/api/folders/cover", { method: "POST", body: { id: item.id, key } });
+            toast("Illustration écrite dans le dossier");
+            onApplied?.();
+            dlg.close();
+          } catch (error) {
+            msg.replaceChildren(notice("err", error.message, "alert"));
+            apply.disabled = false;
+          }
+          return;
+        }
         try {
           const body = { ids: [item.id], replace: present, choices: { [item.id]: key }, when: whenOf() };
           const r = await api("/api/mass/cover", { method: "POST", body });
@@ -193,18 +275,20 @@ export function openCover(item, { choose = false, data = null, selected = undefi
     };
 
     if (data) show(data);
-    else api(`/api/image/art/candidates?id=${enc(item.id)}`).then(show, (error) => {
-      galBox.replaceChildren(notice("err", error.message));
-    });
+    else load();
   });
 }
 
-// Dialogue en lot : une ligne par image, choix proposé par image, validation groupée.
-export function openCoverLot(ids) {
+// Dialogue en lot : une ligne par image (ou par dossier), choix proposé par ligne, validation
+// groupée. dossier : écriture dans chaque dossier (une requête par dossier). items : Map id → élément
+// (noms des dossiers) ; onApplied : après écriture.
+export function openCoverLot(ids, { dossier = false, items = null, onApplied = null } = {}) {
   const n = ids.length;
   // Plus de trois images : cette nuit est présélectionné (bouton .when, mémorisé comme les autres)
-  if (n > 3) { storage.set("wsfs-when", "night"); fillWhen(); }
-  const rows = new Map(ids.map((id) => [id, { id, item: state.byId.get(id) || { id, name: id }, data: null, error: null, key: null, checked: false }]));
+  if (!dossier && n > 3) { storage.set("wsfs-when", "night"); fillWhen(); }
+  const lookup = (id) => items?.get(id) || (dossier ? null : state.byId.get(id)) || { id, name: id };
+  const rows = new Map(ids.map((id) => [id, { id, item: lookup(id), data: null, error: null, key: null, checked: false }]));
+  const unit = dossier ? "dossier" : "image";
   const dlg = newDialog("art-dlg");
   const count = el("p", { className: "art-count muted" });
   const msg = el("div", { className: "art-msg" });
@@ -212,10 +296,14 @@ export function openCoverLot(ids) {
   const apply = el("button", { type: "button", className: "btn primary", disabled: true });
   const cancel = el("button", { type: "button", className: "btn secondary" }, "Annuler");
   cancel.onclick = () => dlg.close();
-  dlg.append(dialogHead(`Illustrations de ${n} image${n > 1 ? "s" : ""}`, dlg), msg,
-    el("p", { className: "dlg-intro", textContent: "Les images déjà illustrées sont reconstruites (ancienne gardée en .old) ; les autres reçoivent l'illustration sans reconstruction. Clique une proposition pour en choisir une autre." }),
+  const intro = dossier
+    ? "Les illustrations sont écrites dans chaque dossier : elles seront intégrées à son empaquetage. Clique une proposition pour en choisir une autre."
+    : "Les images déjà illustrées sont reconstruites (ancienne gardée en .old) ; les autres reçoivent l'illustration sans reconstruction. Clique une proposition pour en choisir une autre.";
+  dlg.append(dialogHead(`Illustrations de ${n} ${unit}${n > 1 ? "s" : ""}`, dlg), msg,
+    el("p", { className: "dlg-intro", textContent: intro }),
     count, list,
-    el("div", { className: "dlg-foot" }, el("span", { className: "spacer" }), cancel, el("div", { className: "split" }, apply, whenButton())));
+    el("div", { className: "dlg-foot" }, el("span", { className: "spacer" }), cancel,
+      dossier ? apply : el("div", { className: "split" }, apply, whenButton())));
   dlg.showModal();
 
   const selected = () => [...rows.values()].filter((r) => r.checked);
@@ -239,10 +327,11 @@ export function openCoverLot(ids) {
     const capText = el("span", { className: "art-cap muted" });
     prop.onclick = async () => {
       if (!r.data || !r.key) return;
-      const key = await openCover(r.item, { choose: true, data: r.data, selected: r.key });
-      if (!key) return;
-      r.key = key;
-      r.checked = !candidateOf(r.data, key).same_as_current;
+      const picked = await openCover(r.item, { choose: true, data: r.data, selected: r.key, dossier });
+      if (!picked) return;
+      r.data = picked.data;
+      r.key = picked.key;
+      r.checked = !candidateOf(r.data, picked.key).same_as_current;
       paint();
       tally();
     };
@@ -277,7 +366,7 @@ export function openCoverLot(ids) {
     while (queue.length) {
       const r = rows.get(queue.shift());
       try {
-        r.data = await api(`/api/image/art/candidates?id=${enc(r.id)}`);
+        r.data = await api(`${previewBase(dossier)}/art/candidates?id=${enc(r.id)}`);
         r.key = r.data.candidates.some((c) => c.key === r.data.preferred) ? r.data.preferred : null;
         const c = r.key && candidateOf(r.data, r.key);
         r.checked = Boolean(c) && !c.same_as_current;
@@ -292,22 +381,34 @@ export function openCoverLot(ids) {
 
   apply.onclick = async () => {
     const picked = selected();
-    const groups = [picked.filter((r) => r.data.current.present), picked.filter((r) => !r.data.current.present)].filter((g) => g.length);
     apply.disabled = true;
     const skipped = [];
     let tasks = 0;
     try {
-      for (const group of groups) {
-        const r = await api("/api/mass/cover", { method: "POST", body: {
-          ids: group.map((x) => x.id), replace: group[0].data.current.present,
-          choices: Object.fromEntries(group.map((x) => [x.id, x.key])), when: whenOf() } });
-        tasks += r.tasks.length;
-        skipped.push(...r.skipped);
+      if (dossier) {
+        for (const r of picked) {
+          try {
+            await api("/api/folders/cover", { method: "POST", body: { id: r.id, key: r.key } });
+            tasks++;
+          } catch (error) {
+            skipped.push({ id: r.item.name || r.id, reason: error.message });
+          }
+        }
+        if (tasks) { toast(`${tasks} illustration(s) écrite(s) dans les dossiers`); onApplied?.(); }
+      } else {
+        const groups = [picked.filter((r) => r.data.current.present), picked.filter((r) => !r.data.current.present)].filter((g) => g.length);
+        for (const group of groups) {
+          const r = await api("/api/mass/cover", { method: "POST", body: {
+            ids: group.map((x) => x.id), replace: group[0].data.current.present,
+            choices: Object.fromEntries(group.map((x) => [x.id, x.key])), when: whenOf() } });
+          tasks += r.tasks.length;
+          skipped.push(...r.skipped);
+        }
+        if (tasks) queued(`${tasks} illustration(s) ajoutée(s) à la file`);
       }
     } catch (error) {
       msg.replaceChildren(notice("err", error.message));
     }
-    if (tasks) queued(`${tasks} illustration(s) ajoutée(s) à la file`);
     if (skipped.length) {
       msg.replaceChildren(notice("err", skipped.map((s) => `${s.id} : ${s.reason}`).join("\n"), "alert"));
       apply.disabled = false;

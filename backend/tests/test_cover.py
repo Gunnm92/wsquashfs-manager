@@ -147,7 +147,7 @@ def _replace_setup(monkeypatch, tmp_path: Path, *, present: bool, current: bytes
     monkeypatch.setattr(scan, "image_in_use", lambda img: False)
     monkeypatch.setattr(scan, "_unsquashfs_cat", lambda settings, img, member: current)
     monkeypatch.setattr(artwork_mod, "artwork",
-                        lambda settings, img, cmd, dir_: artwork_mod.Artwork(art_path, "image/png", kind))
+                        lambda settings, img, cmd, dir_, **kwargs: artwork_mod.Artwork(art_path, "image/png", kind))
     calls = []
 
     def fake_rebuild(settings, img, changes, job=None, in_use=None):

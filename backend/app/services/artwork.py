@@ -23,6 +23,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import stat
 import struct
 import subprocess
 import tempfile
@@ -37,6 +38,7 @@ import pefile
 from ..config import Settings, work_area
 from . import sgdb
 from .autorun import exe_from_cmd, normalize_path
+from .durable import write_atomic
 
 _ES_TAGS = ("thumbnail", "boxart", "image", "titleshot", "fanart", "marquee", "wheel")
 _ES_SUFFIXES = ("-thumb", "-boxart", "-image", "-titleshot", "-fanart", "-marquee")
@@ -262,8 +264,9 @@ def exe_icon(settings: Settings, image: Path, cmd: str | None, dir_: str | None)
 
 # ------------------------------------------------------------------ illustration intégrée
 
-# Chemin de l'illustration dans l'image (même fichier que rebuild.COVER)
-EMBEDDED = ".wsquashfs/cover"
+# Chemin de l'illustration dans l'image (même fichier que rebuild.COVER) et dossier qui la porte
+COVER_DIR = ".wsquashfs"
+EMBEDDED = f"{COVER_DIR}/cover"
 _MAGIC = ((b"\x89PNG\r\n\x1a\n", ".png", "image/png"), (b"\xff\xd8\xff", ".jpg", "image/jpeg"),
           (b"GIF87a", ".gif", "image/gif"), (b"GIF89a", ".gif", "image/gif"))
 
@@ -332,6 +335,36 @@ def forget_embedded_misses(settings: Settings) -> None:
         none.unlink(missing_ok=True)
 
 
+def _suivre_proprietaire(path: Path, source: os.stat_result) -> None:
+    """Propriétaire du dossier à empaqueter (au mieux : refusé hors root, sans conséquence)."""
+    try:
+        os.chown(path, source.st_uid, source.st_gid)
+    except OSError:
+        pass
+
+
+def ecrire_cover_dossier(folder: Path, data: bytes) -> Path:
+    """Écrit l'illustration du dossier à empaqueter : `<dossier>/.wsquashfs/cover`. Le dossier
+    `.wsquashfs` est créé au besoin, avec les permissions et le propriétaire du dossier ; le
+    fichier est écrit d'un coup (jamais à moitié). Lève OSError : dossier absent, ou
+    `.wsquashfs` qui n'est pas un dossier ordinaire."""
+    if folder.is_symlink() or not folder.is_dir():
+        raise OSError(f"dossier introuvable : {folder.name}")
+    source = folder.stat()
+    mode = stat.S_IMODE(source.st_mode)
+    cover_dir = folder / COVER_DIR
+    if cover_dir.is_symlink() or (cover_dir.exists() and not cover_dir.is_dir()):
+        raise OSError(f"{COVER_DIR} n'est pas un dossier ordinaire")
+    if not cover_dir.exists():
+        cover_dir.mkdir(mode=mode)
+        os.chmod(cover_dir, mode)
+        _suivre_proprietaire(cover_dir, source)
+    target = cover_dir / "cover"
+    write_atomic(target, data, mode=(mode & 0o666) or 0o644)
+    _suivre_proprietaire(target, source)
+    return target
+
+
 def folder_cover(folder: Path) -> Artwork | None:
     """Illustration d'un dossier à empaqueter : `<dossier>/.wsquashfs/cover`, fichier régulier
     qui reste dans le dossier."""
@@ -355,8 +388,8 @@ def folder_cover(folder: Path) -> Artwork | None:
 # ------------------------------------------------------------------ illustration
 
 def artwork(settings: Settings, image: Path, cmd: str | None, dir_: str | None,
-            kind: str = "cover") -> Artwork | None:
+            kind: str = "cover", cle: str | None = None) -> Artwork | None:
     """Illustration d'un jeu : SteamGridDB (icône ronde ou jaquette, services/sgdb.py), puis
-    jaquette d'ES, puis icône de l'exécutable."""
-    return (sgdb.sgdb_artwork(settings, image, kind) or es_artwork(image)
+    jaquette d'ES, puis icône de l'exécutable. `cle` : id de l'image (nom mémorisé, cf. sgdb)."""
+    return (sgdb.sgdb_artwork(settings, image, kind, cle) or es_artwork(image)
             or exe_icon(settings, image, cmd, dir_))

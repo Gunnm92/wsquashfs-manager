@@ -5,6 +5,7 @@ absent ici : outils remplacés par monkeypatch)."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -44,6 +45,9 @@ class Faux:
         self.downloads: list[str] = []
         self.status: int | None = None        # statut forcé pour l'API
         self.cdn_status: int | None = None    # statut forcé pour les téléchargements
+        # résultats de l'autocomplétion par nom (défaut : « Portal », id 7) ; grilles par jeu
+        self.jeux: dict[str, list[dict]] = {}
+        self.grilles_par_jeu: dict[int, list[dict]] = {}
 
     def add_grid(self, id_: int, score: int, author: str, data: bytes) -> None:
         full, thumb = f"https://cdn.test/grid{id_}.png", f"https://cdn.test/thumb{id_}.png"
@@ -65,10 +69,15 @@ class Faux:
         if self.status:
             return httpx.Response(self.status, json={"success": False})
         if path.startswith("/search/autocomplete/"):
-            return httpx.Response(200, json={"success": True,
-                                             "data": [{"id": 7, "name": "Portal"}]})
+            nom = request.url.path.rsplit("/", 1)[-1]
+            from urllib.parse import unquote
+            nom = unquote(nom)
+            data = self.jeux.get(nom, [{"id": 7, "name": "Portal"}])
+            return httpx.Response(200, json={"success": True, "data": data})
         if path.startswith("/grids/game/"):
-            return httpx.Response(200, json={"success": True, "data": self.grids})
+            jeu = int(path.rsplit("/", 1)[-1])
+            data = self.grilles_par_jeu.get(jeu, self.grids)
+            return httpx.Response(200, json={"success": True, "data": data})
         return httpx.Response(404)
 
     def count(self, prefix: str) -> int:
@@ -118,8 +127,12 @@ def _es(image: Path, data: bytes = b"es-jaquette") -> Path:
     return target
 
 
-def _apercu(cfg: Settings, image: Path) -> dict:
-    return art_choice.apercu(cfg, ID_IMAGE, image)
+def _cible(image: Path) -> art_choice.Cible:
+    return art_choice.Cible(ID_IMAGE, image)
+
+
+def _apercu(cfg: Settings, image: Path, **kwargs) -> dict:
+    return art_choice.apercu(cfg, _cible(image), **kwargs)
 
 
 def _cles(reponse: dict) -> list[str]:
@@ -241,7 +254,7 @@ def test_same_as_current(cfg, api, image, monkeypatch):
     par_cle = {c["key"]: c["same_as_current"] for c in reponse["candidates"]}
     assert par_cle == {"sgdb:1": False, "es": True}      # plein format non téléchargé : faux
 
-    art_choice.candidat_fichier(cfg, image, "sgdb:1", "full")   # mis en cache
+    art_choice.candidat_fichier(cfg, _cible(image), "sgdb:1", "full")   # mis en cache
     par_cle = {c["key"]: c["same_as_current"] for c in _apercu(cfg, image)["candidates"]}
     assert par_cle["sgdb:1"] is True
 
@@ -258,11 +271,11 @@ def test_sans_illustration_integree(cfg, api, image):
 
 def test_candidat_sgdb_thumb_mis_en_cache(cfg, api, image):
     api.add_grid(1, 9, "Bob", PNG1)
-    art = art_choice.candidat_fichier(cfg, image, "sgdb:1", "thumb")
+    art = art_choice.candidat_fichier(cfg, _cible(image), "sgdb:1", "thumb")
     assert art.kind == "sgdb" and art.media_type == "image/png"
     assert art.path == cfg.state_dir / "art" / "sgdb" / "candidates" / "1-thumb.png"
     assert art.path.read_bytes() == PNG1
-    art_choice.candidat_fichier(cfg, image, "sgdb:1", "thumb")
+    art_choice.candidat_fichier(cfg, _cible(image), "sgdb:1", "thumb")
     assert api.downloads == ["https://cdn.test/thumb1.png"]   # une seule fois
 
 
@@ -270,7 +283,7 @@ def test_candidat_format_inconnu_refuse(cfg, api, image):
     api.add_grid(1, 9, "Bob", PNG1)
     api.cdn["https://cdn.test/grid1.png"] = (b"<html>pas une image</html>", "text/html")
     with pytest.raises(art_choice.CandidatError) as exc:
-        art_choice.candidat_fichier(cfg, image, "sgdb:1", "full")
+        art_choice.candidat_fichier(cfg, _cible(image), "sgdb:1", "full")
     assert exc.value.status == 502 and "format" in str(exc.value)
     assert not list((cfg.state_dir / "art" / "sgdb" / "candidates").glob("1-full.*"))
 
@@ -281,8 +294,8 @@ def test_candidat_es_et_icone(cfg, api, image, monkeypatch):
     icone.write_bytes(ICON)
     monkeypatch.setattr(artwork, "exe_icon",
                         lambda settings, img, cmd, dir_: artwork.Artwork(icone, "image/png", "icon"))
-    assert art_choice.candidat_fichier(cfg, image, "es", "full").path == es.resolve()
-    assert art_choice.candidat_fichier(cfg, image, "icon", "thumb").path == icone
+    assert art_choice.candidat_fichier(cfg, _cible(image), "es", "full").path == es.resolve()
+    assert art_choice.candidat_fichier(cfg, _cible(image), "icon", "thumb").path == icone
     assert api.calls == []
 
 
@@ -290,7 +303,7 @@ def test_candidat_inconnu_ou_cle_invalide_404(cfg, api, image):
     api.add_grid(1, 9, "Bob", PNG1)
     for cle in ("sgdb:999", "es", "bidule", "https://evil.test/x", "../../etc/passwd"):
         with pytest.raises(art_choice.CandidatError) as exc:
-            art_choice.candidat_fichier(cfg, image, cle, "full")
+            art_choice.candidat_fichier(cfg, _cible(image), cle, "full")
         assert exc.value.status == 404, cle
     assert api.downloads == []
 
@@ -299,13 +312,13 @@ def test_candidat_sgdb_panne_donne_502(cfg, api, image):
     api.add_grid(1, 9, "Bob", PNG1)
     api.cdn_status = 500
     with pytest.raises(art_choice.CandidatError) as exc:
-        art_choice.candidat_fichier(cfg, image, "sgdb:1", "thumb")
+        art_choice.candidat_fichier(cfg, _cible(image), "sgdb:1", "thumb")
     assert exc.value.status == 502
     api.cdn_status = None
     api.status = 403
     art_choice.oublier()
     with pytest.raises(art_choice.CandidatError) as exc:
-        art_choice.candidat_fichier(cfg, image, "sgdb:1", "thumb")
+        art_choice.candidat_fichier(cfg, _cible(image), "sgdb:1", "thumb")
     assert exc.value.status == 502 and "SteamGridDB" in str(exc.value)
 
 
@@ -325,7 +338,8 @@ def test_route_candidates_forme_de_la_reponse(client, api, image):
     reponse = client.get("/api/image/art/candidates", params={"id": ID_IMAGE})
     assert reponse.status_code == 200
     data = reponse.json()
-    assert set(data) == {"current", "sgdb_configured", "game", "candidates", "preferred"}
+    assert set(data) == {"current", "sgdb_configured", "game", "games", "query", "default_query",
+                         "alias", "candidates", "preferred"}
     assert data["candidates"][0]["thumb"].startswith("/api/image/art/candidate?")
     assert "cle-secrete" not in reponse.text
 
@@ -525,3 +539,142 @@ def test_run_cover_choix_es_absent_echoue(monkeypatch, tmp_path, cfg, api):
     with pytest.raises(RebuildError, match="indisponible"):
         run_cover(cfg, _cover_task(image, {"replace": True, "choice": "es"}), Job())
     assert calls == []
+
+
+# ------------------------------------------------------------------ noms alternatifs
+
+
+@pytest.fixture
+def roms(cfg, image) -> Settings:
+    """Ludothèque réelle de la forme roms/<système>/<image> : l'id de l'image est windows/Portal2."""
+    cfg.roms_dirs = [str(image.parents[1])]
+    return cfg
+
+
+def _jeux_portal(api):
+    """« Portal 2 » trouve les jeux 42 (grille 5) et 43 (sans grille) ; « Portal » (7) : grille 1."""
+    api.jeux["Portal 2"] = [{"id": 42, "name": "Portal 2"}, {"id": 43, "name": "Portal 2 (dev)"}]
+    api.add_grid(5, 9, "Bob", PNG2)
+    api.grilles_par_jeu[42] = [api.grids.pop()]
+    api.grilles_par_jeu[43] = []
+    api.add_grid(1, 8, "Carl", PNG1)
+    api.grilles_par_jeu[7] = [api.grids.pop()]
+
+
+def test_q_cherche_sous_un_autre_nom(roms, api, image):
+    _jeux_portal(api)
+    reponse = _apercu(roms, image, q="Portal 2")
+    assert reponse["query"] == "Portal 2" and reponse["default_query"] == "Portal2"
+    assert reponse["game"] == {"id": 42, "name": "Portal 2"}
+    assert [j["id"] for j in reponse["games"]] == [42, 43]
+    assert _cles(reponse) == ["sgdb:5"] and reponse["preferred"] == "sgdb:5"
+    assert reponse["alias"] == {"query": "Portal 2", "game_id": 42, "game_name": "Portal 2"}
+    assert "/grids/game/42" in api.calls and "/grids/game/7" not in api.calls
+
+
+def test_nom_memorise_dans_le_fichier_du_jeu(roms, api, image):
+    _jeux_portal(api)
+    _apercu(roms, image, q="Portal 2")
+    fichier = roms.state_dir / "art" / "sgdb" / "aliases.json"
+    assert json.loads(fichier.read_text()) == {"windows/Portal2": {
+        "query": "Portal 2", "game_id": 42, "game_name": "Portal 2",
+        "date": json.loads(fichier.read_text())["windows/Portal2"]["date"]}}
+
+
+def test_nom_memorise_sert_aux_apercus_suivants(roms, api, image):
+    _jeux_portal(api)
+    _apercu(roms, image, q="Portal 2")
+    appels = len(api.calls)
+    art_choice.oublier()
+    reponse = _apercu(roms, image)                       # sans q : le nom mémorisé
+    assert reponse["query"] == "Portal 2" and reponse["game"]["id"] == 42
+    assert _cles(reponse) == ["sgdb:5"]
+    assert "/grids/game/42" in api.calls[appels:] and "/grids/game/7" not in api.calls[appels:]
+
+
+def test_game_id_force_le_jeu_et_la_memorisation(roms, api, image):
+    _jeux_portal(api)
+    reponse = _apercu(roms, image, q="Portal 2", game_id=43)
+    assert reponse["game"]["id"] == 43 and reponse["candidates"] == []
+    assert reponse["alias"]["game_id"] == 43
+    assert "/grids/game/43" in api.calls and "/grids/game/42" not in api.calls
+    # game_id seul : le nom mémorisé est repris, le jeu est celui demandé
+    art_choice.oublier()
+    assert _apercu(roms, image, game_id=42)["game"]["id"] == 42
+
+
+def test_q_vide_revient_au_nom_par_defaut(roms, api, image):
+    _jeux_portal(api)
+    _apercu(roms, image, q="Portal 2")
+    reponse = _apercu(roms, image, q="")
+    assert reponse["query"] == "Portal2" and reponse["alias"] is None
+    assert reponse["game"] == {"id": 7, "name": "Portal"}
+    assert _cles(reponse) == ["sgdb:1"]
+    fichier = roms.state_dir / "art" / "sgdb" / "aliases.json"
+    assert "windows/Portal2" not in json.loads(fichier.read_text())
+
+
+def test_nom_introuvable_n_est_pas_memorise(roms, api, image):
+    _jeux_portal(api)
+    _apercu(roms, image, q="Portal 2")
+    api.jeux["Rien du tout"] = []
+    reponse = _apercu(roms, image, q="Rien du tout")
+    assert reponse["game"] is None and reponse["games"] == [] and reponse["candidates"] == []
+    assert reponse["query"] == "Rien du tout"
+    assert reponse["alias"]["query"] == "Portal 2"       # l'ancien choix reste en place
+    assert "sgdb_error" not in reponse
+
+
+def test_sans_nom_memorise_rien_n_est_ecrit(roms, api, image):
+    _jeux_portal(api)
+    api.jeux["Rien"] = []
+    _apercu(roms, image, q="Rien")
+    assert not (roms.state_dir / "art" / "sgdb" / "aliases.json").exists()
+
+
+def test_le_nom_memorise_s_applique_au_choix_automatique(roms, api, image):
+    _jeux_portal(api)
+    _apercu(roms, image, q="Portal 2")
+    art = sgdb.sgdb_artwork(roms, image, "cover")
+    assert art is not None and art.path.read_bytes() == PNG2     # grille du jeu 42
+    assert "/grids/game/42" in api.calls
+    assert "/grids/game/7" not in api.calls
+
+
+def test_choix_automatique_et_apercu_restent_d_accord(roms, api, image):
+    _jeux_portal(api)
+    reponse = _apercu(roms, image, q="Portal 2")
+    art = sgdb.sgdb_artwork(roms, image, "cover")
+    assert reponse["preferred"] == "sgdb:5" and art.path.read_bytes() == PNG2
+
+
+def test_candidat_suit_le_nom_memorise_et_liste_blanche(roms, api, image):
+    _jeux_portal(api)
+    _apercu(roms, image, q="Portal 2")
+    art = art_choice.candidat_fichier(roms, _cible(image), "sgdb:5", "thumb")
+    assert art.path.read_bytes() == PNG2
+    with pytest.raises(art_choice.CandidatError) as exc:  # grille de l'ancien jeu : hors liste
+        art_choice.candidat_fichier(roms, _cible(image), "sgdb:1", "thumb")
+    assert exc.value.status == 404
+
+
+def test_cache_des_candidats_depend_du_nom(roms, api, image):
+    _jeux_portal(api)
+    avant = _cles(_apercu(roms, image))
+    apres = _cles(_apercu(roms, image, q="Portal 2"))
+    assert avant == ["sgdb:1"] and apres == ["sgdb:5"]
+    assert len(art_choice._listes) == 2
+
+
+def test_route_q_game_id_et_suppression_du_nom(client, api, image, roms):
+    _jeux_portal(api)
+    data = client.get("/api/image/art/candidates", params={"id": ID_IMAGE, "q": "Portal 2"}).json()
+    assert data["game"]["id"] == 42 and data["alias"]["query"] == "Portal 2"
+    assert client.get("/api/image/art/candidates",
+                      params={"id": ID_IMAGE, "q": "Portal 2", "game_id": 43}).json()["game"]["id"] == 43
+    assert client.delete("/api/image/art/alias", params={"id": ID_IMAGE}).json() == {"ok": True}
+    data = client.get("/api/image/art/candidates", params={"id": ID_IMAGE}).json()
+    assert data["alias"] is None and data["query"] == "Portal2"
+    assert client.get("/api/image/art/candidates", params={"id": ID_IMAGE, "game_id": "x"}).status_code == 422
+    assert client.get("/api/image/art/candidates",
+                      params={"id": ID_IMAGE, "q": "x" * 201}).status_code == 422

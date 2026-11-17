@@ -29,6 +29,27 @@ dialog.art-zoom { width: min(1000px, calc(100vw - 32px)); padding: 12px; }
 .art-cap { font-size: 11.5px; line-height: 1.3; color: var(--muted); padding: 0 2px; overflow: hidden;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .art-tag { font-size: 11px; font-weight: 600; color: var(--accent-300); padding: 0 2px; }
+/* Chercher sous un autre nom (galerie) */
+.art-name-box { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; padding: 10px 12px; border-radius: var(--radius-md); background: var(--s2); }
+.art-name-box[hidden] { display: none; }
+.art-name-box[inert] { opacity: .6; }
+.art-name-head { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.art-name-head .ico { width: 14px; height: 14px; }
+.art-name-head strong { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.art-game-line { font-size: 14px; }
+.art-game-line strong { font-weight: 700; }
+.art-game-none { color: var(--accent-300); }
+.art-sous { font-size: 12px; }
+.art-name-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.art-name-label { flex: 1 1 240px; min-width: 0; display: flex; }
+.art-name-label input { flex: 1 1 auto; min-width: 0; background: var(--surface); }
+.art-back { font-size: 12.5px; }
+.art-game-pick { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); }
+.art-game-pick select { max-width: min(360px, 100%); }
+/* Vignette d'un dossier ouverte à la galerie (clic) */
+.art-open { cursor: pointer; }
+.art-open:focus-visible { outline: 2px solid var(--accent-300); outline-offset: 2px; }
+.art-open:hover .frame, .art-open:hover .gcover { box-shadow: 0 0 0 2px var(--accent-300); }
 /* Dialogue en lot */
 .art-count { margin: 10px 0 0; font-size: 13px; font-variant-numeric: tabular-nums; }
 .art-lot { display: flex; flex-direction: column; gap: 6px; max-height: 56vh; overflow-y: auto; margin-top: 10px; padding: 2px; }

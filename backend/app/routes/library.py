@@ -6,13 +6,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from .. import deps
 from ..models import ImageInfo
-from ..services import art_choice, scan
+from ..services import art_choice, scan, sgdb
 from ..services.artwork import embedded_cover, forget_embedded_misses
 from ..services.durable import restore
 from ..services.sgdb import forget_sgdb_misses
@@ -75,12 +75,24 @@ def image_art(id: str, kind: Literal["cover", "icon"] = "cover"):
 
 
 @router.get("/api/image/art/candidates")
-def image_art_candidates(id: str):
+def image_art_candidates(id: str, q: str | None = Query(None, max_length=sgdb.ALIAS_NOM_MAX),
+                         game_id: int | None = None):
     """Aperçu du remplacement de l'illustration : candidats (SteamGridDB, jaquette
     d'EmulationStation, icône de l'exécutable) et illustration intégrée actuelle. Aucune
-    modification. Voir services/art_choice.py."""
+    modification d'illustration. `q` : chercher sous un autre nom (mémorisé pour ce jeu ;
+    vide : revenir au nom de l'image) ; `game_id` : jeu SteamGridDB choisi parmi `games`.
+    Voir services/art_choice.py."""
     info = deps._find_image(id)
-    return art_choice.apercu(deps._settings, info.id, info.path)
+    return art_choice.apercu(deps._settings, art_choice.Cible(info.id, info.path), q, game_id)
+
+
+@router.delete("/api/image/art/alias")
+def image_art_alias_reset(id: str):
+    """Revenir au nom de l'image pour la recherche SteamGridDB (nom mémorisé effacé)."""
+    info = deps._find_image(id)
+    sgdb.oublier_alias(deps._settings, info.id)
+    art_choice.oublier()
+    return {"ok": True}
 
 
 @router.get("/api/image/art/candidate")
@@ -89,7 +101,8 @@ def image_art_candidate(id: str, key: str, size: Literal["thumb", "full"] = "thu
     injoignable ou clé refusée : 502. Seules les adresses de la liste de l'image sont suivies."""
     info = deps._find_image(id)
     try:
-        art = art_choice.candidat_fichier(deps._settings, info.path, key, size)
+        art = art_choice.candidat_fichier(deps._settings, art_choice.Cible(info.id, info.path),
+                                          key, size)
     except art_choice.CandidatError as exc:
         raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
     return FileResponse(art.path, media_type=art.media_type,

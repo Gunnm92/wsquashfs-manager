@@ -1,20 +1,21 @@
-"""Dossiers à empaqueter (*.pc, *.wine) : liste, analyse, empaquetage, suppression ;
-base de connaissances des propositions d'autorun."""
+"""Dossiers à empaqueter (*.pc, *.wine) : liste, analyse, empaquetage, suppression, illustration
+du dossier (écrite dans `.wsquashfs/cover`, intégrée à l'empaquetage) ; base de connaissances
+des propositions d'autorun."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
 
 from .. import deps
 from ..services import analyze as analyze_mod
-from ..services import scan
+from ..services import art_choice, scan, sgdb
 from ..services.analyze import FolderAnalysis, add_local_game, analyze_folder, report
-from ..services.artwork import folder_cover
+from ..services.artwork import ecrire_cover_dossier, folder_cover
 from ..services.autorun import KEY_NAME_RE, Autorun
 from ..services.operations import find_folders, folder_stem, pack_target, remove_tree
 from ..services.tasks import TaskConflict
@@ -101,6 +102,71 @@ def folder_art(id: str):
         raise HTTPException(status_code=404, detail="aucune illustration")
     return FileResponse(art.path, media_type=art.media_type,
                         headers={"X-Art-Kind": art.kind, "Cache-Control": "private, no-cache"})
+
+
+def _cible(folder: dict) -> art_choice.Cible:
+    return art_choice.Cible(folder["id"], Path(folder["path"]), dossier=True)
+
+
+@router.get("/api/folders/art/candidates")
+def folder_art_candidates(id: str, q: str | None = Query(None, max_length=sgdb.ALIAS_NOM_MAX),
+                          game_id: int | None = None):
+    """Aperçu de l'illustration d'un dossier à empaqueter (mêmes champs que pour une image).
+    `q` et `game_id` : nom et jeu SteamGridDB, comme pour une image."""
+    return art_choice.apercu(deps._settings, _cible(_find_folder(id)), q, game_id)
+
+
+@router.get("/api/folders/art/candidate")
+def folder_art_candidate(id: str, key: str, size: Literal["thumb", "full"] = "thumb"):
+    """Image d'un candidat de l'aperçu d'un dossier (mêmes règles que pour une image)."""
+    try:
+        art = art_choice.candidat_fichier(deps._settings, _cible(_find_folder(id)), key, size)
+    except art_choice.CandidatError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+    return FileResponse(art.path, media_type=art.media_type,
+                        headers={"X-Art-Kind": art.kind, "Cache-Control": "private, max-age=3600"})
+
+
+@router.delete("/api/folders/art/alias")
+def folder_art_alias_reset(id: str):
+    """Revenir au nom du dossier pour la recherche SteamGridDB (nom mémorisé effacé)."""
+    folder = _find_folder(id)
+    sgdb.oublier_alias(deps._settings, folder["id"])
+    art_choice.oublier()
+    return {"ok": True}
+
+
+class FolderCover(BaseModel):
+    id: str
+    key: str                            # clé d'un candidat de l'aperçu (sgdb:<id>)
+
+    @field_validator("key")
+    @classmethod
+    def _cle(cls, value: str) -> str:
+        if not art_choice.cle_valide(value):
+            raise ValueError("clé de candidat invalide")
+        return value
+
+
+@router.post("/api/folders/cover")
+def folder_cover_set(body: FolderCover):
+    """Écrit le candidat choisi dans `<dossier>/.wsquashfs/cover` : l'illustration est intégrée
+    à l'empaquetage. Aucune reconstruction. Refusé pendant l'empaquetage du dossier, et une fois
+    l'image créée (son illustration se change alors depuis la fiche de l'image)."""
+    folder = _find_folder(body.id)
+    if folder["task"]:
+        raise HTTPException(status_code=409, detail="empaquetage en file ou en cours : illustration refusée")
+    if folder["image_exists"]:
+        raise HTTPException(status_code=409, detail="image déjà créée : son illustration se change depuis la fiche de l'image")
+    try:
+        art = art_choice.candidat_fichier(deps._settings, _cible(folder), body.key, "full")
+    except art_choice.CandidatError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+    try:
+        target = ecrire_cover_dossier(Path(folder["path"]), art.path.read_bytes())
+    except OSError as exc:
+        raise HTTPException(status_code=409, detail=f"écriture impossible : {exc}") from exc
+    return {"ok": True, "cover": str(target.relative_to(Path(folder["path"])))}
 
 
 @router.get("/api/folders/analyze")

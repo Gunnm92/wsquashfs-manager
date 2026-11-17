@@ -402,16 +402,17 @@ def run_cover(settings: Settings, task: Task, job: Job) -> str:
         raise RebuildError(f"{COVER_DIR}/ existe sans illustration : reconstruire l'image")
     if choice:
         # Candidat choisi dans l'aperçu : exactement celui-là, sans repli sur une autre source
-        from .art_choice import CandidatError, candidat_fichier
+        from .art_choice import CandidatError, Cible, candidat_fichier
         try:
-            art = candidat_fichier(settings, image, str(choice), "full")
+            art = candidat_fichier(settings, Cible(task.image or "", image), str(choice), "full")
         except CandidatError as exc:
             raise RebuildError(f"illustration choisie indisponible ({exc}) : "
                                "aucune autre source n'est utilisée") from exc
     else:
         data = scan.read_autorun_bytes(settings, image)
         a = Autorun.parse(decode_autorun(data)[0]) if data is not None else None
-        art = artwork(settings, image, a.get("CMD") if a else None, a.get("DIR") if a else None)
+        art = artwork(settings, image, a.get("CMD") if a else None, a.get("DIR") if a else None,
+                      cle=task.image or None)
         if art is None:
             return ("Aucune illustration trouvée (ni jaquette d'EmulationStation ni icône "
                     "d'exécutable)")

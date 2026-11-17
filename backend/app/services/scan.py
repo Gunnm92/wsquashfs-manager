@@ -41,6 +41,22 @@ def image_id(image: Path, system: str | None) -> str:
     return f"{system}/{image.stem}" if system else image.stem
 
 
+def system_of(roms_dirs: list[str], image: Path) -> str | None:
+    """Système d'une image d'après le dossier roms/ qui la contient (même déduction que
+    `_find_images`) ; None si elle n'est dans aucun dossier roms/ ou directement dans l'un
+    d'eux (sans système)."""
+    for d in roms_dirs:
+        root = Path(d).expanduser()
+        try:
+            rel = image.relative_to(root)
+        except ValueError:
+            continue
+        if len(rel.parts) > 1:
+            return rel.parts[0]
+        return root.resolve().name if root.resolve().parent.name == "roms" else None
+    return None
+
+
 def _find_images(roms_dirs: list[str], max_depth: int,
                  suffix: str = ".wsquashfs") -> list[tuple[Path, str | None]]:
     """Retourne [(chemin image, système), ...], sans descendre au-delà de

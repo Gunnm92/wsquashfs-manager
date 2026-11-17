@@ -35,6 +35,7 @@ from PIL import Image
 
 from ..config import Settings
 from . import artwork as _art  # cycle : artwork importe ce module ; Artwork est lu à l'exécution
+from . import scan
 
 API_URL = "https://www.steamgriddb.com/api/v2"
 TIMEOUT = 20                      # s
@@ -97,6 +98,10 @@ def score_rond(img: Image.Image) -> float:
 
 
 # ------------------------------------------------------------------ choix
+
+def _entier(value) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
 
 def _score(item: dict) -> float:
     try:
@@ -306,8 +311,22 @@ def _grace() -> None:
     _down_until = time.time() + GRACE
 
 
-def _jeu(client: httpx.Client, base: Path, titre: str) -> tuple[int | None, str]:
-    """(id, nom) du jeu sur SteamGridDB, ou (None, "") ; cache par titre."""
+def _jeux(client: httpx.Client, titre: str) -> list[dict]:
+    """Jeux trouvés pour un nom (autocomplétion) : `{"id", "name"}`, JEUX_MAX au plus."""
+    found = _get(client, f"/search/autocomplete/{quote(titre, safe='')}") or []
+    jeux = []
+    for item in found:
+        if isinstance(item, dict) and _entier(item.get("id")) is not None:
+            jeux.append({"id": item["id"], "name": str(item.get("name") or "")})
+    return jeux[:JEUX_MAX]
+
+
+def _jeu(client: httpx.Client, base: Path, titre: str,
+         forcé: tuple[int, str] | None = None) -> tuple[int | None, str]:
+    """(id, nom) du jeu sur SteamGridDB, ou (None, "") ; cache par titre. `forcé` : jeu choisi
+    par l'utilisateur (nom mémorisé), sans recherche."""
+    if forcé is not None:
+        return forcé
     path = base / f"game-{_sha(titre.lower())}.json"
     meta = _lire_json(path)
     if meta is not None:
@@ -334,8 +353,9 @@ def _cache_ou_pause(base: Path, key: str) -> tuple[bool, _art.Artwork | None]:
 
 
 def _recuperer(client: httpx.Client, base: Path, key: str, kind: str, titre: str,
-               authors: list[str], seuil: float) -> _art.Artwork | None:
-    game_id, game_name = _jeu(client, base, titre)
+               authors: list[str], seuil: float,
+               forcé: tuple[int, str] | None = None) -> _art.Artwork | None:
+    game_id, game_name = _jeu(client, base, titre, forcé)
     if game_id is None:
         return _absence(base, key, "jeu introuvable sur SteamGridDB")
     if kind == "icon":
@@ -372,18 +392,25 @@ def _recuperer(client: httpx.Client, base: Path, key: str, kind: str, titre: str
     return _lire_art(base, key)
 
 
-def sgdb_artwork(settings: Settings, image: Path, kind: str) -> _art.Artwork | None:
+def sgdb_artwork(settings: Settings, image: Path, kind: str,
+                 cle: str | None = None) -> _art.Artwork | None:
     """Icône (`kind` « icon ») ou jaquette (« cover ») SteamGridDB de l'image, None si aucune
-    (pas de clé, absence récente, erreur passagère, ou rien de retenu)."""
+    (pas de clé, absence récente, erreur passagère, ou rien de retenu). `cle` : id de l'image
+    (par défaut déduit du chemin) : son nom et son jeu mémorisés (cf. requete_de) remplacent
+    le titre de l'image."""
     if not settings.sgdb_api_key or kind not in ("icon", "cover"):
         return None
-    titre = nettoyer_titre(image.stem)
+    titre, forcé = requete_de(settings, cle or cle_image(settings, image),
+                              nettoyer_titre(image.stem))
     if not titre:
         return None
     base = _dossier(settings)
     authors = list(settings.sgdb_authors)
     seuil = settings.sgdb_round_threshold
-    key = _sha("|".join([kind, titre.lower(), ",".join(a.lower() for a in authors), f"{seuil:.2f}"]))
+    parts = [kind, titre.lower(), ",".join(a.lower() for a in authors), f"{seuil:.2f}"]
+    if forcé is not None:
+        parts.append(f"jeu:{forcé[0]}")
+    key = _sha("|".join(parts))
 
     base.mkdir(parents=True, exist_ok=True)
     fait, art = _cache_ou_pause(base, key)
@@ -395,7 +422,7 @@ def sgdb_artwork(settings: Settings, image: Path, kind: str) -> _art.Artwork | N
             return art
         try:
             with _client(settings.sgdb_api_key) as client:
-                return _recuperer(client, base, key, kind, titre, authors, seuil)
+                return _recuperer(client, base, key, kind, titre, authors, seuil, forcé)
         except SgdbError as exc:
             _grace()
             log.warning("SteamGridDB (%s) : %s", titre, exc)
@@ -421,6 +448,7 @@ def forget_sgdb_misses(settings: Settings) -> None:
 # ------------------------------------------------------------------ aperçu (choix manuel)
 
 CANDIDATS_MAX = 24                # grilles proposées dans l'aperçu, au plus
+JEUX_MAX = 5                      # jeux proposés pour un nom (choix du bon jeu), au plus
 MEDIA_PAR_EXTENSION = {".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp",
                        ".gif": "image/gif"}
 
@@ -433,24 +461,95 @@ def _ordonner(items: list[dict], authors: list[str]) -> list[dict]:
     return sorted(_trier(items), key=lambda i: rang.get(_auteur(i), len(rang)))
 
 
-def grilles_candidates(settings: Settings, image: Path) -> tuple[dict | None, list[dict], dict | None]:
-    """Pour l'aperçu : (jeu {"id", "name"} ou None, grilles triées (CANDIDATS_MAX au plus), grille
-    que le choix automatique prendrait ou None). Sans clé ou jeu introuvable : rien, sans appel
-    au-delà de la recherche. Lève SgdbError (réseau, clé refusée)."""
-    titre = nettoyer_titre(image.stem)
+def _choisir_jeu(jeux: list[dict], game_id: int | None) -> dict | None:
+    """Jeu retenu : celui d'id `game_id` (même hors des résultats), sinon le premier trouvé."""
+    if game_id is None:
+        return jeux[0] if jeux else None
+    return next((j for j in jeux if j["id"] == game_id), {"id": game_id, "name": ""})
+
+
+def grilles_candidates(settings: Settings, titre: str, game_id: int | None = None
+                       ) -> tuple[dict | None, list[dict], list[dict], dict | None]:
+    """Pour l'aperçu, d'après le nom `titre` : (jeu {"id", "name"} ou None, jeux trouvés
+    (JEUX_MAX au plus), grilles triées (CANDIDATS_MAX au plus), grille que le choix automatique
+    prendrait ou None). `game_id` : jeu choisi par l'utilisateur. Sans clé, nom vide ou aucun
+    jeu : rien au-delà de la recherche. Lève SgdbError (réseau, clé refusée)."""
+    titre = titre.strip()
     if not settings.sgdb_api_key or not titre:
-        return None, [], None
-    base = _dossier(settings)
-    base.mkdir(parents=True, exist_ok=True)
+        return None, [], [], None
+    _dossier(settings).mkdir(parents=True, exist_ok=True)
     authors = list(settings.sgdb_authors)
     with _client(settings.sgdb_api_key) as client:
-        game_id, game_name = _jeu(client, base, titre)
-        if game_id is None:
-            return None, [], None
-        items = _get(client, f"/grids/game/{game_id}", COVER_PARAMS) or []
+        jeux = _jeux(client, titre)
+        jeu = _choisir_jeu(jeux, game_id)
+        if jeu is None:
+            return None, jeux, [], None
+        items = _get(client, f"/grids/game/{int(jeu['id'])}", COVER_PARAMS) or []
     retenue = choisir_jaquette(items, authors)
-    return ({"id": game_id, "name": game_name}, _ordonner(items, authors)[:CANDIDATS_MAX],
-            retenue[0] if retenue else None)
+    return jeu, jeux, _ordonner(items, authors)[:CANDIDATS_MAX], retenue[0] if retenue else None
+
+
+# ------------------------------------------------------------------ noms alternatifs
+
+ALIAS_NOM_MAX = 200               # caractères d'un nom de recherche saisi
+
+
+def cle_image(settings: Settings, image: Path) -> str:
+    """Id de l'image (« système/nom », comme la bibliothèque) d'après son chemin."""
+    return scan.image_id(image, scan.system_of(settings.roms_dirs, image))
+
+
+def _aliases(settings: Settings) -> dict:
+    data = _lire_json(_dossier(settings) / "aliases.json")
+    return data if data is not None else {}
+
+
+def alias_de(settings: Settings, cle: str) -> dict | None:
+    """Nom et jeu mémorisés pour cette image ou ce dossier (`cle` = son id) : `{"query",
+    "game_id", "game_name"}`, ou None si rien n'est mémorisé."""
+    entree = _aliases(settings).get(cle)
+    if not isinstance(entree, dict) or not isinstance(entree.get("query"), str):
+        return None
+    if not entree["query"].strip():
+        return None
+    return {"query": entree["query"], "game_id": _entier(entree.get("game_id")),
+            "game_name": str(entree.get("game_name") or "")}
+
+
+def requete_de(settings: Settings, cle: str, defaut: str) -> tuple[str, tuple[int, str] | None]:
+    """(nom à chercher, jeu forcé ou None) : le nom et le jeu mémorisés pour `cle`, sinon le
+    nom par défaut (sans jeu forcé)."""
+    alias = alias_de(settings, cle)
+    if alias is None:
+        return defaut, None
+    forcé = (alias["game_id"], alias["game_name"]) if alias["game_id"] is not None else None
+    return alias["query"], forcé
+
+
+_alias_garde = threading.Lock()
+
+
+def memoriser_alias(settings: Settings, cle: str, query: str, jeu: dict) -> None:
+    """Mémorise le nom saisi et le jeu retenu pour `cle` (remplace l'ancien choix)."""
+    query = query.strip()[:ALIAS_NOM_MAX]
+    if not query or _entier(jeu.get("id")) is None:
+        return
+    with _alias_garde:
+        data = _aliases(settings)
+        data[cle] = {"query": query, "game_id": int(jeu["id"]),
+                     "game_name": str(jeu.get("name") or ""), "date": time.time()}
+        _dossier(settings).mkdir(parents=True, exist_ok=True)
+        _ecrire(_dossier(settings) / "aliases.json", json.dumps(data, indent=1))
+
+
+def oublier_alias(settings: Settings, cle: str) -> None:
+    """Revient au nom par défaut de `cle` (rien à faire s'il n'y a pas de nom mémorisé)."""
+    with _alias_garde:
+        data = _aliases(settings)
+        if cle not in data:
+            return
+        del data[cle]
+        _ecrire(_dossier(settings) / "aliases.json", json.dumps(data, indent=1))
 
 
 def format_image(data: bytes) -> tuple[str, str] | None:

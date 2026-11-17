@@ -1,8 +1,9 @@
 // folders.js — Dossiers à empaqueter : liste, sélection, analyse et empaquetage.
 
+import { openCover, openCoverLot } from "./art-choice.js";
 import { reportSkipped } from "./actions.js";
 import { api } from "./api.js";
-import { thumb } from "./art.js";
+import { forgetArt, thumb } from "./art.js";
 import { $, badge, cap, dotIc, el, emptyState, helpLink, icon, size, storage } from "./core.js";
 import { notice, proposalItems } from "./detail/autorun.js";
 import { todoChip } from "./library.js";
@@ -44,6 +45,23 @@ function folderProfile(f) {
     f.task ? dotIc("clock", "t-accent", f.task === "running" ? "Empaquetage en cours" : "Empaquetage en file") : null,
     dotIc("terminal", f.has_autorun ? "t-sage" : "t-accent", f.has_autorun ? "autorun.cmd présent" : "Sans autorun : il sera proposé"),
     dotIc("layers", f.image_exists ? "t-sage" : "t-off", f.image_exists ? "Image .wsquashfs déjà présente" : "Pas encore d'image"));
+}
+
+// Illustration du dossier : galerie (aperçu) ; après écriture, la vignette est relue
+function coverOf(f) {
+  openCover(f, { dossier: true, onApplied: () => { forgetArt(f, "folder"); loadFolders(); } });
+}
+
+// Vignette ouvrant la galerie du dossier (sans changer sa sélection)
+function openable(node, f) {
+  node.classList.add("art-open");
+  node.tabIndex = 0;
+  node.setAttribute("role", "button");
+  node.setAttribute("aria-label", `Illustration de ${f.name}`);
+  node.title = "Illustration du dossier…";
+  node.onclick = (event) => { event.stopPropagation(); coverOf(f); };
+  node.onkeydown = (event) => { if (event.key === "Enter") { event.preventDefault(); event.stopPropagation(); coverOf(f); } };
+  return node;
 }
 
 function toggleFolder(f) {
@@ -99,9 +117,11 @@ function renderFolderList(visible) {
     const selected = folders.selected.has(f.id), [label, cls] = folderStatus(f);
     const row = el("div", { className: `grow item${selected ? " selected" : ""}` },
       folderBox(f),
-      el("div", { className: "iname" }, thumb(f, "thumb", "folder"),
+      el("div", { className: "iname" }, openable(thumb(f, "thumb", "folder"), f),
         el("div", { className: "t" }, el("span", { className: "n", textContent: f.folder, title: f.folder }),
-          el("span", { className: "sub", textContent: `.${f.kind}` }))),
+          el("span", { className: "sub", textContent: `.${f.kind}` }),
+          el("button", { type: "button", className: "linklike", textContent: "Illustration…",
+            onclick: (event) => { event.stopPropagation(); coverOf(f); } }))),
       el("span", { className: "c-system", textContent: cap(f.system) || "—" }),
       folderProfile(f),
       el("span", { className: `state ${cls} c-state`, textContent: label, title: label }));
@@ -142,7 +162,7 @@ function renderFolders() {
   $("g-rows").replaceChildren(...visible.map((f) => {
     const selected = folders.selected.has(f.id), [label, cls] = folderStatus(f);
     const card = el("div", { className: `gcard${selected ? " selected" : ""}`, tabIndex: 0, role: "checkbox" },
-      el("div", { className: "gart" }, thumb(f, "gcover", "folder"), folderBox(f),
+      el("div", { className: "gart" }, openable(thumb(f, "gcover", "folder"), f), folderBox(f),
         el("span", { className: `state ${cls}`, textContent: label, title: label }), folderProfile(f)),
       el("div", { className: "meta" }, el("div", { className: "n", textContent: f.folder, title: f.folder }),
         el("div", { className: "sub" }, el("span", { textContent: cap(f.system) || "—" }), el("span", { textContent: `.${f.kind}` }))));
@@ -242,6 +262,15 @@ function updatePackButton() {
 
 export function init() {
   folders.layout = storage.get("wsfs-folder-layout") === "grid" ? "grid" : "list";
+  // Illustrations de la sélection (une écriture par dossier), avant la suppression
+  const coverBtn = el("button", { type: "button", className: "btn bare", id: "g-cover",
+    title: "Illustration de chaque dossier sélectionné : écrite dans le dossier, intégrée à l'empaquetage" },
+  icon("image", "sm"), "Illustrations…");
+  coverBtn.onclick = () => openCoverLot([...folders.selected], {
+    dossier: true, items: new Map(folders.items.map((f) => [f.id, f])),
+    onApplied: () => { folders.items.forEach((f) => forgetArt(f, "folder")); loadFolders(); },
+  });
+  $("g-delete").before(coverBtn);
   $("g-search").addEventListener("input", renderFolders);
   $("g-layout").onclick = (event) => {
     const b = event.target.closest("button[data-layout]");

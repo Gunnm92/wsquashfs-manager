@@ -118,6 +118,14 @@ export function thumb(item, className = "thumb", source = "image") {
   return node;
 }
 
+// Illustration écrite ailleurs (dossier à empaqueter, p. ex.) : oubliée, la vignette est relue
+export function forgetArt(item, source = "image") {
+  const prefix = `${source}:${item.id}:`;
+  for (const map of [art.cache, art.done]) {
+    for (const key of [...map.keys()]) if (key.startsWith(prefix)) map.delete(key);
+  }
+}
+
 // Actualiser (bouton de l'en-tête, déjà relié à loadLibrary) : nouvelle époque, le serveur
 // revalide l'illustration Steam de chaque jeu, les images affichées sont redemandées
 let refreshTurns = 0;
