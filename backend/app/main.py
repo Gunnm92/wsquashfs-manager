@@ -395,10 +395,15 @@ def set_sgdb(body: SgdbConfig):
     return get_config()
 
 
+class SgdbTest(BaseModel):
+    api_key: str | None = Field(default=None, max_length=200)  # clé saisie ; absente : clé enregistrée
+
+
 @app.post("/api/config/sgdb/test")
-def test_sgdb():
-    """Essai de la clé (recherche de « Portal ») : rien n'est mis en cache."""
-    ok, message = tester_cle(_settings)
+def test_sgdb(body: SgdbTest | None = None):
+    """Essai de la clé saisie (sinon de la clé enregistrée) par une recherche de « Portal » :
+    rien n'est mis en cache ni enregistré."""
+    ok, message = tester_cle(_settings, body.api_key if body else None)
     return {"ok": ok, "message": message}
 
 

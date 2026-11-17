@@ -291,12 +291,14 @@ def save_sgdb(settings: Settings, api_key: str | None, authors: list[str], thres
         raise ValueError(f"auteurs préférés : {SGDB_AUTHORS_MAX} au plus")
     values: dict = {"sgdb_authors": clean, "sgdb_round_threshold": float(threshold)}
     if api_key is not None:
-        values["sgdb_api_key"] = api_key.strip()
+        from .services.sgdb import normaliser_cle
+        api_key = normaliser_cle(api_key)
+        values["sgdb_api_key"] = api_key
     _save_runtime(settings, **values)
     settings.sgdb_authors = clean
     settings.sgdb_round_threshold = float(threshold)
     if api_key is not None:
-        settings.sgdb_api_key = api_key.strip()
+        settings.sgdb_api_key = api_key
 
 
 AUTO_PUSH_MAX = 86400               # un passage au moins par jour, au plus

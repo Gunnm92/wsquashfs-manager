@@ -212,12 +212,22 @@ def _telecharger(url: str) -> tuple[bytes, str]:
     return response.content, media
 
 
-def tester_cle(settings: Settings) -> tuple[bool, str]:
-    """Essai de la clé (recherche de « Portal ») : (ok, message). Ne met rien en cache."""
-    if not settings.sgdb_api_key:
-        return False, "aucune clé enregistrée"
+def normaliser_cle(texte: str) -> str:
+    """Clé API telle que collée : la ligne entière « Key: … » de la page de SteamGridDB est
+    acceptée (les 32 caractères hexadécimaux sont repris) ; sinon le texte nettoyé."""
+    texte = texte.strip()
+    trouve = re.search(r"\b[0-9a-fA-F]{32}\b", texte)
+    return trouve.group(0).lower() if trouve else texte
+
+
+def tester_cle(settings: Settings, cle: str | None = None) -> tuple[bool, str]:
+    """Essai d'une clé (recherche de « Portal ») : celle saisie si `cle` est fourni, sinon la clé
+    enregistrée ; (ok, message). Ne met rien en cache et n'enregistre rien."""
+    cle = normaliser_cle(cle) if cle else settings.sgdb_api_key
+    if not cle:
+        return False, "aucune clé saisie ni enregistrée"
     try:
-        with _client(settings.sgdb_api_key) as client:
+        with _client(cle) as client:
             data = _get(client, f"/search/autocomplete/{quote('Portal', safe='')}") or []
     except SgdbKeyError:
         return False, "clé refusée par SteamGridDB"

@@ -348,3 +348,39 @@ def test_route_test_sgdb_cle_refusee(client, api):
 
 def test_route_purge_art(client):
     assert client.post("/api/image/art/forget").json() == {"ok": True}
+
+
+def test_cle_collee_avec_son_libelle_est_normalisee():
+    """La ligne « Key: … » copiée depuis SteamGridDB donne la clé seule."""
+    from app.services.sgdb import normaliser_cle
+
+    cle = "0123456789abcdef0123456789ABCDEF"
+    assert normaliser_cle(f"Key: {cle}\n") == cle.lower()
+    assert normaliser_cle(f"  {cle}  ") == cle.lower()
+    assert normaliser_cle("pas une clé") == "pas une clé"
+
+
+def test_tester_la_cle_saisie_sans_l_enregistrer(tmp_path, monkeypatch):
+    """« Tester » essaie la clé saisie, même si aucune n'est enregistrée, sans l'enregistrer."""
+    from app.config import Settings
+    from app.services import sgdb
+
+    vues = []
+
+    class Client:
+        def __init__(self, cle):
+            vues.append(cle)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(sgdb, "_client", Client)
+    monkeypatch.setattr(sgdb, "_get", lambda client, chemin, params=None: [{"name": "Portal"}])
+    settings = Settings(state_dir=tmp_path / "s")
+    assert sgdb.tester_cle(settings) == (False, "aucune clé saisie ni enregistrée")
+    ok, message = sgdb.tester_cle(settings, "Key: 0123456789abcdef0123456789abcdef")
+    assert ok and "Portal" in message
+    assert vues == ["0123456789abcdef0123456789abcdef"] and settings.sgdb_api_key == ""
