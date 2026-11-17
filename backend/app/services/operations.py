@@ -388,7 +388,7 @@ def run_cover(settings: Settings, task: Task, job: Job) -> str:
 
     replace = bool(task.params.get("replace"))
     image, _ = _task_image(task)
-    job.progress("lecture", 0.05)
+    job.progress("arborescence", 0.01)
     files = scan._list_files_uncached(settings, image)
     if files is None:
         raise RebuildError("arborescence illisible (unsquashfs -l)")
@@ -447,6 +447,9 @@ def _replace_cover(settings: Settings, image: Path, art, present: bool, job: Job
     current = scan._unsquashfs_cat(settings, image, COVER) if present else None
     if current == cover:
         return "Illustration déjà à jour : rien à faire"
+    # mksquashfs n'envoie son premier pourcentage qu'après un moment sur un gros jeu :
+    # sans ce libellé, la tâche resterait affichée sur l'étape précédente
+    job.progress("reconstruction", 0.02)
     result = rebuild(settings, image, Changes(copy={COVER: art.path}), job,
                      in_use=scan.image_in_use)
     label = _SOURCE_LABEL.get(art.kind, art.kind)
