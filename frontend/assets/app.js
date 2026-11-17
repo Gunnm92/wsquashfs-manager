@@ -554,6 +554,7 @@ function listRow(i, enter) {
 function listFlags(i) {
   const flags = [];
   if (i.hidraw) flags.push(el("span", { className: "flag hidraw", textContent: "HIDRAW", title: "Manettes en accès direct" }));
+  if (i.attach) flags.push(el("span", { className: "flag attach", textContent: "ATTACH", title: `Commande pendant le jeu : ${i.attach}` }));
   if ((i.override || []).length) flags.push(el("span", { className: "flag warn", textContent: "Surcharge", title: "Surcharge à inscrire dans l'image" }));
   return el("span", { className: "flags c-profile" }, ...flags);
 }
@@ -645,10 +646,22 @@ $("btn-sel-clear").onclick = () => { state.selected.clear(); renderLibrary(); };
 
 // ------------------------------------------------------------------ fiche
 
+// Ligne d'état de l'en-tête : « Prêt » en vert, les exceptions en couleur
+const LINE_STATE = { ok: ["Prêt", "st"], in_use: ["En cours", "st accent"], modified: ["Tâche en file", "st accent"], has_old: ["Ancienne version à valider", "st warn"] };
+const TRIAL_DURS = [[30, "30 s"], [60, "60 s"], [120, "2 min"]];
+let trialSeconds = Number(storage.get("wsfs-trial-dur")) || 60;
+// Clés de l'autorun, en français (le nom technique reste en dessous)
+const KEY_LABELS = { DIR: "Dossier du jeu", CMD: "Exécutable", GAME_VERSION: "Version du jeu", PRE: "Commande avant le jeu",
+  ATTACH: "Commande pendant le jeu", ATTACH_PROCESS: "Processus attaché", WINE: "Version de Wine", PROTON: "Version de Proton",
+  RUNNER: "Runner", ARCH: "Architecture", LANG: "Langue", ENV: "Variables d'environnement", HIDRAW: "Manettes en accès direct",
+  SAVEDIR: "Dossier des sauvegardes", SAVEFILES: "Fichiers de sauvegarde", DXVK: "DXVK", VKD3D: "VKD3D", D7VK: "D7VK",
+  VIRTUAL_DESKTOP: "Bureau virtuel", NVAPI: "NVAPI", VKREFLEX: "VKReflex", FSR: "FSR", FSR4: "FSR 4", ESYNC: "ESYNC", FSYNC: "FSYNC" };
+
 async function openDetail(id) {
   if (state.current?.id === id && !$("detail").hidden) return;
   if (!leaveEdit()) return;
   state.tab = null;
+  state.autorunEdit = false;
   state.current = state.byId.get(id);
   delete $("u-anchor").dataset.edited;
   $("u-source").value = ""; $("u-version").value = "";
@@ -657,7 +670,7 @@ async function openDetail(id) {
   $("detail").hidden = false;
   markCurrent();
   renderDetailHeader();
-  showTab("info");
+  showTab("apercu");
   await loadAutorun();
 }
 
@@ -673,38 +686,39 @@ function closeDetail() {
 function renderDetailHeader() {
   const i = state.current;
   $("d-title").textContent = i.name;
-  $("d-id").textContent = i.id;
   $("d-cover").dataset.id = i.id;
   showArt($("d-cover"), i);
-  const [typeIcon, typeTone] = TYPE_LOOK[i.type] || TYPE_LOOK.unknown;
-  const [stateLabel] = STATES[i.state] || [i.state];
-  $("d-chips").replaceChildren(...[
-    chip(typeIcon, TYPES[i.type] || i.type, typeTone, TYPE_HELP[i.type] || null, `Prefix : ${typeLong(i.type)}`),
-    i.version ? chip("tag", `v${i.version.replace(/^v/i, "")}`, "t-sage", null, "GAME_VERSION")
-      : chip("tag", "sans version", "t-accent", "hk-GAME_VERSION", "GAME_VERSION absente"),
-    chip("drive", size(i.size), "t-neutral", null, "Taille de l'image"),
-    i.runner_joined ? chip("clip", "runner intégré", "t-accent", "h-runner") : null,
-    i.hidraw ? chip("usb", "DualSense", "t-sage", "hk-HIDRAW") : chip("gamepad", "Xbox", "t-neutral", "hk-HIDRAW"),
-    i.state !== "ok" && i.state !== "has_old" ? chip(i.state === "in_use" ? "play" : "clock", stateLabel, "t-accent") : null,
-    (i.override || []).length ? chip("filepen", "surcharge", "t-accent", "h-ar-override") : null].filter(Boolean));
-  const facts = [
-    ["file", "Fichier", i.path, true], ["clock", "Modifiée", when(i.mtime)],
-    ["terminal", "Commande", i.cmd || "—", true], ["folder", "Dossier", i.dir || "(racine)", true],
-    ["cpu", "Runner", `${runnerLabel(i)} — ${runnerDetails(i).join(" · ")}`],
-    ["monitor", "DXVK / VKD3D", `${i.dxvk ? "oui" : "non"} / ${i.vkd3d ? "oui" : "non"}`],
-    ["sparkles", "Extras", (i.extras || []).join(", ") || "—"],
-    ["filepen", "Surcharge", (i.override || []).length ? `${i.override.join(", ")} (à inscrire dans l'image)` : "aucune"],
-    ["save", "Sauvegardes", i.saves_present ? size(i.saves_size) : "aucune"],
-  ];
-  $("d-info").replaceChildren(...facts.map(([iconName, k, v, mono]) =>
-    el("div", {}, icon(iconName), el("dt", { textContent: k }), el("dd", { className: mono ? "mono" : "", textContent: v }))));
+  paintStatusLine(i);
+  paintTrial();
   renderInstBox();
   if ($("d-links-result").dataset.id !== i.id) {      // autre image : constat à refaire
     $("d-links-result").dataset.id = i.id;
     $("d-links-result").className = "msg";
     $("d-links-result").textContent = "Vérifie que l'image ne dépend pas d'un runner installé sur le client.";
   }
+  paintOld(i);
+  paintApercu();
+  if (state.tab === "saves") paintSaves();
+}
 
+// En-tête : une ligne d'état (Prêt · Prefix · version · taille) au lieu de pastilles
+function paintStatusLine(i) {
+  const [label, cls] = (i.override || []).length && i.state === "ok" ? ["Surcharge à inscrire", "st warn"]
+    : LINE_STATE[i.state] || [STATES[i.state]?.[0] || i.state, "st idle"];
+  const sep = () => el("span", { className: "sep", textContent: "·" });
+  $("d-status").replaceChildren(
+    el("span", { className: cls, textContent: label }), sep(),
+    el("span", { textContent: `Prefix ${TYPES[i.type] || i.type}` }), sep(),
+    el("span", { className: "mono", textContent: i.version ? `v${i.version.replace(/^v/i, "")}` : "sans version" }), sep(),
+    el("span", { textContent: size(i.size) }));
+}
+
+function paintTrial() {
+  $("d-trial-dur").textContent = (TRIAL_DURS.find(([s]) => s === trialSeconds) || TRIAL_DURS[1])[1];
+}
+
+// Bandeaux d'état : jeu en cours, ancienne version (.old) à valider ou à remettre
+function paintOld(i) {
   const old = $("d-old");
   old.replaceChildren();
   if (i.state === "in_use") old.append(el("div", { className: "fbanner" }, icon("play"), el("span", { textContent: "Jeu en cours : aucune reconstruction possible." })));
@@ -720,6 +734,70 @@ function renderDetailHeader() {
   }
 }
 
+// Aperçu : trois cartes (Sauvegardes, Lancement, Image). Un champ vide est masqué et listé en note.
+function paintApercu() {
+  const i = state.current, hiddenFields = [];
+  const link = (text, action) => { const b = el("button", { type: "button", className: "linklike", textContent: text }); b.onclick = action; return b; };
+  const row = (label, value, { mono = false, action = null } = {}) => {
+    const v = value instanceof Node ? value : document.createTextNode(String(value));
+    return el("div", { className: "frow" }, el("span", { className: "k", textContent: label }),
+      el("span", { className: mono ? "v mono" : "v" }, v), action || el("span"));
+  };
+  const used = i.proton || i.wine;
+  const exe = [(i.dir || "").replace(/[\\/]+$/, ""), i.cmd || ""].filter(Boolean).join("\\");
+  const gfx = [i.dxvk && "DXVK", i.vkd3d && "VKD3D"].filter(Boolean);
+  const gfxNode = gfx.length ? el("span", {}, ...gfx.map((t) => el("span", { className: "chip plain t-accent", textContent: t }))) : null;
+  const runner = i.runner === "default" ? "Aucun (choisi par le lanceur)"
+    : i.runner_joined ? `Intégré${used ? ` (${used})` : ""}` : `Custom${used || i.runner_path ? ` (${used || i.runner_path})` : ""}`;
+  const pad = i.hidraw ? el("span", {}, icon("usb", "sm"), " DualSense (HIDRAW)") : el("span", {}, icon("gamepad", "sm"), " Xbox");
+  const override = i.override || [];
+  const g = connected() ? sv.games.find((x) => x.game === gameOfItem(i)) : null;
+  const sync = g ? syncLine(g) : null;
+
+  const saveRows = [];
+  if (i.saves_present) saveRows.push(row("Taille", size(i.saves_size)));
+  if (sync) saveRows.push(row("Synchro", sync));
+  if (!saveRows.length) saveRows.push(row("Taille", "aucune"));
+
+  const launchRows = [];
+  if (exe) launchRows.push(row("Exécutable", exe, { mono: true })); else hiddenFields.push("Exécutable");
+  launchRows.push(row("Prefix", cap(TYPES[i.type] || i.type)));
+  launchRows.push(row("Runner", runner));
+  if (gfxNode) launchRows.push(row("Graphismes", gfxNode)); else hiddenFields.push("Graphismes");
+  launchRows.push(row("Manettes", pad));
+  if ((i.extras || []).length) launchRows.push(row("Extras", i.extras.join(", ")));
+  else hiddenFields.push("Extras");
+  if (i.attach) launchRows.push(row("Commande pendant le jeu", i.attach, { mono: true }));
+  else hiddenFields.push("Commande pendant le jeu");
+  if (override.length) launchRows.push(row("Surcharge", `${override.join(", ")} (à inscrire)`, { action: link("Lancement", () => showTab("autorun")) }));
+  else hiddenFields.push("Surcharge");
+
+  const versionText = i.version ? i.version.replace(/^v/i, "") : "sans version";
+  const imageRows = [
+    row("Emplacement", i.path, { mono: true }),
+    row("Version", versionText, { mono: true, action: link("Mettre à jour", () => showTab("version")) }),
+    row("Modifiée", when(i.mtime)),
+  ];
+
+  const card = (title, linkText, action, rows) => el("div", {},
+    el("div", { className: "dsec-row" }, el("p", { className: "dsec", textContent: title }), linkText ? link(linkText, action) : null),
+    el("div", { className: "dcard" }, ...rows));
+  $("d-apercu").replaceChildren(
+    card("Sauvegardes", "Gérer", () => showTab("saves"), saveRows),
+    card("Lancement", "Détails", () => showTab("autorun"), launchRows),
+    card("Image", null, null, imageRows));
+  // « Installé sur » (mode connecté) fait partie de la carte Image
+  $("d-apercu").querySelectorAll(".dcard")[2].append($("d-inst"));
+  $("d-apercu-note").hidden = !hiddenFields.length;
+  $("d-apercu-note").replaceChildren(icon("info"), document.createTextNode(`Champs vides masqués : ${hiddenFields.join(", ")}.`));
+}
+
+// Synchro d'un jeu entre clients (mode connecté) : partagé si présent sur plusieurs clients
+function syncLine(g) {
+  const n = presentIn(g).length;
+  return n > 1 ? `Partagées entre ${n} clients` : "Sur ce client seulement";
+}
+
 async function oldAction(action, question) {
   if (!confirm(question)) return;
   try {
@@ -732,21 +810,31 @@ async function oldAction(action, question) {
   }
 }
 
-// Onglets de la fiche. Autorun et Version sont des onglets d'édition : rien n'est écrit
-// avant « Reconstruire », « Surcharge » ou « Mettre à jour ». Quitter l'onglet, ou fermer
-// la fiche, avec des changements non enregistrés demande confirmation.
+// ------------------------------------------------------------------ onglets de la fiche
+
+// Lancement (autorun) : lecture par défaut ; « Modifier » ouvre l'édition. Nouvelle version
+// est une sous-vue (sans onglet) ouverte par « Mettre à jour » ou le menu « … ».
+// Quitter avec des changements non enregistrés demande confirmation.
+const EDIT_TABS = new Set(["autorun", "version"]);
 function showTab(name) {
   if (name !== state.tab && !leaveEdit()) return;
   const entering = name !== state.tab;
   state.tab = name;
-  for (const b of $("d-tabs").children) b.classList.toggle("active", b.dataset.tab === name);
-  for (const pane of document.querySelectorAll("[data-pane]")) pane.hidden = pane.dataset.pane !== name;
+  for (const b of $("d-tabs").querySelectorAll("button[data-tab]")) {
+    const on = b.dataset.tab === name;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-selected", String(on));
+  }
+  for (const pane of document.querySelectorAll(".dpane")) pane.hidden = pane.dataset.pane !== name;
+  placeInd($("d-tabs"));
   if (entering && EDIT_TABS.has(name)) enterEdit(name);
   markDirty();
   if (name === "files") loadFiles();
-  if (name === "history") renderHistory();
+  if (name === "journal") renderHistory();
+  if (name === "saves") paintSaves();
 }
 $("d-tabs").onclick = (event) => { const b = event.target.closest("button[data-tab]"); if (b) showTab(b.dataset.tab); };
+new ResizeObserver(() => placeInd($("d-tabs"))).observe($("d-tabs"));
 $("d-close").onclick = closeDetail;
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape" || document.querySelector("dialog[open]")) return;
@@ -755,26 +843,33 @@ document.addEventListener("keydown", (event) => {
   closeDetail();
 });
 
-// ------------------------------------------------------------------ onglets d'édition
-const EDIT_TABS = new Set(["autorun", "version"]);
-// Prépare l'onglet d'édition à son ouverture (l'autorun affiché est celui chargé ou enregistré)
+// ------------------------------------------------------------------ édition (lancement, nouvelle version)
 function enterEdit(kind) {
   if (kind === "autorun") {
     $("a-issues").replaceChildren(); $("a-result").replaceChildren(); $("a-proposal").replaceChildren();
     $("a-missing").hidden = true;
-    syncForm();
   } else {
     resetVersionForm();
     loadUpdateDefaults();
   }
   markDirty();
 }
+// Mode modification du lancement : l'éditeur remplace la lecture
+function setAutorunEdit(on) {
+  state.autorunEdit = on;
+  $("a-edit").hidden = on;
+  $("a-edit-box").hidden = !on;
+  $("a-read").hidden = on;
+  $("a-title").textContent = on ? "Autorun · modification" : "Autorun";
+  syncForm();
+}
+$("a-edit").onclick = () => setAutorunEdit(true);
 function resetVersionForm() {
   delete $("u-anchor").dataset.edited;
   $("u-source").value = ""; $("u-version").value = "";
 }
 function isDirty() {
-  if (state.tab === "autorun") return $("a-editor").value !== state.baseline;
+  if (state.tab === "autorun") return state.autorunEdit && $("a-editor").value !== state.baseline;
   if (state.tab === "version") return Boolean($("u-source").value.trim() || $("u-version").value.trim() || $("u-anchor").dataset.edited);
   return false;
 }
@@ -784,15 +879,20 @@ function markDirty() { $("tab-dirty").hidden = !isDirty(); }
 function leaveEdit(force = false) {
   if (!EDIT_TABS.has(state.tab)) return true;
   if (!force && isDirty() && !confirm("Abandonner les modifications non enregistrées ?")) return false;
-  if (state.tab === "autorun" && !force) { $("a-editor").value = state.baseline; state.pendingKeys.clear(); syncForm(); }
+  if (state.tab === "autorun" && state.autorunEdit) {
+    if (!force) { $("a-editor").value = state.baseline; state.pendingKeys.clear(); }
+    setAutorunEdit(false);
+  }
   return true;
 }
 $("a-cancel").onclick = () => {
   if (isDirty() && !confirm("Abandonner les modifications non enregistrées ?")) return;
-  $("a-editor").value = state.baseline; state.pendingKeys.clear(); syncForm();
+  $("a-editor").value = state.baseline; state.pendingKeys.clear();
   $("a-issues").replaceChildren(); $("a-result").replaceChildren(); $("a-proposal").replaceChildren();
+  setAutorunEdit(false);
 };
 for (const id of ["u-source", "u-anchor", "u-version"]) $(id).addEventListener("input", markDirty);
+$("v-back").onclick = () => showTab("apercu");
 
 // Surligne la fiche ouverte sans redessiner la liste
 function markCurrent() {
@@ -894,6 +994,12 @@ function syncForm() {
     b.onclick = () => { state.pendingKeys.add(key); syncForm(); $(`k-${key}`)?.focus(); };
     return b;
   }));
+  // Lecture de l'autorun : libellé clair, clé technique en dessous
+  const readRows = inFile.map((key) => el("div", { className: "frow kv" },
+    el("span", {}, el("span", { textContent: KEY_LABELS[key] || key }), el("small", { textContent: key })),
+    el("span", { className: "v mono", textContent: getKey(lines, key) ?? "" })));
+  $("a-read").replaceChildren(...(readRows.length ? readRows : [el("div", { className: "frow" },
+    el("span", { className: "k", textContent: "Autorun" }), el("span", { className: "v", textContent: "Aucune clé : l'image n'a pas d'autorun." }))]));
   markDirty();
   const unknown = inFile.filter((k) => !keyInfo(k));
   $("a-note").textContent = unknown.length
@@ -1194,22 +1300,39 @@ $("kb-save").onclick = async () => {
 // ------------------------------------------------------------------ fichiers, historique
 
 let filesTimer = null;
+const isInternal = (path) => path.split("/").some((part) => part.startsWith(".wsquashfs"));
 async function loadFiles() {
   const id = state.current.id, q = $("files-q").value.trim();
   $("files-count").textContent = "lecture…";
   try {
     const data = await api(`/api/image/files?id=${encodeURIComponent(id)}&q=${encodeURIComponent(q)}`);
     if (state.current?.id !== id) return;
-    $("files-count").textContent = q ? `${data.matches} sur ${data.total} entrées` : `${data.total} entrées`;
-    $("files-list").replaceChildren(...data.files.map((path) => {
-      const dir = path.endsWith("/");
-      return el("div", { className: dir ? "dir" : "", title: path }, icon(dir ? "folder" : "file"), el("span", { textContent: path }));
-    }), ...(data.matches > data.files.length ? [el("div", { className: "more", textContent: `… ${data.matches - data.files.length} de plus : affiner la recherche` })] : []));
+    state.files = data;
+    paintFiles();
   } catch (error) {
     $("files-count").textContent = error.message;
   }
 }
+// Arborescence : un niveau d'indentation par dossier ; les fichiers internes (.wsquashfs/…) sont masqués
+function paintFiles() {
+  const data = state.files;
+  if (!data) return;
+  const q = $("files-q").value.trim(), internal = Boolean(state.filesInternal);
+  const shown = data.files.filter((path) => internal || !isInternal(path));
+  $("tab-files-count").textContent = data.total;
+  $("files-count").textContent = q ? `${data.matches} sur ${data.total} entrées` : `${data.total} entrées`;
+  $("files-internal").textContent = internal ? "Masquer les fichiers internes" : "Afficher les fichiers internes";
+  $("files-list").replaceChildren(...shown.map((path) => {
+    const dir = path.endsWith("/"), parts = (dir ? path.slice(0, -1) : path).split("/");
+    const name = parts.pop();
+    const row = el("div", { className: `${dir ? "dir" : ""}${isInternal(path) ? " internal" : ""}`, title: path },
+      icon(dir ? "folder" : "file"), el("span", { textContent: name }));
+    row.dataset.depth = String(Math.min(parts.length, 6));
+    return row;
+  }), ...(data.matches > data.files.length ? [el("div", { className: "more", textContent: `… ${data.matches - data.files.length} de plus : affiner la recherche` })] : []));
+}
 $("files-q").addEventListener("input", () => { clearTimeout(filesTimer); filesTimer = setTimeout(loadFiles, 250); });
+$("files-internal").onclick = () => { state.filesInternal = !state.filesInternal; paintFiles(); };
 
 async function renderHistory() {
   if (!state.current) return;
@@ -1219,27 +1342,48 @@ async function renderHistory() {
     // File en cours + journal permanent (conservé après « Effacer l'historique »)
     tasks = await api(`/api/tasks?image=${encodeURIComponent(id)}`);
   } catch (error) {
-    $("d-history").replaceChildren(notice("err", error.message));
+    $("d-journal").replaceChildren(notice("err", error.message));
     return;
   }
   if (state.current?.id !== id) return;
   paintHistory(tasks);
 }
-// Historique de la fiche : une frise, une pastille par tâche (la plus récente en premier)
+// Journal : les tâches de l'image, répétitions regroupées (« 4 × Illustration »), date, sans barre de progression
 function paintHistory(tasks) {
   if (!tasks.length) {
-    $("d-history").replaceChildren(el("p", { className: "muted", textContent: "Aucune opération enregistrée." }));
+    $("d-journal").replaceChildren(el("p", { className: "muted", textContent: "Aucune opération enregistrée." }));
     return;
   }
-  $("d-history").replaceChildren(...tasks.map((t) => {
+  const groups = new Map();
+  for (const t of tasks) {
+    const key = [t.kind, t.title || "", t.status].join("|");
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(t);
+  }
+  const clock = (ts) => new Date(ts * 1000).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  $("d-journal").replaceChildren(...[...groups.values()].map((group) => {
+    const t = group[0];
     const [kindIcon, kindLabel] = TASK_KINDS[t.kind] || ["tasks", t.kind];
-    const [, stLabel, tone] = TASK_STATES[t.status] || ["info", t.status, "t-neutral"];
-    const detail = [t.error || (t.title && t.title !== kindLabel ? t.title : ""), stLabel].filter(Boolean).join(" · ");
-    return el("div", { className: "tl-item" },
-      el("span", { className: `tl-dot ${tone}` }, icon(kindIcon)),
-      el("div", { className: "tl-body" },
-        el("strong", { textContent: kindLabel }),
-        el("span", { className: "muted", textContent: `${when(t.created_at)} · ${detail}` })));
+    const counts = {};
+    for (const x of group) counts[x.status] = (counts[x.status] || 0) + 1;
+    const summary = Object.entries(counts).map(([status, n]) => `${TASK_STATES[status]?.[1] || status}${n > 1 ? ` (${n})` : ""}`).join(" · ");
+    const tone = counts.failed ? "t-err" : counts.running || counts.pending ? "t-accent" : counts.done ? "t-sage" : "t-neutral";
+    const cls = counts.failed ? "err" : counts.running || counts.pending ? "accent" : counts.done ? "" : "idle";
+    const stIcon = counts.failed ? "alert" : counts.running ? "refresh" : counts.pending ? "clock" : counts.done ? "check" : "x";
+    const times = group.map((x) => x.created_at || 0);
+    const first = Math.min(...times), last = Math.max(...times);
+    const sameDay = new Date(first * 1000).toDateString() === new Date(last * 1000).toDateString();
+    const dateText = group.length === 1 ? when(t.created_at)
+      : sameDay ? `${when(first)} à ${clock(last)}` : `${when(first)} → ${when(last)}`;
+    const titleText = t.title && t.title !== kindLabel ? `${kindLabel} — ${t.title}` : kindLabel;
+    const err = group.find((x) => x.error)?.error;
+    return el("div", { className: "jrow" },
+      el("span", { className: `disc ${tone}` }, icon(kindIcon)),
+      el("div", { className: "jbody" },
+        el("strong", { textContent: `${group.length > 1 ? `${group.length} × ` : ""}${titleText}` }),
+        el("span", { textContent: dateText }),
+        err ? el("span", { className: "jerr", textContent: err }) : null),
+      el("span", { className: `jst ${cls}` }, icon(stIcon, `sm${counts.running ? " spinning" : ""}`), el("span", { textContent: summary })));
   }));
 }
 
@@ -1387,7 +1531,7 @@ async function refreshTasks() {
     if (!$("saves-main").hidden) loadSaves();
   }
   activeBefore = nowActive;
-  if (state.current && !$("detail").hidden && !document.querySelector('[data-pane="history"]').hidden) renderHistory();
+  if (state.current && !$("detail").hidden && !document.querySelector('[data-pane="journal"]').hidden) renderHistory();
   tasksTimer = setTimeout(refreshTasks, active.length ? 1500 : 10000);
 }
 function setTasksOpen(open) {
@@ -2876,16 +3020,48 @@ async function runTrial(duration) {
     queued("Lancement d'essai ajouté à la file");
   } catch (error) { alert(error.message); }
 }
-// Tuiles de la fiche (onglet Infos)
-$("d-trial").onclick = () => openMenuNode($("d-trial-wrap"), [
+// Essai, vérification, « … » et illustration : deux actions visibles, le reste dans les menus
+$("d-trial").onclick = () => runTrial(trialSeconds);
+$("d-trial-pick").onclick = () => openMenuNode($("d-trial-wrap"), [
   el("div", { className: "dd-sub", textContent: "Durée de l'essai" }),
-  ...[[30, "30 s"], [60, "60 s"], [120, "2 min"]].map(([s, label]) => menuItem(label, "flask", () => runTrial(s))),
+  ...TRIAL_DURS.map(([s, label]) => menuItem(label, "flask", () => {
+    trialSeconds = s; storage.set("wsfs-trial-dur", String(s)); paintTrial();
+  }, { checked: s === trialSeconds })),
 ]);
 $("d-verify").onclick = () => verify([state.current.id]).catch((error) => alert(error.message));
-$("d-propose").onclick = () => { showTab("autorun"); $("a-propose").click(); };
-$("d-cover").onclick = () => toggleMenu($("d-cover").parentElement, () => [[
-  "Ajouter l'illustration dans l'image", "image", false,
-  () => addCover([state.current.id]).catch((error) => alert(error.message))]]);
+const hasCover = () => $("d-cover").classList.contains("embedded");
+function coverItem() {
+  const i = state.current;
+  return menuItem(hasCover() ? "Remplacer l'illustration" : "Ajouter l'illustration", "image",
+    () => (hasCover() ? replaceCover([i.id]) : addCover([i.id])).catch((error) => alert(error.message)));
+}
+$("d-cover-menu").onclick = () => openMenuNode($("d-cover-menu").parentElement, [coverItem()]);
+$("d-more").onclick = () => {
+  const i = state.current;
+  const disabled = (node, off) => { node.disabled = off; return node; };
+  openMenuNode($("d-more").parentElement, [
+    menuItem("Modifier l'autorun", "pen", () => { showTab("autorun"); if (state.tab === "autorun") setAutorunEdit(true); }),
+    menuItem("Nouvelle version…", "upload", () => showTab("version")),
+    el("div", { className: "dd-sub", textContent: "Illustration" }),
+    coverItem(),
+    ...(i.has_old ? [
+      menuItem("Valider (supprimer l'ancienne .old)", "check", () => oldAction("validate", "Supprimer définitivement l'ancienne image (.old) ?")),
+      menuItem("Restaurer l'ancienne version (.old)", "undo", () => oldAction("restore", "Remplacer l'image actuelle par l'ancienne (.old) ? La reconstruction sera perdue.")),
+    ] : []),
+    ...(connected() && hostOn() ? [menuItem("Copier les sauvegardes", "save", () => copySaves())] : []),
+    disabled(menuItem("Réinitialiser les sauvegardes", "trash", () => resetSaves([i.id]).catch((error) => alert(error.message)), { danger: true }), !i.saves_present),
+  ]);
+};
+// Remplacement de l'illustration : reconstruction de l'image (ancienne gardée en .old)
+async function replaceCover(ids) {
+  const n = ids.length;
+  if (!confirm(`${n > 1 ? `Remplacer l'illustration de ${n} images` : "Remplacer l'illustration"} ? Il s'agit d'une reconstruction : chaque image est reconstruite, l'original est gardé en .old jusqu'à validation.`)) return;
+  const night = n > 1 && confirm("Lancer cette nuit ? OK : cette nuit. Annuler : maintenant.");
+  const mode = n > 1 ? (night ? "night" : "now") : whenOf();
+  const data = await api("/api/mass/cover", { method: "POST", body: { ids, replace: true, when: mode } });
+  reportSkipped(data.skipped);
+  queued("Remplacement de l'illustration ajouté à la file");
+}
 // Action sur un jeu de la fiche (save, sync) : résultat par jeu dans un toast.
 async function gameSaveAction(button, body, label, doneText) {
   button.disabled = true;
@@ -2898,23 +3074,34 @@ async function gameSaveAction(button, body, label, doneText) {
     else toast(out || doneText, "save");
   } catch (error) { alert(error.message); } finally { button.disabled = false; }
 }
-// Menu de la tuile Sauvegardes : « Copier » et « Synchroniser » n'existent que si un client d'essai est actif
-function savesItems() {
-  const i = state.current, on = hostOn();
-  return [
-    ["Voir dans Sauvegardes", "save", false, () => openSavesFor(gameOfItem(i))],
-    ...(on ? [["Copier les sauvegardes", "save", false, () => gameSaveAction($("d-saves"), { action: "save", id: i.id },
-      "Copie des sauvegardes", "Sauvegardes copiées")]] : []),
-    ...(on ? [["Synchroniser", "refresh", false, () => {
-      if (!confirm(`Synchroniser les sauvegardes de « ${i.name} » avec les autres clients associés du réseau local ? En cas de conflit, la plus lourde gagne (à taille égale, la plus récente) et l'autre est archivée.`)) return;
-      gameSaveAction($("d-saves"), { action: "sync", id: i.id }, "Synchronisation", "Sauvegardes synchronisées");
-    }]] : []),
-    ["Réinitialiser les sauvegardes", "save", !i.saves_present, () => resetSaves([i.id]).catch((error) => alert(error.message)), true],
-  ];
+// Sauvegardes de la fiche : synchroniser, copier (clients d'essai), réinitialiser isolé
+function copySaves() {
+  gameSaveAction($("s-copy"), { action: "save", id: state.current.id }, "Copie des sauvegardes", "Sauvegardes copiées");
 }
-$("d-saves").onclick = () => toggleMenu($("d-saves").parentElement, savesItems);
+function syncSaves() {
+  const i = state.current;
+  if (!confirm(`Synchroniser les sauvegardes de « ${i.name} » avec les autres clients associés du réseau local ? En cas de conflit, la plus lourde gagne (à taille égale, la plus récente) et l'autre est archivée.`)) return;
+  gameSaveAction($("s-sync-btn"), { action: "sync", id: i.id }, "Synchronisation", "Sauvegardes synchronisées");
+}
+function paintSaves() {
+  const i = state.current;
+  if (!i) return;
+  const g = connected() ? sv.games.find((x) => x.game === gameOfItem(i)) : null;
+  $("s-size").textContent = i.saves_present ? size(i.saves_size) : "Aucune";
+  $("s-sync").textContent = g ? syncLine(g) : "";
+  $("s-share").setAttribute("aria-checked", String(Boolean(g && presentIn(g).length > 1)));
+  $("s-share").title = "Le partage se règle par client, dans Sauvegardes";
+  $("s-sync-btn").hidden = $("s-copy").hidden = !hostOn();
+  $("s-reset").disabled = !i.saves_present;
+}
+$("s-share").onclick = () => openSavesFor(gameOfItem(state.current));
+$("s-open").onclick = () => openSavesFor(gameOfItem(state.current));
+$("s-sync-btn").onclick = () => syncSaves();
+$("s-copy").onclick = () => copySaves();
+$("s-reset").onclick = () => resetSaves([state.current.id]).catch((error) => alert(error.message));
 $("btn-verify").onclick = () => verify([...state.selected]).catch((error) => alert(error.message));
 $("btn-cover").onclick = () => addCover([...state.selected]).catch((error) => alert(error.message));
+$("btn-cover-replace").onclick = () => replaceCover([...state.selected]).catch((error) => alert(error.message));
 $("btn-saves-reset").onclick = () => resetSaves([...state.selected]).catch((error) => alert(error.message));
 
 // Info-bulle : délégation sur tout élément [data-tip], positionnée sous lui
