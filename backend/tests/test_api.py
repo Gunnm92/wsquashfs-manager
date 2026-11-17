@@ -465,3 +465,19 @@ def test_network_access_needs_password_or_explicit_waiver():
     with pytest.raises(SystemExit, match="ALLOW_NO_PASSWORD"):
         main.check_access(Settings(host="0.0.0.0"))
     main.check_access(Settings(host="0.0.0.0", allow_no_password=True))  # renoncement
+
+
+def test_frontend_is_served():
+    """La page et les fichiers du front sont servis (pas la page de secours) : garde-fou
+    contre un mauvais calcul du dossier frontend/ (découpage en routeurs, 17/11/2026)."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+    from app.routes.assets import FRONTEND_DIR
+
+    assert (FRONTEND_DIR / "index.html").is_file()
+    client = TestClient(app)
+    page = client.get("/")
+    assert page.status_code == 200 and "assets/js/main.js" in page.text
+    for path in ("/assets/js/main.js", "/assets/app.css", "/assets/css/tokens.css"):
+        assert client.get(path).status_code == 200, path

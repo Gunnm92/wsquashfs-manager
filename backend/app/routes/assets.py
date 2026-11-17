@@ -15,7 +15,8 @@ from .. import auth, deps
 router = APIRouter()
 
 
-FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
+# routes/assets.py → app → backend → racine du dépôt (ou /app dans l'image Docker)
+FRONTEND_DIR = Path(__file__).resolve().parents[3] / "frontend"
 
 
 class LoginReq(BaseModel):
