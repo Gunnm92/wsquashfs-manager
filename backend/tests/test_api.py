@@ -65,6 +65,27 @@ def test_good_token_passes_and_is_not_the_password(client, monkeypatch):
     assert client.get("/api/config", headers={"x-wsfs-token": token}).status_code == 200
 
 
+# ------------------------------------------------------------------ personnalisation
+
+def test_custom_css_absent_gives_empty_css(client, monkeypatch, tmp_path):
+    monkeypatch.setattr(main._settings, "state_dir", tmp_path)
+    response = client.get("/custom.css")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/css")
+    assert response.text == ""
+
+
+def test_custom_css_is_served_from_state_dir(client, monkeypatch, tmp_path):
+    monkeypatch.setattr(main._settings, "state_dir", tmp_path)
+    monkeypatch.setattr(main._settings, "password", "sésame")
+    (tmp_path / "custom.css").write_text(":root { --accent: #e04f8a; }", encoding="utf-8")
+    response = client.get("/custom.css")          # sans jeton : feuille publique, comme app.css
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/css")
+    assert response.headers["cache-control"] == "no-cache"
+    assert response.text == ":root { --accent: #e04f8a; }"
+
+
 # ------------------------------------------------------------------ images
 
 def test_same_name_in_two_systems(client):

@@ -14,7 +14,7 @@ from typing import Literal
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .config import (
@@ -194,7 +194,7 @@ async def simple_auth(request: Request, call_next):
     if not _settings.password:
         return await call_next(request)
     # Fichiers de l'interface (styles, script, aide, polices) : rien de privé
-    if request.url.path in ("/", "/login", "/healthz") or request.url.path.startswith("/assets/"):
+    if request.url.path in ("/", "/login", "/healthz", "/custom.css") or request.url.path.startswith("/assets/"):
         return await call_next(request)
     # Starlette décode les en-têtes en latin-1 : on retrouve les octets reçus.
     # Une HTTPException levée dans un middleware donnerait une erreur 500.
@@ -1788,6 +1788,17 @@ def asset(name: str):
     # Revalidés à chaque chargement, comme la page : jamais d'ancien script
     # avec une nouvelle page après une mise à jour
     return FileResponse(path, media_type=ASSET_TYPES[path.suffix], headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/custom.css")
+def custom_css():
+    """Feuille personnalisée : <state_dir>/custom.css (thèmes, jetons), chargée après app.css.
+    Absente : réponse vide plutôt qu'un 404 dans la console du navigateur."""
+    path = _settings.state_dir / "custom.css"
+    headers = {"Cache-Control": "no-cache"}
+    if not path.is_file():
+        return Response("", media_type="text/css", headers=headers)
+    return FileResponse(path, media_type="text/css", headers=headers)
 
 
 @app.get("/healthz")

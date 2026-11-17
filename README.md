@@ -321,6 +321,31 @@ Variables `WSQUASHFS_MGR_*` (ou fichier `backend/.env`) :
 | `MACHINE_URL` | — | adresse du manager vue par les machines, ex. `https://192.168.1.10:8790` ; réglée aussi dans Réglages → Général |
 | `UI_URL` | `http://<hôte de MACHINE_URL>:<PORT>` | adresse de l'interface donnée aux machines (« Ouvrir le manager » de `wsquashfs-launcher --tray`) ; à régler derrière un proxy |
 
+## Personnaliser l'apparence
+
+L'interface charge `assets/app.css`, puis `custom.css` si ce fichier existe dans le dossier d'état
+(`STATE_DIR` : `~/.local/state/wsquashfs-manager`, ou `WSQUASHFS_MGR_STATE_DIR`). Il est relu à chaque
+chargement de la page : un rechargement suffit après modification.
+
+Les règles de `custom.css` ne sont dans aucune couche CSS : elles l'emportent sur l'interface, quelle que
+soit la spécificité. Exemple :
+
+```css
+/* custom.css : accent rose et boutons carrés */
+:root {
+  --accent: #e04f8a;
+  --radius-pill: 12px;
+}
+```
+
+Jetons principaux, définis dans `:root` (`assets/app.css`, couche `tokens`) :
+
+- couleurs : `--accent`, `--accent2` (second accent), `--err`, `--bg`, `--surface`, `--s2`, `--s3`, `--text`, `--muted`, `--faint`
+- rayons : `--radius-xs` à `--radius-xl`, `--radius-panel` (fenêtres), `--radius-pill` (boutons, pilules)
+- transitions : `--dur-fast`, `--dur-base`, `--dur-med`, `--dur-slow`, `--ease-out`, `--ease-spring`
+- tons des pastilles (classes `.t-*`) : `--tone-sage-bg/fg`, `--tone-accent-bg/fg`, `--tone-err-bg/fg`, `--tone-neutral-bg/fg`
+- icônes : `--ico-xs`, `--ico-sm`, `--ico`, `--ico-lg`
+
 ## Création : dossiers → images
 
 Vue « Dossiers à empaqueter » : les dossiers `*.pc` et `*.wine` des dossiers
