@@ -8,24 +8,27 @@
 .sv-menu { min-width: 220px; }
 .sv-menu button > span:last-child { flex: 1; }
 
-.sv-arrow { display: inline-grid; place-items: center; color: var(--faint); }
-.sv-arrow .ico { width: 14px; height: 14px; }
-
-/* Barre de sélection de l'onglet */
-.sv-src { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
-.sv-src select { height: 32px; font-size: 12.5px; padding: 0 28px 0 10px; background-color: var(--s3); max-width: 200px; }
-#s-targets { height: 32px; }
+/* Barre de sélection de l'onglet : « Copier depuis [source] → vers [cibles] », puis les actions */
+.sel-copy { font-size: 13px; color: var(--muted); white-space: nowrap; }
+.sel-arrow { display: inline-grid; place-items: center; color: var(--faint); }
+.sel-arrow .ico { width: 14px; height: 14px; }
+/* Le fondu de la barre ne garde pas de transform : les menus fixés se placent par rapport à la fenêtre */
+#s-selection { animation-fill-mode: backwards; }
+.selbar .dd-btn { height: 38px; padding: 0 12px 0 14px; background: var(--surface); color: var(--text); }
+.selbar .dd-btn:hover { background: var(--s3); }
+.selbar .dd-btn .ico { width: 13px; height: 13px; color: var(--muted); }
+.selbar .dd-btn:disabled { opacity: .4; cursor: not-allowed; }
+.selbar .dd-btn:disabled:hover { background: var(--surface); }
+/* Cible hors ligne : libellé grisé (la raison est dans l'infobulle) */
+.dd-menu label.dd-check:has(input:disabled) { opacity: .45; cursor: not-allowed; }
+.dd-tag { margin-left: 8px; font-size: 10.5px; font-style: normal; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--accent-300); }
 .sync-res { margin-top: 12px; padding: 10px 14px; border-radius: 18px; background: var(--surface); font-size: 12.5px; }
 .sync-res strong { display: block; margin-bottom: 6px; }
 .sync-res.err strong { color: var(--err); }
-/* Écrans étroits */
-@media (max-width: 640px) {
-  .sv-arrow { display: none; }
-}
 /* Suppression des sauvegardes : bouton de la barre de sélection, dialogue par machine */
-.sv-danger { color: var(--err); }
-.sv-danger:hover { background: var(--err-900); color: var(--err-200); }
-.sv-danger:disabled { opacity: .4; }
+.selbar .btn.bare.sv-danger { color: var(--warn); }
+.selbar .btn.bare.sv-danger:hover { background: var(--s3); color: var(--warn); }
+.selbar .btn.bare.sv-danger:disabled { opacity: .4; }
 .sd-targets { display: flex; flex-direction: column; gap: 6px; margin: 14px 0 12px; }
 .sd-row { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 10px; padding: 9px 12px;
   border-radius: 16px; background: var(--s3); font-size: 13.5px; cursor: pointer; }

@@ -33,8 +33,16 @@
 .svempty { display: grid; place-items: center; }
 .notice.sv-offline { margin: 0; background: var(--s2); color: var(--muted); animation: expand var(--dur-med) var(--ease-out); }
 .sv-offline .ico { color: var(--faint); }
-.sv-danger { color: var(--warn); }
-.sv-danger:hover { background: var(--s3); color: var(--warn); }
+/* Espacement comme la vue Images : la classe .lib du corps donne 16 px entre la barre et le tableau */
+#s-status:empty { display: none; }
+/* Nom et vignette cliquables (ouvrent la fiche de l'image) : lien discret, soulignement au survol */
+button.n.sv-open { display: block; max-width: 100%; padding: 0; border: 0; background: none; color: inherit;
+  font-family: inherit; font-size: inherit; line-height: inherit; text-align: left; cursor: pointer; }
+.svlist .iname span.n { cursor: default; }
+button.n.sv-open:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1.5px; }
+button.n.sv-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+.sv-thumb.sv-open { cursor: pointer; }
+.sv-thumb.sv-open:hover { box-shadow: 0 0 0 2px var(--accent); }
 
 .flist .grow { grid-template-columns: 28px minmax(240px, 2.2fr) 120px minmax(150px, 1.3fr) 150px; gap: 12px; padding: 8px 14px; }
 .flist .grow.head { padding: 10px 14px; }

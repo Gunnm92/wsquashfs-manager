@@ -2,14 +2,14 @@
 
 import { api } from "./api.js";
 import { paintInitials, putArt, showArt } from "./art.js";
-import { $, bigSize, el, emptyState, icon, size, state, storage, when } from "./core.js";
+import { $, bigSize, el, emptyState, icon, setUnavailable, size, state, storage, when } from "./core.js";
 import { notice } from "./detail/autorun.js";
 import { openDetail } from "./detail/detail.js";
 import { paintClients, showView } from "./header.js";
 import { renderLibrary, todoChip } from "./library.js";
-import { closeMenu, menus, placeMenu, toggleMenu } from "./menu.js";
+import { menus, openMenuNode } from "./menu.js";
 import { connected } from "./mode.js";
-import { onMachine } from "./saves-machines.js";
+import { menuItem, onMachine } from "./saves-machines.js";
 import { openSaveDelete, pullGames, pushFrom, pushManager, pushReserve, pushSelection, reachManagerTargets, syncResultNode, syncRow } from "./saves-ops.js";
 import { paintSettingsClients } from "./settings.js";
 
@@ -70,6 +70,10 @@ export function gameOfItem(i) {
 const imageIds = () => new Map(state.items.map((i) => [gameOfItem(i), i.id]));   // jeu → identifiant d'image
 
 export const busy = () => Boolean(sv.op);
+
+// Raisons affichées sur les actions impossibles (infobulle, action grisée)
+const BUSY = "Une opération est déjà en cours";
+const NO_IMAGE = "Pas d'image dans la bibliothèque";
 
 export const machineName = (id) => sv.machines.find((m) => m.id === id)?.name ?? id;
 
@@ -289,9 +293,10 @@ function paintSvList() {
     };
     return el("div", { className: "sv-group" }, button);
   };
+  const images = imageIds();
   const rows = sections.flatMap((key) => {
     const list = visible.filter((r) => sectionOf(r.g) === key);
-    return [...(multi ? [groupRow(key, list.length)] : []), ...(folded(key) ? [] : list.map((r) => svListRow(r, enter)))];
+    return [...(multi ? [groupRow(key, list.length)] : []), ...(folded(key) ? [] : list.map((r) => svListRow(r, enter, images)))];
   });
   if (!visible.length) rows.push(el("div", { className: "svempty" }, base.length
     ? emptyState("search", "Aucun jeu pour ces filtres", "Élargir la recherche ou retirer le filtre.")
@@ -299,16 +304,20 @@ function paintSvList() {
   $("s-rows").replaceChildren(...rows);
 }
 
+// Ouvre la fiche de l'image du jeu (onglet Images)
+const openImage = (id) => { showView("images"); openDetail(id); };
+
 // Une ligne : case, vignette et jeu, taille, dernière partie, synchro et son bouton, menu « ⋯ »
-function svListRow({ g, sync, copy }, enter) {
+function svListRow({ g, sync, copy }, enter, images) {
   const scope = scopeMachine();
   const selected = sv.selected.has(g.game);
+  const img = images.get(g.game);
   const box = el("input", { type: "checkbox", checked: selected, title: "Sélectionner" });
   box.onclick = (event) => event.stopPropagation();
   const more = el("button", { type: "button", className: "iconbtn bare sm", title: "Autres actions", "aria-label": `Autres actions pour ${gameLabel(g)}`, "aria-haspopup": "menu" },
     icon("more", "sm"));
   const wrap = el("div", { className: "dd end sv-more" }, more);
-  more.onclick = (event) => { event.stopPropagation(); toggleMenu(wrap, () => rowItems(g)); };
+  more.onclick = (event) => { event.stopPropagation(); openMenuNode(wrap, rowItems(g)); };
   const primary = sync.button ? el("button", { type: "button", className: "btn secondary sm sv-act", textContent: sync.button, disabled: busy() }) : null;
   if (primary) {
     primary.onclick = (event) => {
@@ -316,11 +325,25 @@ function svListRow({ g, sync, copy }, enter) {
       if (sync.act === "menu") more.click(); else sync.act();
     };
   }
+  // Nom et vignette : ouvrent la fiche de l'image ; sans image dans la bibliothèque, ils ne le sont pas
+  const thumb = saveThumb(g, img);
+  const name = gameLabel(g);
+  const nameNode = img
+    ? el("button", { type: "button", className: "n sv-open", textContent: name, title: `Ouvrir la fiche de l'image · ${name}` })
+    : el("span", { className: "n", textContent: name, title: NO_IMAGE });
+  if (img) {
+    nameNode.onclick = (event) => { event.stopPropagation(); openImage(img); };
+    thumb.classList.add("sv-open");
+    thumb.title = `Ouvrir la fiche de l'image · ${name}`;
+    thumb.onclick = (event) => { event.stopPropagation(); openImage(img); };
+  } else {
+    thumb.title = NO_IMAGE;
+  }
   const whenText = copy ? [dayText(copy.t), copy.where && copy.where !== scope?.name ? `sur ${copy.where}` : ""].filter(Boolean).join(", ") : "";
   const row = el("div", { className: `grow item${selected ? " selected" : ""}${enter ? " enter" : ""}` },
     box,
-    el("div", { className: "iname" }, saveThumb(g, imageIds().get(g.game)),
-      el("div", { className: "t" }, el("span", { className: "n", textContent: gameLabel(g), title: gameLabel(g) }))),
+    el("div", { className: "iname" }, thumb,
+      el("div", { className: "t" }, nameNode)),
     el("span", { className: "gsize c-size", textContent: copy ? size(copy.size) : "—" }),
     el("span", { className: "sv-when c-when", textContent: whenText || "—", title: copy ? when(copy.t) : "" }),
     el("div", { className: `sync ${sync.kind}`, title: sync.title + (g.check ? " · la plus lourde n'est pas la plus récente : à vérifier" : "") },
@@ -389,23 +412,25 @@ function saveThumb(g, imgId) {
   return node;
 }
 
-// Menu « … » d'une ligne
+// Menu « … » d'une ligne : une action impossible reste visible, grisée, avec sa raison
 function rowItems(g) {
-  const idle = !busy();
+  const busyReason = busy() ? BUSY : "";
   const reach = reachableIds(), top = sourceOf(g);
   // Depuis un client qui a le jeu vers les autres qui l'ont dans une autre version
   const others = (s) => presentIn(g).filter((o) => o.id !== s.id && o.fingerprint !== s.fingerprint && reach.includes(o.id)).map((o) => o.id);
   const img = imageIds().get(g.game);
+  const item = (label, iconName, reason, action, danger = false) => setUnavailable(menuItem(label, iconName, action, { danger }), reason);
   return [
-    ...(img ? [["Ouvrir la fiche de l'image", "image", false, () => { showView("images"); openDetail(img); }]] : []),
+    item("Ouvrir la fiche de l'image", "image", img ? "" : NO_IMAGE, () => openImage(img)),
     ...presentIn(g).filter((s) => reach.includes(s.id) && others(s).length)
-      .map((s) => [`Sync ${s.name} → ${names(others(s))}`, "arrow", !idle, () => pushFrom(g, s.id, others(s))]),
+      .map((s) => item(`Sync ${s.name} → ${names(others(s))}`, "arrow", busyReason, () => pushFrom(g, s.id, others(s)))),
     // Installer sur un client qui n'a pas le jeu : choix explicite, jamais par défaut
-    ...(top ? absentIn(g).map((id) => [`Installer sur ${machineName(id)} (depuis ${top.name})`, "arrow", !idle, () => pushFrom(g, top.id, [id])]) : []),
-    [!top ? "Copier vers le manager" : inManager(g, top) ? "Copier vers le manager (déjà identique)"
-      : `Copier vers le manager (${top.name} → Manager)`, "save", !idle || !top || inManager(g, top), () => pullGames([g], AUTO)],
-    ["Sync depuis le manager (Manager → clients)", "server", !idle || !g.reserve || !reachManagerTargets(g).length, () => pushReserve(g)],
-    ["Supprimer…", "trash", !idle, () => openSaveDelete([g]), true],
+    ...(top ? absentIn(g).map((id) => item(`Installer sur ${machineName(id)} (depuis ${top.name})`, "arrow", busyReason, () => pushFrom(g, top.id, [id]))) : []),
+    item(!top ? "Copier vers le manager" : inManager(g, top) ? "Copier vers le manager (déjà identique)" : `Copier vers le manager (${top.name} → Manager)`,
+      "save", busyReason || (!top ? "Aucune copie sur un client joignable" : inManager(g, top) ? "Le manager a déjà cette version" : ""), () => pullGames([g], AUTO)),
+    item("Sync depuis le manager (Manager → clients)", "server", busyReason || (!g.reserve ? "Pas de copie sur le manager"
+      : !reachManagerTargets(g).length ? "Aucun client joignable n'a une autre version" : ""), () => pushReserve(g)),
+    item("Supprimer…", "trash", busyReason, () => openSaveDelete([g]), true),
   ];
 }
 
@@ -416,29 +441,80 @@ export function paintStatus() {
   $("s-status").replaceChildren(...nodes);
 }
 
-// Barre de sélection : source → cibles (cases dans un menu), Sync, Copier vers le manager
+// Libellé de la source et des cibles dans la barre
+const sourceLabel = () => sv.source === AUTO ? "La plus avancée" : sv.source === RESERVE ? "Manager" : machineName(sv.source);
+
+function targetsLabel(targets) {
+  if (!targets.length) return "Aucune cible";
+  return targets.length <= 2 ? names(targets) : `${targets.length} clients`;
+}
+
+// Raison pour laquelle « Synchroniser » ne peut pas partir (vide : possible)
+function syncReason(games, targets) {
+  if (busy()) return BUSY;
+  if (!targets.length) return "Aucune cible : coche au moins un autre client joignable";
+  if (sv.source === RESERVE) return games.some((g) => g.reserve) ? "" : "Aucun jeu sélectionné n'est sur le manager";
+  if (sv.source === AUTO) {
+    return games.some((g) => suggestedOf(g) && targets.some((id) => lateIn(g).includes(id)))
+      ? "" : "Rien à synchroniser : les cibles cochées ont déjà ces versions";
+  }
+  return games.some((g) => PRESENT_STATES.has(stateOf(g, sv.source)?.state)) ? ""
+    : `${machineName(sv.source)} n'a aucun des jeux sélectionnés`;
+}
+
+// Menu « Copier depuis » : la proposition par défaut, les clients (hors ligne grisés), le manager
+function sourceItems(games) {
+  const pick = (value) => () => { sv.source = value; paintSelection(); };
+  const choice = (label, iconName, value, reason = "", tag = "") => setUnavailable(menuItem(label, iconName, pick(value),
+    { checked: sv.source === value, role: "menuitemradio", tag }), reason);
+  const onManager = games.some((g) => g.reserve);
+  return [
+    el("div", { className: "dd-sub", textContent: "Copier depuis" }),
+    choice("La plus avancée (par jeu)", "sparkles", AUTO, "", "recommandé"),
+    ...sv.machines.map((m) => choice(m.name, OS_ICONS.includes(m.icon) ? m.icon : "linux", m.id,
+      m.ok ? "" : `${m.name} est hors ligne : rien ne peut partir de ce client`)),
+    choice("Manager", "server", RESERVE, onManager ? "" : "Aucun jeu sélectionné n'est sur le manager"),
+  ];
+}
+
+// Menu « vers » : une case par client ; le client source et les clients hors ligne sont grisés
+function targetItems() {
+  return sv.machines.map((m) => {
+    const reason = !m.ok ? `${m.name} est hors ligne : rien ne peut être envoyé avant son retour`
+      : m.id === sv.source ? "C'est la source de la copie" : "";
+    const box = el("input", { type: "checkbox", checked: !reason && !sv.unchecked.has(m.id), disabled: Boolean(reason) });
+    box.onchange = () => { box.checked ? sv.unchecked.delete(m.id) : sv.unchecked.add(m.id); paintSelection(); };
+    return el("label", { className: "dd-check", title: reason }, box, el("span", { textContent: m.name }));
+  });
+}
+
+// Barre de sélection : « Copier depuis [source] → vers [cibles] », Synchroniser, Copier vers le manager,
+// Supprimer… ; une action impossible reste visible, grisée, avec sa raison (setUnavailable)
 function paintSelection() {
   const bar = $("s-selection"), n = sv.selected.size;
   bar.hidden = n === 0 || !sv.loaded;
   if (bar.hidden) return;
+  if (!sv.machines.some((m) => m.id === sv.source) && sv.source !== AUTO && sv.source !== RESERVE) sv.source = AUTO;
   $("s-count").textContent = n > 1 ? `${n} jeux` : "1 jeu";
-  const options = [[AUTO, "La plus avancée (par jeu)"], ...sv.machines.filter((m) => m.ok).map((m) => [m.id, m.name]),
-    [RESERVE, "Manager"]];
-  if (!options.some(([value]) => value === sv.source)) sv.source = AUTO;
-  $("s-source").replaceChildren(...options.map(([value, label]) => new Option(label, value)));
-  $("s-source").value = sv.source;
   const games = sv.games.filter((g) => sv.selected.has(g.game));
   const targets = pushTargets();
-  $("s-targets").textContent = `Cibles · ${targets.length}`;
-  $("s-targets").disabled = busy();
-  const pushable = !busy() && games.length && targets.length && (sv.source !== RESERVE || games.some((g) => g.reserve));
-  $("s-push").disabled = !pushable;
-  $("s-push").title = targets.length ? "" : "Aucune cible : coche au moins un autre client joignable";
+  const others = reachableIds().filter((id) => id !== sv.source);
+
+  const source = $("s-source");
+  source.replaceChildren(el("span", { textContent: sourceLabel() }), icon("chevd", "sm"));
+  setUnavailable(source, busy() ? BUSY : "");
+
+  const dest = $("s-targets");
+  dest.replaceChildren(el("span", { textContent: targetsLabel(targets) }), icon("chevd", "sm"));
+  setUnavailable(dest, busy() ? BUSY : others.length ? "" : "Aucun autre client joignable à qui copier");
+
+  setUnavailable($("s-push"), syncReason(games, targets));
+
   const toPull = sv.source === RESERVE ? [] : games.filter((g) => pullNeeded(g, sv.source));
-  $("s-pull").disabled = busy() || !toPull.length;
-  $("s-pull").title = sv.source === RESERVE ? "Choisis un client, ou « La plus avancée », comme source"
-    : games.length && !toPull.length ? "Le manager a déjà ces versions" : "Copier les sauvegardes sélectionnées sur le manager";
-  $("s-delete").disabled = busy();
+  setUnavailable($("s-pull"), busy() ? BUSY : sv.source === RESERVE ? "La source est le manager : choisis un client, ou « La plus avancée »"
+    : toPull.length ? "" : "Le manager a déjà ces versions");
+
+  setUnavailable($("s-delete"), busy() ? BUSY : "");
 }
 
 // Rafraîchissement automatique de l'onglet Sauvegardes : un client qui lance son agent (ou
@@ -456,20 +532,9 @@ async function pollSaves() {
 }
 
 export function init() {
-  // Cibles : cases par client joignable (la source choisie est grisée)
-  $("s-targets").onclick = () => {
-    const wrap = $("s-targets-dd"), open = menus.open?.parentElement === wrap;
-    closeMenu();
-    if (open) return;
-    const boxes = sv.machines.filter((m) => m.ok).map((m) => {
-      const box = el("input", { type: "checkbox", checked: !sv.unchecked.has(m.id) && m.id !== sv.source, disabled: m.id === sv.source });
-      box.onchange = () => { box.checked ? sv.unchecked.delete(m.id) : sv.unchecked.add(m.id); paintSelection(); };
-      return el("label", { className: "dd-check" }, box, el("span", { textContent: m.name }));
-    });
-    menus.open = el("div", { className: "dd-menu", role: "group" }, ...(boxes.length ? boxes : [el("span", { className: "muted dd-check", textContent: "Aucun client joignable" })]));
-    placeMenu(menus.open, wrap);
-  };
-  $("s-source").onchange = () => { sv.source = $("s-source").value; paintSelection(); };
+  // Menus de la barre : d'où part la copie, et vers quels clients (cases)
+  $("s-source").onclick = () => openMenuNode($("s-source-dd"), sourceItems(sv.games.filter((g) => sv.selected.has(g.game))));
+  $("s-targets").onclick = () => openMenuNode($("s-targets-dd"), [el("div", { className: "dd-sub", textContent: "Vers" }), ...targetItems()]);
   $("s-search").addEventListener("input", paintSvList);
   $("s-clear-filter").onclick = () => { sv.todo = ""; paintSvList(); };
   setInterval(pollSaves, SAVES_POLL_MS);

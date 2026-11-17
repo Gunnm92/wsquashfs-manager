@@ -1,7 +1,6 @@
 // menu.js — Menus déroulants et menus d'actions : ouverture, positionnement, fermeture.
 
 import { el } from "./core.js";
-import { menuItem } from "./saves-machines.js";
 
 export const menus = { open: null };
 
@@ -35,15 +34,6 @@ export function openMenuNode(wrap, nodes) {
   menus.open = el("div", { className: "dd-menu end sv-menu", role: "menu" }, ...nodes);
   placeMenu(menus.open, wrap);
   menus.open.querySelector("button:not([disabled])")?.focus({ preventScroll: true });
-}
-
-// Menu d'action (même mécanique que les filtres de la liste) : items → [libellé, icône, désactivé, action, danger]
-export function toggleMenu(wrap, items) {
-  openMenuNode(wrap, items().map(([label, iconName, disabled, action, danger]) => {
-    const b = menuItem(label, iconName, action, { danger: Boolean(danger) });
-    b.disabled = Boolean(disabled);
-    return b;
-  }));
 }
 
 export function init() {

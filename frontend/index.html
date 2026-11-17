@@ -382,7 +382,7 @@
       <div class="row"><button class="btn primary sm" id="s-empty-settings"><svg class="ico sm"><use href="#i-arrow"/></svg>Réglages › Clients</button></div>
     </section>
 
-    <div id="s-body" hidden>
+    <div id="s-body" class="lib" hidden>
       <div class="toolbar">
         <label class="search"><svg class="ico"><use href="#i-search"/></svg><input type="search" id="s-search" placeholder="Jeu…"></label>
         <button type="button" class="filter-clear" id="s-clear-filter" hidden><span id="s-clear-filter-label"></span><svg class="ico sm"><use href="#i-x"/></svg></button>
@@ -398,15 +398,17 @@
 
     <div class="selbar" id="s-selection" hidden>
       <span class="lbl" id="s-count"></span>
-      <label class="sv-src"><span>Source</span><select id="s-source" title="D'où viennent les sauvegardes"></select></label>
-      <span class="sv-arrow" aria-hidden="true"><svg class="ico sm"><use href="#i-arrow"/></svg></span>
-      <div class="dd" id="s-targets-dd"><button type="button" class="dd-btn" id="s-targets" aria-haspopup="menu" title="Clients qui reçoivent"></button></div>
+      <span class="sel-copy">Copier depuis</span>
+      <div class="dd" id="s-source-dd"><button type="button" class="dd-btn" id="s-source" aria-haspopup="menu" title="D'où partent les sauvegardes"></button></div>
+      <span class="sel-arrow" aria-hidden="true"><svg class="ico sm"><use href="#i-arrow"/></svg></span>
+      <span class="sel-copy">vers</span>
+      <div class="dd" id="s-targets-dd"><button type="button" class="dd-btn" id="s-targets" aria-haspopup="menu" title="Clients qui reçoivent la copie"></button></div>
       <span class="sep"></span>
-      <button class="btn primary sm" id="s-push"><svg class="ico sm"><use href="#i-refresh"/></svg>Synchroniser</button>
-      <button class="btn bare sm" id="s-pull" title="Copier les sauvegardes sélectionnées sur le manager"><svg class="ico sm"><use href="#i-server"/></svg>Copier vers le manager</button>
+      <button class="btn primary sm" id="s-push" title="Synchroniser : copie la version choisie vers les clients cochés"><svg class="ico sm"><use href="#i-refresh"/></svg>Synchroniser</button>
+      <button class="btn soft sm" id="s-pull" title="Copier les sauvegardes sélectionnées sur le manager"><svg class="ico sm"><use href="#i-server"/></svg>Copier vers le manager</button>
       <span class="sep"></span>
       <button class="btn bare sm sv-danger" id="s-delete" title="Supprimer les sauvegardes sélectionnées, sur des clients et/ou le manager"><svg class="ico sm"><use href="#i-trash"/></svg>Supprimer…</button>
-      <button class="iconbtn bare sm" id="s-clear" title="Désélectionner" aria-label="Désélectionner"><svg class="ico sm"><use href="#i-x"/></svg></button>
+      <button class="iconbtn bare lg" id="s-clear" title="Désélectionner" aria-label="Désélectionner"><svg class="ico"><use href="#i-x"/></svg></button>
     </div>
   </section>
 </main>
