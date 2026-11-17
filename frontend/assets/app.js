@@ -13,6 +13,8 @@ const state = {
   pendingKeys: new Set(), // clés ajoutées au formulaire, pas encore renseignées
   tab: null,              // onglet affiché dans la fiche
   baseline: "",           // autorun tel que chargé ou enregistré (détecte les changements)
+  client: null,           // client affiché dans l'en-tête (identifiant, ou « all »)
+  loadedAt: 0,            // dernier chargement de la bibliothèque (menu : « il y a N min »)
 };
 const $ = (id) => document.getElementById(id);
 const el = (tag, props = {}, ...children) => {
@@ -65,6 +67,8 @@ const TYPE_HELP = { wine_batocera: "h-batocera", wine_other: "h-batocera", wine_
 
 const size = (n) => n >= 1e9 ? `${(n / 1e9).toFixed(1).replace(".", ",")} Go` : n >= 1e6 ? `${(n / 1e6).toFixed(0)} Mo`
   : n >= 1e3 ? `${(n / 1e3).toFixed(0)} Ko` : `${n} o`;
+// Taille en To au-delà du téraoctet (« 4,29 To ») ; sinon comme size()
+const bigSize = (n, digits = 1) => n >= 1e12 ? `${(n / 1e12).toFixed(digits).replace(".", ",")} To` : size(n);
 const when = (t) => t ? new Date(t * 1000).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "";
 const cap = (s) => s ? s[0].toUpperCase() + s.slice(1) : s;
 
@@ -265,8 +269,6 @@ const FILTERS = [
   { key: "runner", label: "Runner", all: "Tous les runners", options: () => [["default", null, "", "aucun"], ["custom", "cpu", "t-accent", "custom"], ["joined", "clip", "t-accent", "intégré"]] },
   { key: "pad", label: "Manette", all: "Toutes les manettes", options: () => [["hidraw", "usb", "t-sage", "DualSense"], ["xinput", "gamepad", "t-off", "Xbox"]] },
   { key: "extra", label: "Extras", all: "Tous", options: () => [["keys", "keyboard", "t-neutral", "Touches clavier"], ["fakeping", "wifi", "t-neutral", "Relais fakeping"]] },
-  { key: "special", label: "État", all: "Tous les états", options: () => [["noversion", "tag", "t-accent", "Sans version"], ["old", "history", "t-accent", "Ancienne image (.old)"],
-    ["inuse", "play", "t-accent", "En cours"], ["noautorun", "terminal", "t-accent", "Sans autorun"], ["override", "filepen", "t-accent", "Surcharge à inscrire"]] },
   // Clients associés (état de l'installation, voir « Installation sur les clients »)
   { key: "inst", label: "Installé sur…", all: "Quel que soit le client", options: () => instFilterOptions() },
 ];
@@ -327,12 +329,12 @@ function libBusy(text, hint) {
   paint();
   box.hidden = false;
   busyTimer = setInterval(paint, 1000);
-  $("btn-refresh").classList.add("spin");
+  $("btn-menu").classList.add("spin");
   return () => {
     if (--busyDepth > 0) return;
     clearInterval(busyTimer);
     box.hidden = true;
-    $("btn-refresh").classList.remove("spin");
+    $("btn-menu").classList.remove("spin");
   };
 }
 
@@ -354,6 +356,8 @@ async function loadLibrary(refresh = false) {
   }
   state.byId = new Map(state.items.map((i) => [i.id, i]));
   for (const id of [...state.selected]) if (!state.byId.has(id)) state.selected.delete(id);
+  state.loadedAt = Date.now();
+  paintRefreshAgo();
   renderLibrary();
   loadRecovery();
   if (state.current && state.byId.has(state.current.id)) {
@@ -452,6 +456,7 @@ function filtered() {
   const q = $("f-search").value.trim().toLowerCase();
   return state.items.filter((i) =>
     (!q || [i.name, i.cmd, i.dir, i.version].some((v) => v && v.toLowerCase().includes(q)))
+    && matches(i, "special", state.filter.special)
     && FILTERS.every((def) => matches(i, def.key, state.filter[def.key])));
 }
 
@@ -476,14 +481,23 @@ function selectBox(i) {
   return box;
 }
 
+let listSig = null;      // filtre, recherche, tri et présentation : les lignes entrent en cascade
 function renderLibrary() {
   renderFilters();
   const visible = sorted(filtered()), base = state.items.length;
-  $("count-images").textContent = state.items.length;
-  $("visible-count").textContent = visible.length === base ? `${visible.length}` : `${visible.length} / ${base}`;
+  const total = state.items.reduce((n, i) => n + (i.size || 0), 0);
+  const images = (n) => `${n} ${n > 1 ? "images" : "image"}`;
+  $("count-images").textContent = base;
+  $("lib-count").textContent = images(base);
+  $("lib-size").textContent = bigSize(total, 2);
+  $("visible-count").textContent = visible.length === base ? images(base) : `${visible.length} sur ${base}`;
+  renderTodo();
   const grid = state.layout === "grid";
   $("list").hidden = grid;
   $("grid").hidden = !grid;
+  const sig = [JSON.stringify(state.filter), $("f-search").value, state.sort.key, state.sort.dir, state.layout].join("|");
+  const enter = sig !== listSig;
+  listSig = sig;
 
   const empty = base ? emptyState("search", "Aucune image pour ces filtres", "Élargir la recherche ou retirer un filtre.")
     : emptyState("layers", "Aucune image", "Choisir les systèmes à gérer dans « Réglages ».");
@@ -509,29 +523,45 @@ function renderLibrary() {
       b.onclick = () => { state.sort = { key, dir: state.sort.key === key ? -state.sort.dir : 1 }; renderLibrary(); };
       return b;
     };
-    $("thead").replaceChildren(all, sortBtn("name", "Jeu"), el("span", { className: "c-profile", textContent: "Prefix et réglages" }),
+    $("thead").replaceChildren(all, sortBtn("name", "Jeu"), el("span", { className: "c-prefix", textContent: "Prefix" }),
+      el("span", { className: "c-profile", textContent: "Réglages" }),
       sortBtn("size", "Taille", "r"), sortBtn("saves_size", "Sauveg.", "r c-saves"), sortBtn("state", "État", "c-state"));
-    $("rows").replaceChildren(...visible.map((i) => {
-      const row = el("div", { className: `grow item${state.selected.has(i.id) ? " selected" : ""}` },
-        selectBox(i),
-        el("div", { className: "gname" }, thumb(i), el("div", { className: "t" },
-          el("span", { className: "n", textContent: i.name, title: i.name }),
-          el("span", { className: "sub" }, versionLabel(i), el("span", { textContent: "·" }), el("span", { textContent: cap(i.system) || "—" }), instPins(i))),
-          sv.machines.length ? savesOpen(i, "sv-open-alt") : null),
-        profileBadges(i),
-        el("span", { className: "gsize", textContent: size(i.size) }),
-        savesCell(i),
-        stateBadge(i));
-      row.dataset.id = i.id;
-      row.onclick = () => openDetail(i.id);
-      return row;
-    }));
+    $("rows").replaceChildren(...visible.map((i) => listRow(i, enter)));
     if (!visible.length) $("rows").append(empty);
     $("grid").replaceChildren();
   }
   markCurrent();
-  renderStats();
   renderSelection();
+}
+
+// Une ligne de la liste : case, jaquette et nom (version), préfixe, réglages actifs, taille, sauvegardes, état
+const PREFIX_LABEL = { wine_batocera: "Wine", wine_other: "Wine", wine_proton: "Proton", game_only: "Aucun", unknown: "Inconnu" };
+function listRow(i, enter) {
+  const row = el("div", { className: `grow item${state.selected.has(i.id) ? " selected" : ""}${enter ? " enter" : ""}` },
+    selectBox(i),
+    el("div", { className: "iname" }, thumb(i), el("div", { className: "t" },
+      el("span", { className: "n", textContent: i.name, title: i.name }), versionLabel(i), instPins(i))),
+    el("span", { className: `prefix c-prefix${i.type === "game_only" ? " none" : ""}`, textContent: PREFIX_LABEL[i.type] || "Inconnu" }),
+    listFlags(i),
+    el("span", { className: "gsize", textContent: size(i.size) }),
+    el("span", { className: "gsize c-saves", textContent: i.saves_present ? size(i.saves_size) : "" }),
+    listState(i));
+  row.dataset.id = i.id;
+  row.onclick = () => openDetail(i.id);
+  return row;
+}
+// Réglages actifs seulement, nommés (HIDRAW, surcharge à inscrire)
+function listFlags(i) {
+  const flags = [];
+  if (i.hidraw) flags.push(el("span", { className: "flag hidraw", textContent: "HIDRAW", title: "Manettes en accès direct" }));
+  if ((i.override || []).length) flags.push(el("span", { className: "flag warn", textContent: "Surcharge", title: "Surcharge à inscrire dans l'image" }));
+  return el("span", { className: "flags c-profile" }, ...flags);
+}
+// État : « Prêt » reste gris ; seules les exceptions sont en couleur
+function listState(i) {
+  const [cls, label, tip] = (i.override || []).length ? ["warn", "Surcharge à inscrire", "Réglage appliqué hors de l'image"]
+    : [i.state, ...(STATES[i.state] || [i.state, ""])];
+  return el("span", { className: `state ${cls} c-state`, textContent: label, title: `${label} — ${tip}` });
 }
 
 // Images absentes ou illisibles dont l'ancienne version (.old) est saine
@@ -554,29 +584,46 @@ async function loadRecovery() {
   }));
 }
 
-// Chiffres clés de la bibliothèque ; un clic filtre (deuxième clic : retire le filtre)
-function renderStats() {
-  const items = state.items, special = state.filter.special;
-  const total = items.reduce((n, i) => n + (i.size || 0), 0);
-  const count = (f) => items.filter(f).length;
-  const tiles = [
-    ["", "Images", items.length, size(total), "layers", "t-sage", "Toute la bibliothèque"],
-    ["noversion", "Sans version", count((i) => !i.version), null, "tag", "t-accent", "GAME_VERSION non renseignée"],
-    ["old", "Ancienne image (.old)", count((i) => i.has_old), null, "history", "t-accent", "À valider ou à restaurer"],
-    ["override", "Surcharge à inscrire", count((i) => (i.override || []).length), null, "filepen", "t-accent", "Réglage appliqué hors de l'image"],
-    ["inuse", "En cours", count((i) => i.state === "in_use"), null, "play", "t-accent", "Jeux lancés"],
-    ["noautorun", "Sans autorun", count((i) => !i.cmd), null, "terminal", "t-accent", "Aucune commande CMD dans l'image"],
-  ];
-  $("stats").replaceChildren(...tiles.map(([filter, label, n, extra, iconName, tone, tip]) => {
-    const tile = el("button", { type: "button", title: tip,
-      className: `stat${special === filter && filter ? " active" : ""}${n || !filter ? "" : " zero"}` },
-      el("span", { className: `disc ${tone}` }, icon(iconName)),
-      el("span", { className: "txt" }, el("span", { className: "n", textContent: n }, extra ? el("small", { textContent: extra }) : null),
-        el("span", { className: "label", textContent: label })));
-    tile.onclick = () => { state.filter.special = filter && special !== filter ? filter : ""; renderLibrary(); };
-    return tile;
-  }));
+// Pastilles « À traiter » : seules celles dont le compteur est non nul ; un clic filtre, un deuxième le retire
+const SPECIALS = [   // [filtre, libellés (un, plusieurs), icône, ton, test]
+  ["noversion", ["sans version", "sans version"], "tag", "accent", (i) => !i.version],
+  ["override", ["surcharge à inscrire", "surcharges à inscrire"], "filepen", "warn", (i) => (i.override || []).length > 0],
+  ["old", ["ancienne image (.old)", "anciennes images (.old)"], "history", "accent", (i) => Boolean(i.has_old)],
+  ["inuse", ["en cours", "en cours"], "play", "accent", (i) => i.state === "in_use"],
+  ["noautorun", ["sans autorun", "sans autorun"], "terminal", "accent", (i) => !i.cmd],
+];
+function renderTodo() {
+  const special = state.filter.special;
+  const chips = [];
+  for (const [id, [one, many], iconName, tone, test] of SPECIALS) {
+    const n = state.items.filter(test).length;
+    if (!n) continue;
+    const on = special === id;
+    chips.push(todoChip(n, n > 1 ? many : one, iconName, tone, on, () => {
+      state.filter.special = on ? "" : id;
+      renderLibrary();
+    }));
+  }
+  const failed = state.tasks.filter((t) => t.status === "failed").length;
+  if (failed) chips.push(todoChip(failed, `${failed > 1 ? "tâches" : "tâche"} en échec`, "alert", "err", false, openTasks));
+  $("todo").replaceChildren(...chips);
+  $("todo-label").hidden = !chips.length;
+  paintFilterClear();
 }
+function todoChip(n, label, iconName, tone, on, onClick) {
+  const chip = el("button", { type: "button", className: `todo-chip ${tone}${on ? " on" : ""}` },
+    icon(iconName, "sm"), el("b", { textContent: n }), el("span", { textContent: label }));
+  chip.setAttribute("aria-pressed", String(on));
+  chip.onclick = onClick;
+  return chip;
+}
+// Filtre « À traiter » actif, affiché en clair dans la barre ; un clic le retire
+function paintFilterClear() {
+  const id = state.filter.special, def = SPECIALS.find((d) => d[0] === id);
+  $("filter-clear").hidden = !def;
+  $("filter-clear-label").textContent = def ? cap(def[1][0]) : "";
+}
+$("filter-clear").onclick = () => { state.filter.special = ""; renderLibrary(); };
 
 function renderSelection() {
   const n = state.selected.size;
@@ -1322,18 +1369,10 @@ async function refreshTasks() {
   const active = state.tasks.filter((t) => t.status === "pending" || t.status === "running");
   syncTaskList($("tasks-list"), state.tasks.slice(0, 100),
     el("p", { className: "muted", style: "margin:4px", textContent: "Aucune tâche." }));
-  const running = active.some((t) => t.status === "running");
   const failed = state.tasks.filter((t) => t.status === "failed").length;
   const nightly = active.filter((t) => t.status === "pending" && t.night).length;
-  const summary = active.length ? `${active.length} tâche${active.length > 1 ? "s" : ""}${nightly ? ` · ${nightly} cette nuit` : ""}` : "Tâches";
-  $("btn-tasks").classList.toggle("busy", running);
-  // Résumé du bouton flottant : nombre de tâches actives, puis ce qu'elles font
-  $("tasks-count").textContent = active.length || "";
-  $("btn-tasks").querySelector(".lbl").textContent = running ? "en cours" : nightly && nightly === active.length ? "cette nuit"
-    : active.length ? "en attente" : "Tâches";
-  $("tasks-fail").hidden = !failed;
-  $("tasks-fail").textContent = `${failed} en échec`;
-  $("btn-tasks").title = `File de tâches — ${summary}${failed ? `, ${failed} en échec` : ""}`;
+  paintTasks(active, failed, nightly);
+  renderTodo();
   $("tasks-summary").textContent = active.length ? `${active.length} active(s)` : state.tasks.length ? "aucune active" : "";
   // Une tâche vient de se terminer : l'image a changé
   const nowActive = new Set(active.map((t) => t.id));
@@ -1353,7 +1392,19 @@ async function refreshTasks() {
 }
 function setTasksOpen(open) {
   $("tasks-panel").hidden = !open;
-  $("btn-tasks").setAttribute("aria-expanded", open);
+  $("btn-tasks").setAttribute("aria-expanded", String(open));
+  if (open) setTopMenu(false);
+}
+// Pastille des tâches (en-tête) : échecs en rouge ; sinon en cours ou cette nuit, avec le spinner ; sinon l'icône seule
+function paintTasks(active, failed, nightly) {
+  const pill = $("btn-tasks"), running = active.some((t) => t.status === "running");
+  pill.classList.toggle("busy", active.length > 0);
+  pill.classList.toggle("failed", failed > 0);
+  $("tasks-fail").hidden = !failed;
+  $("tasks-fail").textContent = `${failed} en échec`;
+  $("tasks-label").textContent = running ? `${active.length} en cours`
+    : nightly && nightly === active.length ? `${nightly} cette nuit` : active.length ? `${active.length} en attente` : "";
+  pill.title = `File de tâches — ${active.length ? `${active.length} active${active.length > 1 ? "s" : ""}` : "aucune active"}${failed ? `, ${failed} en échec` : ""}`;
 }
 const openTasks = () => setTasksOpen(true);
 // Une action vient d'entrer dans la file
@@ -1390,6 +1441,7 @@ function applyMode() {
   $("d-trial-wrap").hidden = !(connected() && hostOn());
   $("d-links").title = hostOn() ? `Liens du prefix vers un runner hors de l'image ou absent, et réparation avec les runners de ${hostName()}`
     : "Liens du prefix vers un runner hors de l'image ou absent";
+  paintClients();
   if (previous === null) return;                  // premier affichage : le démarrage charge tout
   if (mode === "autonome") {
     clearConnected();
@@ -1605,6 +1657,7 @@ async function loadSaves() {
 }
 
 function paintSaves() {
+  paintClients();
   const diff = sv.games.filter(differs).length;
   $("count-saves").textContent = diff || "";
   $("count-saves").title = diff ? `${diff} jeu(x) dont les versions diffèrent entre clients` : "";
@@ -2241,20 +2294,6 @@ function openSavesFor(game) {
   $("s-search").value = game;
   showView("saves");
   window.scrollTo(0, 0);
-}
-
-// Colonne « Sauveg. » de la liste : taille et, si un client est associée, un accès à l'onglet
-function savesOpen(i, cls) {
-  const open = el("button", { type: "button", className: `iconbtn bare sm ${cls}`, title: "Sauvegardes entre clients de ce jeu", "aria-label": "Sauvegardes entre clients de ce jeu" },
-    icon("save", "sm"));
-  open.onclick = (event) => { event.stopPropagation(); openSavesFor(gameOfItem(i)); };
-  return open;
-}
-function savesCell(i) {
-  const cell = el("span", { className: `gsize c-saves sv-cell${i.saves_present ? "" : " none"}` },
-    el("span", { textContent: i.saves_present ? size(i.saves_size) : "—" }));
-  if (sv.machines.length) cell.append(savesOpen(i, "sv-open"));
-  return cell;
 }
 
 // ------------------------------------------------------------------ état du lanceur (--doctor)
@@ -2975,7 +3014,7 @@ async function applyRunner(id, sug, button) {
 function showView(name) {
   if (name === "saves" && !connected()) name = "images";     // autonome : pas d'onglet Sauvegardes
   document.body.dataset.view = name;
-  for (const b of $("views").children) b.classList.toggle("active", b.dataset.view === name);
+  paintViews(name);
   $("main").hidden = name !== "images";
   $("folders-main").hidden = name !== "folders";
   $("saves-main").hidden = name !== "saves";
@@ -2991,6 +3030,96 @@ $("views").onclick = (event) => {
   const button = event.target.closest("button[data-view]");
   if (button) { showView(button.dataset.view); window.scrollTo(0, 0); }
 };
+
+// ------------------------------------------------------------------ en-tête : vues, clients, menu
+// Indicateur qui glisse derrière le choix actif d'un groupe à pastille (.seg > .ind)
+function placeInd(seg) {
+  const ind = seg.querySelector(":scope > .ind"), on = seg.querySelector(":scope > button.on");
+  if (!ind) return;
+  ind.hidden = !on;
+  if (!on) return;
+  ind.style.left = `${on.offsetLeft}px`;
+  ind.style.width = `${on.offsetWidth}px`;
+  requestAnimationFrame(() => seg.classList.add("ready"));   // pas d'animation à la première pose
+}
+function paintViews(name) {
+  for (const b of $("views").querySelectorAll("button[data-view]")) {
+    const on = b.dataset.view === name;
+    b.classList.toggle("on", on);
+    if (on) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+  }
+  placeInd($("views"));
+}
+new ResizeObserver(() => placeInd($("views"))).observe($("views"));
+new ResizeObserver(() => placeInd($("client-seg"))).observe($("client-seg"));
+
+// Clients associés : un bouton par client, puis « Toutes » ; le choix reste d'une visite à l'autre
+const CLIENT_KEY = "wsfs-client";
+let clientsSig = "";
+function clientList() {
+  return (inst.loaded ? inst.machines : sv.machines).map((m) => ({ id: m.id, name: m.name, ok: Boolean(m.ok),
+    free: inst.machines.find((x) => x.id === m.id)?.free ?? null }));
+}
+function paintClients() {
+  const list = connected() ? clientList() : [];
+  $("clients").hidden = !list.length;
+  if (!list.length) return;
+  const seg = $("client-seg");
+  const known = (id) => id === "all" || list.some((c) => c.id === id);
+  if (!known(state.client)) state.client = known(storage.get(CLIENT_KEY)) ? storage.get(CLIENT_KEY) : list[0].id;
+  const sig = JSON.stringify(list.map((c) => [c.id, c.name, c.ok]));
+  if (sig !== clientsSig) {
+    clientsSig = sig;
+    const choices = [...list, { id: "all", name: "Toutes", ok: null }];
+    seg.replaceChildren(el("span", { className: "ind", ariaHidden: "true" }), ...choices.map((c) => {
+      const b = el("button", { type: "button", role: "radio",
+        title: c.ok === null ? `${list.length} clients` : `${c.name} : ${c.ok ? "en ligne" : "hors ligne"}` },
+        c.ok === null ? null : el("span", { className: `dot${c.ok ? " ok" : ""}` }), el("span", { textContent: c.name }));
+      b.dataset.client = c.id;
+      return b;
+    }));
+  }
+  for (const b of seg.querySelectorAll("button[data-client]")) {
+    const on = b.dataset.client === state.client;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-checked", String(on));
+  }
+  placeInd(seg);
+  const c = state.client === "all" ? null : list.find((x) => x.id === state.client);
+  const text = !c ? `${list.length} client${list.length > 1 ? "s" : ""}` : !c.ok ? "Hors ligne" : c.free ? `${bigSize(c.free)} libres` : "En ligne";
+  const info = $("client-info");
+  if (info.textContent !== text) {
+    info.textContent = text;
+    info.classList.remove("fade");
+    void info.offsetWidth;
+    info.classList.add("fade");
+  }
+}
+$("client-seg").onclick = (event) => {
+  const b = event.target.closest("button[data-client]");
+  if (!b) return;
+  state.client = b.dataset.client;
+  storage.set(CLIENT_KEY, state.client);
+  paintClients();
+};
+
+// Menu ⚙ : Réglages, Actualiser (avec l'âge du dernier chargement), Aide
+function paintRefreshAgo() {
+  const min = state.loadedAt ? Math.floor((Date.now() - state.loadedAt) / 60000) : null;
+  $("refresh-ago").textContent = min === null ? "" : min < 1 ? "à l'instant" : `il y a ${min} min`;
+}
+function setTopMenu(open) {
+  $("top-menu").hidden = !open;
+  $("btn-menu").setAttribute("aria-expanded", String(open));
+  if (open) { paintRefreshAgo(); setTasksOpen(false); }
+}
+$("btn-menu").onclick = (event) => { event.stopPropagation(); setTopMenu($("top-menu").hidden); };
+$("top-menu").addEventListener("click", (event) => { if (event.target.closest("button")) setTopMenu(false); });
+document.addEventListener("click", (event) => {
+  if (!$("top-menu").hidden && !event.target.closest("#top-menu, #btn-menu")) setTopMenu(false);
+});
+document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !$("top-menu").hidden) setTopMenu(false); });
+$("menu-help").onclick = () => { showView("help"); window.scrollTo(0, 0); };
 
 // ------------------------------------------------------------------ aide
 // Fragment assets/help.html : une page à la fois (menu de gauche) ; la
@@ -3453,6 +3582,7 @@ async function loadInstall() {
 function paintInstall() {
   if (state.items.length && !$("main").hidden) renderLibrary();   // filtre, pastilles
   renderInstBox();
+  paintClients();
   paintInstDialog();
 }
 

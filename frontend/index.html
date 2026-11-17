@@ -81,42 +81,55 @@
     <div class="logo"><svg class="ico"><use href="#i-layers"/></svg></div>
     <div class="name">wsquashfs</div>
   </div>
-  <nav class="views" id="views">
-    <button data-view="saves" class="active" data-connected title="Sauvegardes entre clients"><svg class="ico"><use href="#i-save"/></svg><span>Sauvegardes</span><span class="count" id="count-saves"></span></button>
-    <button data-view="images" title="Images"><svg class="ico"><use href="#i-layers"/></svg><span>Images</span><span class="count" id="count-images"></span></button>
-    <button data-view="folders" title="Dossiers"><svg class="ico"><use href="#i-package"/></svg><span>Dossiers</span><span class="count" id="count-folders"></span></button>
-    <button data-view="help" title="Aide : images, autorun.cmd, lanceur"><svg class="ico"><use href="#i-book"/></svg><span>Aide</span></button>
+  <nav class="views seg" id="views" aria-label="Sections">
+    <span class="ind" aria-hidden="true"></span>
+    <button data-view="saves" data-connected title="Sauvegardes entre clients">Sauvegardes<span class="count" id="count-saves"></span></button>
+    <button data-view="images" title="Images">Images<span class="count" id="count-images"></span></button>
+    <button data-view="folders" title="Dossiers">Dossiers<span class="count" id="count-folders"></span></button>
   </nav>
+  <span class="vsep" aria-hidden="true"></span>
+  <div class="clients" id="clients" hidden>
+    <div class="seg" id="client-seg" role="radiogroup" aria-label="Client affiché"></div>
+    <span class="client-info" id="client-info"></span>
+  </div>
   <span id="status"></span>
   <span class="spacer"></span>
-  <div class="top-actions">
-    <button class="iconbtn bare lg" id="btn-refresh" title="Actualiser : relit les images ajoutées ou modifiées (les autres viennent du cache)"><svg class="ico lg"><use href="#i-refresh"/></svg></button>
-    <button class="iconbtn bare lg" id="btn-config" title="Réglages : mode, systèmes, tâches de nuit, lanceur, illustrations" aria-label="Réglages"><svg class="ico lg"><use href="#i-settings"/></svg></button>
+  <div class="tasks-wrap">
+    <button class="taskpill" id="btn-tasks" title="File de tâches" aria-expanded="false" aria-controls="tasks-panel">
+      <span class="spinner"></span><svg class="ico idle"><use href="#i-tasks"/></svg><span class="lbl" id="tasks-label"></span><span class="fail" id="tasks-fail" hidden></span>
+    </button>
+    <section id="tasks-panel" hidden>
+      <div class="head"><strong>Tâches</strong><span class="muted" id="tasks-summary"></span>
+        <button class="btn bare sm" id="tasks-clear" title="Retire les tâches terminées de la liste (le journal de chaque image est conservé)"><svg class="ico sm"><use href="#i-trash"/></svg>Effacer les terminées</button>
+        <button class="iconbtn bare sm" id="tasks-close" title="Fermer" aria-label="Fermer"><svg class="ico sm"><use href="#i-x"/></svg></button></div>
+      <div class="tasks-list" id="tasks-list"></div>
+    </section>
+  </div>
+  <div class="menu-wrap">
+    <button class="iconbtn bare lg" id="btn-menu" title="Menu : réglages, actualiser, aide" aria-label="Menu : réglages, actualiser, aide" aria-haspopup="menu" aria-expanded="false" aria-controls="top-menu"><svg class="ico lg"><use href="#i-settings"/></svg></button>
+    <div class="menu" id="top-menu" role="menu" hidden>
+      <button role="menuitem" class="menu-item" id="btn-config" title="Réglages : mode, systèmes, tâches de nuit, lanceur, illustrations"><svg class="ico"><use href="#i-settings"/></svg>Réglages</button>
+      <button role="menuitem" class="menu-item" id="btn-refresh" title="Actualiser : relit les images ajoutées ou modifiées (les autres viennent du cache)"><svg class="ico"><use href="#i-refresh"/></svg><span>Actualiser</span><span class="ago" id="refresh-ago"></span></button>
+      <button role="menuitem" class="menu-item" id="menu-help" title="Aide : images, autorun.cmd, lanceur"><svg class="ico"><use href="#i-book"/></svg>Aide</button>
+    </div>
   </div>
 </header>
-
-<!-- File de tâches : bouton et panneau flottants, en bas à droite -->
-<div class="dock" id="dock">
-  <section id="tasks-panel" hidden>
-    <div class="head"><strong>Tâches</strong><span class="muted" id="tasks-summary"></span>
-      <button class="btn bare sm" id="tasks-clear" title="Retire les tâches terminées de la liste (le journal de chaque image est conservé)"><svg class="ico sm"><use href="#i-trash"/></svg>Effacer les terminées</button>
-      <button class="iconbtn bare sm" id="tasks-close" title="Fermer" aria-label="Fermer"><svg class="ico sm"><use href="#i-x"/></svg></button></div>
-    <div class="tasks-list" id="tasks-list"></div>
-  </section>
-  <button class="taskbtn" id="btn-tasks" title="File de tâches" aria-expanded="false" aria-controls="tasks-panel">
-    <span class="spinner"></span><svg class="ico idle"><use href="#i-tasks"/></svg><span class="lbl">Tâches</span><span class="count" id="tasks-count"></span><span class="fail" id="tasks-fail" hidden></span><svg class="ico sm chev"><use href="#i-chev"/></svg>
-  </button>
-</div>
 
 <!-- ================================================================ Images -->
 <main id="main" class="images" hidden>
   <section class="lib">
     <div id="recovery"></div>
     <div class="notice info lib-loading" id="lib-loading" role="status" hidden></div>
-    <div class="stats" id="stats"></div>
+    <div class="lib-head">
+      <h1 class="lib-title"><span id="lib-count"></span><span class="lib-size" id="lib-size"></span></h1>
+      <span class="vsep" aria-hidden="true"></span>
+      <span class="todo-label" id="todo-label" hidden>À traiter</span>
+      <div class="todo" id="todo"></div>
+    </div>
     <div class="toolbar">
       <label class="search"><svg class="ico"><use href="#i-search"/></svg><input type="search" id="f-search" placeholder="Jeu, commande, version…"></label>
       <div class="filters" id="filters"></div>
+      <button type="button" class="filter-clear" id="filter-clear" hidden><span id="filter-clear-label"></span><svg class="ico sm"><use href="#i-x"/></svg></button>
       <span class="spacer"></span>
       <span id="visible-count"></span>
       <div class="pills icons" id="layout">
@@ -124,7 +137,7 @@
         <button data-layout="grid" title="Jaquettes" aria-label="Jaquettes"><svg class="ico sm"><use href="#i-grid"/></svg></button>
       </div>
     </div>
-    <div class="glist" id="list">
+    <div class="glist ilist" id="list">
       <div class="grow head" id="thead"></div>
       <div id="rows"></div>
     </div>
