@@ -2128,6 +2128,67 @@ def test_resolve_task_pushes_to_clients_that_are_behind(agents, tmp_path):
     assert saves.conflict_versions(settings, "Jeu") == []
 
 
+def test_resolve_keep_manager_without_stored_version_sends_it_to_the_client(agents, tmp_path):
+    b, settings, bid = one_auto(agents, tmp_path, {"Jeu": (gz("local"), None, 500)})
+    store_v(settings, "Jeu", "manager")                              # base inconnue, copie plus ancienne
+    row = saves.status(settings, ["Jeu"])["games"][0]
+    assert row["machines"][0]["action"] == "conflit" and row["conflicts"] == [] and row["conflict"]
+    task = Task(id="r2", kind="saves", params={"op": "resolve", "game": "Jeu", "keep": "manager", "push": True})
+    saves.run_saves(settings, task, Job())
+    assert "recevra" in task.params["result"]["resolve"]["message"]
+    assert b["st"]["games"]["Jeu"]["data"] == gz("manager")
+    after = saves.status(settings, ["Jeu"], refresh=True)["games"][0]
+    assert after["machines"][0]["action"] == "à jour" and not after["conflict"]
+
+
+def test_resolve_marks_the_client_as_behind_before_pushing(agents, tmp_path):
+    b, settings, bid = one_auto(agents, tmp_path, {"Jeu": (gz("local"), None, 500)})
+    store_v(settings, "Jeu", "manager")
+    result = saves.resolve(settings, "Jeu", "manager")
+    assert result["ok"] and result["behind"] == [bid]
+    assert saves.machine_state(settings, "Jeu", bid) == fp_of(gz("local"))
+    assert saves.status(settings, ["Jeu"])["games"][0]["machines"][0]["action"] == "descendre"
+
+
+def test_resolve_keep_client_makes_its_copy_current(agents, tmp_path):
+    b, settings, bid = one_auto(agents, tmp_path, {"Jeu": (gz("local"), None, 500)})
+    store_v(settings, "Jeu", "manager")
+    result = saves.resolve(settings, "Jeu", f"client:{bid}")
+    assert result["ok"] and "retenue" in result["message"]
+    d = saves.reserve_dir(settings, "Jeu")
+    assert (d / "current.tar.gz").read_bytes() == gz("local")
+    assert [(d / f"{n}.tar.gz").read_bytes() for n in saves.archives(settings, "Jeu")] == [gz("manager")]
+    assert saves.machine_state(settings, "Jeu", bid) == fp_of(gz("local"))
+    after = saves.status(settings, ["Jeu"], refresh=True)["games"][0]
+    assert after["machines"][0]["action"] == "à jour" and not after["conflict"]
+
+
+def test_resolve_keep_client_needs_a_reachable_client_with_the_game(agents, tmp_path):
+    b, settings, bid = one_auto(agents, tmp_path, {})
+    store_v(settings, "Jeu", "manager")
+    with pytest.raises(RebuildError, match="n'a pas ce jeu"):
+        saves.resolve(settings, "Jeu", f"client:{bid}")
+    with pytest.raises(RebuildError, match="client inconnu"):
+        saves.resolve(settings, "Jeu", "client:inconnu")
+    b["st"]["token"] = "autre"
+    with pytest.raises(RebuildError, match="injoignable"):
+        saves.resolve(settings, "Jeu", f"client:{bid}")
+
+
+def test_resolve_with_nothing_to_settle_is_ok(agents, tmp_path):
+    b, settings, bid = one_auto(agents, tmp_path, {"Jeu": (gz("manager"), None, 900)})
+    store_v(settings, "Jeu", "manager")
+    result = saves.resolve(settings, "Jeu", "manager")
+    assert result["ok"] and result["message"] == "rien à départager"
+
+
+def test_api_resolve_refuses_an_unknown_client(api):
+    client, settings, _ = api
+    store_v(settings, "Jeu", "manager")
+    response = client.post("/api/saves/resolve", json={"game": "Jeu", "keep": "client:fantome"})
+    assert response.status_code == 422 and "client inconnu" in response.json()["detail"]
+
+
 def test_status_exposes_action_content_and_conflicts(agents, tmp_path):
     b, settings, bid = one_auto(agents, tmp_path, {"Jeu": (gz("v1"), None, 100), "Autre": (gz("x"), None, 5)},
                                 contents={"Jeu": "c" * 64})

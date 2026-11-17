@@ -582,23 +582,48 @@ def store_conflict(settings: Settings, game: str, part: Path, *, machine_id: str
 
 
 def resolve(settings: Settings, game: str, keep: str, job: Job | None = None) -> dict:
-    """Départage les versions de conflit d'un jeu. `keep` : « manager » (la version courante
-    reste) ou le nom d'une version de conflit (elle devient la courante ; l'ancienne courante est
-    archivée comme lors d'un remplacement). Les autres versions de conflit deviennent des versions
-    datées normales (puis _prune). Le client dont la copie n'a pas été retenue est noté « à
-    l'empreinte de sa copie » : il apparaît alors en retard et reçoit la version du manager à la
-    synchro suivante (au lieu de repasser en conflit). RebuildError si `keep` est inconnu."""
+    """Départage un jeu en conflit. `keep` : « manager » (la version courante reste), le nom d'une
+    version de conflit rangée (elle devient la courante ; l'ancienne courante est archivée comme
+    lors d'un remplacement) ou « client:<id> » (la copie actuelle de ce client est récupérée et
+    devient la courante). Les autres versions de conflit deviennent des versions datées normales
+    (puis _prune). Tout client encore en conflit après relecture (action « conflit », qu'une
+    version soit rangée ou non) et dont la copie n'a pas été retenue est noté « à l'empreinte de sa
+    copie » : il apparaît alors en retard et reçoit la version du manager à la synchro suivante (au
+    lieu de repasser en conflit). Rien à départager : ok, sans rien changer. RebuildError si `keep`
+    est inconnu, ou si le client choisi est injoignable ou n'a pas le jeu."""
     check_game(game)
+    entries = status(settings, [game], refresh=True)["games"]
+    machines = entries[0]["machines"] if entries else []
+    conflicted = {m["id"]: m for m in machines if m["action"] == "conflit"}
+    names = {m["id"]: m["name"] for m in machines}
+    received = ""                                       # empreinte reçue du client choisi
+    client_id = keep[len("client:"):] if keep.startswith("client:") else ""
+    if client_id:
+        try:
+            find_machine(settings, client_id)
+        except KeyError:
+            raise RebuildError(f"client inconnu : {client_id}") from None
+        row = next((m for m in machines if m["id"] == client_id), None)
+        if row is None or row["state"] == "injoignable":
+            raise RebuildError(f"client injoignable : {(row or {}).get('name') or client_id}"
+                               + (f" ({row['message']})" if row and row["message"] else ""))
+        if row["state"] != "présente":
+            raise RebuildError(f"{row['name']} n'a pas ce jeu")
+        host = open_machine(settings, client_id)
+        got = _pull_one(settings, host, row["name"], game, _present_listing(host.saves_list()).get(game))
+        if not got["ok"]:
+            raise RebuildError(f"{row['name']} : {got['message']}")
+        received = got["fingerprint"]
     with STORE_LOCK:
         d = reserve_dir(settings, game)
         versions = conflict_versions(settings, game)
         chosen = None
-        if keep != "manager":
+        if keep != "manager" and not client_id:
             chosen = next((v for v in versions if v["name"] == keep), None)
             if chosen is None:
                 raise RebuildError(f"version de conflit inconnue : {keep}")
-        elif not versions:
-            return {"ok": True, "message": "aucune version de conflit", "kept": "manager", "archived": []}
+        elif keep == "manager" and not versions and not conflicted:
+            return {"ok": True, "message": "rien à départager", "kept": "manager", "archived": [], "behind": []}
         current, meta_path = d / CURRENT, d / META
         if chosen is not None:
             prior = reserve_meta(settings, game) or {}
@@ -640,11 +665,27 @@ def resolve(settings: Settings, game: str, keep: str, job: Job | None = None) ->
                 os.replace(d / f"{version['name']}.json", d / f"{stamp}.json")
             archived.append(f"{stamp}.tar.gz")
             record_state(settings, game, version["machine_id"], version["fingerprint"])
+        behind = []
+        for machine_id, row in conflicted.items():
+            if machine_id == client_id or (chosen is not None and machine_id == chosen["machine_id"]):
+                continue
+            record_state(settings, game, machine_id, row["fingerprint"])
+            behind.append(machine_id)
+        if client_id:
+            record_state(settings, game, client_id, received)
         fsync_dir(d)
         _prune(d)
-    where = "version du manager gardée" if chosen is None else f"version de {chosen['source'] or chosen['machine_id']} retenue"
+    if client_id:
+        where = f"version de {names.get(client_id) or client_id} retenue"
+    elif chosen is None:
+        where = "version du manager gardée"
+    else:
+        where = f"version de {chosen['source'] or chosen['machine_id']} retenue"
+    if behind:
+        who = " et ".join(names.get(m) or m for m in behind)
+        where += f" ; {who} {'recevra' if len(behind) == 1 else 'recevront'} cette version"
     return {"ok": True, "message": f"{where} ; {len(archived)} version(s) de conflit archivée(s)",
-            "kept": keep, "archived": archived}
+            "kept": keep, "archived": archived, "behind": behind}
 
 
 def remove_from_manager(settings: Settings, game: str) -> dict:
@@ -1445,7 +1486,7 @@ def run_saves(settings: Settings, task: Task, job: Job) -> str:
     """Gestionnaire de la tâche « saves » (file de tâches, comme la vérification).
     params : {op: pull|pull_auto|push|push_from|push_auto|delete|resolve, source?, targets?, games (liste ou null = tous)} ;
     delete : {machines (ids), manager (bool), games (liste)} ;
-    resolve : {game, keep (« manager » ou version de conflit), push (bool)}.
+    resolve : {game, keep (« manager », version de conflit ou « client:<id> »), push (bool)}.
     Le résultat détaillé est gardé dans params.result ; un échec partiel fait
     échouer la tâche (le détail reste lisible)."""
     p = task.params

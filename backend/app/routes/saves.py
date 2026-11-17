@@ -147,17 +147,22 @@ def saves_delete(body: SavesDelete):
 
 class SavesResolve(BaseModel):
     game: str = Field(min_length=1, max_length=200)
-    keep: str = Field(min_length=1, max_length=300)     # « manager » ou le nom d'une version de conflit
+    keep: str = Field(min_length=1, max_length=300)     # « manager », le nom d'une version de conflit ou « client:<id> »
     push: bool = True                                   # ensuite, envoyer aux clients qui ne sont pas à jour
 
 
 @router.post("/api/saves/resolve")
 def saves_resolve(body: SavesResolve):
-    """Départage les versions de conflit d'un jeu : garde la version du manager ou en retient une
-    (tâche « saves »). 422 si le jeu ou la version est inconnu."""
+    """Départage les versions de conflit d'un jeu : garde la version du manager, en retient une ou prend la copie d'un
+    client (« client:<id> ») (tâche « saves »). 422 si le jeu, la version ou le client est inconnu."""
     if not saves_svc.valid_game(body.game):
         raise HTTPException(status_code=422, detail=f"nom de jeu invalide : {body.game}")
-    if body.keep != "manager" and body.keep not in {v["name"] for v in saves_svc.conflict_versions(deps._settings, body.game)}:
+    if body.keep.startswith("client:"):
+        try:
+            saves_svc.find_machine(deps._settings, body.keep[len("client:"):])
+        except KeyError:
+            raise HTTPException(status_code=422, detail=f"client inconnu : {body.keep[len('client:'):]}") from None
+    elif body.keep != "manager" and body.keep not in {v["name"] for v in saves_svc.conflict_versions(deps._settings, body.game)}:
         raise HTTPException(status_code=422, detail=f"version de conflit inconnue : {body.keep}")
     params = {"op": "resolve", "game": body.game, "keep": body.keep, "push": body.push}
     title = f"sauvegardes : départager {body.game} ({'manager' if body.keep == 'manager' else 'version retenue'})"

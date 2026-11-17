@@ -4,7 +4,8 @@ import { $, el, icon, size, when } from "./core.js";
 import { busy, dayText, gameLabel, machineName } from "./saves.js";
 import { runSaveOp } from "./saves-ops.js";
 
-// Candidats d'un jeu : la copie du manager (si elle existe), puis chaque version de conflit
+// Candidats d'un jeu : la copie du manager (si elle existe), puis chaque version de conflit rangée,
+// puis chaque client en conflit dont la copie n'est pas déjà rangée (même empreinte)
 function candidates(g) {
   const list = [];
   if (g.reserve) {
@@ -12,6 +13,11 @@ function candidates(g) {
   }
   for (const c of g.conflicts || []) {
     list.push({ keep: c.name, origin: (c.machine_id && machineName(c.machine_id)) || c.source || c.name, newest: c.newest, size: c.size, iconName: "save" });
+  }
+  const stored = new Set((g.conflicts || []).map((c) => `${c.machine_id}:${String(c.fingerprint || "").toLowerCase()}`));
+  for (const m of g.machines || []) {
+    if (m.action !== "conflit" || stored.has(`${m.id}:${String(m.fingerprint || "").toLowerCase()}`)) continue;
+    list.push({ keep: `client:${m.id}`, origin: m.name || machineName(m.id), newest: m.newest, size: m.size, iconName: "save" });
   }
   const top = Math.max(0, ...list.map((c) => c.newest || 0));
   return list.map((c) => ({ ...c, latest: list.length > 1 && top > 0 && c.newest === top }));
