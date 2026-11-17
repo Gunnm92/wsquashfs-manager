@@ -34,7 +34,7 @@ from .services import install as install_svc
 from .services import machine_api, scan
 from .services import saves as saves_svc
 from .services.analyze import FolderAnalysis, add_local_game, analyze_folder, analyze_image, report
-from .services.artwork import artwork, switch_artwork
+from .services.artwork import artwork, forget_steam_cache, switch_artwork
 from .services.autorun import (
     KEY_HELP,
     KEY_NAME_RE,
@@ -470,6 +470,8 @@ def _with_task_state(info: ImageInfo) -> ImageInfo:
 @app.get("/api/library", response_model=list[ImageInfo])
 def library(refresh: bool = False):
     """Ludothèque : toutes les images des dossiers roms/, avec cache."""
+    if refresh:
+        forget_steam_cache(_settings)
     return [_with_task_state(info) for info in _refresh_library(force=refresh)]
 
 
@@ -521,12 +523,20 @@ def recovery_restore(body: RecoveryRestore):
     return {"restored": str(image)}
 
 
+@app.post("/api/image/art/forget")
+def image_art_forget():
+    """Actualiser : les illustrations Steam sont relues au prochain affichage."""
+    forget_steam_cache(_settings)
+    return {"ok": True}
+
+
 @app.get("/api/image/art")
-def image_art(id: str):
-    """Illustration de la fiche : jaquette d'ES, sinon icône de l'exécutable.
-    L'en-tête X-Art-Kind dit laquelle (« es » ou « icon »)."""
+def image_art(id: str, kind: Literal["cover", "icon"] = "cover"):
+    """Illustration : Steam (Steam ROM Manager) d'abord, puis jaquette d'ES, puis icône de
+    l'exécutable. `kind` : « cover » (jaquette) ou « icon » (vignette). L'en-tête X-Art-Kind
+    dit la source (« steam », « es » ou « icon »)."""
     info = _find_image(id)
-    art = artwork(_settings, info.path, info.cmd, info.dir)
+    art = artwork(_settings, info.path, info.cmd, info.dir, kind)
     if art is None:
         raise HTTPException(status_code=404, detail="aucune illustration")
     return FileResponse(art.path, media_type=art.media_type,

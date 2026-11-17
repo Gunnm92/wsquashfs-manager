@@ -1,5 +1,7 @@
 """Illustration d'un jeu pour la fiche.
 
+0. Illustration Steam (Steam ROM Manager) : demandée aux machines de la
+   synchronisation (cache dans `<state_dir>/art/steam`, voir steam_artwork) ;
 1. Jaquette d'EmulationStation : `gamelist.xml` du dossier du système
    (vignette, boîte, puis capture), à défaut `images/<jeu>-thumb.png`… — le
    chemin doit rester dans le dossier du système ;
@@ -11,21 +13,26 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import struct
 import subprocess
 import tempfile
 import threading
+import time
 import xml.etree.ElementTree as ET
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+import httpx
 import pefile
 
 from ..config import Settings, work_area
 from .autorun import exe_from_cmd, normalize_path
+from .rebuild import RebuildError
+from .saves import game_host_machine, machine_rows, open_machine
 
 # Ordre de préférence des médias d'ES : une boîte ou une vignette rend mieux
 # qu'une capture d'écran dans une vignette carrée
@@ -44,7 +51,7 @@ _locks_guard = threading.Lock()
 class Artwork:
     path: Path
     media_type: str
-    kind: str           # "es" (jaquette) | "icon" (icône de l'exécutable)
+    kind: str           # "steam" (Steam ROM Manager) | "es" (jaquette) | "icon" (icône de l'exécutable)
 
 
 # ------------------------------------------------------------------ ES
@@ -251,5 +258,158 @@ def exe_icon(settings: Settings, image: Path, cmd: str | None, dir_: str | None)
         return Artwork(out, media, "icon")
 
 
-def artwork(settings: Settings, image: Path, cmd: str | None, dir_: str | None) -> Artwork | None:
-    return es_artwork(image) or exe_icon(settings, image, cmd, dir_)
+# ------------------------------------------------------------------ Steam (machines)
+# Illustration posée dans Steam par Steam ROM Manager, lue sur la machine (agent v10,
+# GET /v1/games/art). Source prioritaire : jaquette d'ES et icône viennent ensuite.
+
+STEAM_TTL = 600         # s : au-delà, la machine est réinterrogée (If-None-Match)
+STEAM_DOWN = 60         # s : machine injoignable, pas réinterrogée avant ce délai
+STEAM_TIMEOUT = 5       # s
+_STEAM_EXT = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp",
+              "image/x-icon": ".ico"}
+_steam_down: dict[str, float] = {}     # machine id -> instant où la réinterroger
+
+
+def _steam_dir(settings: Settings) -> Path:
+    return settings.state_dir / "art" / "steam"
+
+
+def _read_meta(path: Path) -> dict | None:
+    try:
+        meta = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    return meta if isinstance(meta, dict) else None
+
+
+def _write_atomic(path: Path, data: bytes | str) -> None:
+    tmp = path.with_name(path.name + ".part")
+    if isinstance(data, str):
+        tmp.write_text(data)
+    else:
+        tmp.write_bytes(data)
+    os.replace(tmp, path)
+
+
+def _steam_hit(base: Path, key: str, meta: dict) -> Artwork | None:
+    media = meta.get("media_type", "")
+    path = base / f"{key}{_STEAM_EXT.get(media, '.img')}"
+    return Artwork(path, media, "steam") if path.is_file() else None
+
+
+def _steam_fresh(base: Path, key: str, now: float) -> tuple[bool, Artwork | None]:
+    """(vrai si le cache répond sans interroger de machine, illustration ou None)."""
+    meta = _read_meta(base / f"{key}.json")
+    if meta and now - float(meta.get("checked", 0)) < STEAM_TTL and (art := _steam_hit(base, key, meta)):
+        return True, art
+    none = base / f"{key}.none"
+    if none.is_file():
+        try:
+            checked = float(none.read_text())
+        except ValueError:
+            checked = 0.0
+        if now - checked < STEAM_TTL:
+            return True, None
+    return False, None
+
+
+def _drop_steam_files(base: Path, key: str) -> None:
+    for old in base.glob(f"{key}.*"):
+        old.unlink(missing_ok=True)
+
+
+def forget_steam_cache(settings: Settings) -> None:
+    """Actualiser : tout le cache Steam est à revalider au prochain appel (les illustrations
+    modifiées dans Steam sont alors relues ; une absence est à nouveau demandée)."""
+    base = _steam_dir(settings)
+    if not base.is_dir():
+        return
+    for meta_file in base.glob("*.json"):
+        meta = _read_meta(meta_file)
+        if meta is not None:
+            meta["checked"] = 0
+            _write_atomic(meta_file, json.dumps(meta))
+    for none in base.glob("*.none"):
+        none.unlink(missing_ok=True)
+    _steam_down.clear()
+
+
+def _steam_fetch(settings: Settings, image: Path, kind: str, key: str, ids: list[str]) -> Artwork | None:
+    base = _steam_dir(settings)
+    base.mkdir(parents=True, exist_ok=True)
+    meta_path = base / f"{key}.json"
+    meta = _read_meta(meta_path) or {}
+    stale = _steam_hit(base, key, meta) if meta else None
+    answered_absent = True          # toutes les machines joignables répondent 404
+    unreachable = False
+    for machine in ids:
+        now = time.time()
+        if _steam_down.get(machine, 0.0) > now:
+            unreachable = True
+            continue
+        # L'ETag ne vaut que pour la machine qui l'a donné
+        etag = meta.get("etag", "") if machine == meta.get("machine") else ""
+        host = None
+        try:
+            host = open_machine(settings, machine, timeout=STEAM_TIMEOUT)
+            got = host.games_art(image.name, kind, etag=etag, timeout=STEAM_TIMEOUT)
+        except (RebuildError, httpx.HTTPError, OSError, ValueError):
+            _steam_down[machine] = time.time() + STEAM_DOWN
+            unreachable = True
+            answered_absent = False
+            continue
+        finally:
+            if host is not None:
+                host.client.close()
+        if got is None:
+            continue                                  # 404 : Steam n'a rien sur cette machine
+        media, data, new_etag = got
+        if media == "not-modified":
+            if stale is not None:
+                _write_atomic(meta_path, json.dumps({**meta, "checked": now}))
+                return stale
+            answered_absent = False
+            continue
+        if not media.startswith("image/") or not data:
+            answered_absent = False
+            continue
+        _drop_steam_files(base, key)
+        path = base / f"{key}{_STEAM_EXT.get(media, '.img')}"
+        _write_atomic(path, data)
+        _write_atomic(meta_path, json.dumps({"etag": new_etag, "machine": machine,
+                                             "media_type": media, "checked": now}))
+        return Artwork(path, media, "steam")
+    if unreachable or not answered_absent:
+        # Pas de réponse sûre : on sert ce qui est en cache, sinon rien (repli ES / icône)
+        return stale
+    _drop_steam_files(base, key)
+    _write_atomic(base / f"{key}.none", str(time.time()))
+    return None
+
+
+def steam_artwork(settings: Settings, image: Path, kind: str = "cover") -> Artwork | None:
+    """Illustration Steam du jeu (`kind` : "cover" ou "icon"), d'abord de la machine d'essai
+    puis des autres machines associées. Cache : servi tel quel moins de STEAM_TTL secondes
+    après la dernière vérification, sinon revalidé (ETag) ; absence mise en cache aussi."""
+    host = game_host_machine(settings)
+    ids = [host] if host else []
+    ids += [row["id"] for row in machine_rows(settings) if row["id"] not in ids]
+    if not ids:
+        return None
+    base = _steam_dir(settings)
+    key = hashlib.sha1(f"{image.name.lower()}|{kind}".encode()).hexdigest()
+    fresh, art = _steam_fresh(base, key, time.time())
+    if fresh:
+        return art
+    with _locks_guard:
+        lock = _locks.setdefault(f"steam:{key}", threading.Lock())
+    with lock:
+        fresh, art = _steam_fresh(base, key, time.time())
+        if fresh:
+            return art
+        return _steam_fetch(settings, image, kind, key, ids)
+
+
+def artwork(settings: Settings, image: Path, cmd: str | None, dir_: str | None,
+            kind: str = "cover") -> Artwork | None:
+    return steam_artwork(settings, image, kind) or es_artwork(image) or exe_icon(settings, image, cmd, dir_)

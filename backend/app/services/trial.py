@@ -575,8 +575,29 @@ class AgentHost:
                            conflict="jeu monté ou en cours : suppression refusée",
                            params={"name": name}).json()
 
+    def games_art(self, name: str, kind: str, etag: str = "", timeout: float = 10):
+        """Illustration Steam d'un jeu (agent v10, GET /v1/games/art) : None si Steam n'en a pas
+        (404), ("not-modified", None, etag) si l'ETag correspond (304), sinon
+        (type MIME, données, ETag). Une machine injoignable lève AgentUnreachable."""
+        headers = {**self._head()}
+        if etag:
+            headers["If-None-Match"] = etag
+        try:
+            response = self.client.request("GET", "/v1/games/art", timeout=timeout, headers=headers,
+                                           params={"name": name, "kind": kind})
+        except httpx.HTTPError as exc:
+            raise self._unreachable(exc) from exc
+        if response.status_code == 404:
+            return None
+        if response.status_code == 304:
+            return "not-modified", None, etag
+        if response.status_code >= 400:
+            raise self._games_error(response, None)
+        media = response.headers.get("content-type", "").split(";")[0].strip()
+        return media, response.content, response.headers.get("etag", "")
 
-GAME_HOST_LABELS = {"off": "désactivée", "local": "cette machine", "agent": "agent réseau"}
+
+GAME_HOST_LABELS ={"off": "désactivée", "local": "cette machine", "agent": "agent réseau"}
 
 
 def game_host(settings: Settings, timeout: float = 120) -> LocalHost | AgentHost:
