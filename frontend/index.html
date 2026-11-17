@@ -85,25 +85,28 @@
     <button data-view="saves" class="active" title="Sauvegardes entre machines"><svg class="ico"><use href="#i-save"/></svg><span>Sauvegardes</span><span class="count" id="count-saves"></span></button>
     <button data-view="images" title="Images"><svg class="ico"><use href="#i-layers"/></svg><span>Images</span><span class="count" id="count-images"></span></button>
     <button data-view="folders" title="Dossiers à empaqueter"><svg class="ico"><use href="#i-package"/></svg><span>Dossiers à empaqueter</span><span class="count" id="count-folders"></span></button>
+    <button data-view="help" title="Aide : images, autorun.cmd, lanceur"><svg class="ico"><use href="#i-book"/></svg><span>Aide</span></button>
   </nav>
   <span id="status"></span>
   <span class="spacer"></span>
-  <button class="taskbtn" id="btn-tasks" title="File de tâches" aria-expanded="false">
-    <span class="spinner"></span><svg class="ico idle"><use href="#i-tasks"/></svg><span class="lbl">Tâches</span><span class="count" id="tasks-count"></span><span class="fail" id="tasks-fail" hidden></span>
-  </button>
   <div class="top-actions">
     <button class="iconbtn bare lg" id="btn-refresh" title="Actualiser : relit les images ajoutées ou modifiées (les autres viennent du cache)"><svg class="ico lg"><use href="#i-refresh"/></svg></button>
-    <button class="iconbtn bare lg" id="btn-help" title="Aide : images, autorun.cmd, lanceur" aria-label="Aide" aria-pressed="false"><svg class="ico lg"><use href="#i-help"/></svg></button>
-    <button class="iconbtn bare lg" id="btn-config" title="Réglages : systèmes, tâches de nuit, lanceur"><svg class="ico lg"><use href="#i-settings"/></svg></button>
+    <button class="iconbtn bare lg" id="btn-config" title="Réglages : systèmes, tâches de nuit, lanceur" aria-label="Réglages"><svg class="ico lg"><use href="#i-settings"/></svg></button>
   </div>
 </header>
 
-<section id="tasks-panel" hidden>
-  <div class="head"><strong>Tâches</strong><span class="muted" id="tasks-summary"></span>
-    <button class="btn bare sm" id="tasks-clear" title="Retire les tâches terminées de la liste (le journal de chaque image est conservé)"><svg class="ico sm"><use href="#i-trash"/></svg>Effacer les terminées</button>
-    <button class="iconbtn bare sm" id="tasks-close" title="Fermer"><svg class="ico sm"><use href="#i-x"/></svg></button></div>
-  <div class="tasks-list" id="tasks-list"></div>
-</section>
+<!-- File de tâches : bouton et panneau flottants, en bas à droite -->
+<div class="dock" id="dock">
+  <section id="tasks-panel" hidden>
+    <div class="head"><strong>Tâches</strong><span class="muted" id="tasks-summary"></span>
+      <button class="btn bare sm" id="tasks-clear" title="Retire les tâches terminées de la liste (le journal de chaque image est conservé)"><svg class="ico sm"><use href="#i-trash"/></svg>Effacer les terminées</button>
+      <button class="iconbtn bare sm" id="tasks-close" title="Fermer" aria-label="Fermer"><svg class="ico sm"><use href="#i-x"/></svg></button></div>
+    <div class="tasks-list" id="tasks-list"></div>
+  </section>
+  <button class="taskbtn" id="btn-tasks" title="File de tâches" aria-expanded="false" aria-controls="tasks-panel">
+    <span class="spinner"></span><svg class="ico idle"><use href="#i-tasks"/></svg><span class="lbl">Tâches</span><span class="count" id="tasks-count"></span><span class="fail" id="tasks-fail" hidden></span><svg class="ico sm chev"><use href="#i-chev"/></svg>
+  </button>
+</div>
 
 <!-- ================================================================ Images -->
 <main id="main" class="images" hidden>
@@ -116,9 +119,9 @@
       <div class="filters" id="filters"></div>
       <span class="spacer"></span>
       <span id="visible-count"></span>
-      <div class="pills" id="layout">
-        <button data-layout="list"><svg class="ico sm"><use href="#i-list"/></svg>Liste</button>
-        <button data-layout="grid"><svg class="ico sm"><use href="#i-grid"/></svg>Jaquettes</button>
+      <div class="pills icons" id="layout">
+        <button data-layout="list" title="Liste" aria-label="Liste"><svg class="ico sm"><use href="#i-list"/></svg></button>
+        <button data-layout="grid" title="Jaquettes" aria-label="Jaquettes"><svg class="ico sm"><use href="#i-grid"/></svg></button>
       </div>
     </div>
     <div class="glist" id="list">
@@ -129,18 +132,18 @@
 
     <div class="selbar" id="selection" hidden>
       <span class="lbl" id="sel-count"></span>
-      <button class="btn primary sm" id="btn-mass"><svg class="ico sm"><use href="#i-pen"/></svg>Modifier l'autorun…</button>
-      <button class="btn soft sm" id="btn-files"><svg class="ico sm"><use href="#i-file"/></svg>Fichiers / registre…</button>
+      <button class="btn primary" id="btn-mass" title="Modifier l'autorun…"><svg class="ico sm"><use href="#i-pen"/></svg>Autorun</button>
+      <button class="btn soft" id="btn-files" title="Fichiers / registre…"><svg class="ico sm"><use href="#i-file"/></svg>Fichiers</button>
       <span class="sep"></span>
-      <button class="btn bare sm" id="btn-verify" title="Vérifier l'intégrité des images sélectionnées"><svg class="ico sm"><use href="#i-shield"/></svg>Vérifier</button>
-      <button class="btn bare sm" id="btn-cover" title="Ajoute l'illustration (miniature du gestionnaire de fichiers) aux images sélectionnées qui n'en ont pas, sans les reconstruire"><svg class="ico sm"><use href="#i-image"/></svg>Ajouter l'illustration</button>
-      <button class="btn bare sm" id="btn-mass-validate" title="Supprimer l'ancienne version (.old) des images sélectionnées"><svg class="ico sm"><use href="#i-check"/></svg>Valider les .old</button>
-      <button class="btn bare sm" id="btn-mass-commit" title="Reconstruit chaque image avec son autorun effectif, puis supprime la surcharge"><svg class="ico sm"><use href="#i-filepen"/></svg>Inscrire les surcharges</button>
-      <button class="btn bare sm" id="btn-saves-reset" title="Met de côté les sauvegardes (renommées, pas supprimées)"><svg class="ico sm"><use href="#i-save"/></svg>Réinitialiser les sauvegardes</button>
+      <button class="iconbtn bare lg" id="btn-verify" title="Vérifier" aria-label="Vérifier l'intégrité des images sélectionnées"><svg class="ico"><use href="#i-shield"/></svg></button>
+      <button class="iconbtn bare lg" id="btn-cover" title="Ajouter l'illustration" aria-label="Ajouter l'illustration aux images sélectionnées qui n'en ont pas, sans les reconstruire"><svg class="ico"><use href="#i-image"/></svg></button>
+      <button class="iconbtn bare lg" id="btn-mass-validate" title="Valider les .old" aria-label="Supprimer l'ancienne version (.old) des images sélectionnées"><svg class="ico"><use href="#i-check"/></svg></button>
+      <button class="iconbtn bare lg" id="btn-mass-commit" title="Inscrire les surcharges" aria-label="Reconstruire chaque image avec son autorun effectif, puis supprimer la surcharge"><svg class="ico"><use href="#i-filepen"/></svg></button>
+      <button class="iconbtn bare lg" id="btn-saves-reset" title="Réinitialiser les sauvegardes" aria-label="Mettre de côté les sauvegardes (renommées, pas supprimées)"><svg class="ico"><use href="#i-save"/></svg></button>
       <span class="sep"></span>
-      <button class="btn bare sm" id="btn-inst-install" title="Copie les images sélectionnées (.wsquashfs) dans le dossier des jeux des machines associées"><svg class="ico sm"><use href="#i-drive"/></svg>Installer sur…</button>
-      <button class="btn bare sm" id="btn-inst-uninstall" title="Retire les images sélectionnées (.wsquashfs) des machines associées ; elles restent dans la bibliothèque"><svg class="ico sm"><use href="#i-trash"/></svg>Désinstaller de…</button>
-      <button class="iconbtn bare sm" id="btn-sel-clear" title="Désélectionner"><svg class="ico sm"><use href="#i-x"/></svg></button>
+      <button class="iconbtn bare lg" id="btn-inst-install" title="Installer sur…" aria-label="Copier les images sélectionnées (.wsquashfs) dans le dossier des jeux des machines associées"><svg class="ico"><use href="#i-drive"/></svg></button>
+      <button class="iconbtn bare lg" id="btn-inst-uninstall" title="Désinstaller de…" aria-label="Retirer les images sélectionnées (.wsquashfs) des machines associées ; elles restent dans la bibliothèque"><svg class="ico"><use href="#i-trash"/></svg></button>
+      <button class="iconbtn bare lg" id="btn-sel-clear" title="Désélectionner" aria-label="Désélectionner"><svg class="ico"><use href="#i-x"/></svg></button>
     </div>
   </section>
 

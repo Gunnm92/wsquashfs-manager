@@ -163,7 +163,11 @@ function thumb(item, className = "thumb") {
 }
 // Actualiser (bouton de l'en-tête, déjà relié à loadLibrary) : nouvelle époque, le serveur
 // revalide l'illustration Steam de chaque jeu, les images affichées sont redemandées
+let refreshTurns = 0;
 $("btn-refresh").addEventListener("click", () => {
+  // Un tour complet à chaque clic (rotation cumulée, animée par la transition de .ico)
+  refreshTurns += 360;
+  $("btn-refresh").querySelector(".ico").style.transform = `rotate(${refreshTurns}deg)`;
   art.epoch++;
   art.cache.clear();
   art.done.clear();
@@ -472,7 +476,7 @@ function renderLibrary() {
     : emptyState("layers", "Aucune image", "Choisir les systèmes à gérer dans « Réglages ».");
   if (grid) {
     $("grid").replaceChildren(...visible.map((i) => {
-      const card = el("div", { className: "gcard" },
+      const card = el("div", { className: `gcard${state.selected.has(i.id) ? " selected" : ""}` },
         el("div", { className: "gart" }, thumb(i, "gcover"), selectBox(i), stateBadge(i), profileBadges(i), instPins(i)),
         el("div", { className: "meta" }, el("div", { className: "n", textContent: i.name, title: i.name }),
           el("div", { className: "sub" }, versionLabel(i), el("span", { textContent: size(i.size) }))));
@@ -495,7 +499,7 @@ function renderLibrary() {
     $("thead").replaceChildren(all, sortBtn("name", "Jeu"), el("span", { className: "c-profile", textContent: "Type et réglages" }),
       sortBtn("size", "Taille", "r"), sortBtn("saves_size", "Sauveg.", "r c-saves"), sortBtn("state", "État", "c-state"));
     $("rows").replaceChildren(...visible.map((i) => {
-      const row = el("div", { className: "grow item" },
+      const row = el("div", { className: `grow item${state.selected.has(i.id) ? " selected" : ""}` },
         selectBox(i),
         el("div", { className: "gname" }, thumb(i), el("div", { className: "t" },
           el("span", { className: "n", textContent: i.name, title: i.name }),
@@ -1309,9 +1313,10 @@ async function refreshTasks() {
   const nightly = active.filter((t) => t.status === "pending" && t.night).length;
   const summary = active.length ? `${active.length} tâche${active.length > 1 ? "s" : ""}${nightly ? ` · ${nightly} cette nuit` : ""}` : "Tâches";
   $("btn-tasks").classList.toggle("busy", running);
-  // Rien en cours ni en échec : le bouton se réduit à son icône
-  $("btn-tasks").classList.toggle("quiet", !active.length && !failed);
+  // Résumé du bouton flottant : nombre de tâches actives, puis ce qu'elles font
   $("tasks-count").textContent = active.length || "";
+  $("btn-tasks").querySelector(".lbl").textContent = running ? "en cours" : nightly && nightly === active.length ? "cette nuit"
+    : active.length ? "en attente" : "Tâches";
   $("tasks-fail").hidden = !failed;
   $("tasks-fail").textContent = `${failed} en échec`;
   $("btn-tasks").title = `File de tâches — ${summary}${failed ? `, ${failed} en échec` : ""}`;
@@ -2979,7 +2984,6 @@ async function applyRunner(id, sug, button) {
 
 // ------------------------------------------------------------------ vues
 
-let lastView = "images";       // vue à retrouver en refermant l'aide
 function showView(name) {
   document.body.dataset.view = name;
   for (const b of $("views").children) b.classList.toggle("active", b.dataset.view === name);
@@ -2987,9 +2991,6 @@ function showView(name) {
   $("folders-main").hidden = name !== "folders";
   $("saves-main").hidden = name !== "saves";
   $("help-main").hidden = name !== "help";
-  $("btn-help").classList.toggle("active", name === "help");
-  $("btn-help").setAttribute("aria-pressed", name === "help");
-  if (name !== "help") lastView = name;
   storage.set("wsfs-view", name);
   if (name === "folders") loadFolders();
   if (name === "saves") loadSaves();
@@ -3000,9 +3001,6 @@ function showView(name) {
 $("views").onclick = (event) => {
   const button = event.target.closest("button[data-view]");
   if (button) { showView(button.dataset.view); window.scrollTo(0, 0); }
-};
-$("btn-help").onclick = () => {
-  if ($("help-main").hidden) { showView("help"); window.scrollTo(0, 0); } else showView(lastView);
 };
 
 // ------------------------------------------------------------------ aide
