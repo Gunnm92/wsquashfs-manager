@@ -13,6 +13,16 @@ let hooks = { reload: async () => {}, cover: () => {}, pack: () => {} };
 
 export const currentFolder = () => panel.folder?.id ?? null;
 
+// État d'un dossier, commun à la liste et au panneau :
+// key (filtres), libellé, classe de pastille (liste), classe de la ligne d'état (panneau), rang de tri
+export function folderState(f) {
+  if (f.task === "running") return { key: "running", label: "En cours", cls: "in_use", st: "st accent", rank: 0 };
+  if (f.task) return { key: "queued", label: "En attente", cls: "in_use", st: "st accent", rank: 1 };
+  if (f.image_exists) return { key: "done", label: "Fait", cls: "ok", st: "st", rank: 4 };
+  return f.has_autorun ? { key: "todo", label: "À traiter", cls: "modified", st: "st accent", rank: 3 }
+    : { key: "noautorun", label: "À faire", cls: "has_old", st: "st warn", rank: 2 };
+}
+
 const dirty = () => panel.editing && panel.editor && panel.editor.text() !== panel.baseline;
 
 function confirmLeave() {
@@ -55,8 +65,7 @@ function paintHead() {
   art.id = "fd-cover-art";
   $("fd-cover-art").replaceWith(art);
   const sep = () => el("span", { className: "sep", textContent: "·" });
-  const [label, cls] = f.task ? [f.task === "running" ? "Compression en cours" : "Compression en file", "st accent"]
-    : f.image_exists ? ["Déjà compressé", "st"] : f.has_autorun ? ["Autorun prêt", "st accent"] : ["Sans autorun", "st warn"];
+  const { label, st: cls } = folderState(f);
   $("fd-status").replaceChildren(el("span", { className: cls, textContent: label }), sep(),
     el("span", { textContent: cap(f.system) || "—" }), sep(), el("span", { textContent: `.${f.kind}` }));
   $("fd-pack").disabled = Boolean(f.task || f.image_exists);

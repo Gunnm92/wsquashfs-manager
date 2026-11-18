@@ -7,7 +7,7 @@ import { forgetArt, thumb } from "./art.js";
 import { $, badge, cap, dotIc, el, emptyState, helpLink, hideAnimated, icon, showAnimated, size, stagger, storage } from "./core.js";
 import { notice, proposalItems } from "./detail/autorun.js";
 import { autorunEditor } from "./detail/kv-form.js";
-import { currentFolder, init as initFolderDetail, openFolder, refreshFolder } from "./folder-detail.js";
+import { currentFolder, folderState, init as initFolderDetail, openFolder, refreshFolder } from "./folder-detail.js";
 import { todoChip } from "./library.js";
 import { queued } from "./tasks.js";
 import { whenOf } from "./when.js";
@@ -34,22 +34,19 @@ export async function loadFolders() {
 function visibleFolders() {
   const q = $("g-search").value.trim().toLowerCase(), { system, state: st } = folders;
   return folders.items.filter((f) => (!q || f.folder.toLowerCase().includes(q)) && (!system || f.system === system)
-    && (st !== "todo" || !f.image_exists) && (st !== "done" || f.image_exists)
-    && (st !== "noautorun" || !f.has_autorun))
+    && (!st || folderState(f).key === st))
     .sort((a, b) => a.folder.localeCompare(b.folder, "fr", { numeric: true, sensitivity: "base" }));
 }
 
-// État d'un dossier : libellé et classe de pastille (.state), rang pour le tri
+// État d'un dossier (libellé, pastille, rang de tri) : folderState, commun avec le panneau
 function folderStatus(f) {
-  if (f.task) return f.task === "running" ? ["compression en cours", "in_use", 0] : ["en file", "in_use", 1];
-  // Avant compression, ce qui compte : l'autorun est-il prêt ?
-  if (f.image_exists) return ["déjà compressé", "ok", 4];
-  return f.has_autorun ? ["autorun prêt", "modified", 3] : ["sans autorun", "has_old", 2];
+  const s = folderState(f);
+  return [s.label, s.cls, s.rank];
 }
 
 function folderProfile(f) {
   return el("div", { className: "profile" },
-    f.task ? dotIc("clock", "t-accent", f.task === "running" ? "Compression en cours" : "Compression en file") : null,
+    f.task ? dotIc("clock", "t-accent", f.task === "running" ? "Compression en cours" : "Compression en attente") : null,
     dotIc("terminal", f.has_autorun ? "t-sage" : "t-accent", f.has_autorun ? "autorun.cmd présent" : "Sans autorun : il sera proposé"),
     dotIc("layers", f.image_exists ? "t-sage" : "t-off", f.image_exists ? "Image .wsquashfs déjà présente" : "Pas encore d'image"));
 }
@@ -84,11 +81,11 @@ function folderBox(f) {
   return box;
 }
 
-// Pastilles « À traiter » des dossiers (filtres) : [état, libellé, icône, ton, test]
+// Pastilles de filtre des dossiers, mêmes états que la colonne « État » : [état, libellé, icône, ton, test]
 const FOLDER_TODO = [
-  ["todo", "à traiter", "package", "accent", (f) => !f.image_exists],
-  ["noautorun", "sans autorun", "terminal", "accent", (f) => !f.has_autorun],
-  ["done", "déjà compressés", "check", "", (f) => f.image_exists],
+  ["noautorun", "à faire", "terminal", "accent", (f) => folderState(f).key === "noautorun"],
+  ["todo", "à traiter", "package", "accent", (f) => folderState(f).key === "todo"],
+  ["done", "faits", "check", "", (f) => folderState(f).key === "done"],
 ];
 
 function renderFolderTodo() {
