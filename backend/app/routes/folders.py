@@ -4,6 +4,7 @@ des propositions d'autorun."""
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Literal
 
@@ -16,7 +17,8 @@ from ..services import analyze as analyze_mod
 from ..services import art_choice, scan, sgdb
 from ..services.analyze import FolderAnalysis, add_local_game, analyze_folder, report
 from ..services.artwork import ecrire_cover_dossier, folder_cover
-from ..services.autorun import KEY_NAME_RE, Autorun
+from ..services.autorun import KEY_NAME_RE, Autorun, decode_autorun
+from ..services.durable import write_atomic
 from ..services.operations import (
     find_folders,
     folder_not_in_image,
@@ -183,6 +185,70 @@ def folder_analyze(id: str, exe: str | None = None, refresh: bool = False):
     folder = _find_folder(id)
     result = report(_analysis(folder, refresh), exe)
     return {**folder, **result}
+
+
+def _autorun_file(folder: Path) -> Path | None:
+    """`autorun.cmd` du dossier, quelle que soit sa casse."""
+    try:
+        return next((p for p in folder.iterdir() if p.name.lower() == "autorun.cmd" and p.is_file()), None)
+    except OSError:
+        return None
+
+
+@router.get("/api/folders/autorun")
+def folder_autorun(id: str):
+    """`autorun.cmd` du dossier tel qu'il est sur le disque (panneau du dossier)."""
+    folder = _find_folder(id)
+    path = _autorun_file(Path(folder["path"]))
+    if path is None:
+        return {"found": False, "text": "", "eol": "\r\n", "encoding": "utf-8", "sha": None}
+    data = path.read_bytes()
+    text, encoding = decode_autorun(data)
+    parsed = Autorun.parse(text)
+    return {"found": True, "text": text.replace("\r\n", "\n"), "eol": parsed.eol, "encoding": encoding,
+            "sha": hashlib.sha256(data).hexdigest()}
+
+
+class FolderAutorun(BaseModel):
+    text: str
+    eol: Literal["\r\n", "\n"] = "\r\n"
+    encoding: Literal["utf-8", "latin-1"] = "utf-8"
+    base_sha: str | None = None          # autorun lu à l'ouverture (None : il n'y en avait pas)
+    check: bool = False                  # contrôle seulement, rien n'est écrit
+
+
+@router.put("/api/folders/autorun")
+def folder_autorun_write(id: str, body: FolderAutorun):
+    """Enregistre `autorun.cmd` dans le dossier, avant empaquetage (l'empaquetage le reprend
+    comme autorun existant). Refusé pendant l'empaquetage du dossier, ou si le fichier a
+    changé depuis sa lecture."""
+    folder = _find_folder(id)
+    root = Path(folder["path"])
+    autorun = Autorun.parse(body.text.replace("\r\n", "\n"))
+    autorun.eol, autorun.trailing_eol = body.eol, True
+    issues = autorun.validate(set(_analysis(folder, False).scan.files))
+    if body.check:
+        return {"written": False, "issues": issues}
+    if not autorun.get("CMD"):
+        raise HTTPException(status_code=422, detail="autorun sans CMD")
+    if folder["task"]:
+        raise HTTPException(status_code=409, detail="empaquetage en file ou en cours : autorun non modifiable")
+    try:
+        data = autorun.encode(body.encoding)
+    except UnicodeEncodeError:
+        data = autorun.encode("utf-8")
+    current = _autorun_file(root)
+    old = current.read_bytes() if current else None
+    if (hashlib.sha256(old).hexdigest() if old is not None else None) != body.base_sha:
+        raise HTTPException(status_code=409, detail="autorun.cmd modifié entre-temps : recharger le dossier")
+    if old == data:
+        return {"written": False, "issues": issues}
+    try:
+        mode = current.stat().st_mode & 0o777 if current else 0o644
+        write_atomic(current or root / "autorun.cmd", data, mode=mode)
+    except OSError as exc:
+        raise HTTPException(status_code=409, detail=f"écriture impossible : {exc}") from exc
+    return {"written": True, "issues": issues}
 
 
 class PackItem(BaseModel):

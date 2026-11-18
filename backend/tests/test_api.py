@@ -366,6 +366,45 @@ def test_folders_list_and_analyze(folders_client):
     assert r["existing"] is None and r["image_id"] == "win/Jeu"
 
 
+def test_folder_autorun_read_write(folders_client, tmp_path, queue):
+    folder = tmp_path / "roms" / "win" / "Jeu.pc"
+    r = folders_client.get("/api/folders/autorun", params={"id": "win/Jeu.pc"}).json()
+    assert r["found"] is False and r["sha"] is None
+    # Création : CRLF
+    body = {"text": "DIR=bin\nCMD=Jeu.exe\n", "base_sha": None}
+    w = folders_client.put("/api/folders/autorun", params={"id": "win/Jeu.pc"}, json=body).json()
+    assert w["written"] and w["issues"] == []
+    assert (folder / "autorun.cmd").read_bytes() == b"DIR=bin\r\nCMD=Jeu.exe\r\n"
+    assert (folder / "autorun.cmd").stat().st_mode & 0o777 == 0o644
+    r = folders_client.get("/api/folders/autorun", params={"id": "win/Jeu.pc"}).json()
+    assert r["found"] and r["text"] == "DIR=bin\nCMD=Jeu.exe\n" and r["eol"] == "\r\n"
+    # L'analyse (en cache) voit le nouvel autorun
+    a = folders_client.get("/api/folders/analyze", params={"id": "win/Jeu.pc"}).json()
+    assert a["existing"]["text"] == "DIR=bin\nCMD=Jeu.exe\n"
+    # Lecture périmée : refusée
+    stale = folders_client.put("/api/folders/autorun", params={"id": "win/Jeu.pc"}, json=body)
+    assert stale.status_code == 409
+    # Modification : remplacé sur place, rien d'autre dans le dossier
+    body = {"text": "DIR=bin\nCMD=Jeu.exe\nLANG=fr_FR\n", "base_sha": r["sha"]}
+    w = folders_client.put("/api/folders/autorun", params={"id": "win/Jeu.pc"}, json=body).json()
+    assert w["written"] and (folder / "autorun.cmd").read_bytes().endswith(b"LANG=fr_FR\r\n")
+    assert sorted(p.name for p in folder.iterdir()) == ["autorun.cmd", "bin"]
+    # Sans CMD : refusé ; contrôle seul : rien d'écrit
+    r = folders_client.get("/api/folders/autorun", params={"id": "win/Jeu.pc"}).json()
+    no_cmd = folders_client.put("/api/folders/autorun", params={"id": "win/Jeu.pc"},
+                                json={"text": "DIR=bin\n", "base_sha": r["sha"]})
+    assert no_cmd.status_code == 422
+    chk = folders_client.put("/api/folders/autorun", params={"id": "win/Jeu.pc"},
+                             json={"text": "CMD=absent.exe\n", "base_sha": r["sha"], "check": True}).json()
+    assert not chk["written"] and chk["issues"]
+    assert b"LANG=fr_FR" in (folder / "autorun.cmd").read_bytes()
+    # Empaquetage en file : refusé
+    queue.submit("pack", "win/Jeu", None, {})
+    busy = folders_client.put("/api/folders/autorun", params={"id": "win/Jeu.pc"},
+                              json={"text": "CMD=Jeu.exe\n", "base_sha": r["sha"]})
+    assert busy.status_code == 409
+
+
 def test_folders_pack_creates_tasks_and_skips(folders_client, queue):
     body = {"items": [{"id": "win/Jeu.pc", "autorun": "DIR=bin\nCMD=Jeu.exe\n"},
                       {"id": "win/Vide.pc"}, {"id": "win/Fait.pc", "autorun": "CMD=a.exe"},

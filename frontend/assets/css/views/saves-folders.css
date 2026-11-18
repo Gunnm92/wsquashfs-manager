@@ -59,3 +59,10 @@ button.n.sv-open:focus-visible { outline: 2px solid var(--accent); outline-offse
   .flist .c-system, .flist .c-profile, .flist .grow.head .c-state { display: none; }
   .flist .grow.item .state { font-size: 0; gap: 0; justify-self: center; }
 }
+
+/* Panneau d'un dossier ouvert : la liste se resserre (comme la bibliothèque) */
+main.images.with-detail .flist .grow { grid-template-columns: 28px minmax(180px, 1fr) 90px 130px; }
+main.images.with-detail .flist .c-profile, main.images.with-detail .flist .grow > .profile { display: none; }
+#fdetail .dactions { margin-top: 16px; }
+#fdetail .dpane { margin-top: 18px; }
+#fdetail .choose { margin-top: 12px; }

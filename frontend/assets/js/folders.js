@@ -7,6 +7,7 @@ import { forgetArt, thumb } from "./art.js";
 import { $, badge, cap, dotIc, el, emptyState, helpLink, hideAnimated, icon, showAnimated, size, stagger, storage } from "./core.js";
 import { notice, proposalItems } from "./detail/autorun.js";
 import { autorunEditor } from "./detail/kv-form.js";
+import { currentFolder, init as initFolderDetail, openFolder, refreshFolder } from "./folder-detail.js";
 import { todoChip } from "./library.js";
 import { queued } from "./tasks.js";
 import { whenOf } from "./when.js";
@@ -27,6 +28,7 @@ export async function loadFolders() {
   const ids = new Set(folders.items.map((f) => f.id));
   for (const id of [...folders.selected]) if (!ids.has(id)) folders.selected.delete(id);
   renderFolders();
+  refreshFolder(folders.items);
 }
 
 function visibleFolders() {
@@ -123,7 +125,8 @@ function renderFolderList(visible) {
     el("span", { className: "c-profile", textContent: "Contenu", title: "autorun.cmd, image .wsquashfs" }), sortBtn("state", "État", "c-state"));
   $("g-list-rows").replaceChildren(...stagger(rows.map((f) => {
     const selected = folders.selected.has(f.id), [label, cls] = folderStatus(f);
-    const row = el("div", { className: `grow item${selected ? " selected" : ""}${enter ? " enter" : ""}` },
+    const current = currentFolder() === f.id;
+    const row = el("div", { className: `grow item${selected ? " selected" : ""}${current ? " current" : ""}${enter ? " enter" : ""}` },
       folderBox(f),
       el("div", { className: "iname" }, openable(thumb(f, "thumb", "folder"), f),
         el("div", { className: "t" }, el("span", { className: "n", textContent: f.folder, title: f.folder }),
@@ -133,7 +136,7 @@ function renderFolderList(visible) {
       el("span", { className: "c-system", textContent: cap(f.system) || "—" }),
       folderProfile(f),
       el("span", { className: `state ${cls} c-state`, textContent: label, title: label }));
-    row.onclick = () => toggleFolder(f);
+    row.onclick = () => openFolder(f).then(renderFolders);
     return row;
   })));
   if (!rows.length) $("g-list-rows").append(folders.items.length
@@ -169,16 +172,20 @@ function renderFolders() {
   // Tuiles comme la bibliothèque (jaquette = illustration du dossier, sinon initiales)
   $("g-rows").replaceChildren(...visible.map((f) => {
     const selected = folders.selected.has(f.id), [label, cls] = folderStatus(f);
-    const card = el("div", { className: `gcard${selected ? " selected" : ""}`, tabIndex: 0, role: "checkbox" },
+    const current = currentFolder() === f.id;
+    const card = el("div", { className: `gcard${selected ? " selected" : ""}${current ? " current" : ""}`, tabIndex: 0, role: "button" },
       el("div", { className: "gart" }, openable(thumb(f, "gcover", "folder"), f), folderBox(f),
         el("span", { className: `state ${cls}`, textContent: label, title: label }), folderProfile(f)),
       el("div", { className: "meta" }, el("div", { className: "n", textContent: f.folder, title: f.folder }),
         el("div", { className: "sub" }, el("span", { textContent: cap(f.system) || "—" }), el("span", { textContent: `.${f.kind}` }))));
     card.dataset.id = f.id;
-    card.setAttribute("aria-checked", selected);
-    const toggle = () => toggleFolder(f);
-    card.onclick = toggle;
-    card.onkeydown = (event) => { if (event.key === " " || event.key === "Enter") { event.preventDefault(); toggle(); } };
+    card.setAttribute("aria-label", `${f.folder} : ouvrir`);
+    const open = () => openFolder(f).then(renderFolders);
+    card.onclick = open;
+    card.onkeydown = (event) => {
+      if (event.key === "Enter") { event.preventDefault(); open(); }
+      else if (event.key === " ") { event.preventDefault(); toggleFolder(f); }
+    };
     return card;
   }));
   if (!visible.length) $("g-rows").append(el("div", { className: "fcard-empty" }, folders.items.length
@@ -282,6 +289,11 @@ function updatePackButton() {
 }
 
 export function init() {
+  initFolderDetail({
+    reload: (fetch) => (fetch ? loadFolders() : renderFolders()),
+    cover: coverOf,
+    pack: (f) => { folders.selected.clear(); folders.selected.add(f.id); renderFolders(); $("g-review").click(); },
+  });
   folders.layout = storage.get("wsfs-folder-layout") === "grid" ? "grid" : "list";
   // Illustrations de la sélection (une écriture par dossier), avant la suppression
   const coverBtn = el("button", { type: "button", className: "btn bare", id: "g-cover",

@@ -362,6 +362,47 @@
       <button class="iconbtn bare lg" id="g-clear" title="Désélectionner" aria-label="Désélectionner"><svg class="ico"><use href="#i-x"/></svg></button>
     </div>
   </section>
+
+  <!-- Panneau d'un dossier : autorun.cmd lu, modifié et enregistré dans le dossier avant empaquetage -->
+  <aside id="fdetail" class="panel" hidden>
+    <header class="detail-head">
+      <div class="dd cover-wrap" id="fd-cover"></div>
+      <div class="t">
+        <h2 id="fd-title"></h2>
+        <div class="status-line" id="fd-status"></div>
+      </div>
+      <button class="iconbtn" id="fd-close" title="Fermer" aria-label="Fermer"><svg class="ico"><use href="#i-x"/></svg></button>
+    </header>
+    <div class="dactions dd">
+      <button class="btn primary sm" id="fd-pack" type="button" title="Analyser et empaqueter ce dossier"><svg class="ico sm"><use href="#i-package"/></svg>Empaqueter…</button>
+      <button class="btn secondary sm" id="fd-cover-btn" type="button"><svg class="ico sm"><use href="#i-image"/></svg>Illustration…</button>
+    </div>
+    <section class="dpane" id="fd-pane">
+      <div class="dsec-row">
+        <p class="dsec">Autorun</p>
+        <button type="button" class="linklike with-ico" id="fd-edit"><svg class="ico xs"><use href="#i-pen"/></svg>Modifier</button>
+      </div>
+      <div class="dcard" id="fd-read"></div>
+      <ul class="issues" id="fd-read-issues"></ul>
+      <div id="fd-edit-box" hidden>
+        <div id="fd-editor"></div>
+        <div id="fd-proposal"></div>
+        <ul class="issues" id="fd-issues"></ul>
+        <div id="fd-result"></div>
+        <div class="edit-tools">
+          <button type="button" class="roundbtn sage" id="fd-propose" title="Analyse les exécutables du dossier et propose un autorun justifié"><svg class="ico"><use href="#i-sparkles"/></svg></button>
+          <button type="button" class="roundbtn" id="fd-check" title="Contrôle l'autorun sans rien écrire"><svg class="ico"><use href="#i-shield"/></svg></button>
+          <button type="button" class="roundbtn" id="fd-cancel" title="Annuler les modifications"><svg class="ico"><use href="#i-undo"/></svg></button>
+        </div>
+        <div class="choose">
+          <button type="button" class="choice strong" id="fd-save" title="Écrit autorun.cmd dans le dossier ; l'empaquetage le reprendra">
+            <svg class="ico" style="color:var(--accent-300)"><use href="#i-check"/></svg>
+            <span><b>Enregistrer dans le dossier</b><span>Écrit autorun.cmd dans le dossier : l'empaquetage le reprendra tel quel.</span></span></button>
+        </div>
+      </div>
+      <div id="fd-msg"></div>
+    </section>
+  </aside>
 </main>
 
 <!-- ================================================================ Sauvegardes -->

@@ -106,7 +106,7 @@ export function kvForm({ textarea, form, missing, pending = new Set(), onSync = 
 
 /**
  * Éditeur autonome (formulaire ⇄ texte brut) pour un texte donné :
- * renvoie { node, text(), setText() } ; onChange(text) à chaque modification.
+ * renvoie { node, text(), setKey(), setText() } ; onChange(text) à chaque modification.
  */
 export function autorunEditor(text, { onChange = () => {}, rows = 10 } = {}) {
   const textarea = el("textarea", { value: text.replace(/\r\n/g, "\n"), rows, spellcheck: false });
@@ -139,6 +139,7 @@ export function autorunEditor(text, { onChange = () => {}, rows = 10 } = {}) {
   return {
     node,
     text: () => textarea.value,
+    setKey: editor.setKey,
     setText(value) { textarea.value = value.replace(/\r\n/g, "\n"); editor.pending.clear(); editor.sync(); },
   };
 }
