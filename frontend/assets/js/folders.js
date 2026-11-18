@@ -6,6 +6,7 @@ import { api } from "./api.js";
 import { forgetArt, thumb } from "./art.js";
 import { $, badge, cap, dotIc, el, emptyState, helpLink, hideAnimated, icon, showAnimated, size, stagger, storage } from "./core.js";
 import { notice, proposalItems } from "./detail/autorun.js";
+import { autorunEditor } from "./detail/kv-form.js";
 import { todoChip } from "./library.js";
 import { queued } from "./tasks.js";
 import { whenOf } from "./when.js";
@@ -219,15 +220,16 @@ function renderCard(card) {
 
   const left = el("div"), right = el("div");
   if (card.source === "existing" && r.existing) {
-    left.append(el("pre", { className: "bat", textContent: r.existing.text }));
+    // Autorun du dossier, modifiable : gardé tel quel (octets d'origine) s'il n'est pas touché
+    const editor = autorunEditor(card.existingText, { onChange: (text) => { card.existingText = text; updatePackButton(); } });
+    left.append(editor.node);
     if (r.existing.issues.length) left.append(el("ul", { className: "issues" }, ...r.existing.issues.map((i) => el("li", { className: i.level, textContent: i.message }))));
   } else {
     const select = el("select", {}, ...r.candidates.map((c) => new Option(`${c.path}  (score ${c.score}${c.bits ? `, ${c.bits} bits` : ""}${c.version ? `, v${c.version}` : ""})`, c.path)));
     select.value = r.chosen || "";
     select.onchange = () => analyzeCard(card, select.value);
-    const text = el("textarea", { value: card.text, spellcheck: false });
-    text.oninput = () => { card.text = text.value; updatePackButton(); };
-    left.append(r.candidates.length ? el("label", { className: "muted" }, "Exécutable ", select) : notice("err", "Aucun exécutable Windows : jeu absent ou version Linux ?"), text);
+    const editor = autorunEditor(card.text, { onChange: (text) => { card.text = text; updatePackButton(); } });
+    left.append(r.candidates.length ? el("label", { className: "muted" }, "Exécutable ", select) : notice("err", "Aucun exécutable Windows : jeu absent ou version Linux ?"), editor.node);
     const issues = r.generated.issues;     // validation de la proposition d'origine
     if (issues.length) left.append(el("ul", { className: "issues" }, ...issues.map((i) => el("li", { className: i.level, textContent: i.message }))));
   }
@@ -250,6 +252,7 @@ async function analyzeCard(card, exe = null) {
     const r = await api(`/api/folders/analyze?id=${encodeURIComponent(card.folder.id)}${exe ? `&exe=${encodeURIComponent(exe)}` : ""}`);
     card.report = r;
     card.text = r.generated.text;
+    if (!exe) card.existingText = existingOrig(card);
     if (!exe) card.source = r.recommended;
     card.include = !card.folder.image_exists && !card.folder.task && (card.source === "existing" || /^CMD=/m.test(card.text));
     renderCard(card);
@@ -260,8 +263,19 @@ async function analyzeCard(card, exe = null) {
   updatePackButton();
 }
 
+// Autorun présent dans le dossier, tel que lu (fins de ligne normalisées comme dans l'éditeur)
+const existingOrig = (card) => (card.report?.existing?.text || "").replace(/\r\n/g, "\n");
+const existingEdited = (card) => card.source === "existing" && card.existingText !== existingOrig(card);
+
+// Autorun envoyé pour un dossier : null = celui du dossier, gardé tel quel
+function autorunOf(card) {
+  if (card.source !== "existing") return card.text;
+  return existingEdited(card) ? card.existingText : null;
+}
+
 function updatePackButton() {
-  const ready = review.cards.filter((c) => c.include && !c.sent && c.report && (c.source === "existing" || /^CMD=/m.test(c.text)));
+  const ready = review.cards.filter((c) => c.include && !c.sent && c.report
+    && (autorunOf(c) === null || /^CMD=/m.test(autorunOf(c))));
   $("p-run").disabled = ready.length === 0;
   $("p-run").replaceChildren(icon("package", "sm"), `Empaqueter ${ready.length} dossier(s)`);
   return ready;
@@ -318,9 +332,8 @@ export function init() {
     if ($("p-delete").checked && !confirm("Supprimer chaque dossier une fois son image créée et vérifiée ? Sans retour possible.")) $("p-delete").checked = false;
   };
   $("p-run").onclick = async () => {
-    // autorun null : celui du dossier est gardé tel quel
     const cards = updatePackButton();
-    const items = cards.map((c) => ({ id: c.folder.id, autorun: c.source === "existing" ? null : c.text }));
+    const items = cards.map((c) => ({ id: c.folder.id, autorun: autorunOf(c) }));
     try {
       const data = await api("/api/folders/pack", { method: "POST", body: { items, rename_wine: $("p-rename").checked, delete_source: $("p-delete").checked, when: whenOf() } });
       const skipped = data.skipped.map((s) => el("li", { textContent: `${s.id} : ${s.reason}` }));

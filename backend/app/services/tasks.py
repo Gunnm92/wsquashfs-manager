@@ -17,6 +17,7 @@ import builtins
 import fcntl
 import functools
 import json
+import logging
 import os
 import secrets
 import threading
@@ -34,6 +35,9 @@ Handler = Callable[[Task, Job], str | None]
 ACTIVE = (TaskStatus.PENDING, TaskStatus.RUNNING)
 NOT_RESUMED = ("trial",)        # tâches « en cours » au redémarrage : échec, pas de reprise
 _HISTORY_LIMIT = 500        # tâches terminées conservées
+_RETRY_DELAY = 5            # secondes avant que le worker reprenne après une erreur imprévue
+
+log = logging.getLogger("wsquashfs-manager")
 
 
 class TaskConflict(RuntimeError):
@@ -112,6 +116,16 @@ class TaskQueue:
             text = json.dumps([t.model_dump(mode="json") for t in self._tasks.values()],
                               indent=1)
         _write_atomic(self.state_file, text, durable=True)
+
+    def _persist(self) -> None:
+        """Enregistrement depuis les workers : un échec d'écriture (disque plein…)
+        ne doit pas tuer le worker, sinon plus aucune tâche ne démarre jusqu'au
+        redémarrage. L'état en mémoire fait foi ; il sera réécrit au prochain
+        enregistrement réussi."""
+        try:
+            self._save()
+        except OSError as exc:
+            log.warning("file de tâches : état non enregistré (%s)", exc)
 
     # -------------------------------------------------------------- API
 
@@ -239,21 +253,30 @@ class TaskQueue:
         return next((t for t in pending if t.image is None or t.image not in busy), None)
 
     def _worker(self) -> None:
-        while True:
-            with self._cond:
-                while not self._stopping and (task := self._next()) is None:
-                    self._cond.wait(timeout=5)
-                if self._stopping:
-                    return
-                assert task is not None
-                task.status = TaskStatus.RUNNING
-                task.started_at = time.time()
-                task.log.append("Démarrée")
-                job = Job(on_progress=functools.partial(self._progress, task),
-                          on_log=functools.partial(self._log, task))
-                self._jobs[task.id] = job
-                self._save()
-            self.run_one(task, job)
+        while not self._stopping:
+            try:
+                self._work_once()
+            except Exception:  # noqa: BLE001 — le worker doit survivre à tout
+                log.exception("file de tâches : erreur imprévue, reprise dans %s s", _RETRY_DELAY)
+                with self._cond:
+                    self._cond.wait(timeout=_RETRY_DELAY)
+
+    def _work_once(self) -> None:
+        """Attend puis exécute une tâche."""
+        with self._cond:
+            while not self._stopping and (task := self._next()) is None:
+                self._cond.wait(timeout=5)
+            if self._stopping:
+                return
+            assert task is not None
+            task.status = TaskStatus.RUNNING
+            task.started_at = time.time()
+            task.log.append("Démarrée")
+            job = Job(on_progress=functools.partial(self._progress, task),
+                      on_log=functools.partial(self._log, task))
+            self._jobs[task.id] = job
+            self._persist()
+        self.run_one(task, job)
 
     def run_one(self, task: Task, job: Job) -> None:
         """Exécute une tâche déjà marquée « en cours » (appelé par les workers)."""
@@ -288,7 +311,7 @@ class TaskQueue:
             self._jobs.pop(task.id, None)
             if status != TaskStatus.PENDING:
                 self._record(task)
-            self._save()
+            self._persist()
             self._cond.notify_all()
 
     def _progress(self, task: Task, phase: str, fraction: float) -> None:

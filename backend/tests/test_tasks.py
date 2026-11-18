@@ -109,6 +109,56 @@ def test_worker_runs_tasks_and_records_failures(tmp_path: Path):
     queue.submit("ok", "s/a", None, {})
 
 
+def test_worker_survives_state_write_failure(tmp_path: Path, monkeypatch):
+    """18/11 : disque plein à l'enregistrement de tasks.json en fin de tâche : le
+    worker mourait et plus aucune tâche ne démarrait jusqu'au redémarrage."""
+    import app.services.tasks as tasks_mod
+
+    real = tasks_mod._write_atomic
+    full = {"on": False}
+
+    def write(target, text, durable=False):
+        if full["on"]:
+            raise OSError(28, "No space left on device")
+        real(target, text, durable=durable)
+
+    def fill_disk(task, job):
+        full["on"] = True            # le disque se remplit pendant la tâche
+        return "fini"
+
+    monkeypatch.setattr(tasks_mod, "_write_atomic", write)
+    queue = TaskQueue(tmp_path / "tasks.json", {"fill": fill_disk, "ok": lambda t, j: None})
+    queue.start()
+    try:
+        a = queue.submit("fill", "s/a", None, {})
+        assert _wait(queue, a.id) == TaskStatus.DONE
+        full["on"] = False           # place libérée
+        b = queue.submit("ok", "s/b", None, {})
+        assert _wait(queue, b.id) == TaskStatus.DONE
+    finally:
+        queue.stop()
+
+
+def test_worker_survives_unexpected_error(tmp_path: Path, monkeypatch):
+    queue = TaskQueue(tmp_path / "tasks.json", {"ok": lambda t, j: None})
+    monkeypatch.setattr("app.services.tasks._RETRY_DELAY", 0.05)
+    real_next, calls = queue._next, {"n": 0}
+
+    def flaky():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("bug")
+        return real_next()
+
+    queue._next = flaky
+    queue.start()
+    try:
+        a = queue.submit("ok", "s/a", None, {})
+        assert _wait(queue, a.id) == TaskStatus.DONE
+    finally:
+        queue.stop()
+
+
 def test_cancel_pending_and_running(tmp_path: Path):
     started = threading.Event()
 

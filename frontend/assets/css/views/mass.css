@@ -20,3 +20,8 @@
 .pcard pre.bat { max-height: 220px; overflow: auto; }
 .pcard select { max-width: 100%; }
 .pcard label { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; }
+/* Éditeur d'autorun d'un dossier (même formulaire que la fiche image) : la carte est déjà sur --s2 */
+.pcard .ar-editor .ar-top { margin-bottom: 4px; }
+.pcard .ar-editor .ar-top > p { flex: 1; margin: 0; font-size: 12.5px; }
+.pcard .ar-editor .pills.on-s2, .pcard .kv-pill { background: var(--bg); }
+.pcard .kv-pill input:not([type=checkbox]) { background: var(--s2); }

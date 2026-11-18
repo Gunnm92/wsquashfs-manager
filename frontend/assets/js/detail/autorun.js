@@ -2,57 +2,23 @@
 
 import { reportSkipped } from "../actions.js";
 import { api } from "../api.js";
-import { $, el, helpLink, icon, state } from "../core.js";
+import { $, el, icon, state } from "../core.js";
 import { KEY_LABELS, leaveEdit, markDirty, showTab } from "./detail.js";
 import { loadLibrary } from "../library.js";
 import { queued } from "../tasks.js";
 import { whenOf } from "../when.js";
 
-// Mêmes règles que le serveur (services/autorun.py) : clé en début de ligne,
-// première occurrence retenue ; une clé modifiée garde sa place, une clé
-// ajoutée va en fin de fichier ; vider un champ retire la clé.
+import { KEY_RE, getKey, keyInfo, kvForm, textLines } from "./kv-form.js";
 
-export const KEY_RE = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/;
-
-const KEY_ICONS = { CMD: "terminal", DIR: "folder", GAME_VERSION: "tag", PRE: "play", ATTACH: "link", ATTACH_PROCESS: "cpu",
-  WINE: "wine", PROTON: "atom", RUNNER: "drive", ARCH: "cpu", LANG: "book", ENV: "code", HIDRAW: "usb",
-  SAVEDIR: "folder", SAVEFILES: "file", DXVK: "monitor", VKD3D: "monitor", D7VK: "monitor", VIRTUAL_DESKTOP: "grid",
-  NVAPI: "cpu", VKREFLEX: "zap", FSR: "monitor", FSR4: "monitor", ESYNC: "zap", FSYNC: "zap" };
+export { KEY_RE };
 
 export function editorLines() {
-  const raw = $("a-editor").value.replace(/\r\n/g, "\n");
-  const trailing = raw.endsWith("\n");
-  const content = trailing ? raw.slice(0, -1) : raw;
-  return { lines: content ? content.split("\n") : [], trailing };
+  return textLines($("a-editor").value);
 }
 
-function setEditorLines(lines, trailing) {
-  $("a-editor").value = lines.join("\n") + (trailing && lines.length ? "\n" : "");
-}
-
-function getKey(lines, key) {
-  for (const line of lines) {
-    const m = KEY_RE.exec(line);
-    if (m && m[1] === key) return m[2];
-  }
-  return null;
-}
-
-function setKey(key, value) {
-  let { lines, trailing } = editorLines();
-  const index = lines.findIndex((line) => KEY_RE.exec(line)?.[1] === key);
-  if (value === "") {
-    lines = lines.filter((line) => KEY_RE.exec(line)?.[1] !== key);
-  } else if (index >= 0) {
-    lines[index] = `${key}=${value}`;
-  } else {
-    lines.push(`${key}=${value}`);
-    if (lines.length === 1) trailing = true;
-  }
-  if (value !== "") state.pendingKeys.delete(key);
-  setEditorLines(lines, trailing);
-  syncForm();
-}
+// Formulaire de la fiche, créé à l'initialisation (les éléments sont dans index.html)
+let form = null;
+const setKey = (key, value) => form.setKey(key, value);
 
 // Valeurs proposées par clé (datalists), y compris les runners du client d'essai
 export function buildForm() {
@@ -61,46 +27,11 @@ export function buildForm() {
   for (const key of ["PROTON", "WINE"]) if (!$(`v-${key}`)) $("a-lists").append(el("datalist", { id: `v-${key}` }));
 }
 
-const keyInfo = (key) => state.keys.find((k) => k.key === key);
-
-function kvRow(key, value) {
-  const info = keyInfo(key);
-  const input = el("input", { id: `k-${key}`, value: value ?? "", placeholder: info ? "valeur" : "", autocomplete: "off", spellcheck: false });
-  if ($(`v-${key}`)) input.setAttribute("list", `v-${key}`);
-  input.addEventListener("change", () => setKey(key, input.value.trim()));
-  const remove = el("button", { className: "iconbtn", title: "Retirer la clé" }, icon("x", "sm"));
-  remove.onclick = () => { state.pendingKeys.delete(key); setKey(key, ""); };
-  const row = el("div", { className: "kv-pill", title: info?.help || "Clé non reconnue : conservée, ignorée par Batocera" },
-    el("span", { className: "disc" }, icon(KEY_ICONS[key] || "terminal")),
-    el("span", { className: "k" }, info ? helpLink(`hk-${key}`, key, `${key} dans l'aide`) : key),
-    input, remove);
-  row.dataset.key = key;
-  return row;
+export function syncForm() {
+  form.sync();
 }
 
-export function syncForm() {
-  const { lines } = editorLines();
-  const inFile = [...new Set(lines.map((l) => KEY_RE.exec(l)?.[1]).filter(Boolean))];
-  const shown = [...inFile, ...[...state.pendingKeys].filter((k) => !inFile.includes(k))];
-  const form = $("a-form");
-  const current = [...form.children].map((r) => r.dataset.key);
-  if (current.join("\n") === shown.join("\n")) {
-    // Mêmes clés : seules les valeurs changent (le champ en cours de saisie est laissé tel quel)
-    for (const key of shown) {
-      const input = $(`k-${key}`);
-      if (input && document.activeElement !== input) input.value = getKey(lines, key) ?? "";
-    }
-  } else {
-    const focused = document.activeElement?.id;
-    form.replaceChildren(...shown.map((key) => kvRow(key, getKey(lines, key))));
-    if (focused && $(focused) && form.contains($(focused))) $(focused).focus();
-  }
-  const unset = state.keys.filter(({ key }) => !shown.includes(key));
-  $("a-missing").replaceChildren(...unset.map(({ key, help }) => {
-    const b = el("button", { title: help }, icon(KEY_ICONS[key] || "terminal", "xs"), key);
-    b.onclick = () => { state.pendingKeys.add(key); syncForm(); $(`k-${key}`)?.focus(); };
-    return b;
-  }));
+function afterSync(lines, inFile) {
   // Lecture de l'autorun : libellé clair, clé technique en dessous
   const readRows = inFile.map((key) => el("div", { className: "frow kv" },
     el("span", {}, el("span", { textContent: KEY_LABELS[key] || key }), el("small", { textContent: key })),
@@ -195,7 +126,7 @@ export async function commitOverrides(ids) {
 }
 
 export function init() {
-  $("a-editor").addEventListener("input", syncForm);
+  form = kvForm({ textarea: $("a-editor"), form: $("a-form"), missing: $("a-missing"), pending: state.pendingKeys, onSync: afterSync });
   $("a-pick").onclick = () => { $("a-missing").hidden = !$("a-missing").hidden; };
   $("a-tabs").onclick = (event) => {
     const tab = event.target.closest("button[data-atab]")?.dataset.atab;
