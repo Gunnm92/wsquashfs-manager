@@ -366,7 +366,10 @@
   <!-- Panneau d'un dossier : autorun.cmd lu, modifié et enregistré dans le dossier avant compression -->
   <aside id="fdetail" class="panel" hidden>
     <header class="detail-head">
-      <div class="dd cover-wrap" id="fd-cover"></div>
+      <div class="dd cover-wrap" id="fd-cover">
+        <span id="fd-cover-art"></span>
+        <button class="cover-badge" id="fd-cover-btn" type="button" title="Illustration" aria-label="Illustration : ajouter ou remplacer"><svg class="ico xs"><use href="#i-image"/></svg></button>
+      </div>
       <div class="t">
         <h2 id="fd-title"></h2>
         <div class="status-line" id="fd-status"></div>
@@ -376,7 +379,6 @@
     <div class="dactions dd">
       <button class="btn primary sm" id="fd-save" type="button" disabled title="Écrit autorun.cmd dans le dossier, sans compresser"><svg class="ico sm"><use href="#i-check"/></svg>Enregistrer</button>
       <button class="btn secondary sm" id="fd-pack" type="button" title="Analyser et compresser ce dossier en image .wsquashfs"><svg class="ico sm"><use href="#i-package"/></svg>Compresser…</button>
-      <button class="btn secondary sm" id="fd-cover-btn" type="button"><svg class="ico sm"><use href="#i-image"/></svg>Illustration…</button>
     </div>
     <section class="dpane" id="fd-pane">
       <div class="dsec-row">

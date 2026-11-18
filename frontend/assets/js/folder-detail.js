@@ -50,7 +50,10 @@ export function refreshFolder(items) {
 function paintHead() {
   const f = panel.folder;
   $("fd-title").textContent = f.folder;
-  $("fd-cover").replaceChildren(thumb(f, "cover", "folder"));
+  // Jaquette + pastille d'illustration (comme la fiche image)
+  const art = thumb(f, "cover", "folder");
+  art.id = "fd-cover-art";
+  $("fd-cover-art").replaceWith(art);
   const sep = () => el("span", { className: "sep", textContent: "·" });
   const [label, cls] = f.task ? [f.task === "running" ? "Compression en cours" : "Compression en file", "st accent"]
     : f.image_exists ? ["Déjà compressé", "st"] : ["À traiter", "st warn"];
