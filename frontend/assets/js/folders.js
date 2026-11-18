@@ -42,7 +42,9 @@ function visibleFolders() {
 // État d'un dossier : libellé et classe de pastille (.state), rang pour le tri
 function folderStatus(f) {
   if (f.task) return f.task === "running" ? ["compression en cours", "in_use", 0] : ["en file", "in_use", 1];
-  return f.image_exists ? ["déjà compressé", "ok", 3] : ["à traiter", "modified", 2];
+  // Avant compression, ce qui compte : l'autorun est-il prêt ?
+  if (f.image_exists) return ["déjà compressé", "ok", 4];
+  return f.has_autorun ? ["autorun prêt", "modified", 3] : ["sans autorun", "has_old", 2];
 }
 
 function folderProfile(f) {

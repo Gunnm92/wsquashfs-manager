@@ -56,7 +56,7 @@ function paintHead() {
   $("fd-cover-art").replaceWith(art);
   const sep = () => el("span", { className: "sep", textContent: "·" });
   const [label, cls] = f.task ? [f.task === "running" ? "Compression en cours" : "Compression en file", "st accent"]
-    : f.image_exists ? ["Déjà compressé", "st"] : ["À traiter", "st warn"];
+    : f.image_exists ? ["Déjà compressé", "st"] : f.has_autorun ? ["Autorun prêt", "st accent"] : ["Sans autorun", "st warn"];
   $("fd-status").replaceChildren(el("span", { className: cls, textContent: label }), sep(),
     el("span", { textContent: cap(f.system) || "—" }), sep(), el("span", { textContent: `.${f.kind}` }));
   $("fd-pack").disabled = Boolean(f.task || f.image_exists);
