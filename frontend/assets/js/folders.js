@@ -24,7 +24,7 @@ export async function loadFolders() {
   }
   const todo = folders.items.filter((f) => !f.image_exists).length;
   $("count-folders").textContent = todo || "";
-  $("count-folders").title = todo ? `${todo} dossier${todo > 1 ? "s" : ""} à empaqueter` : "";
+  $("count-folders").title = todo ? `${todo} dossier${todo > 1 ? "s" : ""} à compresser` : "";
   const ids = new Set(folders.items.map((f) => f.id));
   for (const id of [...folders.selected]) if (!ids.has(id)) folders.selected.delete(id);
   renderFolders();
@@ -41,13 +41,13 @@ function visibleFolders() {
 
 // État d'un dossier : libellé et classe de pastille (.state), rang pour le tri
 function folderStatus(f) {
-  if (f.task) return f.task === "running" ? ["empaquetage en cours", "in_use", 0] : ["en file", "in_use", 1];
-  return f.image_exists ? ["déjà empaqueté", "ok", 3] : ["à traiter", "modified", 2];
+  if (f.task) return f.task === "running" ? ["compression en cours", "in_use", 0] : ["en file", "in_use", 1];
+  return f.image_exists ? ["déjà compressé", "ok", 3] : ["à traiter", "modified", 2];
 }
 
 function folderProfile(f) {
   return el("div", { className: "profile" },
-    f.task ? dotIc("clock", "t-accent", f.task === "running" ? "Empaquetage en cours" : "Empaquetage en file") : null,
+    f.task ? dotIc("clock", "t-accent", f.task === "running" ? "Compression en cours" : "Compression en file") : null,
     dotIc("terminal", f.has_autorun ? "t-sage" : "t-accent", f.has_autorun ? "autorun.cmd présent" : "Sans autorun : il sera proposé"),
     dotIc("layers", f.image_exists ? "t-sage" : "t-off", f.image_exists ? "Image .wsquashfs déjà présente" : "Pas encore d'image"));
 }
@@ -86,7 +86,7 @@ function folderBox(f) {
 const FOLDER_TODO = [
   ["todo", "à traiter", "package", "accent", (f) => !f.image_exists],
   ["noautorun", "sans autorun", "terminal", "accent", (f) => !f.has_autorun],
-  ["done", "déjà empaquetés", "check", "", (f) => f.image_exists],
+  ["done", "déjà compressés", "check", "", (f) => f.image_exists],
 ];
 
 function renderFolderTodo() {
@@ -284,7 +284,7 @@ function updatePackButton() {
   const ready = review.cards.filter((c) => c.include && !c.sent && c.report
     && (autorunOf(c) === null || /^CMD=/m.test(autorunOf(c))));
   $("p-run").disabled = ready.length === 0;
-  $("p-run").replaceChildren(icon("package", "sm"), `Empaqueter ${ready.length} dossier(s)`);
+  $("p-run").replaceChildren(icon("package", "sm"), `Compresser ${ready.length} dossier(s)`);
   return ready;
 }
 
@@ -297,7 +297,7 @@ export function init() {
   folders.layout = storage.get("wsfs-folder-layout") === "grid" ? "grid" : "list";
   // Illustrations de la sélection (une écriture par dossier), avant la suppression
   const coverBtn = el("button", { type: "button", className: "btn bare", id: "g-cover",
-    title: "Illustration de chaque dossier sélectionné : écrite dans le dossier, intégrée à l'empaquetage" },
+    title: "Illustration de chaque dossier sélectionné : écrite dans le dossier, intégrée à la compression" },
   icon("image", "sm"), "Illustrations…");
   coverBtn.onclick = () => openCoverLot([...folders.selected], {
     dossier: true, items: new Map(folders.items.map((f) => [f.id, f])),
@@ -318,7 +318,7 @@ export function init() {
   $("g-delete").onclick = async () => {
     const ids = folders.items.filter((f) => folders.selected.has(f.id) && f.image_exists).map((f) => f.id);
     if (!ids.length) { alert("Aucun dossier sélectionné n'a encore son image .wsquashfs."); return; }
-    if (!confirm(`Supprimer DÉFINITIVEMENT ${ids.length} dossier(s) déjà empaqueté(s) ? L'image de chacun est vérifiée avant.`)) return;
+    if (!confirm(`Supprimer DÉFINITIVEMENT ${ids.length} dossier(s) déjà compressé(s) ? L'image de chacun est vérifiée avant.`)) return;
     try {
       const data = await api("/api/folders/delete", { method: "POST", body: { ids } });
       reportSkipped(data.skipped);
@@ -355,7 +355,7 @@ export function init() {
         if (!refused.has(card.folder.id)) { card.sent = true; card.include = false; renderCard(card); }
       }
       updatePackButton();
-      $("p-result").replaceChildren(notice("ok", `${data.tasks.length} empaquetage(s) ajouté(s) à la file.`, "check"),
+      $("p-result").replaceChildren(notice("ok", `${data.tasks.length} compression(s) ajoutée(s) à la file.`, "check"),
         ...(skipped.length ? [el("ul", { className: "issues" }, ...skipped)] : []));
       queued();
       loadFolders();

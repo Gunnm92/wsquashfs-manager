@@ -13,7 +13,7 @@ import { loadSaves } from "./saves.js";
 import { whenOf } from "./when.js";
 
 export const TASK_KINDS = { autorun: ["hammer", "Reconstruction"], update: ["upload", "Montée de version"], files: ["file", "Fichiers et registre"],
-  verify: ["shield", "Vérification"], cover: ["image", "Illustration"], pack: ["package", "Empaquetage"], runner: ["clip", "Runner intégré"], trial: ["flask", "Lancement d'essai"],
+  verify: ["shield", "Vérification"], cover: ["image", "Illustration"], pack: ["package", "Compression"], runner: ["clip", "Runner intégré"], trial: ["flask", "Lancement d'essai"],
   saves: ["save", "Sauvegardes entre clients"], install: ["drive", "Installation sur les clients"] };
 
 export const TASK_STATES = { pending: ["clock", "en attente", "t-neutral"], running: ["refresh", "en cours", "t-accent"], done: ["check", "terminée", "t-sage"],

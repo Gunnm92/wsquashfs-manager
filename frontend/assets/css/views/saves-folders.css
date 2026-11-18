@@ -65,4 +65,3 @@ main.images.with-detail .flist .grow { grid-template-columns: 28px minmax(180px,
 main.images.with-detail .flist .c-profile, main.images.with-detail .flist .grow > .profile { display: none; }
 #fdetail .dactions { margin-top: 16px; }
 #fdetail .dpane { margin-top: 18px; }
-#fdetail .choose { margin-top: 12px; }

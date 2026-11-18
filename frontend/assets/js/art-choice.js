@@ -123,7 +123,7 @@ function gallery(data, selected, onSelect) {
 
 // Adresses de l'aperçu : une image de la bibliothèque, ou un dossier à empaqueter
 const previewBase = (dossier) => (dossier ? "/api/folders" : "/api/image");
-const TEXTE_DOSSIER = "Écrit l'illustration dans le dossier : elle sera intégrée à l'empaquetage.";
+const TEXTE_DOSSIER = "Écrit l'illustration dans le dossier : elle sera intégrée à la compression.";
 
 // Dialogue d'une image ou d'un dossier. choose : renvoie { key, data } (sans rien envoyer) ;
 // sinon envoie la validation (image : tâche ; dossier : écriture dans .wsquashfs/cover).
@@ -297,7 +297,7 @@ export function openCoverLot(ids, { dossier = false, items = null, onApplied = n
   const cancel = el("button", { type: "button", className: "btn secondary" }, "Annuler");
   cancel.onclick = () => dlg.close();
   const intro = dossier
-    ? "Les illustrations sont écrites dans chaque dossier : elles seront intégrées à son empaquetage. Clique une proposition pour en choisir une autre."
+    ? "Les illustrations sont écrites dans chaque dossier : elles seront intégrées à sa compression. Clique une proposition pour en choisir une autre."
     : "Les images déjà illustrées sont reconstruites (ancienne gardée en .old) ; les autres reçoivent l'illustration sans reconstruction. Clique une proposition pour en choisir une autre.";
   dlg.append(dialogHead(`Illustrations de ${n} ${unit}${n > 1 ? "s" : ""}`, dlg), msg,
     el("p", { className: "dlg-intro", textContent: intro }),

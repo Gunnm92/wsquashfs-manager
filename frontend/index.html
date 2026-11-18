@@ -356,14 +356,14 @@
 
     <div class="selbar" id="g-selection" hidden>
       <span class="lbl" id="g-count"></span>
-      <button class="btn primary" id="g-review" title="Analyse chaque dossier et propose un autorun justifié, puis empaquette"><svg class="ico sm"><use href="#i-package"/></svg>Analyser et empaqueter…</button>
-      <button class="btn bare" id="g-delete" title="Supprime les dossiers dont l'image existe déjà (image vérifiée avant)"><svg class="ico sm"><use href="#i-trash"/></svg>Supprimer les dossiers déjà empaquetés</button>
+      <button class="btn primary" id="g-review" title="Analyse chaque dossier et propose un autorun justifié, puis le compresse en image"><svg class="ico sm"><use href="#i-package"/></svg>Analyser et compresser…</button>
+      <button class="btn bare" id="g-delete" title="Supprime les dossiers dont l'image existe déjà (image vérifiée avant)"><svg class="ico sm"><use href="#i-trash"/></svg>Supprimer les dossiers déjà compressés</button>
       <span class="sep"></span>
       <button class="iconbtn bare lg" id="g-clear" title="Désélectionner" aria-label="Désélectionner"><svg class="ico"><use href="#i-x"/></svg></button>
     </div>
   </section>
 
-  <!-- Panneau d'un dossier : autorun.cmd lu, modifié et enregistré dans le dossier avant empaquetage -->
+  <!-- Panneau d'un dossier : autorun.cmd lu, modifié et enregistré dans le dossier avant compression -->
   <aside id="fdetail" class="panel" hidden>
     <header class="detail-head">
       <div class="dd cover-wrap" id="fd-cover"></div>
@@ -374,7 +374,8 @@
       <button class="iconbtn" id="fd-close" title="Fermer" aria-label="Fermer"><svg class="ico"><use href="#i-x"/></svg></button>
     </header>
     <div class="dactions dd">
-      <button class="btn primary sm" id="fd-pack" type="button" title="Analyser et empaqueter ce dossier"><svg class="ico sm"><use href="#i-package"/></svg>Empaqueter…</button>
+      <button class="btn primary sm" id="fd-save" type="button" disabled title="Écrit autorun.cmd dans le dossier, sans compresser"><svg class="ico sm"><use href="#i-check"/></svg>Enregistrer</button>
+      <button class="btn secondary sm" id="fd-pack" type="button" title="Analyser et compresser ce dossier en image .wsquashfs"><svg class="ico sm"><use href="#i-package"/></svg>Compresser…</button>
       <button class="btn secondary sm" id="fd-cover-btn" type="button"><svg class="ico sm"><use href="#i-image"/></svg>Illustration…</button>
     </div>
     <section class="dpane" id="fd-pane">
@@ -393,11 +394,6 @@
           <button type="button" class="roundbtn sage" id="fd-propose" title="Analyse les exécutables du dossier et propose un autorun justifié"><svg class="ico"><use href="#i-sparkles"/></svg></button>
           <button type="button" class="roundbtn" id="fd-check" title="Contrôle l'autorun sans rien écrire"><svg class="ico"><use href="#i-shield"/></svg></button>
           <button type="button" class="roundbtn" id="fd-cancel" title="Annuler les modifications"><svg class="ico"><use href="#i-undo"/></svg></button>
-        </div>
-        <div class="choose">
-          <button type="button" class="choice strong" id="fd-save" title="Écrit autorun.cmd dans le dossier ; l'empaquetage le reprendra">
-            <svg class="ico" style="color:var(--accent-300)"><use href="#i-check"/></svg>
-            <span><b>Enregistrer dans le dossier</b><span>Écrit autorun.cmd dans le dossier : l'empaquetage le reprendra tel quel.</span></span></button>
         </div>
       </div>
       <div id="fd-msg"></div>
@@ -530,7 +526,7 @@
     </section>
 
     <section class="st-sec" id="st-tasks" data-st="tasks">
-      <div class="st-head"><h2>Tâches</h2><p>Reconstructions, vérifications et empaquetages lancés depuis le manager.</p></div>
+      <div class="st-head"><h2>Tâches</h2><p>Reconstructions, vérifications et compressions lancées depuis le manager.</p></div>
       <div class="st-card">
         <div class="st-row">
           <div class="st-txt"><b>Plage de nuit</b><span>Une tâche « cette nuit » ne démarre que dans cette plage.</span></div>
@@ -620,7 +616,7 @@
 
 <!-- ================================================================ Boîtes de dialogue -->
 <dialog id="dlg-pack" class="wide">
-  <div class="dlg-head"><h2>Empaqueter <span id="p-count"></span> dossier(s)</h2><span id="p-progress" class="muted"></span>
+  <div class="dlg-head"><h2>Compresser <span id="p-count"></span> dossier(s)</h2><span id="p-progress" class="muted"></span>
     <button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
   <p>Chaque proposition est justifiée et modifiable ; rien n'est écrit dans les dossiers (l'autorun choisi est injecté dans l'image). Les dossiers décochés sont ignorés.</p>
   <div id="p-cards"></div>
@@ -630,7 +626,7 @@
     <label class="toggle" title="Seulement après vérification de l'image"><input type="checkbox" class="switch" id="p-delete"><span>Supprimer le dossier après vérification</span></label>
     <span class="spacer"></span>
     <button class="btn secondary" data-close>Fermer</button>
-    <div class="split"><button id="p-run" disabled><svg class="ico sm"><use href="#i-package"/></svg>Empaqueter</button><button class="when" id="p-when"></button></div>
+    <div class="split"><button id="p-run" disabled><svg class="ico sm"><use href="#i-package"/></svg>Compresser</button><button class="when" id="p-when"></button></div>
   </div>
 </dialog>
 

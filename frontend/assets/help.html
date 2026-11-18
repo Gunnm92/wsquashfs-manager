@@ -30,7 +30,7 @@
     <p class="lead">Ce gestionnaire transforme tes dossiers de jeux Windows en images <code>.wsquashfs</code>, puis t'aide à les régler et à les entretenir. Le lancement lui-même est fait par <code>wsquashfs-launcher</code>, sur chaque client.</p>
 
     <ol class="steps" data-f>
-      <li><b>Empaqueter</b><span>Un dossier de jeu devient une image : un seul fichier compressé, en lecture seule. → <a href="#g-add">Ajouter un jeu</a></span></li>
+      <li><b>Compresser</b><span>Un dossier de jeu devient une image : un seul fichier compressé, en lecture seule. → <a href="#g-add">Ajouter un jeu</a></span></li>
       <li><b>Essayer</b><span>Le bouton <b>Essai</b> de la fiche lance le jeu sur le client d'essai et rapporte ce qu'il a vu. Ce client se choisit dans le menu d'un client (« Utiliser pour les essais »). → <a href="#g-broken">Un jeu ne se lance pas</a></span></li>
       <li><b>Ajuster</b><span>Les réglages du jeu sont dans son <code>autorun.cmd</code>, onglet <b>Lancement</b> de la fiche. → <a href="#g-setting">Changer un réglage</a></span></li>
       <li><b>Partager</b><span>En mode Connecté, les sauvegardes suivent le jeu d'un client à l'autre, et une copie reste sur le manager. → <a href="#h-saves">Sauvegardes</a></span></li>
@@ -62,7 +62,7 @@
     <ul data-f>
       <li><b>Sauvegardes · Images · Dossiers</b> : les trois vues. <b>Sauvegardes</b> n'apparaît qu'en mode Connecté (voir <a href="#hs-mode">Mode</a> dans les réglages).</li>
       <li><b>Client affiché</b> (mode Connecté) : « Tous » ou un seul client, et il filtre les vues. <b>Images</b> ne montre que les images installées sur ce client ; <b>Sauvegardes</b> ne montre que les jeux présents sur lui (sans les lignes « Absente »), avec la synchro de ce client. « Tous » montre tout. Le sélecteur est masqué dans <b>Dossiers</b> ; dans <b>Réglages</b>, il désigne le client dont on règle l'essai ou le diagnostic. Le choix reste d'une visite à l'autre.</li>
-      <li><b>Tâches</b> (bouton à droite) : la file des reconstructions, vérifications et empaquetages. Un point animé pendant un travail ; un chiffre rouge si une tâche a échoué. Le panneau permet de voir l'état de chaque tâche et d'effacer les terminées (le journal de chaque image est conservé).</li>
+      <li><b>Tâches</b> (bouton à droite) : la file des reconstructions, vérifications et compressions. Un point animé pendant un travail ; un chiffre rouge si une tâche a échoué. Le panneau permet de voir l'état de chaque tâche et d'effacer les terminées (le journal de chaque image est conservé).</li>
       <li><b>⚙ Menu</b> : <b>Réglages</b> (la page des réglages), <b>Actualiser</b> (relit les images ajoutées ou modifiées ; les autres viennent du cache), <b>Aide</b>.</li>
     </ul>
 
@@ -103,10 +103,10 @@
 
     <h2>Dossiers</h2>
     <ul data-f>
-      <li>Les dossiers de jeux à empaqueter, avec leur <b>système</b> et leur <b>contenu</b> (<code>autorun.cmd</code>, image <code>.wsquashfs</code>).</li>
-      <li><b>État</b> : <i>à traiter</i> (pas d'image), <i>en file</i>, <i>empaquetage en cours</i>, <i>déjà empaqueté</i>. Pastilles : à traiter, sans autorun, déjà empaquetés.</li>
-      <li><b>Analyser et empaqueter…</b> (après sélection) : chaque dossier reçoit un autorun proposé et justifié, modifiable, puis l'image est créée. Options : renommer <code>.pc</code> en <code>.wine</code>, supprimer le dossier après vérification (jamais avant).</li>
-      <li><b>Supprimer les dossiers déjà empaquetés</b> : seulement ceux dont l'image existe, vérifiée avant.</li>
+      <li>Les dossiers de jeux à compresser, avec leur <b>système</b> et leur <b>contenu</b> (<code>autorun.cmd</code>, image <code>.wsquashfs</code>).</li>
+      <li><b>État</b> : <i>à traiter</i> (pas d'image), <i>en file</i>, <i>compression en cours</i>, <i>déjà compressé</i>. Pastilles : à traiter, sans autorun, déjà compressés.</li>
+      <li><b>Analyser et compresser…</b> (après sélection) : chaque dossier reçoit un autorun proposé et justifié, modifiable, puis l'image est créée. Options : renommer <code>.pc</code> en <code>.wine</code>, supprimer le dossier après vérification (jamais avant).</li>
+      <li><b>Supprimer les dossiers déjà compressés</b> : seulement ceux dont l'image existe, vérifiée avant.</li>
     </ul>
 
     <h2>Réglages</h2>
@@ -133,8 +133,8 @@
       <summary><svg class="ico"><use href="#i-package"/></svg><span>Ajouter un jeu</span><svg class="ico chev"><use href="#i-chevd"/></svg></summary>
       <ol>
         <li>Copier le dossier du jeu dans <code>roms/&lt;système&gt;/</code>, nommé <code>Mon Jeu.pc</code> (ou <code>.wine</code> s'il contient déjà un prefix Wine).</li>
-        <li>Facultatif : l'essayer avant de l'empaqueter avec <code>wsquashfs-launcher "Mon Jeu.pc"</code>. Un dossier <code>.pc</code> est monté comme le sera son image : il n'est jamais modifié, prefix et sauvegardes vont dans les sauvegardes de <code>Mon Jeu</code>, reprises ensuite par l'image.</li>
-        <li>Ouvrir la vue <b>Dossiers</b>, cocher le dossier puis <b>Analyser et empaqueter…</b>.</li>
+        <li>Facultatif : l'essayer avant de le compresser avec <code>wsquashfs-launcher "Mon Jeu.pc"</code>. Un dossier <code>.pc</code> est monté comme le sera son image : il n'est jamais modifié, prefix et sauvegardes vont dans les sauvegardes de <code>Mon Jeu</code>, reprises ensuite par l'image.</li>
+        <li>Ouvrir la vue <b>Dossiers</b>, cocher le dossier puis <b>Analyser et compresser…</b>.</li>
         <li>Relire l'autorun proposé : l'exécutable choisi et la raison de chaque réglage sont indiqués. Corriger si besoin.</li>
         <li>Lancer : la tâche part dans la file (ou cette nuit). L'image est vérifiée à la fin ; le dossier est renommé en <code>.wine</code>, et supprimé seulement si tu l'as demandé.</li>
       </ol>

@@ -1,4 +1,4 @@
-// folder-detail.js — Panneau d'un dossier à empaqueter : autorun.cmd lu, modifié (même
+// folder-detail.js — Panneau d'un dossier à compresser : autorun.cmd lu, modifié (même
 // formulaire que la fiche image), proposé par l'analyse, enregistré dans le dossier.
 
 import { api } from "./api.js";
@@ -52,8 +52,8 @@ function paintHead() {
   $("fd-title").textContent = f.folder;
   $("fd-cover").replaceChildren(thumb(f, "cover", "folder"));
   const sep = () => el("span", { className: "sep", textContent: "·" });
-  const [label, cls] = f.task ? [f.task === "running" ? "Empaquetage en cours" : "Empaquetage en file", "st accent"]
-    : f.image_exists ? ["Déjà empaqueté", "st"] : ["À traiter", "st warn"];
+  const [label, cls] = f.task ? [f.task === "running" ? "Compression en cours" : "Compression en file", "st accent"]
+    : f.image_exists ? ["Déjà compressé", "st"] : ["À traiter", "st warn"];
   $("fd-status").replaceChildren(el("span", { className: cls, textContent: label }), sep(),
     el("span", { textContent: cap(f.system) || "—" }), sep(), el("span", { textContent: `.${f.kind}` }));
   $("fd-pack").disabled = Boolean(f.task || f.image_exists);
@@ -92,7 +92,7 @@ function setEditing(on) {
   $("fd-edit-box").hidden = !on;
   $("fd-read").hidden = on;
   $("fd-edit").hidden = on || Boolean(panel.folder?.task);
-  if (!on) return;
+  if (!on) { $("fd-save").disabled = true; return; }
   panel.baseline = (panel.data?.text || "").replace(/\r\n/g, "\n");
   panel.editor = autorunEditor(panel.baseline, { onChange: paintSaveState });
   $("fd-editor").replaceChildren(panel.editor.node);
@@ -104,7 +104,7 @@ function paintSaveState() {
   if (!panel.editor) return;
   const text = panel.editor.text();
   $("fd-save").disabled = text === panel.baseline || !/^CMD=/m.test(text);
-  $("fd-save").title = !/^CMD=/m.test(text) ? "CMD est obligatoire" : "Écrit autorun.cmd dans le dossier ; l'empaquetage le reprendra";
+  $("fd-save").title = !/^CMD=/m.test(text) ? "CMD est obligatoire" : "Écrit autorun.cmd dans le dossier, sans compresser";
 }
 
 function body(check = false) {
@@ -176,7 +176,7 @@ async function save() {
     await loadFolderAutorun();
     await hooks.reload(true);
     $("fd-read-issues").replaceChildren(...issuesList(r.issues));
-    $("fd-msg").replaceChildren(notice("ok", r.written ? "autorun.cmd enregistré dans le dossier : l'empaquetage le reprendra." : "Aucun changement.", "check"));
+    $("fd-msg").replaceChildren(notice("ok", r.written ? "autorun.cmd enregistré dans le dossier : la compression le reprendra." : "Aucun changement.", "check"));
     if (r.written) toast("autorun.cmd enregistré");
   } catch (error) {
     $("fd-result").replaceChildren(notice("err", error.message));
