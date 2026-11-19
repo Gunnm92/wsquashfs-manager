@@ -1,0 +1,15 @@
+[
+ ["tux", "the Linux Tux penguin seen from the front: round head, oval body with a belly, two small flippers and two flat feet"],
+ ["term", "a terminal console window: a rounded rectangle, inside it a '>' chevron on the left and a short horizontal underscore line next to it"],
+ ["deck", "a Steam Deck handheld console seen from the front: a wide body with rounded ends, a rectangular screen in the middle, a small round thumbstick on each side of the screen"],
+ ["box", "a Valve Steam Machine console: a flat square box seen from the front with a small round power light on its front"],
+ ["arcade", "an arcade joystick: a ball on top of a short stick standing on a flat rounded base, two round buttons on the base next to the stick"],
+ ["server", "a server: two stacked rounded rectangles, each with a small round status light dot on the left"],
+ ["xbox", "an Xbox game controller seen from the front: rounded body with two grips, a thumbstick on the left, a plus-shaped d-pad, four small round buttons on the right"],
+ ["dualsense", "a PlayStation DualSense controller seen from the front: body with two long grips, a rectangular touchpad at the top center, a plus-shaped d-pad on the left and four small round buttons on the right"],
+ ["sync", "two curved arrows forming a circle, each arrowhead pointing clockwise, refresh symbol"],
+ ["install", "a downward arrow above an open tray, with a gap between the arrow and the tray"],
+ ["eject", "an upward arrow above an open tray, with a gap between the arrow and the tray"],
+ ["save", "a floppy disk with a shutter at the top and a label at the bottom"],
+ ["trash", "a trash can with two vertical lines on its body and a lid with a small handle, the lid floating slightly above the can"]
+]

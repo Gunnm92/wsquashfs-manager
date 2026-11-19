@@ -230,7 +230,7 @@ def save_game_host(settings: Settings, values: dict) -> None:
 
 
 SAVES_MACHINE_FIELDS = ("id", "name", "url", "token", "pem")
-ICONS = ("linux", "steamos", "batocera")     # icônes des clients de la synchronisation des sauvegardes
+ICONS = ("linux", "steamos", "steambox", "batocera")     # icônes des clients de la synchronisation des sauvegardes
 _saves_lock = threading.Lock()      # lectures-écritures de config.json pour le manager de sauvegardes
 
 
@@ -247,6 +247,17 @@ def saves_machines(settings: Settings) -> list[dict]:
 def save_saves_machines(settings: Settings, machines: list[dict]) -> None:
     with _saves_lock:
         _save_runtime(settings, saves_machines=machines)
+
+
+def saves_order(settings: Settings) -> list[str]:
+    """Ordre choisi des clients (ids, du plus à gauche dans le bandeau) ; liste vide : ordre d'origine."""
+    raw = _read_runtime(settings).get("saves_order", [])
+    return [i for i in raw if isinstance(i, str)] if isinstance(raw, list) else []
+
+
+def save_saves_order(settings: Settings, ids: list[str]) -> None:
+    with _saves_lock:
+        _save_runtime(settings, saves_order=ids)
 
 
 def save_saves_game_host_icon(settings: Settings, icon: str | None) -> None:

@@ -125,7 +125,7 @@ function paintApercu() {
   const gfxNode = gfx.length ? el("span", {}, ...gfx.map((t) => el("span", { className: "chip plain t-accent", textContent: t }))) : null;
   const runner = i.runner === "default" ? "Aucun (choisi par le lanceur)"
     : i.runner_joined ? `Intégré${used ? ` (${used})` : ""}` : `Custom${used || i.runner_path ? ` (${used || i.runner_path})` : ""}`;
-  const pad = i.hidraw ? el("span", {}, icon("usb", "sm"), " DualSense") : el("span", {}, icon("gamepad", "sm"), " Xbox");
+  const pad = i.hidraw ? el("span", {}, icon("dualsense", "sm"), " DualSense") : el("span", {}, icon("xbox", "sm"), " Xbox");
   const override = i.override || [];
   const g = connected() ? sv.games.find((x) => x.game === gameOfItem(i)) : null;
   const sync = g ? syncLine(g) : null;

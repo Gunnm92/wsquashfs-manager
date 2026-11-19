@@ -228,7 +228,9 @@ Routes (toutes sous `/api/saves/`) :
 | GET | `machines/{id}/dirs` | `{dirs:[{name,path}], eden}` : dossiers déclarés sur le client, dossier d'Eden (`""` sinon) |
 | PUT | `machines/{id}/dirs` | `{"name","path"}` (chemin à partir du dossier personnel du client, ex. `.local/share/hookshot/save`) → même réponse ; 422 refus de l'agent (chemin hors HOME, nom invalide, agent < 8) ; 502 injoignable |
 | DELETE | `machines/{id}/dirs?name=` | retire la déclaration (fichiers gardés) → même réponse ; 422 nom inconnu |
-| PATCH | `machines/{id}` | `{"icon":"linux"\|"steamos"\|"batocera"\|null}` → `{id,icon,icon_set}` ; 400 icône ; 404 inconnue |
+| POST | `machines/{id}/update` | met à jour le lanceur du client (agent 11, `POST /v1/update` : binaire publié vérifié par son empreinte, agent relancé s'il a changé) → `{code, output, before, after, restart}` ; 502 injoignable ; 422 refus de l'agent |
+| PUT | `machines/order` | `{"ids":[…]}` : tous les clients, une fois chacun, dans l'ordre du bandeau → `{ids}` ; 400 ordre incomplet ou doublon |
+| PATCH | `machines/{id}` | `{"icon":"linux"\|"steamos"\|"steambox"\|"batocera"\|null}` → `{id,icon,icon_set}` ; 400 icône ; 404 inconnue |
 | DELETE | `machines/{id}` | `{"removed":id}` ; 404 inconnue ; 422 `game-host` |
 | GET | `status[?id=<image>]` | `{machines:[{…,os,icon,icon_set}], games:[{game, reserve, check, check_by, machines:[{id,name,state,fingerprint,newest,size,message}]}]}` |
 | POST | `pull` | `{"source":id, "games":[…]}` ou `{"source":id, "all":true}` → `{"task":id}` |
@@ -280,7 +282,16 @@ gêne pas le jeu (une ligne d'information sur le client).
   synchro auto est activée reçoivent donc aussi la version la plus récente du
   manager ; leur agent doit être lancé.
 - **Routes du client** (port 8790 seulement, jamais l'interface) : `GET /v1/info`,
-  `GET /v1/saves/list`, `GET|PUT /v1/saves/tar?game=`, `POST /v1/saves/state`.
+  `POST /v1/events`, `GET /v1/saves/list`, `GET|PUT /v1/saves/tar?game=`, `POST /v1/saves/state`.
+- **Activité des clients** (agent 11, `services/activity.py`) : le lanceur signale
+  ses parties au manager déclaré (`POST /v1/events` : `{event: "start"|"exit", game,
+  at, started?, code?, controllers?}`, deux requêtes par partie, rien d'autre) ; la
+  relecture des sauvegardes lit aussi `playing`, `controllers` et `build` dans
+  `GET /v1/info` (aucune requête de plus). L'interface lit l'état ici, sans contacter
+  les clients : `GET /api/clients/activity?since=<n>` → `{seq, live: {client: [{game,
+  since}]}, controllers: {client: [{kind, name, bus}]}, events: [...]}`. Une sortie
+  en erreur en moins de 60 s est marquée `crash`. Les fins de partie sont gardées
+  dans `activity.jsonl` (dossier d'état, 2000 lignes au plus).
   Authentification : `Authorization: Bearer <jeton>` (sinon 401) et en-tête
   `X-Wsq-Machine` (sinon 400). Les réponses d'erreur ont la même forme que
   celles de l'agent (`{"detail": …}`).

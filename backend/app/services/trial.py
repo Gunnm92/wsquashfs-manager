@@ -326,6 +326,10 @@ class AgentHost:
     def doctor(self) -> dict:
         return self._call("GET", "/v1/doctor", timeout=120).json()
 
+    def update(self) -> dict:
+        """Mise à jour du lanceur du client (agent 11, POST /v1/update) ; l'agent se relance s'il a changé."""
+        return self._call("POST", "/v1/update", timeout=330).json()
+
     def trial(self, rel: str, duration: int) -> tuple[dict, bytes]:
         data = self._call("POST", "/v1/trial", json={"rel": rel, "duration": duration},
                           timeout=duration + 180).json()

@@ -75,6 +75,7 @@
 <symbol id="i-server" viewBox="0 0 24 24"><rect width="20" height="8" x="2" y="2" rx="2"></rect><rect width="20" height="8" x="2" y="14" rx="2"></rect><path d="M6 6h.01M6 18h.01"></path></symbol>
 <symbol id="i-linux" viewBox="0 0 24 24"><path d="M9 9.6C7.2 12 6 14.5 6.2 17c.2 2.3 2.3 3.6 5.8 3.6s5.6-1.3 5.8-3.6c.2-2.5-1-5-2.8-7.4"></path><circle cx="12" cy="6.6" r="3.6"></circle><ellipse cx="12" cy="15.6" rx="2.5" ry="3.2"></ellipse><path d="M10.7 6h.01M13.3 6h.01"></path><path d="m11 7.8 1 .8 1-.8"></path><path d="M7.6 19.6 5.2 21.2h4.4M16.4 19.6l2.4 1.6h-4.4"></path></symbol>
 <symbol id="i-steamos" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5"></circle><circle cx="15.2" cy="10.6" r="2.8"></circle><path d="m13.3 12.7-5.6 4.4"></path><circle cx="6.4" cy="17.8" r="2"></circle></symbol>
+<symbol id="i-steambox" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"></rect><circle cx="12" cy="12" r="4.5"></circle><circle cx="12" cy="12" r="1"></circle><path d="M17.5 17.5h.01"></path></symbol>
 <symbol id="i-batocera" viewBox="0 0 24 24"><path d="M7.2 7.5h9.6a5 5 0 0 1 4.8 6.2l-.8 2.9a2.4 2.4 0 0 1-4.1.9L14.7 15H9.3l-1.9 2.5a2.4 2.4 0 0 1-4.1-.9l-.8-2.9a5 5 0 0 1 4.7-6.2Z"></path><path d="M7.4 10.6v3.2M5.8 12.2h3.2"></path><circle cx="15.8" cy="11.2" r=".6"></circle><circle cx="17.8" cy="13.2" r=".6"></circle></symbol>
 </defs></svg>
 <div id="tip" role="tooltip" hidden></div>
@@ -161,8 +162,8 @@
       <button class="iconbtn bare lg" id="btn-mass-commit" title="Inscrire les surcharges" aria-label="Reconstruire chaque image avec son autorun effectif, puis supprimer la surcharge"><svg class="ico"><use href="#i-filepen"/></svg></button>
       <button class="iconbtn bare lg" id="btn-saves-reset" title="Réinitialiser les sauvegardes" aria-label="Mettre de côté les sauvegardes (renommées, pas supprimées)"><svg class="ico"><use href="#i-save"/></svg></button>
       <span class="sep"></span>
-      <button class="iconbtn bare lg" id="btn-inst-install" data-connected title="Installer sur…" aria-label="Copier les images sélectionnées (.wsquashfs) dans le dossier des jeux des clients associés"><svg class="ico"><use href="#i-drive"/></svg></button>
-      <button class="iconbtn bare lg" id="btn-inst-uninstall" data-connected title="Désinstaller de…" aria-label="Retirer les images sélectionnées (.wsquashfs) des clients associés ; elles restent dans la bibliothèque"><svg class="ico"><use href="#i-trash"/></svg></button>
+      <button class="iconbtn bare lg" id="btn-inst-install" data-connected title="Installer sur…" aria-label="Copier les images sélectionnées (.wsquashfs) dans le dossier des jeux des clients associés"><span data-aico="install"></span></button>
+      <button class="iconbtn bare lg" id="btn-inst-uninstall" data-connected title="Désinstaller de…" aria-label="Retirer les images sélectionnées (.wsquashfs) des clients associés ; elles restent dans la bibliothèque"><span data-aico="eject"></span></button>
       <button class="iconbtn bare lg" id="btn-sel-clear" title="Désélectionner" aria-label="Désélectionner"><svg class="ico"><use href="#i-x"/></svg></button>
     </div>
   </section>
@@ -215,7 +216,7 @@
           <button type="button" class="switch-row" id="s-share" role="switch" aria-checked="false" data-connected title="Le partage se règle par client, dans Sauvegardes"><span>Entre clients</span><span class="sw"><span class="knob"></span></span></button>
         </div>
         <div class="save-acts" data-connected>
-          <button type="button" class="btn primary sm" id="s-sync-btn"><svg class="ico sm"><use href="#i-refresh"/></svg>Synchroniser</button>
+          <button type="button" class="btn primary sm" id="s-sync-btn"><span data-aico="sync" data-cls="sm"></span>Synchroniser</button>
           <button type="button" class="btn secondary sm" id="s-copy"><svg class="ico sm"><use href="#i-copy"/></svg>Copier</button>
           <span class="spacer"></span>
           <button type="button" class="linklike" id="s-open">Voir dans Sauvegardes</button>
@@ -445,10 +446,10 @@
       <span class="sel-copy">vers</span>
       <div class="dd" id="s-targets-dd"><button type="button" class="dd-btn" id="s-targets" aria-haspopup="menu" title="Clients qui reçoivent la copie"></button></div>
       <span class="sep"></span>
-      <button class="btn primary sm" id="s-push" title="Synchroniser : copie la version choisie vers les clients cochés"><svg class="ico sm"><use href="#i-refresh"/></svg>Synchroniser</button>
-      <button class="btn soft sm" id="s-pull" title="Copier les sauvegardes sélectionnées sur le manager"><svg class="ico sm"><use href="#i-server"/></svg>Copier vers le manager</button>
+      <button class="btn primary sm" id="s-push" title="Synchroniser : copie la version choisie vers les clients cochés"><span data-aico="sync" data-cls="sm"></span>Synchroniser</button>
+      <button class="btn soft sm" id="s-pull" title="Copier les sauvegardes sélectionnées sur le manager"><span data-aico="save" data-cls="sm"></span>Copier vers le manager</button>
       <span class="sep"></span>
-      <button class="btn bare sm sv-danger" id="s-delete" title="Supprimer les sauvegardes sélectionnées, sur des clients et/ou le manager"><svg class="ico sm"><use href="#i-trash"/></svg>Supprimer…</button>
+      <button class="btn bare sm sv-danger" id="s-delete" title="Supprimer les sauvegardes sélectionnées, sur des clients et/ou le manager"><span data-aico="trash" data-cls="sm"></span>Supprimer…</button>
       <button class="iconbtn bare lg" id="s-clear" title="Désélectionner" aria-label="Désélectionner"><svg class="ico"><use href="#i-x"/></svg></button>
     </div>
   </section>

@@ -7,6 +7,7 @@
 @import url("css/tokens.css") layer(tokens);
 @import url("css/base.css") layer(base);
 @import url("css/components.css") layer(components);
+@import url("css/aicons.css") layer(components);
 @import url("css/views/header.css") layer(views);
 @import url("css/views/library.css") layer(views);
 @import url("css/views/detail.css") layer(views);

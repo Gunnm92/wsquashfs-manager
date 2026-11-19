@@ -8,6 +8,7 @@ import { openDetail } from "./detail/detail.js";
 import { paintClients, showView } from "./header.js";
 import { renderLibrary, todoChip } from "./library.js";
 import { menus, openMenuNode } from "./menu.js";
+import { loadActivity } from "./activity.js";
 import { connected } from "./mode.js";
 import { menuItem, onMachine } from "./saves-machines.js";
 import { openResolve } from "./saves-resolve.js";
@@ -45,9 +46,9 @@ const sectionRank = (key) => key === "sys:win" ? 0 : key === "switch" ? 2 : key 
 // Sections repliées (clic sur leur titre), mémorisées dans le navigateur
 const savesCollapsed = new Set((() => { try { return JSON.parse(storage.get("wsfs-saves-collapsed") || "[]"); } catch { return []; } })());
 
-export const OS_ICONS = ["linux", "steamos", "batocera"];          // icônes choisissables d'un client
+export const OS_ICONS = ["linux", "steamos", "steambox", "batocera"];   // icônes choisissables d'un client
 
-export const OS_LABELS = { linux: "Linux", steamos: "SteamOS", batocera: "Batocera" };
+export const OS_LABELS = { linux: "Linux", steamos: "SteamOS", steambox: "SteamBox", batocera: "Batocera" };
 
 export const sv = {
   machines: [],          // clients joints à leur état (kind, removable, ok, games, message)
@@ -136,6 +137,7 @@ export async function loadSaves() {
   paintSavesView();
   paintSettingsClients();
   if (!$("main").hidden) renderLibrary();      // la colonne « Sauveg. » des images
+  loadActivity();                              // jeux en cours et manettes relus chez les agents
 }
 
 // Vue Sauvegardes : le client choisi en haut de page (state.client), ou « Toutes », filtre la liste.

@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from .. import deps
+from ..services import activity
 from ..services import saves as saves_svc
 from ..services.rebuild import RebuildError
 from ..services.trial import AgentProbeError, AgentUnreachable
@@ -83,7 +84,20 @@ def saves_machine_dir_delete(machine_id: str, name: str):
 
 
 class SavesMachineIcon(BaseModel):
-    icon: str | None                    # linux, steamos, batocera ; null : retour à la détection
+    icon: str | None                    # linux, steamos, steambox, batocera ; null : retour à la détection
+
+
+class SavesMachineOrder(BaseModel):
+    ids: list[str] = Field(max_length=50)       # tous les clients, du plus à gauche dans le bandeau
+
+
+@router.put("/api/saves/machines/order")
+def saves_machines_order(body: SavesMachineOrder):
+    """Ordre des clients dans le bandeau et les listes (chaque client une seule fois)."""
+    try:
+        return {"ids": saves_svc.set_machine_order(deps._settings, body.ids)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.patch("/api/saves/machines/{machine_id}")
@@ -95,3 +109,23 @@ def saves_machine_icon(machine_id: str, body: SavesMachineIcon):
         raise HTTPException(status_code=404, detail=f"client inconnu : {machine_id}") from None
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/api/clients/activity")
+def clients_activity(since: int = -1):
+    """Jeux en cours et manettes par client, événements de partie après `since` : lu par l'interface
+    sans contacter les clients (l'état vient des relectures et des événements qu'ils envoient)."""
+    return activity.snapshot(since)
+
+
+@router.post("/api/saves/machines/{machine_id}/update")
+def saves_machine_update(machine_id: str):
+    """Met à jour le lanceur du client (agent 11, binaire vérifié par son empreinte) ; l'agent se relance."""
+    try:
+        return saves_svc.open_machine(deps._settings, machine_id, timeout=330).update()
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"client inconnu : {machine_id}") from None
+    except AgentUnreachable as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except RebuildError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

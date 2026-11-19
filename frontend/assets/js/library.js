@@ -33,7 +33,7 @@ const FILTERS = [
   { key: "system", label: "Système", all: "Tous les systèmes", options: () => [...new Set(state.items.map((i) => i.system).filter(Boolean))].sort().map((v) => [v, null, "", cap(v)]) },
   { key: "type", label: "Prefix", all: "Tous les prefix", options: () => [["wine", "wine", "t-accent", "wine"], ["wine_proton", "atom", "t-sage", "proton"], ["game_only", "app", "t-neutral", "aucun"]] },
   { key: "runner", label: "Runner", all: "Tous les runners", options: () => [["default", null, "", "aucun"], ["custom", "cpu", "t-accent", "custom"], ["joined", "clip", "t-accent", "intégré"]] },
-  { key: "pad", label: "Manette", all: "Toutes les manettes", options: () => [["hidraw", "usb", "t-sage", "DualSense"], ["xinput", "gamepad", "t-off", "Xbox"]] },
+  { key: "pad", label: "Manette", all: "Toutes les manettes", options: () => [["hidraw", "dualsense", "t-sage", "DualSense"], ["xinput", "xbox", "t-off", "Xbox"]] },
   { key: "extra", label: "Extras", all: "Tous", options: () => [["keys", "keyboard", "t-neutral", "Touches clavier"], ["fakeping", "wifi", "t-neutral", "Relais fakeping"]] },
 ];
 
@@ -80,7 +80,7 @@ function profileBadges(i) {
   const [typeIcon, typeTone] = TYPE_LOOK[i.type] || TYPE_LOOK.unknown;
   const out = [dotIc(typeIcon, typeTone, `Prefix : ${typeLong(i.type)}`)];
   if (i.runner !== "default") out.push(dotIc(i.runner_joined ? "clip" : "cpu", "t-accent", i.runner_joined ? "Runner intégré" : "Runner custom", runnerDetails(i)));
-  out.push(i.hidraw ? dotIc("usb", "t-sage", "Manette : DualSense") : dotIc("gamepad", "t-off", "Manette : Xbox"));
+  out.push(i.hidraw ? dotIc("dualsense", "t-sage", "Manette : DualSense") : dotIc("xbox", "t-off", "Manette : Xbox"));
   for (const extra of i.extras || []) {
     if (extra === ".keys") out.push(dotIc("keyboard", "t-neutral", "Touches clavier", [".wsquashfs.keys à côté de l'image"]));
     else if (extra === "fakeping") out.push(dotIc("wifi", "t-neutral", "Relais fakeping", ["dinput8.dll"]));

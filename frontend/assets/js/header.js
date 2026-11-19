@@ -1,12 +1,13 @@
 // header.js — En-tête : vues, clients, menu ⚙, actualisation.
 
-import { $, bigSize, el, hideAnimated, isShown, motionOff, replay, showAnimated, state, storage } from "./core.js";
+import { $, bigSize, el, hideAnimated, icon, isShown, motionOff, replay, showAnimated, state, storage } from "./core.js";
 import { loadFolders } from "./folders.js";
 import { loadHelp } from "./help.js";
 import { inst } from "./install.js";
 import { renderLibrary } from "./library.js";
+import { playingOn } from "./activity.js";
 import { connected } from "./mode.js";
-import { loadSaves, paintSavesView, sv } from "./saves.js";
+import { loadSaves, osIcon, paintSavesView, sv } from "./saves.js";
 import { openSettings, paintSettingsClients, settingsBusy, settingsChanges } from "./settings.js";
 import { setTasksOpen } from "./tasks.js";
 
@@ -95,7 +96,8 @@ let clientsSig = "";
 
 function clientList() {
   return (inst.loaded ? inst.machines : sv.machines).map((m) => ({ id: m.id, name: m.name, ok: Boolean(m.ok),
-    free: inst.machines.find((x) => x.id === m.id)?.free ?? null }));
+    free: inst.machines.find((x) => x.id === m.id)?.free ?? null, icon: sv.machines.find((x) => x.id === m.id)?.icon ?? null,
+    playing: playingOn(m.id).map((p) => p.game) }));
 }
 
 // Client choisi dans l'en-tête ({ id, name, ok, free }), ou null : « Toutes » ou mode autonome
@@ -126,16 +128,20 @@ export function paintClients() {
   const seg = $("client-seg");
   const known = (id) => id === "all" || list.some((c) => c.id === id);
   if (!known(state.client)) state.client = known(storage.get(CLIENT_KEY)) ? storage.get(CLIENT_KEY) : list[0].id;
-  const sig = JSON.stringify(list.map((c) => [c.id, c.name, c.ok]));
+  const sig = JSON.stringify(list.map((c) => [c.id, c.name, c.ok, c.icon, c.playing]));
   if (sig !== clientsSig) {
     clientsSig = sig;
     const choices = [...list, { id: "all", name: "Tous", ok: null }];
     // L'indicateur est gardé : recréé, il repartirait de zéro au lieu de glisser jusqu'au choix
     const ind = seg.querySelector(":scope > .ind") ?? el("span", { className: "ind", ariaHidden: "true" });
     seg.replaceChildren(ind, ...choices.map((c) => {
+      const playing = c.ok !== null && c.playing.length > 0;
       const b = el("button", { type: "button", role: "radio",
-        title: c.ok === null ? `${list.length} clients` : `${c.name} : ${c.ok ? "en ligne" : "hors ligne"}` },
-        c.ok === null ? null : el("span", { className: `dot${c.ok ? " ok" : ""}` }), el("span", { textContent: c.name }));
+        title: c.ok === null ? `${list.length} clients` : playing ? `${c.name} : en jeu (${c.playing.join(", ")})`
+          : `${c.name} : ${c.ok ? "en ligne" : "hors ligne"}` },
+        c.ok === null ? null : el("span", { className: `dot${c.ok ? " ok" : ""}${playing ? " playing" : ""}` }),
+        c.ok === null ? null : osIcon(c.icon, "sm"), el("span", { textContent: c.name }),
+        playing ? el("span", { className: "cplay", title: c.playing.join(", ") }, icon("play", "xs")) : null);
       b.dataset.client = c.id;
       return b;
     }));
@@ -147,7 +153,8 @@ export function paintClients() {
   }
   placeInd(seg);
   const c = state.client === "all" ? null : list.find((x) => x.id === state.client);
-  const text = !c ? `${list.length} client${list.length > 1 ? "s" : ""}` : !c.ok ? "Hors ligne" : c.free ? `${bigSize(c.free)} libres` : "En ligne";
+  const text = !c ? `${list.length} client${list.length > 1 ? "s" : ""}` : c.playing.length ? `En jeu · ${c.playing.join(", ")}`
+    : !c.ok ? "Hors ligne" : c.free ? `${bigSize(c.free)} libres` : "En ligne";
   const info = $("client-info");
   if (info.textContent !== text) {
     info.textContent = text;

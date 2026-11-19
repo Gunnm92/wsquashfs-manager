@@ -9,7 +9,7 @@ Chaque requête porte :
   son empreinte SHA-256 est gardée (config.json). Le jeton identifie le client ;
 - `X-Wsq-Machine` : identifiant de synchro du lanceur, contrôlé seulement.
 
-Routes : GET /v1/info, GET /v1/saves/list, GET et PUT /v1/saves/tar?game=,
+Routes : GET /v1/info, POST /v1/events (activité, activity.py), GET /v1/saves/list, GET et PUT /v1/saves/tar?game=,
 POST /v1/saves/state. Les états par machine sont dans meta.json de la réserve du jeu.
 Après un envoi réussi, les autres clients en retard (synchro auto) reçoivent la version du
 manager (saves.sync_auto, en arrière-plan).
@@ -25,7 +25,7 @@ import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 from urllib.parse import unquote
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -33,6 +33,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from ..config import Settings, saves_machines
+from . import activity
 from . import saves as saves_svc
 
 MAX_ARCHIVE = 2 << 30               # 2 Gio, comme les envois vers l'agent
@@ -44,6 +45,16 @@ _FINGERPRINT = re.compile(r"[0-9A-Fa-f]{64}")
 def _background(target, *args, **kwargs) -> None:
     """Lance `target` dans un thread démoniaque : la réponse au client n'attend pas."""
     threading.Thread(target=target, args=args, kwargs=kwargs, name="synchro-auto", daemon=True).start()
+
+
+class EventBody(BaseModel):
+    """Activité envoyée par le lanceur (agent 11) : partie lancée ou terminée."""
+    event: Literal["start", "exit"]
+    game: str = Field(min_length=1, max_length=200)
+    at: int | None = None
+    started: int | None = None
+    code: int | None = None
+    controllers: list[dict] | None = Field(default=None, max_length=32)
 
 
 class StateBody(BaseModel):
@@ -81,6 +92,13 @@ def build_router(settings_of: Callable[[], Settings]) -> APIRouter:
     @router.get("/v1/info")
     def info(machine: Machine):
         return {"host": socket.gethostname(), "version": "manager"}
+
+    @router.post("/v1/events")
+    def events(body: EventBody, machine: Machine):
+        """Partie lancée ou terminée sur ce client (activity.py) ; l'interface la lit ensuite."""
+        _check_game(body.game)
+        activity.record(settings_of(), machine, body.model_dump())
+        return {"ok": True}
 
     @router.get("/v1/saves/list")
     def saves_list(machine: Machine):

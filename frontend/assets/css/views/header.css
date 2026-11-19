@@ -66,3 +66,13 @@ body[data-view="folders"] #client-seg, body[data-view="folders"] #client-info { 
 @keyframes fadein { from { opacity: 0; transform: translateY(3px); } }
 @keyframes rowin { from { opacity: 0; transform: translateY(6px); } }
 @keyframes selup { from { opacity: 0; transform: translateY(16px); } }
+
+/* Client en jeu (agent 11) : pastille qui pulse et petit « lecture » après le nom */
+.clients .seg > button .cplay { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--accent-900); color: var(--accent-300); margin-left: -2px; }
+.clients .seg > button .cplay .ico { width: 9px; height: 9px; }
+.clients .dot.playing { background: var(--accent); box-shadow: 0 0 0 3px rgba(109, 135, 245, .25); }
+@media (prefers-reduced-motion: no-preference) {
+  .clients .dot.playing { animation: client-playing 1.6s var(--ease-out) infinite; }
+}
+@keyframes client-playing { 0%, 100% { box-shadow: 0 0 0 2px rgba(109, 135, 245, .35); } 50% { box-shadow: 0 0 0 5px rgba(109, 135, 245, 0); } }

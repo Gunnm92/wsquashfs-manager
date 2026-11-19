@@ -1,5 +1,6 @@
 // main.js — Démarrage : initialisation des modules dans l'ordre d'origine, puis premier affichage.
 import { init as initCore } from "./core.js";
+import { hydrateAicons } from "./aicons.js";
 import { init as initArt } from "./art.js";
 import { init as initApi } from "./api.js";
 import { init as initMenu } from "./menu.js";
@@ -12,6 +13,7 @@ import { init as initDetailFiles } from "./detail/files.js";
 import { init as initTasks } from "./tasks.js";
 import { init as initMode } from "./mode.js";
 import { init as initSavesMachines } from "./saves-machines.js";
+import { init as initActivity } from "./activity.js";
 import { init as initSaves } from "./saves.js";
 import { init as initSavesOps } from "./saves-ops.js";
 import { init as initDoctor } from "./doctor.js";
@@ -35,6 +37,7 @@ import { refreshTasks } from "./tasks.js";
 import { fillWhen } from "./when.js";
 
 initCore();
+hydrateAicons();
 initArt();
 initApi();
 initMenu();
@@ -47,6 +50,7 @@ initDetailFiles();
 initTasks();
 initMode();
 initSavesMachines();
+initActivity();
 initSaves();
 initSavesOps();
 initDoctor();

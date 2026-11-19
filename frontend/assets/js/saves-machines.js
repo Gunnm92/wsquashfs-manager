@@ -3,6 +3,7 @@
 import { api } from "./api.js";
 import { $, el, icon, toast } from "./core.js";
 import { closeMenu } from "./menu.js";
+import { updateLauncher } from "./activity.js";
 import { isTrial, openDoctor, openMaint, useForTrials } from "./mode.js";
 import { OS_ICONS, OS_LABELS, PRESENT_STATES, loadSaves, stateOf } from "./saves.js";
 
@@ -19,6 +20,8 @@ export function machineMenu(m) {
     choice(`Détectée (${({ linux: "Linux", steamos: "SteamOS", batocera: "Batocera" })[m.os] || m.os || "Linux"})`, m.icon || "linux", !m.icon_set, () => setMachineIcon(m, null)),
     ...OS_ICONS.map((key) => choice(OS_LABELS[key], key, m.icon_set && m.icon === key, () => setMachineIcon(m, key))));
   if (m.ok) nodes.push(menuItem("Dossiers synchronisés…", "folder", () => openDirs(m)));
+  // Agent 11 : mise à jour du lanceur à distance (binaire vérifié par son empreinte, agent relancé)
+  if (m.ok && Number(m.agent) >= 11) nodes.push(menuItem("Mettre à jour le lanceur…", "refresh", () => updateLauncher(m)));
   if (m.removable) nodes.push(menuItem("Oublier ce client", "trash", () => forgetMachine(m), { danger: true }));
   return nodes;
 }

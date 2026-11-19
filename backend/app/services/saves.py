@@ -45,6 +45,7 @@ from ..config import (
     set_saves_machine_field,
 )
 from ..models import Task, TaskStatus
+from . import activity
 from .durable import append_line, fsync_dir, publish_new, swap_keep_old, write_atomic
 from .rebuild import Job, RebuildError
 from .trial import (
@@ -360,6 +361,7 @@ def remove_machine(settings: Settings, machine_id: str) -> None:
         raise KeyError(machine_id)
     was_game_host = game_host_machine(settings) == machine_id
     save_saves_machines(settings, kept)
+    activity.forget(machine_id)
     if was_game_host:
         save_game_host(settings, {"game_host": "off", "agent_url": "", "agent_token": ""})
 
@@ -1270,7 +1272,10 @@ def status(settings: Settings, games: list[str] | None = None, refresh: bool = F
         wanted = _dedupe(g for g in games if valid_game(g))
     machines = []
     for row, (listing, error, system, info) in zip(rows, fetched):
+        if listing is not None:
+            activity.from_info(row["id"], info)          # agent 11 : jeux en cours, manettes
         machines.append({"id": row["id"], "name": row["name"], "url": row["url"],
+                         "agent": str(info.get("version") or ""), "build": str(info.get("build") or ""),
                          "ok": listing is not None, "message": error,
                          "games": len(listing) if listing is not None else None,
                          "os": system, "icon": row["icon"] or (system if system in ICONS else "linux"),

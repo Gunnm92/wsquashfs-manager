@@ -11,6 +11,7 @@ import { openMenuNode } from "./menu.js";
 import { applyMode, connected, hostName, hostOn, isTrial, useForTrials } from "./mode.js";
 import { loadSaves, osIcon, sv } from "./saves.js";
 import { machineMenu } from "./saves-machines.js";
+import { PAD_ICON, PAD_LABEL, controllersOf, playingOn, spanText } from "./activity.js";
 import { openPair } from "./saves-ops.js";
 
 // Vue « settings » (menu ⚙). Chaque valeur vient de state.config ou de /api/config/systems ;
@@ -319,21 +320,58 @@ function renderClients() {
   list.replaceChildren(...sv.machines.map(clientRow));
 }
 
+// Manettes branchées sur un client (agent 11) : une icône par manette, nom et liaison en infobulle
+function padIcons(m) {
+  const pads = m.ok || playingOn(m.id).length ? controllersOf(m.id) : [];
+  if (!pads.length) return null;
+  return el("span", { className: "st-pads" }, ...pads.map((p) => el("span", {
+    className: "st-pad", title: `${p.name || PAD_LABEL[p.kind]}${p.bus ? ` (${p.bus === "bluetooth" ? "Bluetooth" : "USB"})` : ""}` },
+  icon(PAD_ICON[p.kind] || "gamepad"))));
+}
+
 function clientRow(m) {
   const free = inst.machines.find((x) => x.id === m.id)?.free;
   const ok = Boolean(m.ok);
+  // En jeu même sans agent joignable : c'est le lanceur qui signale ses parties au manager
+  const playing = playingOn(m.id).length ? playingOn(m.id) : null;
   const menu = el("button", { type: "button", className: "mcard-menu", title: "Actions sur ce client", "aria-label": `Actions sur ${m.name}`, "aria-haspopup": "menu" },
     icon("chevd", "sm"));
   menu.onclick = () => openMenuNode(menu.parentElement, machineMenu(m));
+  const at = sv.machines.findIndex((x) => x.id === m.id);
+  const step = (delta, label) => {
+    const b = el("button", { type: "button", className: "iconbtn bare sm", title: `${label} dans le bandeau`,
+      "aria-label": `${label} ${m.name}`, disabled: at + delta < 0 || at + delta >= sv.machines.length },
+      icon(delta < 0 ? "chev" : "chevd", "sm"));
+    b.onclick = () => moveClient(m, delta);
+    return b;
+  };
   return el("div", { className: "st-row st-client" },
     el("span", { className: "mcard-ico" }, osIcon(m.icon, "lg")),
     el("div", { className: "st-txt" },
       el("span", { className: "st-cname" }, el("b", { textContent: m.name }),
         isTrial(m) ? el("span", { className: "chip plain t-accent", title: "Client d'essai", textContent: "essais" }) : null),
-      el("span", { className: "st-sub mono", textContent: m.url || "" })),
-    el("span", { className: `st-state${ok ? " ok" : ""}` }, el("span", { className: "st-led" }),
-      el("span", { textContent: ok ? (free ? `En ligne · ${bigSize(free)} libres` : "En ligne") : "Hors ligne" })),
+      el("span", { className: "st-sub mono", textContent: [m.url, m.build ? `lanceur ${m.build}` : ""].filter(Boolean).join(" · ") })),
+    padIcons(m),
+    el("span", { className: `st-state${ok ? " ok" : ""}${playing ? " playing" : ""}`,
+      title: playing ? playing.map((p) => `${p.game} depuis ${spanText(Date.now() / 1000 - p.since)}`).join("\n") : "" },
+      el("span", { className: "st-led" }),
+      el("span", { textContent: playing ? `En jeu : ${playing.map((p) => p.game).join(", ")}`
+        : ok ? (free ? `En ligne · ${bigSize(free)} libres` : "En ligne") : "Hors ligne" })),
+    el("div", { className: "st-order" }, step(-1, "Monter"), step(1, "Descendre")),
     el("div", { className: "dd" }, menu));
+}
+
+// Ordre des clients (bandeau, listes) : échange avec le voisin, enregistré par le manager
+async function moveClient(m, delta) {
+  const ids = sv.machines.map((x) => x.id);
+  const at = ids.indexOf(m.id), to = at + delta;
+  if (to < 0 || to >= ids.length) return;
+  [ids[at], ids[to]] = [ids[to], ids[at]];
+  try {
+    await api("/api/saves/machines/order", { method: "PUT", body: { ids } });
+    loadSaves();
+    loadInstall();
+  } catch (error) { toast(error.message, "alert", true); }
 }
 
 // Appelé quand les clients sont relus (sauvegardes, installation) : la page suit

@@ -1,3 +1,4 @@
+import { aicon } from "./aicons.js";
 // core.js — État partagé, outils DOM, formatage, notifications et infobulles.
 
 import { openHelp } from "./help.js";
@@ -28,7 +29,9 @@ export const storage = {
   set(k, v) { try { v === null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch { /* navigation privée */ } },
 };
 
-export const icon = (name, cls = "") => {
+export const icon = (name, cls = "") => aicon(name, cls) ?? spriteIcon(name, cls);
+
+const spriteIcon = (name, cls = "") => {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("class", `ico ${cls}`.trim());
   svg.setAttribute("aria-hidden", "true");

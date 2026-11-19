@@ -114,7 +114,7 @@
     <dl class="glossary">
       <div data-f id="hs-mode"><dt>Mode</dt><dd><b>Autonome</b> : construire et maintenir les images, sans client ni sauvegardes. <b>Connecté</b> : sauvegardes entre clients, installation et lancement d'essai.</dd></div>
       <div data-f id="hs-saves"><dt>Sauvegardes</dt><dd><b>Synchronisation automatique</b> (jamais, 10 min, 1 h, 6 h) : les clients à synchro auto activée et en retard reçoivent la version du manager. <b>Adresse du manager pour les clients</b> : <code>https://hôte:port</code> par laquelle les clients le joignent ; déclarée à chaque client associé ; vide : pas de synchro automatique.</dd></div>
-      <div data-f id="hs-clients"><dt>Clients</dt><dd>Les clients associés (icône, état). <b>Associer un client</b> : code <code>wsq://…</code> à coller. Le menu d'un client : Utiliser pour les essais, Diagnostic et Maintenance (client d'essai), icône, Dossiers synchronisés, Oublier ce client.</dd></div>
+      <div data-f id="hs-clients"><dt>Clients</dt><dd>Les clients associés (icône, état, <b>en jeu</b> avec le jeu en cours, manettes branchées en infobulle, version du lanceur), dans l'ordre choisi avec les flèches ▲ ▼ de chaque ligne : c'est l'ordre du bandeau. <b>Associer un client</b> : code <code>wsq://…</code> à coller. Le menu d'un client : Utiliser pour les essais, Diagnostic et Maintenance (client d'essai), icône, Dossiers synchronisés, Oublier ce client.</dd></div>
       <div data-f id="hs-library"><dt>Bibliothèque</dt><dd>Les systèmes pris en compte dans la liste des images. <b>Tout le dossier</b> lit aussi les systèmes ajoutés plus tard ; <b>Choisir les systèmes</b> ne lit que les cochés (avancé : dossiers de base, autres dossiers hors du dossier des roms).</dd></div>
       <div data-f id="hs-tasks"><dt>Tâches</dt><dd><b>Plage de nuit</b> : une tâche « cette nuit » ne démarre que dans cette plage. Tâches en parallèle et délai de conservation des anciennes versions (.old) : fixés au démarrage du manager.</dd></div>
       <div data-f id="hs-artwork"><dt>Illustrations</dt><dd>Clé API SteamGridDB (<b>Tester</b> la vérifie ; vide : la clé enregistrée reste), <b>auteurs préférés</b> (passent en premier), <b>seuil de rondeur</b> des icônes.</dd></div>
@@ -226,9 +226,9 @@
 
     <h2>Les clients</h2>
     <ul data-f>
-      <li>Un bouton par client dans l'en-tête (<b>Tous</b> ou un client), avec son icône et son état : joignable ou hors ligne. Le manager est sa propre copie.</li>
+      <li>Un bouton par client dans l'en-tête (<b>Tous</b> ou un client), avec son icône et son état : joignable, hors ligne, ou <b>en jeu</b> (pastille bleue et ▶, jeu en cours à droite). Les parties lancées et terminées s'affichent en message ; une sortie en erreur au bout de moins d'une minute est signalée. Le manager est sa propre copie.</li>
       <li>Un client hors ligne (éteint, en veille) reste visible, mais ce que le manager sait de lui vient de la dernière synchro.</li>
-      <li><b>Menu du client</b> (chevron) : <b>Utiliser pour les essais</b> (client d'essai du lancement), <b>Diagnostic du lanceur…</b> et <b>Maintenance…</b> (pour le client d'essai), l'<b>icône</b> (détectée ou choisie : Linux, SteamOS, Batocera), <b>Dossiers synchronisés…</b>, <b>Oublier ce client</b> (sauf le client d'essai du lanceur local).</li>
+      <li><b>Menu du client</b> (chevron) : <b>Utiliser pour les essais</b> (client d'essai du lancement), <b>Diagnostic du lanceur…</b> et <b>Maintenance…</b> (pour le client d'essai), l'<b>icône</b> (détectée ou choisie : Linux, SteamOS, SteamBox, Batocera), <b>Dossiers synchronisés…</b>, <b>Mettre à jour le lanceur…</b> (agent 11 : binaire publié vérifié par son empreinte, l'agent redémarre), <b>Oublier ce client</b> (sauf le client d'essai du lanceur local).</li>
       <li><b>Maintenance…</b> lance sur le client d'essai : lister les jeux, démonter, nettoyer, copier les sauvegardes de tous les jeux, synchroniser, état de la synchro. Chaque action demande confirmation, sauf les actions de lecture.</li>
     </ul>
 

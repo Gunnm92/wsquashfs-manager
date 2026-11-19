@@ -1,0 +1,58 @@
+/* Icônes animées (js/aicons.js) : monochromes (currentColor) au repos ; au survol de leur bouton,
+   carte ou entrée de menu, une partie bouge et prend une touche de couleur des jetons. */
+
+.ico.aico { fill: currentColor; stroke: none; overflow: visible; }
+/* Plus grandes que les icônes au trait : leurs formes pleines paraissent sinon plus petites */
+.ico.aico { width: calc(var(--ico) * 1.3); height: calc(var(--ico) * 1.3); }
+.ico.aico.xs { width: calc(var(--ico-xs) * 1.3); height: calc(var(--ico-xs) * 1.3); }
+.ico.aico.sm { width: calc(var(--ico-sm) * 1.3); height: calc(var(--ico-sm) * 1.3); }
+.ico.aico.lg { width: calc(var(--ico-lg) * 1.3); height: calc(var(--ico-lg) * 1.3); }
+.dot-ic .ico.aico { width: 18px; height: 18px; }
+.aico, .aico path { transform-box: fill-box; transform-origin: center; }
+.aico path { transition: fill var(--dur-med) var(--ease-out), transform .45s var(--ease-spring), opacity var(--dur-med); }
+.aico { transition: transform .45s var(--ease-spring), color var(--dur-med) var(--ease-out); }
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Déclencheurs : le survol (ou le focus clavier) de l'élément qui porte l'icône */
+  :is(button, a, [role^="menuitem"], .mcard, .dd-btn, .grow.item, .dot-ic, .st-pad):is(:hover, :focus-visible) .aico-linux { animation: aico-hop .55s var(--ease-spring); }
+  :is(button, a, [role^="menuitem"], .mcard, .dd-btn, .grow.item, .dot-ic, .st-pad):is(:hover, :focus-visible) .aico-steamos { transform: rotate(-9deg); }
+  :is(button, a, [role^="menuitem"], .mcard, .dd-btn, .grow.item, .dot-ic, .st-pad):is(:hover, :focus-visible) .aico-batocera { animation: aico-wiggle .6s var(--ease-out); }
+  :is(button, a, [role^="menuitem"], .mcard, .dd-btn, .grow.item, .dot-ic, .st-pad):is(:hover, :focus-visible) .aico-sync { transform: rotate(180deg); }
+  :is(button, a, [role^="menuitem"], .mcard, .dd-btn, .grow.item, .dot-ic, .st-pad):is(:hover, :focus-visible) .aico-install .p-arrow { animation: aico-drop .6s var(--ease-out); }
+  :is(button, a, [role^="menuitem"], .mcard, .dd-btn, .grow.item, .dot-ic, .st-pad):is(:hover, :focus-visible) .aico-eject .p-arrow { animation: aico-rise .6s var(--ease-out); }
+  :is(button, a, [role^="menuitem"], .mcard, .dd-btn, .grow.item, .dot-ic, .st-pad):is(:hover, :focus-visible) .aico-save { animation: aico-press .45s var(--ease-out); }
+  :is(button, a, [role^="menuitem"], .mcard, .dd-btn, .grow.item, .dot-ic, .st-pad):is(:hover, :focus-visible) .aico-trash .p-lid { transform: translateY(-14%) rotate(-14deg); }
+  :is(button, a, [role^="menuitem"], .mcard, .dd-btn, .grow.item, .dot-ic, .st-pad):is(:hover, :focus-visible) .aico-server .p-led-1 { animation: aico-blink .9s steps(2, jump-none) 2; }
+  :is(button, a, [role^="menuitem"], .mcard, .dd-btn, .grow.item, .dot-ic, .st-pad):is(:hover, :focus-visible) .aico-server .p-led-2 { animation: aico-blink .9s steps(2, jump-none) .45s 2; }
+  :is(button, a, [role^="menuitem"], .mcard, .dd-btn, .grow.item, .dot-ic, .st-pad):is(:hover, :focus-visible) .aico-steambox .p-led { animation: aico-pulse 1.1s var(--ease-out) 2; }
+  :is(button, a, [role^="menuitem"], .mcard, .dd-btn, .grow.item, .dot-ic, .st-pad):is(:hover, :focus-visible) :is(.aico-xbox, .aico-dualsense) { animation: aico-rumble .5s linear; }
+}
+
+/* Touches de couleur (aussi sans animation : retour visuel immédiat) */
+:is(button, a, [role^="menuitem"], .mcard, .dd-btn, .grow.item, .dot-ic, .st-pad):is(:hover, :focus-visible) .aico {
+  & .p-beak { fill: var(--warn); }
+  & .p-screen, & .p-logo, & .p-arc, & .p-arrow, & .p-label { fill: var(--accent); }
+  & .p-stick { fill: var(--accent2); }
+  & .p-led, & .p-led-1, & .p-led-2 { fill: var(--ok); }
+  & .p-btn-1, & .p-btn-b, & .p-btn-ci { fill: var(--err); }
+  & .p-btn-2, & .p-btn-x, & .p-btn-cr { fill: var(--accent); }
+  & .p-btn-a, & .p-btn-tri { fill: var(--ok); }
+  & .p-btn-y { fill: var(--edit); }
+  & .p-btn-sq { fill: var(--accent2); }
+  & .p-lid { fill: var(--err); }
+}
+.aico-trash .p-lid { transform-origin: left bottom; }
+/* Les boutons d'une manette s'allument l'un après l'autre */
+.aico :is(.p-btn-a, .p-btn-tri) { transition-delay: 0s; }
+.aico :is(.p-btn-b, .p-btn-ci) { transition-delay: .06s; }
+.aico :is(.p-btn-x, .p-btn-cr) { transition-delay: .12s; }
+.aico :is(.p-btn-y, .p-btn-sq) { transition-delay: .18s; }
+
+@keyframes aico-hop { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(-14%); } 70% { transform: translateY(3%); } }
+@keyframes aico-wiggle { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-9deg); } 55% { transform: rotate(7deg); } 80% { transform: rotate(-3deg); } }
+@keyframes aico-drop { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(18%); } }
+@keyframes aico-rise { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-16%); } }
+@keyframes aico-press { 0%, 100% { transform: translateY(0) scale(1); } 45% { transform: translateY(6%) scale(.94); } }
+@keyframes aico-blink { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+@keyframes aico-pulse { 0%, 100% { transform: scale(1); } 45% { transform: scale(1.6); } }
+@keyframes aico-rumble { 0%, 100% { transform: translate(0, 0) rotate(0); } 15% { transform: translate(-4%, 1%) rotate(-3deg); } 30% { transform: translate(4%, -1%) rotate(3deg); } 45% { transform: translate(-3%, 1%) rotate(-2deg); } 60% { transform: translate(3%, 0) rotate(2deg); } 80% { transform: translate(-1%, 0) rotate(-1deg); } }
