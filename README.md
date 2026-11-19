@@ -367,7 +367,8 @@ Jetons principaux, définis dans `:root` (`assets/css/tokens.css`, couche `token
 - couleurs : `--accent`, `--accent2` (second accent), `--err`, `--bg`, `--surface`, `--s2`, `--s3`, `--text`, `--muted`, `--faint`
 - rayons : `--radius-xs` à `--radius-xl`, `--radius-panel` (fenêtres), `--radius-pill` (boutons, pilules)
 - transitions : `--dur-fast`, `--dur-base`, `--dur-med`, `--dur-slow`, `--ease-out`, `--ease-spring`
-- tons des pastilles (classes `.t-*`) : `--tone-sage-bg/fg`, `--tone-accent-bg/fg`, `--tone-err-bg/fg`, `--tone-neutral-bg/fg`
+- tons des pastilles (classes `.t-*`) : `--tone-violet-bg/fg`, `--tone-accent-bg/fg`, `--tone-err-bg/fg`, `--tone-ok-bg/fg`, `--tone-warn-bg/fg`, `--tone-neutral-bg/fg`
+- opacités : `--accent-a25`, `--bg-a75`, `--text-a10`… (couleur d'un jeton à une opacité, sans `rgba()` dans les vues)
 - icônes : `--ico-xs`, `--ico-sm`, `--ico`, `--ico-lg`
 
 ## Création : dossiers → images

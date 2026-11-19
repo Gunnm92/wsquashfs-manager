@@ -4,7 +4,7 @@
 .svlist .iname .sub { font-size: 11.5px; color: var(--muted); }
 .svlist .gsize { color: var(--text); }
 .svlist .sv-when { font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sync { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; font-size: 12.5px; font-weight: 600; color: var(--idle); }
+.sync { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; font-size: 12.5px; font-weight: 600; color: var(--faint); }
 .sync-lbl { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
 .sync .ico { stroke-width: 2.4; }
 .sync.send, .sync.get { color: var(--accent-300); }
@@ -30,7 +30,7 @@ button.n.sv-open { display: block; max-width: 100%; padding: 0; border: 0; backg
   font-family: inherit; font-size: inherit; line-height: inherit; text-align: left; cursor: pointer; }
 .svlist .iname span.n { cursor: default; }
 button.n.sv-open:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1.5px; }
-button.n.sv-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+button.n.sv-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-xs); }
 .sv-thumb.sv-open { cursor: pointer; }
 .sv-thumb.sv-open:hover { box-shadow: 0 0 0 2px var(--accent); }
 

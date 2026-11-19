@@ -125,7 +125,10 @@ function paintApercu() {
   const gfxNode = gfx.length ? el("span", {}, ...gfx.map((t) => el("span", { className: "chip plain t-accent", textContent: t }))) : null;
   const runner = i.runner === "default" ? "Aucun (choisi par le lanceur)"
     : i.runner_joined ? `Intégré${used ? ` (${used})` : ""}` : `Custom${used || i.runner_path ? ` (${used || i.runner_path})` : ""}`;
-  const pad = i.hidraw ? el("span", {}, icon("dualsense", "sm"), " DualSense") : el("span", {}, icon("xbox", "sm"), " Xbox");
+  // L'icône dit la manette : le nom va dans l'infobulle et l'aria-label
+  const padName = i.hidraw ? "DualSense" : "Xbox";
+  const pad = el("span", { className: "pad-ic", role: "img", title: `Manette : ${padName}`, ariaLabel: `Manette : ${padName}` },
+    icon(i.hidraw ? "dualsense" : "xbox"));
   const override = i.override || [];
   const g = connected() ? sv.games.find((x) => x.game === gameOfItem(i)) : null;
   const sync = g ? syncLine(g) : null;

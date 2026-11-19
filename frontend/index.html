@@ -79,7 +79,7 @@
 <symbol id="i-batocera" viewBox="0 0 24 24"><path d="M7.2 7.5h9.6a5 5 0 0 1 4.8 6.2l-.8 2.9a2.4 2.4 0 0 1-4.1.9L14.7 15H9.3l-1.9 2.5a2.4 2.4 0 0 1-4.1-.9l-.8-2.9a5 5 0 0 1 4.7-6.2Z"></path><path d="M7.4 10.6v3.2M5.8 12.2h3.2"></path><circle cx="15.8" cy="11.2" r=".6"></circle><circle cx="17.8" cy="13.2" r=".6"></circle></symbol>
 </defs></svg>
 <div id="tip" role="tooltip" hidden></div>
-<div id="toast" role="status" hidden></div>
+<div id="toast" role="status" aria-live="polite" hidden></div>
 
 <header class="top">
   <div class="brand">
@@ -101,7 +101,7 @@
   <span class="spacer"></span>
   <div class="tasks-wrap">
     <button class="taskpill" id="btn-tasks" title="File de tâches" aria-expanded="false" aria-controls="tasks-panel">
-      <span class="spinner"></span><svg class="ico idle"><use href="#i-tasks"/></svg><span class="lbl" id="tasks-label"></span><span class="fail" id="tasks-fail" hidden></span>
+      <span class="spinner"></span><span data-aico="tasks" data-cls="idle"></span><span class="lbl" id="tasks-label"></span><span class="fail" id="tasks-fail" hidden></span>
     </button>
     <section id="tasks-panel" hidden>
       <div class="head"><strong>Tâches</strong><span class="muted" id="tasks-summary"></span>
@@ -111,9 +111,9 @@
     </section>
   </div>
   <div class="menu-wrap">
-    <button class="iconbtn bare lg" id="btn-menu" title="Menu : réglages, actualiser, aide" aria-label="Menu : réglages, actualiser, aide" aria-haspopup="menu" aria-expanded="false" aria-controls="top-menu"><svg class="ico lg"><use href="#i-settings"/></svg></button>
+    <button class="iconbtn bare lg" id="btn-menu" title="Menu : réglages, actualiser, aide" aria-label="Menu : réglages, actualiser, aide" aria-haspopup="menu" aria-expanded="false" aria-controls="top-menu"><span data-aico="settings" data-cls="lg"></span></button>
     <div class="menu" id="top-menu" role="menu" hidden>
-      <button role="menuitem" class="menu-item" id="btn-config" title="Réglages : mode, systèmes, tâches de nuit, lanceur, illustrations"><svg class="ico"><use href="#i-settings"/></svg>Réglages</button>
+      <button role="menuitem" class="menu-item" id="btn-config" title="Réglages : mode, systèmes, tâches de nuit, lanceur, illustrations"><span data-aico="settings"></span>Réglages</button>
       <button role="menuitem" class="menu-item" id="btn-refresh" title="Actualiser : relit les images ajoutées ou modifiées (les autres viennent du cache)"><svg class="ico"><use href="#i-refresh"/></svg><span>Actualiser</span><span class="ago" id="refresh-ago"></span></button>
       <button role="menuitem" class="menu-item" id="menu-help" title="Aide : images, autorun.cmd, lanceur"><svg class="ico"><use href="#i-book"/></svg>Aide</button>
     </div>
@@ -155,7 +155,7 @@
       <button class="btn primary" id="btn-mass" title="Modifier l'autorun…"><svg class="ico sm"><use href="#i-pen"/></svg>Autorun</button>
       <button class="btn soft" id="btn-files" title="Fichiers / registre…"><svg class="ico sm"><use href="#i-file"/></svg>Fichiers</button>
       <span class="sep"></span>
-      <button class="iconbtn bare lg" id="btn-verify" title="Vérifier" aria-label="Vérifier l'intégrité des images sélectionnées"><svg class="ico"><use href="#i-shield"/></svg></button>
+      <button class="iconbtn bare lg" id="btn-verify" title="Vérifier" aria-label="Vérifier l'intégrité des images sélectionnées"><span data-aico="shield"></span></button>
       <button class="iconbtn bare lg" id="btn-cover" title="Ajouter l'illustration" aria-label="Ajouter l'illustration aux images sélectionnées qui n'en ont pas, sans les reconstruire"><svg class="ico"><use href="#i-image"/></svg></button>
       <button class="iconbtn bare lg" id="btn-cover-replace" title="Remplacer l'illustration" aria-label="Remplacer l'illustration des images sélectionnées : reconstruction, l'original est gardé en .old"><svg class="ico"><use href="#i-refresh"/></svg></button>
       <button class="iconbtn bare lg" id="btn-mass-validate" title="Supprimer les anciennes versions (.old)" aria-label="Supprimer les anciennes versions (.old) des images sélectionnées"><svg class="ico"><use href="#i-archive-x"/></svg></button>
@@ -184,11 +184,11 @@
     <div class="dactions dd">
       <div class="split dd" id="d-trial-wrap" data-connected>
         <button type="button" id="d-trial" title="Lance le jeu sur le client d'essai, l'observe puis l'arrête : tient-il, fenêtre, erreurs, capture"><svg class="ico sm" style="fill:currentColor"><use href="#i-play"/></svg>Essai <span id="d-trial-dur">60 s</span></button>
-        <button type="button" class="chev" id="d-trial-pick" aria-label="Durée de l'essai" title="Durée de l'essai"><svg class="ico sm"><use href="#i-chevd"/></svg></button>
+        <button type="button" class="chev" id="d-trial-pick" aria-haspopup="menu" aria-expanded="false" aria-label="Durée de l'essai" title="Durée de l'essai"><svg class="ico sm"><use href="#i-chevd"/></svg></button>
       </div>
-      <button class="btn secondary sm" id="d-verify" type="button" title="Vérifier l'intégrité de l'image"><svg class="ico sm"><use href="#i-shield"/></svg>Vérifier</button>
+      <button class="btn secondary sm" id="d-verify" type="button" title="Vérifier l'intégrité de l'image"><span data-aico="shield" data-cls="sm"></span>Vérifier</button>
       <span class="spacer"></span>
-      <button class="iconbtn round" id="d-more" type="button" aria-label="Plus d'actions" title="Plus d'actions"><svg class="ico"><use href="#i-more"/></svg></button>
+      <button class="iconbtn round" id="d-more" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Plus d'actions" title="Plus d'actions"><svg class="ico"><use href="#i-more"/></svg></button>
     </div>
 
     <div id="d-old"></div>
@@ -259,9 +259,9 @@
         <div id="a-result"></div>
         <div id="ar-result"></div>
         <div class="edit-tools">
-          <button type="button" class="roundbtn sage" id="a-propose" title="Analyse les exécutables de l'image et propose un autorun justifié"><svg class="ico"><use href="#i-sparkles"/></svg></button>
-          <button type="button" class="roundbtn" id="a-check" title="Contrôle l'autorun sans rien écrire"><svg class="ico"><use href="#i-shield"/></svg></button>
-          <button type="button" class="roundbtn" id="a-cancel" title="Annuler les modifications et quitter la modification"><svg class="ico"><use href="#i-undo"/></svg></button>
+          <button type="button" class="roundbtn violet" id="a-propose" title="Analyse les exécutables de l'image et propose un autorun justifié" aria-label="Analyse les exécutables de l'image et propose un autorun justifié"><svg class="ico"><use href="#i-sparkles"/></svg></button>
+          <button type="button" class="roundbtn" id="a-check" title="Contrôle l'autorun sans rien écrire" aria-label="Contrôle l'autorun sans rien écrire"><span data-aico="shield"></span></button>
+          <button type="button" class="roundbtn" id="a-cancel" title="Annuler les modifications et quitter la modification" aria-label="Annuler les modifications et quitter la modification"><svg class="ico"><use href="#i-undo"/></svg></button>
           <button type="button" class="roundbtn" id="a-kb" title="Mémoriser ces réglages pour ce jeu : appliqués aux prochaines propositions" aria-label="Mémoriser pour ce jeu"><svg class="ico"><use href="#i-bookmark"/></svg></button>
         </div>
         <div class="choose">
@@ -394,9 +394,9 @@
         <ul class="issues" id="fd-issues"></ul>
         <div id="fd-result"></div>
         <div class="edit-tools">
-          <button type="button" class="roundbtn sage" id="fd-propose" title="Analyse les exécutables du dossier et propose un autorun justifié"><svg class="ico"><use href="#i-sparkles"/></svg></button>
-          <button type="button" class="roundbtn" id="fd-check" title="Contrôle l'autorun sans rien écrire"><svg class="ico"><use href="#i-shield"/></svg></button>
-          <button type="button" class="roundbtn" id="fd-cancel" title="Annuler les modifications"><svg class="ico"><use href="#i-undo"/></svg></button>
+          <button type="button" class="roundbtn violet" id="fd-propose" title="Analyse les exécutables du dossier et propose un autorun justifié" aria-label="Analyse les exécutables du dossier et propose un autorun justifié"><svg class="ico"><use href="#i-sparkles"/></svg></button>
+          <button type="button" class="roundbtn" id="fd-check" title="Contrôle l'autorun sans rien écrire" aria-label="Contrôle l'autorun sans rien écrire"><span data-aico="shield"></span></button>
+          <button type="button" class="roundbtn" id="fd-cancel" title="Annuler les modifications" aria-label="Annuler les modifications"><svg class="ico"><use href="#i-undo"/></svg></button>
         </div>
       </div>
       <div id="fd-msg"></div>
@@ -441,10 +441,10 @@
     <div class="selbar" id="s-selection" hidden>
       <span class="lbl" id="s-count"></span>
       <span class="sel-copy">Copier depuis</span>
-      <div class="dd" id="s-source-dd"><button type="button" class="dd-btn" id="s-source" aria-haspopup="menu" title="D'où partent les sauvegardes"></button></div>
+      <div class="dd" id="s-source-dd"><button type="button" class="dd-btn" id="s-source" aria-haspopup="menu" aria-expanded="false" title="D'où partent les sauvegardes"></button></div>
       <span class="sel-arrow" aria-hidden="true"><svg class="ico sm"><use href="#i-arrow"/></svg></span>
       <span class="sel-copy">vers</span>
-      <div class="dd" id="s-targets-dd"><button type="button" class="dd-btn" id="s-targets" aria-haspopup="menu" title="Clients qui reçoivent la copie"></button></div>
+      <div class="dd" id="s-targets-dd"><button type="button" class="dd-btn" id="s-targets" aria-haspopup="menu" aria-expanded="false" title="Clients qui reçoivent la copie"></button></div>
       <span class="sep"></span>
       <button class="btn primary sm" id="s-push" title="Synchroniser : copie la version choisie vers les clients cochés"><span data-aico="sync" data-cls="sm"></span>Synchroniser</button>
       <button class="btn soft sm" id="s-pull" title="Copier les sauvegardes sélectionnées sur le manager"><span data-aico="save" data-cls="sm"></span>Copier vers le manager</button>
@@ -467,8 +467,8 @@
     <a href="#st-library" data-st="library"><svg class="ico"><use href="#i-book"/></svg>Bibliothèque</a>
     <a href="#st-tasks" data-st="tasks"><svg class="ico"><use href="#i-moon"/></svg>Tâches</a>
     <a href="#st-artwork" data-st="artwork"><svg class="ico"><use href="#i-image"/></svg>Illustrations</a>
-    <a href="#st-trial" data-st="trial" data-cfg-conn><svg class="ico"><use href="#i-flask"/></svg>Lancement d'essai</a>
-    <a href="#st-diag" data-st="diag" data-cfg-conn><svg class="ico"><use href="#i-shield"/></svg>Diagnostic<span class="st-dot" id="st-toc-warn" hidden></span></a>
+    <a href="#st-trial" data-st="trial" data-cfg-conn><span data-aico="flask"></span>Lancement d'essai</a>
+    <a href="#st-diag" data-st="diag" data-cfg-conn><span data-aico="shield"></span>Diagnostic<span class="st-dot" id="st-toc-warn" hidden></span></a>
     <a href="#st-server" data-st="server"><svg class="ico"><use href="#i-monitor"/></svg>Serveur</a>
   </nav>
 
@@ -620,7 +620,7 @@
 <!-- ================================================================ Boîtes de dialogue -->
 <dialog id="dlg-pack" class="wide">
   <div class="dlg-head"><h2>Compresser <span id="p-count"></span> dossier(s)</h2><span id="p-progress" class="muted"></span>
-    <button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
+    <button class="iconbtn" data-close title="Fermer" aria-label="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
   <p>Chaque proposition est justifiée et modifiable ; rien n'est écrit dans les dossiers (l'autorun choisi est injecté dans l'image). Les dossiers décochés sont ignorés.</p>
   <div id="p-cards"></div>
   <div id="p-result"></div>
@@ -635,7 +635,7 @@
 
 <dialog id="dlg-install" class="small">
   <div class="dlg-head"><h2>Installer sur…</h2>
-    <button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
+    <button class="iconbtn" data-close title="Fermer" aria-label="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
   <p class="dlg-intro" id="in-images"></p>
   <div id="in-status"></div>
   <div class="in-targets" id="in-targets"></div>
@@ -648,7 +648,7 @@
 </dialog>
 <dialog id="dlg-uninstall" class="small">
   <div class="dlg-head"><h2>Désinstaller de…</h2>
-    <button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
+    <button class="iconbtn" data-close title="Fermer" aria-label="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
   <p class="dlg-intro" id="un-images"></p>
   <div id="un-status"></div>
   <div class="in-targets" id="un-targets"></div>
@@ -661,7 +661,7 @@
 </dialog>
 <dialog id="dlg-pair" class="small">
   <div class="dlg-head"><h2>Associer un client</h2><span class="spacer"></span>
-    <button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
+    <button class="iconbtn" data-close title="Fermer" aria-label="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
   <p class="dlg-intro">Sur le client : <code>wsquashfs-launcher --pair</code>, colle ici le code affiché (il ne sert qu'une fois, pendant que <code>--pair</code> attend) ; puis <code>wsquashfs-launcher --agent</code> pour qu'il reste joignable.</p>
   <label class="field">Code wsq://<input id="pair-code" autocomplete="off" placeholder="wsq://…"></label>
   <p id="pair-err" class="notice err" hidden></p>
@@ -671,7 +671,7 @@
 
 <dialog id="dlg-dirs" class="small">
   <div class="dlg-head"><h2 id="dirs-title">Dossiers synchronisés</h2><span class="spacer"></span>
-    <button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
+    <button class="iconbtn" data-close title="Fermer" aria-label="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
   <p class="dlg-intro">Dossiers synchronisés comme des jeux (par exemple les sauvegardes d'un autre émulateur). Il suffit de le déclarer sur un client : il se propage ensuite comme une sauvegarde (un client qui le reçoit le déclare au même chemin, à partir de son dossier personnel). Retirer une déclaration ne supprime aucun fichier.</p>
   <div class="dirs-list" id="dirs-list"></div>
   <p class="dlg-intro" id="dirs-eden"></p>
@@ -684,7 +684,7 @@
 
 <dialog id="dlg-save-delete" class="small">
   <div class="dlg-head"><h2>Supprimer des sauvegardes</h2>
-    <button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
+    <button class="iconbtn" data-close title="Fermer" aria-label="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
   <p class="dlg-intro" id="sd-games"></p>
   <div class="sd-targets" id="sd-targets"></div>
   <p class="dlg-intro sd-note">Sur chaque client, la sauvegarde est archivée dans le dossier des backups avant d'être effacée ; sur le manager, elle reste dans ses versions précédentes. Le jeu doit être arrêté.</p>
@@ -695,7 +695,7 @@
 
 <dialog id="dlg-resolve">
   <div class="dlg-head"><h2 id="rs-title">Départager</h2>
-    <button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
+    <button class="iconbtn" data-close title="Fermer" aria-label="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
   <p class="dlg-intro">Les deux versions sont gardées sur le manager : celle que tu ne choisis pas reste archivée.</p>
   <div class="rs-cands" id="rs-cands"></div>
   <label class="rs-push"><input type="checkbox" id="rs-push" checked><span>Envoyer ensuite aux clients en retard</span></label>
@@ -715,8 +715,8 @@
 
 <dialog id="dlg-doctor" class="small">
   <div class="dlg-head"><h2>Diagnostic du lanceur</h2><span class="spacer"></span><span id="doc-age" class="muted"></span>
-    <button class="iconbtn bare sm" id="doc-refresh" title="Relancer le diagnostic"><svg class="ico sm"><use href="#i-refresh"/></svg></button>
-    <button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
+    <button class="iconbtn bare sm" id="doc-refresh" title="Relancer le diagnostic" aria-label="Relancer le diagnostic"><svg class="ico sm"><use href="#i-refresh"/></svg></button>
+    <button class="iconbtn" data-close title="Fermer" aria-label="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
   <p class="dlg-intro" id="doc-title">wsquashfs-launcher --doctor sur le client d'essai</p>
   <div id="doc-body" class="doctor"><span class="muted">—</span></div>
   <div class="dlg-foot"><span class="spacer"></span><button class="btn secondary" data-close>Fermer</button></div>
@@ -724,7 +724,7 @@
 
 <dialog id="dlg-maint" class="small">
   <div class="dlg-head"><h2>Maintenance du lanceur</h2><span class="spacer"></span>
-    <button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
+    <button class="iconbtn" data-close title="Fermer" aria-label="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
   <p class="dlg-intro" id="maint-intro">Actions immédiates : elles ne passent pas par « Enregistrer ».</p>
   <div class="tool-list" id="tools-list">
     <div class="tool"><div><b>Lister les jeux</b><span>Jeux montés ou en cours.</span></div>
@@ -745,7 +745,7 @@
 </dialog>
 
 <dialog id="dlg-mass">
-  <div class="dlg-head"><h2>Modifier l'autorun de <span id="m-count"></span> image(s)</h2><button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
+  <div class="dlg-head"><h2>Modifier l'autorun de <span id="m-count"></span> image(s)</h2><button class="iconbtn" data-close title="Fermer" aria-label="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
   <p>Les opérations s'appliquent dans l'ordre, à l'autorun tel qu'il sera au moment de la reconstruction. Variables : <code>{name}</code> (nom de l'image), <code>{system}</code>.</p>
   <div id="m-ops" class="ops"></div>
   <button class="addkey" id="m-add"><svg class="ico sm"><use href="#i-plus"/></svg><span>Ajouter une opération</span></button>
@@ -763,7 +763,7 @@
 </dialog>
 
 <dialog id="dlg-files">
-  <div class="dlg-head"><h2>Fichiers et registre de <span id="f-count"></span> image(s)</h2><button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
+  <div class="dlg-head"><h2>Fichiers et registre de <span id="f-count"></span> image(s)</h2><button class="iconbtn" data-close title="Fermer" aria-label="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
   <p>Sources : chemins de fichiers <strong>sur le serveur</strong>. Variables : <code>{exe_dir}</code> et <code>{exe_name}</code> (exécutable de CMD, casse de l'image), <code>{name}</code>, <code>{system}</code>.
     Une valeur de registre est aussi posée dans la couche de sauvegardes du jeu si elle contient le fichier (Wine le réécrit à chaque partie).</p>
   <div class="row" style="margin-bottom:10px">
@@ -784,7 +784,7 @@
 </dialog>
 
 <dialog id="dlg-kb" class="small">
-  <div class="dlg-head"><h2>Mémoriser pour ce jeu</h2><button class="iconbtn" data-close title="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
+  <div class="dlg-head"><h2>Mémoriser pour ce jeu</h2><button class="iconbtn" data-close title="Fermer" aria-label="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
   <p>Ce qui ne se déduit pas des fichiers : appliqué en priorité aux prochaines propositions d'autorun pour ce jeu (base locale, dans l'appdata).</p>
   <label class="field">Jeu (motif, casse ignorée, * accepté)<input id="kb-game"></label>
   <label class="row" style="margin-top:12px;font-size:13px"><input type="checkbox" id="kb-prefer-on"> Exécutable à retenir : <code id="kb-prefer"></code></label>

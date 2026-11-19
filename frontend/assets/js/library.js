@@ -6,7 +6,7 @@ import { $, bigSize, cap, dotIc, el, emptyState, hideAnimated, icon, showAnimate
 import { markCurrent, openDetail, renderDetailHeader } from "./detail/detail.js";
 import { chosenClient, paintRefreshAgo } from "./header.js";
 import { gamesOf, imageFile, inst, instPins, machineOf } from "./install.js";
-import { closeMenu, menus } from "./menu.js";
+import { closeMenu, markOpen, menus } from "./menu.js";
 import { applyMode } from "./mode.js";
 import { paintSelectionActions } from "./selbar.js";
 import { loadSaves } from "./saves.js";
@@ -20,7 +20,7 @@ const TYPE_DETAIL = { wine_batocera: "prefix Batocera (system.reg)", wine_proton
 
 const typeLong = (t) => TYPE_DETAIL[t] ? `${TYPES[t]} — ${TYPE_DETAIL[t]}` : (TYPES[t] || t);
 
-const TYPE_LOOK = { wine_batocera: ["wine", "t-accent"], wine_other: ["wine", "t-neutral"], wine_proton: ["atom", "t-sage"],
+const TYPE_LOOK = { wine_batocera: ["wine", "t-accent"], wine_other: ["wine", "t-neutral"], wine_proton: ["atom", "t-violet"],
   game_only: ["app", "t-neutral"], unknown: ["alert", "t-err"] };
 
 export const STATES = { ok: ["Prêt", "Image saine"], in_use: ["En cours", "Jeu lancé : aucune reconstruction possible"],
@@ -31,9 +31,9 @@ export const STATES = { ok: ["Prêt", "Image saine"], in_use: ["En cours", "Jeu 
 // Le client se choisit dans l'en-tête (il filtre la liste, voir scopeOf).
 const FILTERS = [
   { key: "system", label: "Système", all: "Tous les systèmes", options: () => [...new Set(state.items.map((i) => i.system).filter(Boolean))].sort().map((v) => [v, null, "", cap(v)]) },
-  { key: "type", label: "Prefix", all: "Tous les prefix", options: () => [["wine", "wine", "t-accent", "wine"], ["wine_proton", "atom", "t-sage", "proton"], ["game_only", "app", "t-neutral", "aucun"]] },
+  { key: "type", label: "Prefix", all: "Tous les prefix", options: () => [["wine", "wine", "t-accent", "wine"], ["wine_proton", "atom", "t-violet", "proton"], ["game_only", "app", "t-neutral", "aucun"]] },
   { key: "runner", label: "Runner", all: "Tous les runners", options: () => [["default", null, "", "aucun"], ["custom", "cpu", "t-accent", "custom"], ["joined", "clip", "t-accent", "intégré"]] },
-  { key: "pad", label: "Manette", all: "Toutes les manettes", options: () => [["hidraw", "dualsense", "t-sage", "DualSense"], ["xinput", "xbox", "t-off", "Xbox"]] },
+  { key: "pad", label: "Manette", all: "Toutes les manettes", options: () => [["hidraw", "dualsense", "t-violet", "DualSense"], ["xinput", "xbox", "t-off", "Xbox"]] },
   { key: "extra", label: "Extras", all: "Tous", options: () => [["keys", "keyboard", "t-neutral", "Touches clavier"], ["fakeping", "wifi", "t-neutral", "Relais fakeping"]] },
 ];
 
@@ -80,7 +80,7 @@ function profileBadges(i) {
   const [typeIcon, typeTone] = TYPE_LOOK[i.type] || TYPE_LOOK.unknown;
   const out = [dotIc(typeIcon, typeTone, `Prefix : ${typeLong(i.type)}`)];
   if (i.runner !== "default") out.push(dotIc(i.runner_joined ? "clip" : "cpu", "t-accent", i.runner_joined ? "Runner intégré" : "Runner custom", runnerDetails(i)));
-  out.push(i.hidraw ? dotIc("dualsense", "t-sage", "Manette : DualSense") : dotIc("xbox", "t-off", "Manette : Xbox"));
+  out.push(i.hidraw ? dotIc("dualsense", "t-violet", "Manette : DualSense") : dotIc("xbox", "t-off", "Manette : Xbox"));
   for (const extra of i.extras || []) {
     if (extra === ".keys") out.push(dotIc("keyboard", "t-neutral", "Touches clavier", [".wsquashfs.keys à côté de l'image"]));
     else if (extra === "fakeping") out.push(dotIc("wifi", "t-neutral", "Relais fakeping", ["dinput8.dll"]));
@@ -171,6 +171,7 @@ export function renderFilters() {
       current?.[1] ? el("span", { className: `dot-ic ${current[2]}` }, icon(current[1])) : null,
       el("span", { textContent: current ? current[3] : def.label }), icon("chevd", "xs"));
     button.setAttribute("aria-haspopup", "listbox");
+    button.setAttribute("aria-expanded", "false");
     const wrap = el("div", { className: `dd${current ? " active" : ""}` }, button);
     button.onclick = () => {
       const wasOpen = menus.open?.parentElement === wrap;
@@ -187,6 +188,7 @@ export function renderFilters() {
       };
       menus.open = el("div", { className: "dd-menu", role: "listbox" }, item("", null, "", def.all, total), ...options.map((o) => item(...o)));
       wrap.append(menus.open);
+      markOpen(menus.open, button);
       // Menu plus large que l'espace à droite (téléphone, dernier filtre) : décalé pour rester à l'écran
       const wrapLeft = wrap.getBoundingClientRect().left;
       menus.open.style.left = `${Math.max(8 - wrapLeft, Math.min(0, innerWidth - 8 - wrapLeft - menus.open.offsetWidth))}px`;
@@ -328,10 +330,10 @@ function listRow(i, enter) {
   return row;
 }
 
-// Réglages actifs seulement, nommés (DualSense, surcharge à inscrire)
+// Réglages actifs seulement : DualSense par son icône, surcharge à inscrire nommée
 function listFlags(i) {
   const flags = [];
-  if (i.hidraw) flags.push(el("span", { className: "flag hidraw", textContent: "DualSense", title: "Manette DualSense (accès direct, clé HIDRAW)" }));
+  if (i.hidraw) flags.push(el("span", { className: "flag hidraw", role: "img", title: "Manette DualSense (accès direct, clé HIDRAW)", ariaLabel: "Manette DualSense" }, icon("dualsense", "xs")));
   if (i.attach) flags.push(el("span", { className: "flag attach", textContent: "ATTACH", title: `Commande pendant le jeu : ${i.attach}` }));
   if ((i.override || []).length) flags.push(el("span", { className: "flag warn", textContent: "Surcharge", title: "Surcharge à inscrire dans l'image" }));
   return el("span", { className: "flags c-profile" }, ...flags);
@@ -409,7 +411,7 @@ function paintFilterClear() {
 
 function renderSelection() {
   const n = state.selected.size;
-  if (n) showAnimated($("selection"), "is-leaving"); else hideAnimated($("selection"), "is-leaving", 220);
+  if (n) showAnimated($("selection"), "is-leaving"); else hideAnimated($("selection"), "is-leaving", 200);
   $("sel-count").textContent = n > 1 ? `${n} images` : "1 image";
   paintSelectionActions();
 }

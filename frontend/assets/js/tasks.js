@@ -2,6 +2,7 @@
 
 import { api } from "./api.js";
 import { $, el, hideAnimated, icon, isShown, showAnimated, state, storage, toast, when } from "./core.js";
+import { playIcons } from "./aicons.js";
 import { loadAutorun } from "./detail/autorun.js";
 import { renderHistory } from "./detail/files.js";
 import { loadFolders } from "./folders.js";
@@ -16,7 +17,7 @@ export const TASK_KINDS = { autorun: ["hammer", "Reconstruction"], update: ["upl
   verify: ["shield", "Vérification"], cover: ["image", "Illustration"], pack: ["package", "Compression"], runner: ["clip", "Runner intégré"], trial: ["flask", "Lancement d'essai"],
   saves: ["save", "Sauvegardes entre clients"], install: ["drive", "Installation sur les clients"] };
 
-export const TASK_STATES = { pending: ["clock", "en attente", "t-neutral"], running: ["refresh", "en cours", "t-accent"], done: ["check", "terminée", "t-sage"],
+export const TASK_STATES = { pending: ["clock", "en attente", "t-neutral"], running: ["refresh", "en cours", "t-accent"], done: ["check", "terminée", "t-ok"],
   failed: ["alert", "échec", "t-err"], cancelled: ["x", "annulée", "t-neutral"] };
 
 function taskNode(t, opened = new Set()) {
@@ -165,21 +166,31 @@ export async function refreshTasks() {
 }
 
 export function setTasksOpen(open) {
-  if (open) showAnimated($("tasks-panel"), "is-leaving"); else hideAnimated($("tasks-panel"), "is-leaving", 180);
+  if (open) showAnimated($("tasks-panel"), "is-leaving"); else hideAnimated($("tasks-panel"), "is-leaving", 200);
   $("btn-tasks").setAttribute("aria-expanded", String(open));
   if (open) setTopMenu(false);
 }
 
 // Pastille des tâches (en-tête) : échecs en rouge ; sinon en cours ou cette nuit, avec le spinner ; sinon l'icône seule
+let lastActive = 0, lastFailed = 0, doneTimer = 0;
 function paintTasks(active, failed, nightly) {
   const pill = $("btn-tasks"), running = active.some((t) => t.status === "running");
+  // Une tâche vient de finir sans nouvel échec : la coche de l'icône se dessine un instant
+  if (active.length < lastActive && failed <= lastFailed) {
+    pill.classList.add("just-done");
+    playIcons(pill);
+    clearTimeout(doneTimer);
+    doneTimer = setTimeout(() => pill.classList.remove("just-done"), 1500);
+  }
+  lastActive = active.length; lastFailed = failed;
   pill.classList.toggle("busy", active.length > 0);
   pill.classList.toggle("failed", failed > 0);
   $("tasks-fail").hidden = !failed;
   $("tasks-fail").textContent = `${failed} en échec`;
   $("tasks-label").textContent = running ? `${active.length} en cours`
     : nightly && nightly === active.length ? `${nightly} cette nuit` : active.length ? `${active.length} en attente` : "";
-  pill.title = `File de tâches — ${active.length ? `${active.length} active${active.length > 1 ? "s" : ""}` : "aucune active"}${failed ? `, ${failed} en échec` : ""}`;
+  pill.title = `File de tâches : ${active.length ? `${active.length} active${active.length > 1 ? "s" : ""}` : "aucune active"}${failed ? `, ${failed} en échec` : ""}`;
+  pill.setAttribute("aria-label", pill.title);
 }
 
 export const openTasks = () => setTasksOpen(true);

@@ -47,13 +47,13 @@ function folderStatus(f) {
 function folderProfile(f) {
   return el("div", { className: "profile" },
     f.task ? dotIc("clock", "t-accent", f.task === "running" ? "Compression en cours" : "Compression en attente") : null,
-    dotIc("terminal", f.has_autorun ? "t-sage" : "t-accent", f.has_autorun ? "autorun.cmd présent" : "Sans autorun : il sera proposé"),
-    dotIc("layers", f.image_exists ? "t-sage" : "t-off", f.image_exists ? "Image .wsquashfs déjà présente" : "Pas encore d'image"));
+    dotIc("terminal", f.has_autorun ? "t-violet" : "t-accent", f.has_autorun ? "autorun.cmd présent" : "Sans autorun : il sera proposé"),
+    dotIc("layers", f.image_exists ? "t-violet" : "t-off", f.image_exists ? "Image .wsquashfs déjà présente" : "Pas encore d'image"));
 }
 
 // Illustration du dossier : galerie (aperçu) ; après écriture, la vignette est relue
 function coverOf(f) {
-  openCover(f, { dossier: true, onApplied: () => { forgetArt(f, "folder"); loadFolders(); } });
+  openCover(f, { dossier: true, onApplied: () => { forgetArt(f, "folder"); forgetArt(f, "folder-poster"); loadFolders(); } });
 }
 
 // Vignette ouvrant la galerie du dossier (sans changer sa sélection)
@@ -173,7 +173,7 @@ function renderFolders() {
     const selected = folders.selected.has(f.id), [label, cls] = folderStatus(f);
     const current = currentFolder() === f.id;
     const card = el("div", { className: `gcard${selected ? " selected" : ""}${current ? " current" : ""}`, tabIndex: 0, role: "button" },
-      el("div", { className: "gart" }, openable(thumb(f, "gcover", "folder"), f), folderBox(f),
+      el("div", { className: "gart" }, openable(thumb(f, "gcover", "folder-poster"), f), folderBox(f),
         el("span", { className: `state ${cls}`, textContent: label, title: label }), folderProfile(f)),
       el("div", { className: "meta" }, el("div", { className: "n", textContent: f.folder, title: f.folder }),
         el("div", { className: "sub" }, el("span", { textContent: cap(f.system) || "—" }), el("span", { textContent: `.${f.kind}` }))));
@@ -194,7 +194,7 @@ function renderFolders() {
 }
 
 function renderFolderSelection() {
-  if (folders.selected.size) showAnimated($("g-selection"), "is-leaving"); else hideAnimated($("g-selection"), "is-leaving", 220);
+  if (folders.selected.size) showAnimated($("g-selection"), "is-leaving"); else hideAnimated($("g-selection"), "is-leaving", 200);
   $("g-count").textContent = folders.selected.size > 1 ? `${folders.selected.size} dossiers` : "1 dossier";
 }
 
@@ -300,7 +300,7 @@ export function init() {
   icon("image", "sm"), "Illustrations…");
   coverBtn.onclick = () => openCoverLot([...folders.selected], {
     dossier: true, items: new Map(folders.items.map((f) => [f.id, f])),
-    onApplied: () => { folders.items.forEach((f) => forgetArt(f, "folder")); loadFolders(); },
+    onApplied: () => { folders.items.forEach((f) => { forgetArt(f, "folder"); forgetArt(f, "folder-poster"); }); loadFolders(); },
   });
   $("g-delete").before(coverBtn);
   $("g-search").addEventListener("input", renderFolders);

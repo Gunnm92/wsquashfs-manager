@@ -1,12 +1,12 @@
 /* Fiche : bandeaux, pied des onglets d'édition, historique */
 .btn.on-accent { color: var(--accent-200); border-color: var(--accent-700); }
-.fbanner { display: flex; gap: 10px; align-items: flex-start; margin: 14px 0 0; padding: 10px 14px; border-radius: 18px;
+.fbanner { display: flex; gap: 10px; align-items: flex-start; margin: 14px 0 0; padding: 10px 14px; border-radius: var(--radius-md);
   background: var(--accent-900); color: var(--accent-200); font-size: 13px; animation: fadeup var(--dur-med) var(--ease-out); }
 .fbanner.tall { padding: 12px 14px; border-radius: var(--radius-md); }
 .fbanner > .ico { margin-top: 2px; }
 .fbanner .body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 .fbanner .body .row { gap: 6px; }
-.fbanner .body pre.bat { background: rgba(10, 11, 14, .45); color: var(--text); }
+.fbanner .body pre.bat { background: var(--bg-a45); color: var(--text); }
 #a-override-box .fbanner { margin: 0 0 12px; }
 .apane-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--divider); }
 .fine { font-size: 12.5px; }

@@ -103,10 +103,15 @@ def _analysis(folder: dict, refresh: bool) -> FolderAnalysis:
 
 
 @router.get("/api/folders/art")
-def folder_art(id: str):
-    """Illustration d'un dossier à empaqueter (`<dossier>/.wsquashfs/cover`). Sans cache HTTP
-    durable : le fichier peut être ajouté à tout moment (revalidé à chaque affichage)."""
-    art = folder_cover(Path(_find_folder(id)["path"]))
+def folder_art(id: str, kind: Literal["cover", "icon"] = "icon"):
+    """Illustration d'un dossier à empaqueter, comme pour une image :
+    - `icon` (vue liste) : `<dossier>/.wsquashfs/cover`, l'illustration qui sera intégrée ;
+    - `cover` (jaquettes) : l'affiche SteamGridDB en cache (nom et jeu mémorisés du dossier),
+      sinon cette même illustration.
+    Sans cache HTTP durable : le fichier peut être ajouté à tout moment (revalidé à chaque affichage)."""
+    folder = _find_folder(id)
+    art = sgdb.sgdb_artwork(deps._settings, Path(folder["path"]), "cover", folder["id"]) if kind == "cover" else None
+    art = art or folder_cover(Path(folder["path"]))
     if art is None:
         raise HTTPException(status_code=404, detail="aucune illustration")
     return FileResponse(art.path, media_type=art.media_type,

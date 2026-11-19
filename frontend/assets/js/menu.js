@@ -4,12 +4,19 @@ import { el, hideAnimated } from "./core.js";
 
 export const menus = { open: null };
 
+// Le déclencheur d'un menu dit s'il est ouvert (aria-expanded)
+export function markOpen(menu, trigger) {
+  menu.trigger = trigger;
+  trigger?.setAttribute("aria-expanded", "true");
+}
+
 // Fermeture en fondu (classe is-leaving), puis retrait du menu
 export function closeMenu() {
   const menu = menus.open;
   if (!menu) return;
   menus.open = null;
-  hideAnimated(menu, "is-leaving", 160, () => menu.remove());
+  menu.trigger?.setAttribute("aria-expanded", "false");
+  hideAnimated(menu, "is-leaving", 200, () => menu.remove());
 }
 
 // Menu sous (ou au-dessus de) son déclencheur, aligné à droite ; position fixe : il n'est
@@ -37,12 +44,13 @@ export function placeMenu(menu, wrap) {
 }
 
 // Ouvre un menu sous (ou au-dessus de) son déclencheur ; un second clic le referme
-export function openMenuNode(wrap, nodes) {
+export function openMenuNode(wrap, nodes, trigger = wrap.querySelector("[aria-haspopup]")) {
   const open = menus.open?.owner === wrap;
   closeMenu();
   if (open) return;
   menus.open = el("div", { className: "dd-menu end sv-menu", role: "menu" }, ...nodes);
   placeMenu(menus.open, wrap);
+  markOpen(menus.open, trigger);
   menus.open.querySelector("button:not([disabled])")?.focus({ preventScroll: true });
 }
 

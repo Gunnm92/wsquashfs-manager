@@ -8,8 +8,9 @@
   --accent2-100: #f5efff; --accent2-200: #e8dcff; --accent2-300: #d2bcff; --accent2-400: #b597ff; --accent2-500: #9776ee;
   --accent2-600: #7a5ad0; --accent2-700: #5d43a6; --accent2-800: #412f74; --accent2-900: #261c45;
   --err: #f0787a; --err-200: #ffc9c9; --err-900: #3a1a1f;
+  --ok-900: #123226; --warn-900: #3a2616;
   --bg: #0a0b0e; --surface: #121419; --s2: #191c22; --s3: #232730;
-  --text: #e8eaef; --muted: #8b91a0; --faint: #5a606e;
+  --text: #e8eaef; --muted: #8b91a0; --faint: #808797;
   --divider: rgba(232, 234, 239, .07); --line2: rgba(232, 234, 239, .14);
   --sans: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, Consolas, monospace;
@@ -23,16 +24,34 @@
   --dur-fast: .15s; --dur-base: .2s; --dur-med: .25s; --dur-slow: .35s;
   --ease-out: cubic-bezier(.2, .8, .2, 1); --ease-spring: cubic-bezier(.3, 1.4, .5, 1);
   /* Tons sémantiques : fond et texte des pastilles, puces et encadrés (classes .t-*) */
-  --tone-sage-bg: var(--accent2-900); --tone-sage-fg: var(--accent2-300);
+  --tone-violet-bg: var(--accent2-900); --tone-violet-fg: var(--accent2-300);
   --tone-accent-bg: var(--accent-900); --tone-accent-fg: var(--accent-300);
   --tone-err-bg: var(--err-900); --tone-err-fg: var(--err);
+  --tone-ok-bg: var(--ok-900); --tone-ok-fg: var(--ok);
+  --tone-warn-bg: var(--warn-900); --tone-warn-fg: var(--warn);
   --tone-neutral-bg: var(--s3); --tone-neutral-fg: var(--muted);
   /* Tailles des icônes Lucide (.ico, .ico.xs, .ico.sm, .ico.lg) */
   --ico-xs: 12px; --ico-sm: 14px; --ico: 16px; --ico-lg: 18px;
   /* Couleurs d'états (maquette v2) : succès, avertissement, erreur douce, inactif */
-  --ok: #5fd1a0; --warn: #f0a66c; --err-soft: rgba(255, 138, 138, .12); --idle: #6b7180;
-  /* Rebond de l'indicateur des groupes à pastille */
-  --ease-bounce: cubic-bezier(.3, 1.2, .5, 1);
+  --ok: #5fd1a0; --warn: #f0a66c; --err-soft: rgba(255, 138, 138, .12);
+}
+
+/* Jetons d'opacité : une couleur de jeton à une opacité donnée (suffixe = centièmes, ou millièmes sur 3 chiffres) */
+:root {
+  --accent-a0: rgba(109, 135, 245, 0); --accent-a08: rgba(109, 135, 245, .08); --accent-a22: rgba(109, 135, 245, .22);
+  --accent-a25: rgba(109, 135, 245, .25); --accent-a30: rgba(109, 135, 245, .3); --accent-a35: rgba(109, 135, 245, .35);
+  --accent-a60: rgba(109, 135, 245, .6);
+  --accent2-a18: rgba(181, 151, 255, .18);
+  --bg-a25: rgba(10, 11, 14, .25); --bg-a35: rgba(10, 11, 14, .35); --bg-a45: rgba(10, 11, 14, .45);
+  --bg-a50: rgba(10, 11, 14, .5); --bg-a55: rgba(10, 11, 14, .55); --bg-a70: rgba(10, 11, 14, .7);
+  --bg-a75: rgba(10, 11, 14, .75); --bg-a82: rgba(10, 11, 14, .82);
+  --text-a025: rgba(232, 234, 239, .025); --text-a03: rgba(232, 234, 239, .03); --text-a10: rgba(232, 234, 239, .1);
+  --ok-a18: rgba(95, 209, 160, .18);
+  --warn-a14: rgba(240, 166, 108, .14); --warn-a16: rgba(240, 166, 108, .16); --warn-a18: rgba(240, 166, 108, .18);
+  --warn-a30: rgba(240, 166, 108, .3);
+  --err-a50: rgba(240, 120, 122, .5);
+  --black-a60: rgba(0, 0, 0, .6);
+  --white-a60: rgba(255, 255, 255, .6); --white-a92: rgba(255, 255, 255, .92);
 }
 
 /* Jetons de l'édition (v2) */

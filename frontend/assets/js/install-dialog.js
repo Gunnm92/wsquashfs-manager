@@ -1,7 +1,7 @@
 // install-dialog.js — Dialogues d'installation et de désinstallation.
 
 import { api } from "./api.js";
-import { $, badge, el, icon, size, state, toast, withTip } from "./core.js";
+import { $, badge, el, icon, size, state, toast, withBusy, withTip } from "./core.js";
 import { notice } from "./detail/autorun.js";
 import { canInstallOn, etaText, gamesOf, imageFile, inst, instDialog, instPlan, installedOn, isWsq, loadInstall, machineIcon, machineOf, selectedImages } from "./install.js";
 import { refreshTasks } from "./tasks.js";
@@ -146,13 +146,11 @@ async function runInstallDialog(install) {
   d.busy = true;
   paintInstDialog();
   try {
-    let data;
-    if (install) {
-      data = await api("/api/install", { method: "POST", body: { ids: d.images.map((i) => i.id), machines } });
-    } else {
+    const data = await withBusy($(install ? "in-run" : "un-run"), () => {
+      if (install) return api("/api/install", { method: "POST", body: { ids: d.images.map((i) => i.id), machines } });
       const names = [...new Set(d.images.map(imageFile))].filter((f) => machines.some((id) => gamesOf(machineOf(id) || {}).includes(f)));
-      data = await api("/api/uninstall", { method: "POST", body: { names, machines } });
-    }
+      return api("/api/uninstall", { method: "POST", body: { names, machines } });
+    });
     $(DLG_INST[d.mode]).close();
     const count = `${data.tasks.length} tâche${data.tasks.length > 1 ? "s" : ""}`;
     toast(install ? `Installation lancée (${count})` : `Désinstallation lancée (${count})`, install ? "drive" : "trash");

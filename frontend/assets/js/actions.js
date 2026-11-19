@@ -2,7 +2,7 @@
 
 import { openCover, openCoverLot } from "./art-choice.js";
 import { api } from "./api.js";
-import { $, el, helpLink, icon, setUnavailable, size, state, storage, toast } from "./core.js";
+import { $, el, helpLink, icon, setUnavailable, size, state, storage, toast, withBusy } from "./core.js";
 import { notice } from "./detail/autorun.js";
 import { TRIAL_DURS, oldAction, paintTrial, setAutorunEdit, showTab, syncLine, trialPrefs } from "./detail/detail.js";
 import { loadLibrary } from "./library.js";
@@ -54,7 +54,7 @@ function coverItem() {
 async function gameSaveAction(button, body, label, doneText) {
   button.disabled = true;
   try {
-    const r = await api("/api/game_host/maintenance", { method: "POST", timeout: 900000, body });
+    const r = await withBusy(button, () => api("/api/game_host/maintenance", { method: "POST", timeout: 900000, body }));
     // Lignes de résultat par jeu : « ␣␣✓ Jeu  message » (– ignoré, ✗ échec, → état).
     const plain = stripAnsi(r.output || "");
     const out = plain.split("\n").filter((l) => /^  [✓–✗→] /.test(l)).map((l) => l.trim()).join("\n");
@@ -126,14 +126,14 @@ async function applyRunner(id, sug, button) {
 
 export function init() {
   // Essai, vérification, « … » et illustration : deux actions visibles, le reste dans les menus
-  $("d-trial").onclick = () => runTrial(trialPrefs.seconds);
+  $("d-trial").onclick = () => withBusy($("d-trial"), () => runTrial(trialPrefs.seconds));
   $("d-trial-pick").onclick = () => openMenuNode($("d-trial-wrap"), [
     el("div", { className: "dd-sub", textContent: "Durée de l'essai" }),
     ...TRIAL_DURS.map(([s, label]) => menuItem(label, "flask", () => {
       trialPrefs.seconds = s; storage.set("wsfs-trial-duration", String(s)); paintTrial();
     }, { checked: s === trialPrefs.seconds })),
   ]);
-  $("d-verify").onclick = () => verify([state.current.id]).catch((error) => alert(error.message));
+  $("d-verify").onclick = () => withBusy($("d-verify"), () => verify([state.current.id]).catch((error) => alert(error.message)));
   $("d-cover-menu").onclick = () => openCover(state.current);
   $("d-more").onclick = () => {
     const i = state.current;
@@ -146,14 +146,14 @@ export function init() {
       setUnavailable(menuItem("Restaurer l'ancienne version", "undo", () => oldAction("restore", "Remettre l'ancienne version à la place de l'image actuelle (.old) ? La reconstruction sera perdue.")), i.has_old ? "" : NO_OLD),
       ...(connected() ? [setUnavailable(menuItem("Copier les sauvegardes", "save", () => copySaves()), trialReason() || (i.saves_present ? "" : NO_SAVES))] : []),
       setUnavailable(menuItem("Réinitialiser les sauvegardes", "trash", () => resetSaves([i.id]).catch((error) => alert(error.message)), { danger: true }), i.saves_present ? "" : NO_SAVES),
-    ]);
+    ], $("d-more"));
   };
   $("s-share").onclick = () => openSavesFor(gameOfItem(state.current));
   $("s-open").onclick = () => openSavesFor(gameOfItem(state.current));
   $("s-sync-btn").onclick = () => syncSaves();
   $("s-copy").onclick = () => copySaves();
   $("s-reset").onclick = () => resetSaves([state.current.id]).catch((error) => alert(error.message));
-  $("btn-verify").onclick = () => verify([...state.selected]).catch((error) => alert(error.message));
+  $("btn-verify").onclick = () => withBusy($("btn-verify"), () => verify([...state.selected]).catch((error) => alert(error.message)));
   // Illustrations de la sélection : un aperçu par image, validé ensemble (ajout ou remplacement)
   $("btn-cover").onclick = () => openCoverLot([...state.selected]);
   $("btn-cover-replace").onclick = () => openCoverLot([...state.selected]);

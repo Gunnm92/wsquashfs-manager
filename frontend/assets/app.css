@@ -19,7 +19,6 @@
 @import url("css/views/responsive.css") layer(views);
 @import url("css/views/detail-suite.css") layer(views);
 @import url("css/views/help-pages.css") layer(views);
-@import url("css/views/retouches.css") layer(views);
 @import url("css/views/machines.css") layer(views);
 @import url("css/views/saves.css") layer(views);
 @import url("css/views/install.css") layer(views);

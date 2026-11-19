@@ -75,7 +75,7 @@ function paintHistory(tasks) {
     const counts = {};
     for (const x of group) counts[x.status] = (counts[x.status] || 0) + 1;
     const summary = Object.entries(counts).map(([status, n]) => `${TASK_STATES[status]?.[1] || status}${n > 1 ? ` (${n})` : ""}`).join(" · ");
-    const tone = counts.failed ? "t-err" : counts.running || counts.pending ? "t-accent" : counts.done ? "t-sage" : "t-neutral";
+    const tone = counts.failed ? "t-err" : counts.running || counts.pending ? "t-accent" : counts.done ? "t-violet" : "t-neutral";
     const cls = counts.failed ? "err" : counts.running || counts.pending ? "accent" : counts.done ? "" : "idle";
     const stIcon = counts.failed ? "alert" : counts.running ? "refresh" : counts.pending ? "clock" : counts.done ? "check" : "x";
     const times = group.map((x) => x.created_at || 0);

@@ -1,4 +1,4 @@
-import { aicon } from "./aicons.js";
+import { aicon, busyIcons } from "./aicons.js";
 // core.js — État partagé, outils DOM, formatage, notifications et infobulles.
 
 import { openHelp } from "./help.js";
@@ -42,7 +42,7 @@ const spriteIcon = (name, cls = "") => {
 };
 
 // Puce texte (anciens « badges ») : la sorte donne le ton
-const TONES = { info: "t-accent", warn: "t-accent", ok: "t-sage", err: "t-err", violet: "t-sage", cyan: "t-sage", "": "t-neutral" };
+const TONES = { info: "t-accent", warn: "t-accent", ok: "t-ok", err: "t-err", violet: "t-violet", cyan: "t-violet", "": "t-neutral" };
 
 export const badge = (text, kind = "") => el("span", { className: `chip plain ${TONES[kind] || "t-neutral"}`, textContent: text });
 
@@ -97,6 +97,21 @@ export function setUnavailable(node, reason) {
   return node;
 }
 
+// Action longue : le bouton porte .is-busy et aria-busy le temps que `run` (promesse ou valeur) se termine,
+// succès ou échec ; le résultat (ou l'erreur) de `run` est rendu tel quel. Sans bouton, `run` est simplement lancé.
+export async function withBusy(button, run) {
+  button?.classList.add("is-busy");
+  button?.setAttribute("aria-busy", "true");
+  busyIcons(button, true);
+  try {
+    return await run();
+  } finally {
+    button?.classList.remove("is-busy");
+    button?.removeAttribute("aria-busy");
+    busyIcons(button, false);
+  }
+}
+
 // Animations : une entrée joue l'animation CSS de l'élément dès qu'il redevient visible (hidden
 // retiré) ; une sortie passe par la classe `cls` (animation CSS de sortie), puis hidden.
 
@@ -149,7 +164,7 @@ export function toast(message, iconName = "check", error = false) {
   node.classList.toggle("err", error);
   showAnimated(node, "is-leaving");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => hideAnimated(node, "is-leaving", 180), error ? 6000 : 3500);
+  toastTimer = setTimeout(() => hideAnimated(node, "is-leaving", 200), error ? 6000 : 3500);
 }
 
 export const emptyState = (iconName, title, hint) => el("div", { className: "empty-state" }, icon(iconName),

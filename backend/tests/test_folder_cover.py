@@ -270,3 +270,31 @@ def test_apercu_reste_ouvert_pendant_l_empaquetage(pret):
     from app.services.operations import pack_target
     pret["queue"].submit("pack", "win/Jeu", pack_target(pret["folder"]), {}, "empaquetage")
     assert pret["client"].get("/api/folders/art/candidates", params={"id": ID}).status_code == 200
+
+
+# ------------------------------------------------------------------ jaquettes
+
+
+def test_art_cover_prend_l_affiche_steamgriddb_puis_l_illustration(pret, monkeypatch):
+    """Vue jaquettes : `kind=cover` donne l'affiche SteamGridDB du dossier ; sans affiche,
+    l'illustration du dossier ; `icon` (vue liste) reste l'illustration du dossier."""
+    client = pret["client"]
+    assert client.get("/api/folders/art", params={"id": ID, "kind": "cover"}).status_code == 404
+    ecrire_cover_dossier(pret["folder"], PNG2)
+    assert client.get("/api/folders/art", params={"id": ID, "kind": "cover"}).content == PNG2
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "www.steamgriddb.com":
+            return httpx.Response(200, content=PNG1, headers={"content-type": "image/png"})
+        path = request.url.path.split("/api/v2", 1)[-1]
+        if path.startswith("/search/autocomplete/"):
+            return httpx.Response(200, json={"success": True, "data": [{"id": 7, "name": "Jeu"}]})
+        if path.startswith("/grids/game/"):
+            grille = {"id": 1, "score": 9, "url": "https://cdn.test/g1.png", "thumb": "https://cdn.test/t1.png",
+                      "width": 600, "height": 900, "author": {"name": "Bob"}}
+            return httpx.Response(200, json={"success": True, "data": [grille]})
+        return httpx.Response(404)
+    monkeypatch.setattr(sgdb, "TRANSPORT", httpx.MockTransport(handler))
+    sgdb.forget_sgdb_misses(deps._settings)
+    assert client.get("/api/folders/art", params={"id": ID, "kind": "cover"}).content == PNG1
+    assert client.get("/api/folders/art", params={"id": ID}).content == PNG2

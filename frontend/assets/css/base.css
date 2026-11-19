@@ -9,12 +9,12 @@ p { margin: 0 0 .7rem; }
 a { color: var(--accent-400); text-decoration: none; }
 a:hover { color: var(--accent-300); }
 code, .mono { font-family: var(--mono); }
-code { font-size: .88em; background: var(--s3); padding: 1px 6px; border-radius: 6px; overflow-wrap: anywhere; }
+code { font-size: .88em; background: var(--s3); padding: 1px 6px; border-radius: var(--radius-xs); overflow-wrap: anywhere; }
 pre { margin: 0; }
 strong, b { font-weight: 700; }
-::selection { background: rgba(109, 135, 245, .3); }
+::selection { background: var(--accent-a30); }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: var(--s3); border-radius: 99px; border: 2px solid var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--s3); border-radius: var(--radius-pill); border: 2px solid var(--bg); }
 :focus { outline: none; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .muted { color: var(--muted); }

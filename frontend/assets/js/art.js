@@ -25,13 +25,16 @@ export function paintInitials(node, name) {
 // pas de version : sa route n'est pas mise en cache durablement (Actualiser la redemande).
 const artVersion = (item) => `${item.mtime ?? ""}|${item.dir || ""}|${item.cmd || ""}`;
 
-// source : « image » (/api/image/art) ou « folder » (/api/folders/art, dossier à empaqueter)
+// source : « image » / « poster » (/api/image/art) ou « folder » / « folder-poster » (/api/folders/art,
+// dossier à empaqueter)
+const isFolder = (source) => source.startsWith("folder");
 const artKey = (item, source) => `${source}:${item.id}:${artVersion(item)}:${art.epoch}`;
 
 // source « poster » : tuiles de la bibliothèque, affiche en cache (SteamGridDB, sinon jaquette ES,
-// sinon l'illustration intégrée) ; « image » : vue liste, icône intégrée à l'image
-const artUrl = (item, source) => source === "folder"
-  ? `/api/folders/art?id=${encodeURIComponent(item.id)}&e=${art.epoch}`
+// sinon l'illustration intégrée) ; « image » : vue liste, icône intégrée à l'image. Pour un dossier,
+// « folder-poster » (jaquettes) et « folder » (liste) suivent les mêmes règles
+const artUrl = (item, source) => isFolder(source)
+  ? `/api/folders/art?id=${encodeURIComponent(item.id)}&kind=${source === "folder-poster" ? "cover" : "icon"}&e=${art.epoch}`
   : `/api/image/art?id=${encodeURIComponent(item.id)}&kind=${source === "poster" ? "cover" : "icon"}`
     + `&v=${encodeURIComponent(artVersion(item))}&e=${art.epoch}`;
 
@@ -104,12 +107,12 @@ const artObserver = new IntersectionObserver((entries) => {
     artObserver.unobserve(entry.target);
     const ref = artRefs.get(entry.target);
     // Une image est relue dans la bibliothèque (elle peut avoir changé depuis le rendu)
-    const item = ref && (ref.source === "folder" ? ref.item : state.byId.get(ref.item.id));
+    const item = ref && (isFolder(ref.source) ? ref.item : state.byId.get(ref.item.id));
     if (item) showArt(entry.target, item, ref.source);
   }
 }, { rootMargin: "200px" });
 
-// source : « image » (liste), « poster » (tuiles de la bibliothèque) ou « folder » (dossiers)
+// source : « image » (liste), « poster » (tuiles de la bibliothèque), « folder » ou « folder-poster » (dossiers)
 export function thumb(item, className = "thumb", source = "image") {
   const node = el("span", { className });
   node.dataset.id = item.id;

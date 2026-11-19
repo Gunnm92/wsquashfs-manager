@@ -1,6 +1,6 @@
 /* ------------------------------------------------------------------ en-tête */
 header.top { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 14px; padding: 12px 24px;
-  background: rgba(10, 11, 14, .82); backdrop-filter: blur(14px); border-bottom: 1px solid var(--divider); }
+  background: var(--bg-a82); backdrop-filter: blur(14px); border-bottom: 1px solid var(--divider); }
 .brand { display: flex; align-items: center; gap: 10px; flex: none; }
 .brand .logo { width: 34px; height: 34px; border-radius: 50%; background: var(--accent); color: var(--bg); display: grid; place-items: center; }
 .brand .logo .ico { width: 18px; height: 18px; }
@@ -8,9 +8,9 @@ header.top { position: sticky; top: 0; z-index: 30; display: flex; align-items: 
 .vsep { width: 1px; height: 24px; flex: none; background: var(--line2); }
 nav.views { flex: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
 nav.views > button { padding: 7px 14px; font-size: 13.5px; }
-.count { font-size: 11px; padding: 0 7px; border-radius: var(--radius-pill); background: rgba(232, 234, 239, .1); font-variant-numeric: tabular-nums; }
+.count { font-size: 11px; padding: 0 7px; border-radius: var(--radius-pill); background: var(--text-a10); font-variant-numeric: tabular-nums; }
 .count:empty { display: none; }
-#count-saves { background: rgba(240, 166, 108, .16); color: var(--warn); }
+#count-saves { background: var(--warn-a16); color: var(--warn); }
 nav.views > button > .count { margin-left: 8px; }
 #status { font-size: 12.5px; color: var(--muted); }
 
@@ -18,10 +18,10 @@ nav.views > button > .count { margin-left: 8px; }
 .clients { display: flex; align-items: center; gap: 12px; min-width: 0; flex: none; }
 .clients .seg > button { padding: 5px 14px; font-size: 13px; }
 .clients .seg > button:not(.on) { font-weight: 600; }
-.dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--idle); }
+.dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--faint); }
 .dot.ok { background: var(--ok); }
 .client-info { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
-.client-info.fade { animation: fadein var(--dur-med) ease-out; }
+.client-info.fade { animation: fadein var(--dur-med) var(--ease-out); }
 /* Dossiers : pas de client à choisir (le manager). Le sélecteur garde sa place : pas de saut de mise en page */
 body[data-view="folders"] #client-seg, body[data-view="folders"] #client-info { visibility: hidden; }
 
@@ -50,12 +50,12 @@ body[data-view="folders"] #client-seg, body[data-view="folders"] #client-info { 
 /* Menu ⚙ : Réglages, Actualiser, Aide */
 .menu-wrap { position: relative; flex: none; }
 #btn-menu[aria-expanded=true] { background: var(--s3); color: var(--text); }
-#btn-menu svg { transition: transform var(--dur-slow) ease-out; }
+#btn-menu svg { transition: transform var(--dur-slow) var(--ease-out); }
 #btn-menu:hover svg { transform: rotate(30deg); }
 #btn-menu.spin .ico { animation: spin .9s linear infinite; }
 .menu { position: absolute; right: 0; top: calc(100% + 10px); z-index: 40; width: 250px; padding: 6px; display: flex; flex-direction: column;
-  border-radius: 18px; background: var(--s3); box-shadow: var(--shadow-lg); transform-origin: top right; animation: menupop var(--dur-med) var(--ease-out); }
-.menu-item { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border: 0; border-radius: 12px; background: transparent;
+  border-radius: var(--radius-md); background: var(--s3); box-shadow: var(--shadow-lg); transform-origin: top right; animation: menupop var(--dur-med) var(--ease-out); }
+.menu-item { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border: 0; border-radius: var(--radius-sm); background: transparent;
   color: var(--text); font-size: 13px; text-align: left; }
 .menu-item:hover { background: var(--s2); }
 .menu-item .ico { color: var(--muted); }
@@ -71,8 +71,8 @@ body[data-view="folders"] #client-seg, body[data-view="folders"] #client-info { 
 .clients .seg > button .cplay { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 50%;
   background: var(--accent-900); color: var(--accent-300); margin-left: -2px; }
 .clients .seg > button .cplay .ico { width: 9px; height: 9px; }
-.clients .dot.playing { background: var(--accent); box-shadow: 0 0 0 3px rgba(109, 135, 245, .25); }
+.clients .dot.playing { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-a25); }
 @media (prefers-reduced-motion: no-preference) {
   .clients .dot.playing { animation: client-playing 1.6s var(--ease-out) infinite; }
 }
-@keyframes client-playing { 0%, 100% { box-shadow: 0 0 0 2px rgba(109, 135, 245, .35); } 50% { box-shadow: 0 0 0 5px rgba(109, 135, 245, 0); } }
+@keyframes client-playing { 0%, 100% { box-shadow: 0 0 0 2px var(--accent-a35); } 50% { box-shadow: 0 0 0 5px var(--accent-a0); } }

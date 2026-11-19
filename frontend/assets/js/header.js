@@ -35,7 +35,7 @@ export function showView(name) {
 // côté de l'onglet choisi (ordre de la navigation). Un clic pendant la transition l'emporte.
 const VIEW_IDS = { saves: "saves-main", images: "main", folders: "folders-main", help: "help-main", settings: "settings-main" };
 const VIEW_ORDER = ["saves", "images", "folders", "help", "settings"];
-const VIEW_OUT = 140;
+const VIEW_OUT = 150;
 let viewTurn = 0;
 let shownView = null;
 
@@ -169,7 +169,7 @@ export function paintRefreshAgo() {
 }
 
 export function setTopMenu(open) {
-  if (open) showAnimated($("top-menu"), "is-leaving"); else hideAnimated($("top-menu"), "is-leaving", 180);
+  if (open) showAnimated($("top-menu"), "is-leaving"); else hideAnimated($("top-menu"), "is-leaving", 200);
   $("btn-menu").setAttribute("aria-expanded", String(open));
   if (open) { paintRefreshAgo(); setTasksOpen(false); }
 }

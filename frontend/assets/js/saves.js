@@ -297,7 +297,7 @@ function svListRow({ g, sync, copy }, enter, images) {
   const img = images.get(g.game);
   const box = el("input", { type: "checkbox", checked: selected, title: "Sélectionner" });
   box.onclick = (event) => event.stopPropagation();
-  const more = el("button", { type: "button", className: "iconbtn bare sm", title: "Autres actions", "aria-label": `Autres actions pour ${gameLabel(g)}`, "aria-haspopup": "menu" },
+  const more = el("button", { type: "button", className: "iconbtn bare sm", title: "Autres actions", "aria-label": `Autres actions pour ${gameLabel(g)}`, "aria-haspopup": "menu", "aria-expanded": "false" },
     icon("more", "sm"));
   const wrap = el("div", { className: "dd end sv-more" }, more);
   more.onclick = (event) => { event.stopPropagation(); openMenuNode(wrap, rowItems(g)); };
@@ -485,7 +485,7 @@ function targetItems() {
 // Supprimer… ; une action impossible reste visible, grisée, avec sa raison (setUnavailable)
 function paintSelection() {
   const bar = $("s-selection"), n = sv.selected.size;
-  if (n === 0 || !sv.loaded) { hideAnimated(bar, "is-leaving", 220); return; }
+  if (n === 0 || !sv.loaded) { hideAnimated(bar, "is-leaving", 200); return; }
   showAnimated(bar, "is-leaving");
   if (!sv.machines.some((m) => m.id === sv.source) && sv.source !== AUTO && sv.source !== RESERVE) sv.source = AUTO;
   $("s-count").textContent = n > 1 ? `${n} jeux` : "1 jeu";

@@ -65,7 +65,7 @@ export function kvForm({ textarea, form, missing, pending = new Set(), onSync = 
     const input = el("input", { id: prefix + key, value: value ?? "", placeholder: info ? "valeur" : "", autocomplete: "off", spellcheck: false });
     if (document.getElementById(`v-${key}`)) input.setAttribute("list", `v-${key}`);
     input.addEventListener("change", () => setKey(key, input.value.trim()));
-    const remove = el("button", { type: "button", className: "iconbtn", title: "Retirer la clé" }, icon("x", "sm"));
+    const remove = el("button", { type: "button", className: "iconbtn", title: "Retirer la clé", "aria-label": "Retirer la clé" }, icon("x", "sm"));
     remove.onclick = () => { pending.delete(key); setKey(key, ""); };
     const node = el("div", { className: "kv-pill", title: info?.help || "Clé non reconnue : conservée, ignorée par Batocera" },
       el("span", { className: "disc" }, icon(KEY_ICONS[key] || "terminal")),

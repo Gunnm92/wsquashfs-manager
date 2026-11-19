@@ -1,0 +1,14 @@
+{
+  "style": "minimal line icon in the Lucide icon style, single uniform thick black stroke #000000, rounded line caps and joins, outline only, no fill, no shading, no gradient, flat 2D, centered, simple geometric shapes, generous spacing between separate parts",
+  "modele": "rapide",
+  "rendu": "objet",
+  "sortie": "gen",
+  "icones": [
+    {
+      "nom": "deck",
+      "mode": "creer",
+      "variantes": 4,
+      "sujet": "a Steam Deck handheld console seen from the front: wide body with rounded ends, a rectangular screen in the middle, a round thumbstick on each side of the screen, the screen and sticks not touching the body outline"
+    }
+  ]
+}

@@ -13,7 +13,7 @@ function opRow(op = { op: "set", key: "", value: "" }) {
   key.setAttribute("list", "known-keys");
   const value = el("input", { placeholder: "valeur", value: op.value || "", className: "code" });
   const template = el("textarea", { placeholder: "CMD=…\nDIR=…\nGAME_VERSION=…", value: op.template || "" });
-  const remove = el("button", { className: "iconbtn", title: "Retirer l'opération" }, icon("x"));
+  const remove = el("button", { className: "iconbtn", title: "Retirer l'opération", "aria-label": "Retirer l'opération" }, icon("x"));
   const row = el("div", { className: "op" }, kind, key, value, remove);
   const update = () => {
     const replace = kind.value === "replace";
@@ -54,7 +54,7 @@ const waiting = (text) => el("div", { className: "notice info" }, el("span", { c
 
 function fileOpRow(kind, values = {}) {
   const input = (placeholder, value = "", style = "") => el("input", { placeholder, value, style, className: "code" });
-  const remove = el("button", { className: "iconbtn", title: "Retirer l'opération" }, icon("x"));
+  const remove = el("button", { className: "iconbtn", title: "Retirer l'opération", "aria-label": "Retirer l'opération" }, icon("x"));
   let row, read;
   if (kind === "copy") {
     const dest = input("destination dans l'image, ex. {exe_dir}/dinput8.dll", values.dest);

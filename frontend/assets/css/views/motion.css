@@ -6,15 +6,15 @@
 @keyframes viewout { to { opacity: 0; transform: translateY(-6px); } }
 @keyframes viewin-r { from { opacity: 0; transform: translateX(32px); } }
 @keyframes viewin-l { from { opacity: 0; transform: translateX(-32px); } }
-.view-out { animation: viewout .14s ease-in both; pointer-events: none; }
-.view-in-r { animation: viewin-r .38s cubic-bezier(.2, .8, .3, 1) backwards; }
-.view-in-l { animation: viewin-l .38s cubic-bezier(.2, .8, .3, 1) backwards; }
+.view-out { animation: viewout var(--dur-fast) var(--ease-out) both; pointer-events: none; }
+.view-in-r { animation: viewin-r var(--dur-slow) var(--ease-out) backwards; }
+.view-in-l { animation: viewin-l var(--dur-slow) var(--ease-out) backwards; }
 
 /* Sorties animées (hideAnimated) : la classe is-leaving joue la sortie, puis le nœud passe hidden */
 .is-leaving { pointer-events: none; }
-.dd-menu.is-leaving, .sv-menu.is-leaving, .menu.is-leaving, #tasks-panel.is-leaving, #toast.is-leaving { animation: popout .18s ease-in both; }
-aside.panel.is-leaving { animation: slideout .2s ease-in both; }
-.selbar.is-leaving { animation: selout .22s ease-in both; }
+.dd-menu.is-leaving, .sv-menu.is-leaving, .menu.is-leaving, #tasks-panel.is-leaving, #toast.is-leaving { animation: popout var(--dur-base) var(--ease-out) both; }
+aside.panel.is-leaving { animation: slideout var(--dur-base) var(--ease-out) both; }
+.selbar.is-leaving { animation: selout var(--dur-base) var(--ease-out) both; }
 
 /* Un bandeau (.notice) se déploie à son apparition : hors ligne, erreurs, résultats d'une action.
    Le bandeau de chargement (#lib-loading) n'est pas recréé à chaque seconde : il ne rejoue pas. */

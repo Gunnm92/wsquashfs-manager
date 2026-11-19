@@ -1,14 +1,14 @@
 /* Installation sur les machines : pastilles (liste, jaquettes), fiche, dialogues Installer / Désinstaller */
 .inst-pins { display: inline-flex; align-items: center; gap: 3px; flex: none; color: var(--accent2-300); }
 .inst-pins .ico { width: 13px; height: 13px; }
-.gart .inst-pins { position: absolute; top: 10px; left: 10px; padding: 4px 7px; border-radius: var(--radius-pill); background: rgba(10, 11, 14, .75); }
+.gart .inst-pins { position: absolute; top: 10px; left: 10px; padding: 4px 7px; border-radius: var(--radius-pill); background: var(--bg-a75); }
 .in-targets { display: flex; flex-direction: column; gap: 6px; margin: 14px 0 12px; }
 .in-row { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: start; gap: 10px; padding: 10px 12px;
-  border-radius: 16px; background: var(--s3); font-size: 13.5px; }
+  border-radius: var(--radius-sm); background: var(--s3); font-size: 13.5px; }
 .in-row > input { margin-top: 5px; }
 .in-row > .ico { margin-top: 4px; }
 .in-row.none { opacity: .6; }
-.in-row.short { box-shadow: inset 0 0 0 1.5px rgba(240, 120, 122, .5); }
+.in-row.short { box-shadow: inset 0 0 0 1.5px var(--err-a50); }
 .in-row.short .in-meta { color: var(--err-200); }
 .in-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .in-head { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; min-width: 0; }

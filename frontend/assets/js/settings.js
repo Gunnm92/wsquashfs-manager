@@ -334,7 +334,7 @@ function clientRow(m) {
   const ok = Boolean(m.ok);
   // En jeu même sans agent joignable : c'est le lanceur qui signale ses parties au manager
   const playing = playingOn(m.id).length ? playingOn(m.id) : null;
-  const menu = el("button", { type: "button", className: "mcard-menu", title: "Actions sur ce client", "aria-label": `Actions sur ${m.name}`, "aria-haspopup": "menu" },
+  const menu = el("button", { type: "button", className: "mcard-menu", title: "Actions sur ce client", "aria-label": `Actions sur ${m.name}`, "aria-haspopup": "menu", "aria-expanded": "false" },
     icon("chevd", "sm"));
   menu.onclick = () => openMenuNode(menu.parentElement, machineMenu(m));
   const at = sv.machines.findIndex((x) => x.id === m.id);

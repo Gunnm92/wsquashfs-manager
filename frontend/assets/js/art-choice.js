@@ -72,7 +72,7 @@ function newDialog(className, onClose = () => {}) {
 }
 
 const dialogHead = (title, dlg) => {
-  const close = el("button", { type: "button", className: "iconbtn", title: "Fermer" }, icon("x"));
+  const close = el("button", { type: "button", className: "iconbtn", title: "Fermer", "aria-label": "Fermer" }, icon("x"));
   close.onclick = () => dlg.close();
   return el("div", { className: "dlg-head" }, el("h2", { textContent: title }), el("span", { className: "spacer" }), close);
 };
