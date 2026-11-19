@@ -38,8 +38,10 @@ from ..config import (
     save_game_host,
     save_saves_game_host_icon,
     save_saves_machines,
+    save_saves_order,
     saves_client_id,
     saves_machines,
+    saves_order,
     set_saves_machine_field,
 )
 from ..models import Task, TaskStatus
@@ -146,7 +148,20 @@ def machine_rows(settings: Settings) -> list[dict]:
         rows.insert(0, {"id": GAME_HOST_ID, "name": f"client d'essai ({_host_of(url)})", "url": url,
                         "fingerprint": _fingerprint_or_empty(pem), "kind": "game_host", "removable": False,
                         "icon": _chosen_icon(settings.saves_game_host_icon)})
+    # Ordre choisi dans Réglages > Clients (bandeau, listes) ; les clients absents de l'ordre suivent
+    rank = {machine_id: i for i, machine_id in enumerate(saves_order(settings))}
+    rows.sort(key=lambda row: rank.get(row["id"], len(rank)))
     return rows
+
+
+def set_machine_order(settings: Settings, ids: list[str]) -> list[str]:
+    """Enregistre l'ordre des clients : doit contenir chaque client exactement une fois.
+    ValueError sinon."""
+    current = [row["id"] for row in machine_rows(settings)]
+    if len(set(ids)) != len(ids) or sorted(ids) != sorted(current):
+        raise ValueError("ordre incomplet : chaque client doit figurer une seule fois")
+    save_saves_order(settings, list(ids))
+    return list(ids)
 
 
 def game_host_machine(settings: Settings) -> str:
@@ -1212,7 +1227,8 @@ def status(settings: Settings, games: list[str] | None = None, refresh: bool = F
     def fetch(row: dict) -> tuple[dict | None, str, str, dict]:
         """(jeux, erreur, système, info) : un échec de info laisse le système vide, sans
         rendre le client injoignable si saves_list a répondu. Un client (version 9 ou plus)
-        qui ne déclare pas ce manager reçoit la déclaration ; erreurs ignorées."""
+        qui ne déclare pas ce manager, ou dont l'adresse d'interface connue (manager_ui de
+        /v1/info, absente des anciens agents) diffère, reçoit la déclaration ; erreurs ignorées."""
         key = row["id"]
         if not refresh:
             with _unreachable_lock:
@@ -1234,7 +1250,8 @@ def status(settings: Settings, games: list[str] | None = None, refresh: bool = F
             info = {}
         info = info if isinstance(info, dict) else {}
         if (manager_fp and row["kind"] == "saved" and _version_at_least(info, MANAGER_PEER_VERSION)
-                and str(info.get("manager") or "").replace(":", "").upper() != manager_fp.upper()):
+                and (str(info.get("manager") or "").replace(":", "").upper() != manager_fp.upper()
+                     or ("manager_ui" in info and info["manager_ui"] != manager_ui_url(settings)))):
             try:
                 declare_manager(settings, row["id"], info)
             except (RebuildError, OSError, KeyError) as exc:

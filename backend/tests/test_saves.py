@@ -125,7 +125,9 @@ class SavesAgent(BaseHTTPRequestHandler):
                 return self._send(500, b'{"detail":"info indisponible"}')
             return self._send(200, json.dumps({"version": self.st["version"], "host": self.st["host"],
                                                "user": "arcade", "os": self.st["os"], "auto": self.st["auto"],
-                                               "manager": self.st["manager_fp"]}).encode())
+                                               "manager": self.st["manager_fp"],
+                                               **({"manager_ui": self.st["manager_ui"]}
+                                                  if self.st["manager_ui"] is not None else {})}).encode())
         if url.path == "/v1/saves/list":
             if self.st.get("no_saves_routes"):         # agent v2 : route inconnue du routeur Go
                 return self._send(404, b"404 page not found\n", ctype="text/plain; charset=utf-8")
@@ -164,6 +166,8 @@ class SavesAgent(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))) or b"{}")
             self.st["manager"] = body
             self.st["manager_fp"] = body.get("fingerprint", "")
+            if self.st["manager_ui"] is not None:      # agent qui rend manager_ui dans /v1/info
+                self.st["manager_ui"] = body.get("ui", "")
             return self._send(200, b'{"ok":true}')
         if url.path == "/v1/saves/dirs":
             self._record("PUT", url.path)
@@ -270,7 +274,7 @@ def agents(tmp_path):
               "secret": secret, "pair_open": True, "old_pair": old_pair, "pairs": [], "bound": None,
               "labels": dict(labels or {}), "dirs": list(dirs or []), "no_dirs": no_dirs,
               "dirpaths": dict(dirpaths or {}), "contents": dict(contents or {}),
-              "version": version, "auto": auto, "no_manager": no_manager, "manager": None, "manager_fp": "",
+              "version": version, "auto": auto, "no_manager": no_manager, "manager": None, "manager_fp": "", "manager_ui": None,
               "games": {name: fake_game(spec) for name, spec in (games or {}).items()}}
         handler = type("H", (SavesAgent,), {"st": st})
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
@@ -1283,7 +1287,7 @@ def test_game_host_icon_is_read_back_from_config(tmp_path, monkeypatch):
     cfg.write_text(json.dumps({"saves_game_host_icon": "steamos"}))
     monkeypatch.setenv("WSQUASHFS_MGR_RUNTIME_CONFIG_FILE", str(cfg))
     assert get_settings().saves_game_host_icon == "steamos"
-    cfg.write_text(json.dumps({"saves_game_host_icon": "xbox"}))     # valeur inconnue : ignorée
+    cfg.write_text(json.dumps({"saves_game_host_icon": "inconnue"}))     # valeur inconnue : ignorée
     assert get_settings().saves_game_host_icon is None
 
 
@@ -1316,7 +1320,7 @@ def test_api_patch_icon_of_the_game_host(agents, api):
     assert (row["id"], row["icon"], row["icon_set"]) == ("game-host", "batocera", True)
     assert client.patch("/api/saves/machines/game-host", json={"icon": None}).status_code == 200
     assert json.loads(config.read_text())["saves_game_host_icon"] is None
-    assert client.patch("/api/saves/machines/game-host", json={"icon": "xbox"}).status_code == 400
+    assert client.patch("/api/saves/machines/game-host", json={"icon": "inconnue"}).status_code == 400
     assert settings.saves_game_host_icon is None
 
 
@@ -1567,6 +1571,22 @@ def test_status_declares_the_manager_once_and_reports_auto(agents, tmp_path):
     saves.status(settings)
     puts = [e for e in steambox["st"]["log"] if e["path"] == "/v1/saves/manager"]
     assert len(puts) == 1
+
+
+def test_status_declares_again_when_the_ui_address_is_missing(agents, tmp_path):
+    """Déclaration antérieure à l'adresse d'interface (« Ouvrir le manager » absent de --tray) :
+    l'agent annonce manager_ui vide, l'état redéclare une fois ; un agent sans manager_ui n'est
+    pas redéclaré à chaque état (test précédent)."""
+    settings = make_settings(tmp_path, machine_url=MANAGER_URL)
+    aibox = agents("aibox", version="10")
+    aibox["st"]["manager_ui"] = ""
+    associate(settings, aibox)
+    aibox["st"]["manager_ui"] = ""                  # ancienne déclaration, sans ui
+    saves.status(settings)
+    assert aibox["st"]["manager_ui"] == f"http://192.168.1.10:{settings.port}"
+    saves.status(settings)
+    puts = [e for e in aibox["st"]["log"] if e["path"] == "/v1/saves/manager"]
+    assert len(puts) == 2                           # association, puis une seule redéclaration
 
 
 def test_status_leaves_older_agents_alone(agents, tmp_path):
@@ -2272,3 +2292,40 @@ def test_api_resolve_validates_the_version(api):
     assert client.post("/api/saves/resolve", json={"game": "../x", "keep": "manager"}).status_code == 422
     response = client.post("/api/saves/resolve", json={"game": "Jeu", "keep": made["name"], "push": False})
     assert response.status_code == 200 and "task" in response.json()
+
+
+def test_steambox_icon_can_be_chosen(agents, tmp_path):
+    sb = agents("sb", os_name="steamos")
+    settings = make_settings(tmp_path)
+    associate(settings, sb)
+    mid = machine_ids(settings)["sb"]
+    assert saves.set_icon(settings, mid, "steambox")["icon"] == "steambox"
+    assert saves.machine_rows(settings)[0]["icon"] == "steambox"
+
+
+def test_client_order_is_saved_and_applied_to_rows(agents, tmp_path):
+    first, second = agents("alpha"), agents("beta")
+    settings = make_settings(tmp_path)
+    associate(settings, first)
+    associate(settings, second)
+    ids = machine_ids(settings)
+    assert [r["name"] for r in saves.machine_rows(settings)] == ["alpha", "beta"]
+    assert saves.set_machine_order(settings, [ids["beta"], ids["alpha"]]) == [ids["beta"], ids["alpha"]]
+    assert [r["name"] for r in saves.machine_rows(settings)] == ["beta", "alpha"]
+    assert [m["name"] for m in saves.status(settings)["machines"]] == ["beta", "alpha"]
+    # un client absent de l'ordre enregistré passe en dernier
+    saves.save_saves_order(settings, [ids["beta"]])
+    assert [r["name"] for r in saves.machine_rows(settings)] == ["beta", "alpha"]
+
+
+def test_client_order_must_list_each_client_once(agents, tmp_path):
+    settings = make_settings(tmp_path)
+    associate(settings, agents("alpha"))
+    associate(settings, agents("beta"))
+    ids = machine_ids(settings)
+    with pytest.raises(ValueError):
+        saves.set_machine_order(settings, [ids["alpha"]])                    # incomplet
+    with pytest.raises(ValueError):
+        saves.set_machine_order(settings, [ids["alpha"], ids["alpha"]])      # doublon
+    with pytest.raises(ValueError):
+        saves.set_machine_order(settings, [ids["alpha"], "inconnu"])        # inconnu
