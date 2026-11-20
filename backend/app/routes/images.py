@@ -19,9 +19,10 @@ from ..services import scan
 from ..services import trial as trial_svc
 from ..services.analyze import analyze_image, report
 from ..services.autorun import KEY_HELP, Autorun, decode_autorun, merge_override, override_path
+from ..services.diskspace import existing_parent
 from ..services.errors import ManagerError
 from ..services.operations import autorun_sha, plan_autorun, write_override
-from ..services.rebuild import existing_parent, restore_backup, validate_backup
+from ..services.rebuild import restore_backup, validate_backup
 from ..services.runners import plan_runner, suggest
 from ..services.trial import game_host, host_name
 from ..services.update import default_anchor, plan_update

@@ -17,9 +17,7 @@ from __future__ import annotations
 
 import difflib
 import fnmatch
-import hashlib
 import math
-import mmap
 import os
 import re
 import subprocess
@@ -28,12 +26,10 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import pefile
-import yaml
-
 from .autorun import Autorun, decode_autorun
-from .durable import write_atomic
+from .gamedb import game_matches, load_games, match_game, missing_requirements
 from .links import LinkReport, classify, folder_links
+from .pe import ExeInfo, read_exe
 from .registry import section_values
 from .rules import Analysis, load_rules, run_rules
 
@@ -71,111 +67,8 @@ _EXCLUDED_NAMES = (
 _LAUNCHER_BATS = ("launch*.bat", "game.bat", "start*.bat", "run*.bat", "play*.bat")
 # Commandes de .bat mal orthographiées déjà rencontrées (le lanceur les exécute telles quelles)
 _BAT_TYPOS = {"taskill": "taskkill", "tasskill": "taskkill", "tskill": "taskkill"}
-# Marqueurs cherchés dans l'exécutable (règle « strings_any »)
-_MARKERS = (b"libScePad", b"DualSense", b"DUALSENSE")
-_MARKER_SCAN_LIMIT = 400 * 2**20
 
 RULES_FILE = Path(__file__).resolve().parent.parent.parent / "rules" / "rules.yaml"
-GAMES_FILE = RULES_FILE.with_name("games.yaml")
-_HASH_LIMIT = 300 * 2**20
-
-
-# ------------------------------------------------------------------ base de connaissances
-
-# Base locale (ajouts faits depuis l'interface) : dans l'appdata, prioritaire
-# sur la base livrée avec l'application ; définie au démarrage par main.
-LOCAL_GAMES_FILE: Path | None = None
-
-
-def validate_game(game: dict, where: str = "") -> None:
-    if not (game.get("exe") or game.get("sha256") or game.get("game")):
-        raise ValueError(f"{where}exe, sha256 ou game requis")
-    if not (game.get("keys") or game.get("requires") or game.get("prefer")):
-        raise ValueError(f"{where}keys, requires ou prefer requis")
-
-
-def _load_file(path: Path, source: str) -> list[dict]:
-    if not path.exists():
-        return []
-    data = yaml.safe_load(path.read_text()) or {}
-    games = list(data.get("games", []))
-    for i, game in enumerate(games):
-        validate_game(game, f"{path.name}, entrée {i} : ")
-        game["_source"] = source
-    return games
-
-
-def load_games(path: Path | None = None) -> list[dict]:
-    """Entrées de la base : locale d'abord (prioritaire), puis livrée."""
-    if path is not None:                      # fichier explicite (tests)
-        return _load_file(path, "livrée")
-    local = _load_file(LOCAL_GAMES_FILE, "locale") if LOCAL_GAMES_FILE else []
-    return local + _load_file(GAMES_FILE, "livrée")
-
-
-def add_local_game(entry: dict) -> dict:
-    """Ajoute une entrée à la base locale (« Ajouter à la base »)."""
-    if LOCAL_GAMES_FILE is None:
-        raise ValueError("base locale non configurée")
-    entry = {k: v for k, v in entry.items() if v not in (None, "", [], {})}
-    validate_game(entry)
-    data: dict = {"games": []}
-    if LOCAL_GAMES_FILE.exists():
-        data = yaml.safe_load(LOCAL_GAMES_FILE.read_text()) or {"games": []}
-    data.setdefault("games", []).append(entry)
-    LOCAL_GAMES_FILE.parent.mkdir(parents=True, exist_ok=True)
-    write_atomic(LOCAL_GAMES_FILE,
-                 "# Base de connaissances locale (ajouts depuis wsquashfs-manager),\n"
-                 "# prioritaire sur rules/games.yaml. Même format.\n"
-                 + yaml.safe_dump(data, allow_unicode=True, sort_keys=False))
-    return entry
-
-
-def _game_matches(game: dict, name: str) -> bool:
-    pattern = game.get("game")
-    return bool(pattern) and fnmatch.fnmatchcase(name.lower(), str(pattern).lower())
-
-
-def missing_requirements(files: list[str], exe: str, game: dict) -> list[str]:
-    """Fichiers exigés par la base, absents du dossier de l'exécutable (casse ignorée)."""
-    directory = exe.rpartition("/")[0]
-    present = {f.lower() for f in files}
-    return [name for name in game.get("requires") or []
-            if f"{directory}/{name}".lstrip("/").lower() not in present]
-
-
-def match_game(games: list[dict], scan: FolderScan, exe: str,
-               game_name: str | None = None) -> dict | None:
-    """Entrée de la base pour ce jeu : empreinte de l'exécutable d'abord, puis
-    nom de l'exécutable, puis nom du jeu."""
-    name = exe.rsplit("/", 1)[-1].lower()
-    by_name = [g for g in games if (g.get("exe") or "").lower() == name]
-    with_hash = [g for g in games if g.get("sha256")]
-    if with_hash:
-        data = (scan.source.read_bytes(exe)
-                if scan.sizes.get(exe, _HASH_LIMIT + 1) <= _HASH_LIMIT else None)
-        digest = hashlib.sha256(data).hexdigest() if data is not None else None
-        exact = next((g for g in with_hash if g["sha256"].lower() == digest), None)
-        if exact:
-            return exact
-    if by_name:
-        return by_name[0]
-    if game_name:
-        return next((g for g in games if _game_matches(g, game_name)), None)
-    return None
-
-
-@dataclass
-class ExeInfo:
-    bits: int | None = None
-    gui: bool | None = None
-    large_address_aware: bool = False
-    imports: set[str] = field(default_factory=set)
-    product_name: str | None = None
-    product_version: str | None = None
-    file_version: str | None = None
-    markers: set[str] = field(default_factory=set)
-    error: str | None = None
 
 
 @dataclass
@@ -334,65 +227,6 @@ def dll_overrides(scan: FolderScan, prefix: str) -> dict[str, str]:
     text = scan.read_text(reg) if reg in scan.files else ""
     return section_values(text, "Software\\Wine\\DllOverrides") if text else {}
 
-
-# ------------------------------------------------------------------ PE
-
-def _version_string(value: bytes | str | None) -> str | None:
-    if not value:
-        return None
-    text = value.decode("utf-8", "replace") if isinstance(value, bytes) else value
-    text = text.strip().strip("\0").replace(", ", ".").replace(",", ".")
-    return text or None
-
-
-def read_exe(path: Path) -> ExeInfo:
-    """En-têtes, imports et version d'un exécutable PE (sans l'exécuter)."""
-    info = ExeInfo()
-    try:
-        pe = pefile.PE(str(path), fast_load=True)
-    except (pefile.PEFormatError, OSError) as exc:
-        info.error = str(exc)
-        return info
-    try:
-        machine = pe.FILE_HEADER.Machine
-        info.bits = 64 if machine in (0x8664, 0xAA64) else 32 if machine == 0x14C else None
-        info.gui = pe.OPTIONAL_HEADER.Subsystem == 2
-        info.large_address_aware = bool(pe.FILE_HEADER.Characteristics & 0x20)
-        pe.parse_data_directories(directories=[
-            pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_IMPORT"],
-            pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT"],
-            pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_RESOURCE"],
-        ])
-        for attr in ("DIRECTORY_ENTRY_IMPORT", "DIRECTORY_ENTRY_DELAY_IMPORT"):
-            for entry in getattr(pe, attr, []) or []:
-                if entry.dll:
-                    info.imports.add(entry.dll.decode("latin-1").lower())
-        for file_info in getattr(pe, "FileInfo", []) or []:
-            for block in file_info:
-                for table in getattr(block, "StringTable", []) or []:
-                    strings = {k.decode("latin-1"): v for k, v in table.entries.items()}
-                    info.product_name = info.product_name or _version_string(
-                        strings.get("ProductName"))
-                    info.product_version = info.product_version or _version_string(
-                        strings.get("ProductVersion"))
-                    info.file_version = info.file_version or _version_string(
-                        strings.get("FileVersion"))
-    except Exception as exc:  # noqa: BLE001 — un PE malformé ne bloque pas l'analyse
-        info.error = str(exc)
-    finally:
-        pe.close()
-    info.markers = _markers(path)
-    return info
-
-
-def _markers(path: Path) -> set[str]:
-    try:
-        if path.stat().st_size > _MARKER_SCAN_LIMIT:
-            return set()
-        with open(path, "rb") as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as m:
-            return {marker.decode() for marker in _MARKERS if m.find(marker) != -1}
-    except (OSError, ValueError):
-        return set()
 
 
 # ------------------------------------------------------------------ candidats
@@ -737,7 +571,7 @@ def _apply_preference(candidates: list[Candidate], excluded: list[dict], scan: F
     """Base de connaissances : exécutable imposé pour ce jeu (« prefer »),
     choisi d'après l'autorun écrit à la main quand le score se trompe ; un
     exécutable écarté par l'analyse (dossier tools/…) est repêché."""
-    entry = next((g for g in load_games() if g.get("prefer") and _game_matches(g, game)), None)
+    entry = next((g for g in load_games() if g.get("prefer") and game_matches(g, game)), None)
     if entry is None:
         return
     wanted = str(entry["prefer"]).replace("\\", "/").lower()

@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from app.config import Settings
-from app.services import rebuild
+from app.services import diskspace, rebuild, squashfs
 from app.services.errors import ManagerError
 from app.services.jobs import Job, JobCancelled
 from app.services.rebuild import (
@@ -20,9 +20,9 @@ from app.services.rebuild import (
     expected_listing,
     purge_backups,
     restore_backup,
-    safe_rel,
     validate_backup,
 )
+from app.services.squashfs import safe_rel
 
 needs_tools = pytest.mark.skipif(
     not (shutil.which("mksquashfs") and shutil.which("unsquashfs")),
@@ -159,13 +159,13 @@ def test_failed_verification_leaves_original(image: Path, settings: Settings, mo
 def test_cancel_cleans_up(image: Path, settings: Settings, monkeypatch):
     before = image.read_bytes()
     job = Job()
-    real = rebuild.run_progress
+    real = squashfs.run_progress
 
     def cancel_then_run(command, job_, phase, start, end):
         job_.cancel()
         real(command, job_, phase, start, end)
 
-    monkeypatch.setattr(rebuild, "run_progress", cancel_then_run)
+    monkeypatch.setattr(squashfs, "run_progress", cancel_then_run)
     with pytest.raises(JobCancelled):
         rebuild.rebuild(settings, image, Changes(write={"autorun.cmd": b"CMD=x\r\n"}), job)
     assert image.read_bytes() == before
@@ -176,17 +176,17 @@ def test_cancel_cleans_up(image: Path, settings: Settings, monkeypatch):
 
 @needs_tools
 def test_space_check_blocks_before_work(image: Path, settings: Settings, monkeypatch):
-    monkeypatch.setattr(rebuild.shutil, "disk_usage",
+    monkeypatch.setattr(diskspace.shutil, "disk_usage",
                         lambda path: shutil._ntuple_diskusage(10**12, 10**12, 10))
     with pytest.raises(ManagerError, match="espace insuffisant"):
         rebuild.rebuild(settings, image, Changes(write={"autorun.cmd": b"CMD=x\r\n"}))
 
 
 def test_stream_mode_requires_pf(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(rebuild, "stream_missing", lambda settings: "unsquashfs sans -pf")
+    monkeypatch.setattr(squashfs, "stream_missing", lambda settings: "unsquashfs sans -pf")
     with pytest.raises(ManagerError, match="stream"):
-        rebuild.choose_mode(Settings(rebuild_mode="stream"))
-    assert rebuild.choose_mode(Settings(rebuild_mode="auto")) == "extract"
+        squashfs.choose_mode(Settings(rebuild_mode="stream"))
+    assert squashfs.choose_mode(Settings(rebuild_mode="auto")) == "extract"
 
 
 # ------------------------------------------------------------------ .old
@@ -222,7 +222,7 @@ def test_run_progress_parses_percentages(tmp_path: Path):
     script.write_text("#!/bin/sh\necho 'Parallel mksquashfs'\necho 10\necho 50\necho 100\n")
     script.chmod(0o755)
     seen = []
-    rebuild.run_progress([str(script)], Job(on_progress=lambda p, f: seen.append(f)),
+    squashfs.run_progress([str(script)], Job(on_progress=lambda p, f: seen.append(f)),
                           "mksquashfs", 0.5, 1.0)
     assert seen == [0.55, 0.75, 1.0]
 
@@ -232,7 +232,7 @@ def test_run_progress_reports_tail_on_failure(tmp_path: Path):
     script.write_text("#!/bin/sh\necho 'FATAL ERROR: no space'\nexit 1\n")
     script.chmod(0o755)
     with pytest.raises(ManagerError, match="no space"):
-        rebuild.run_progress([str(script)], Job(), "mksquashfs", 0, 1)
+        squashfs.run_progress([str(script)], Job(), "mksquashfs", 0, 1)
 
 
 def test_run_progress_cancel_kills_process(tmp_path: Path):
@@ -242,7 +242,7 @@ def test_run_progress_cancel_kills_process(tmp_path: Path):
     job = Job()
     threading.Timer(0.2, job.cancel).start()
     with pytest.raises(JobCancelled):
-        rebuild.run_progress([str(script)], job, "mksquashfs", 0, 1)
+        squashfs.run_progress([str(script)], job, "mksquashfs", 0, 1)
 
 
 @needs_tools
@@ -264,7 +264,7 @@ def test_default_work_dir_is_next_to_image_and_removed(image: Path, tmp_path: Pa
 
 
 def test_fallback_reason_is_explained(tmp_path):
-    assert "introuvable" in rebuild.stream_missing(Settings(unsquashfs=str(tmp_path / "absent")))
+    assert "introuvable" in squashfs.stream_missing(Settings(unsquashfs=str(tmp_path / "absent")))
 
 
 @needs_tools
@@ -279,17 +279,17 @@ def test_rebuilt_image_belongs_to_service_user(tmp_path: Path):
     subprocess.run(["mksquashfs", str(src), str(image), "-noappend", "-quiet",
                     "-force-uid", "0", "-force-gid", "0"], check=True)
     settings = Settings(tmp_dir=tmp_path / "tmp", rebuild_mode="extract")
-    assert rebuild.image_owners(settings, image) == {(0, 0)}
+    assert squashfs.image_owners(settings, image) == {(0, 0)}
     log = []
     rebuild.rebuild(settings, image, Changes(write={"autorun.cmd": b"CMD=game.exe\r\n"}),
                     Job(on_log=log.append))
-    assert rebuild.image_owners(settings, image) == {(os.getuid(), os.getgid())}
+    assert squashfs.image_owners(settings, image) == {(os.getuid(), os.getgid())}
     assert any(line.startswith("Propriétaire : 0:0 →") for line in log)
 
 
 def _stream_build(src: Path, tmp_path: Path, changes: Changes, name: str = "out") -> Path:
     """Image de `src`, puis reconstruite en mode flux avec `changes`."""
-    from app.services.rebuild import tree_entries
+    from app.services.squashfs import tree_entries
     image = tmp_path / f"{name}.in.sqfs"
     subprocess.run(["mksquashfs", str(src), str(image), "-noappend", "-quiet", "-no-progress"],
                    check=True, capture_output=True)
@@ -305,7 +305,7 @@ def _stream_build(src: Path, tmp_path: Path, changes: Changes, name: str = "out"
 def test_stream_adds_tree_and_links(tmp_path: Path):
     """Mode flux : arborescence et liens ajoutés, fichier remplacé, sans rien
     écrire dans l'image d'origine."""
-    from app.services.rebuild import tree_entries
+    from app.services.squashfs import tree_entries
     src = tmp_path / "src"
     (src / "runners/D/files/lib").mkdir(parents=True)
     (src / "runners/D/files/lib/old.dll").write_bytes(b"old")
@@ -385,7 +385,7 @@ def _xattrs_after(image: Path, tmp_path: Path, rel: str) -> dict[str, bytes]:
 
 
 def _squashfs_47() -> bool:
-    v = rebuild.squashfs_version(Settings())
+    v = squashfs.squashfs_version(Settings())
     return v is not None and v >= (4, 7)
 
 
@@ -428,14 +428,15 @@ def test_run_progress_refuses_unreadable_files(tmp_path: Path):
                       "not connected, ignoring'\necho 100\n")
     script.chmod(0o755)
     with pytest.raises(ManagerError, match="2 lecture.*system.reg"):
-        rebuild.run_progress([str(script)], Job(), "mksquashfs", 0, 1)
+        squashfs.run_progress([str(script)], Job(), "mksquashfs", 0, 1)
 
 
 @needs_tools
 def test_stream_equivalent_to_apply_changes(tmp_path: Path):
     """Mode flux : la description filtrée doit produire exactement ce que
     donnent les changements appliqués sur une copie (mode extraction)."""
-    from app.services.rebuild import Changes, apply_changes, tree_entries
+    from app.services.rebuild import Changes, apply_changes
+    from app.services.squashfs import tree_entries
     src = tmp_path / "src"
     (src / "Game Dir/sub").mkdir(parents=True)
     (src / "Game Dir/game.exe").write_bytes(b"MZ" * 100)

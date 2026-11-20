@@ -17,9 +17,8 @@ from fastapi import Depends, HTTPException
 from . import library_index
 from .config import Settings, get_settings, in_night
 from .models import ImageInfo
-from .services import analyze as analyze_mod
 from .services import clients as clients_svc
-from .services import scan
+from .services import gamedb, scan
 from .services.install import run_install
 from .services.operations import (
     run_autorun,
@@ -42,7 +41,7 @@ scan.LAUNCHER_CACHE = settings.launcher_cache      # verrous et montages du lanc
 
 
 # Base de connaissances locale (ajouts faits dans l'interface), dans l'appdata
-analyze_mod.LOCAL_GAMES_FILE = settings.state_dir / "games.yaml"
+gamedb.LOCAL_GAMES_FILE = settings.state_dir / "games.yaml"
 
 
 queue = TaskQueue(

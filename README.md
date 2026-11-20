@@ -581,7 +581,9 @@ backend/app/
     ├── autorun.py       # lecture/écriture ligne à ligne, validations, opérations
     ├── errors.py        # ManagerError : l'erreur commune des services
     ├── jobs.py          # Job (progression, journal, annulation) et JobCancelled
-    ├── rebuild.py       # reconstruction en flux / extraction, vérification, .old
+    ├── rebuild.py       # reconstruction en flux / extraction, échange, .old
+    ├── squashfs.py      # commandes unsquashfs/mksquashfs (priorité, progression), table de l'image, vérification
+    ├── diskspace.py     # espace disque nécessaire à une reconstruction
     ├── tasks.py         # file de tâches persistante
     ├── agent.py         # client de l'agent du lanceur (LocalHost, AgentHost), association par code wsq://
     ├── clients.py       # registre des clients (machines associées), déclaration du manager
@@ -593,7 +595,9 @@ backend/app/
     ├── trial.py         # essai chronométré, diagnostic, maintenance, choix du client d'essai
     ├── operations.py    # tâches : autorun, fichiers/registre, vérification (aperçu = exécution)
     ├── registry.py      # édition des .reg Wine (user.reg, system.reg)
-    ├── analyze.py       # analyse d'un dossier, PE, choix de l'exécutable, proposition
+    ├── analyze.py       # analyse d'un dossier, choix de l'exécutable, proposition
+    ├── gamedb.py        # base de connaissances des jeux (games.yaml livrée et locale)
+    ├── pe.py            # lecture des exécutables PE (bits, imports, version, marqueurs)
     └── rules.py         # moteur de règles YAML (génération, étape 5)
 backend/rules/rules.yaml # règles « fichier → réglage », éditables
 frontend/index.html      # interface (sans build) : charge assets/app.css et le module assets/js/main.js

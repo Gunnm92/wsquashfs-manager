@@ -534,8 +534,8 @@ def test_mass_override_preview_has_no_space(client, monkeypatch):
 
 
 def test_knowledge_add_goes_to_local_base(client, monkeypatch, tmp_path):
-    from app.services import analyze
-    monkeypatch.setattr(analyze, "LOCAL_GAMES_FILE", tmp_path / "games.yaml")
+    from app.services import gamedb
+    monkeypatch.setattr(gamedb, "LOCAL_GAMES_FILE", tmp_path / "games.yaml")
     bad = client.post("/api/knowledge", json={"note": "rien"})
     assert bad.status_code == 422
     ok = client.post("/api/knowledge", json={"game": "Mon Jeu", "keys": {"DXVK": "0"},
@@ -547,14 +547,14 @@ def test_knowledge_add_goes_to_local_base(client, monkeypatch, tmp_path):
 
 
 def test_local_knowledge_prefers_exe(tmp_path, monkeypatch):
-    from app.services import analyze
-    monkeypatch.setattr(analyze, "LOCAL_GAMES_FILE", tmp_path / "games.yaml")
+    from app.services import analyze, gamedb
+    monkeypatch.setattr(gamedb, "LOCAL_GAMES_FILE", tmp_path / "games.yaml")
     root = tmp_path / "Mon Jeu.pc"
     for rel, size in {"MonJeu.exe": 50_000_000, "tools/Start.exe": 100_000}.items():
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         (root / rel).write_bytes(b"\0" * size)
     assert analyze.report(analyze.analyze_folder(root, "Mon Jeu"))["chosen"] == "MonJeu.exe"
-    analyze.add_local_game({"game": "mon jeu", "prefer": "start.exe", "note": "lanceur requis"})
+    gamedb.add_local_game({"game": "mon jeu", "prefer": "start.exe", "note": "lanceur requis"})
     r = analyze.report(analyze.analyze_folder(root, "Mon Jeu"))
     assert r["chosen"] == "tools/Start.exe"
     assert "lanceur requis" in r["candidates"][0]["reasons"][0]

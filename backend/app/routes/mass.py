@@ -16,6 +16,7 @@ from ..deps import QueueDep, SettingsDep
 from ..services import art_choice, scan
 from ..services.artwork import embedded_cover
 from ..services.autorun import KEY_NAME_RE, apply_ops, decode_autorun, override_path
+from ..services.diskspace import existing_parent
 from ..services.errors import ManagerError
 from ..services.operations import (
     commit_params,
@@ -24,7 +25,7 @@ from ..services.operations import (
     plan_files,
     write_override,
 )
-from ..services.rebuild import existing_parent, validate_backup
+from ..services.rebuild import validate_backup
 
 router = APIRouter()
 logger = logging.getLogger("wsquashfs-manager")

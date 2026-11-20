@@ -28,11 +28,13 @@ from pathlib import Path
 from ..config import Settings
 from ..models import Task
 from . import scan
-from .analyze import game_version, read_exe, scan_folder
+from .analyze import game_version, scan_folder
 from .autorun import Autorun, decode_autorun, exe_from_cmd, normalize_path
 from .errors import ManagerError
 from .jobs import Job
-from .rebuild import Changes, rebuild, safe_rel, table
+from .pe import read_exe
+from .rebuild import Changes, rebuild
+from .squashfs import safe_rel, table
 
 _LIST_LIMIT = 300          # fichiers détaillés dans l'aperçu (les totaux restent exacts)
 

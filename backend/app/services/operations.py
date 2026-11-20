@@ -42,18 +42,17 @@ from .durable import fsync_dir, publish_new, write_atomic
 from .errors import ManagerError
 from .jobs import Job
 from .links import classify, folder_links, image_links, relink_options
-from .rebuild import (
+from .rebuild import Changes, rebuild
+from .registry import prefix_reg, set_value
+from .squashfs import (
     USER_XATTRS,
-    Changes,
     file_sizes,
     priority_prefix,
-    rebuild,
     run_progress,
     safe_rel,
     tree_entries,
     verify,
 )
-from .registry import prefix_reg, set_value
 
 
 def autorun_sha(data: bytes | None) -> str | None:

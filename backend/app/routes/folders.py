@@ -15,8 +15,8 @@ from pydantic import BaseModel, Field, field_validator
 from ..config import Settings
 from ..deps import QueueDep, SettingsDep
 from ..services import analyze as analyze_mod
-from ..services import art_choice, scan, sgdb
-from ..services.analyze import FolderAnalysis, add_local_game, analyze_folder, report
+from ..services import art_choice, gamedb, scan, sgdb
+from ..services.analyze import FolderAnalysis, analyze_folder, report
 from ..services.artwork import ecrire_cover_dossier, folder_cover
 from ..services.autorun import KEY_NAME_RE, Autorun, decode_autorun
 from ..services.durable import write_atomic
@@ -54,7 +54,7 @@ class KnowledgeEntry(BaseModel):
 @router.get("/api/knowledge")
 def knowledge_list():
     """Base de connaissances : entrées locales (prioritaires) puis livrées."""
-    return analyze_mod.load_games()
+    return gamedb.load_games()
 
 
 @router.post("/api/knowledge")
@@ -62,7 +62,7 @@ def knowledge_add(body: KnowledgeEntry):
     """« Ajouter à la base » : enregistre un réglage validé pour ce jeu dans
     la base locale (appdata), appliqué aux prochaines propositions."""
     try:
-        entry = add_local_game(body.model_dump())
+        entry = gamedb.add_local_game(body.model_dump())
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     analyze_mod.analyses.clear()                    # les propositions en cache en tiennent compte

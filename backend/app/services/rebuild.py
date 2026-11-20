@@ -22,28 +22,21 @@ from __future__ import annotations
 
 import base64
 import os
-import re
 import shutil
 import stat as statmod
 import subprocess
-import threading
 import time
-from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from pathlib import Path, PurePosixPath
-from typing import Any
+from pathlib import Path
 
 from ..config import Settings, work_area
+from . import diskspace, squashfs
 from .durable import fsync_dir, restore, swap_keep_old
 from .errors import ManagerError
 from .jobs import Job
 from .links import pseudo_quote
 from .scan import list_files_uncached, read_autorun_bytes
-
-# Marge sur la taille de la nouvelle image (≈ l'ancienne) : la compression
-# d'un fichier remplacé peut différer.
-_SPACE_MARGIN = 1.05
 
 
 @dataclass
@@ -61,24 +54,6 @@ class Changes:
         return not (self.write or self.copy or self.delete or self.trees or self.links)
 
 
-def tree_entries(source: Path) -> list[tuple[str, int]]:
-    """Entrées d'une arborescence (relatives, liens non suivis) et taille
-    des fichiers ordinaires."""
-    out = []
-    for cur, dirnames, filenames in os.walk(source):
-        rel_dir = os.path.relpath(cur, source)
-        prefix = "" if rel_dir == "." else rel_dir.replace(os.sep, "/") + "/"
-        for name in list(dirnames):
-            path = os.path.join(cur, name)
-            out.append((prefix + name, 0))
-            if os.path.islink(path):
-                dirnames.remove(name)
-        for name in filenames:
-            st = os.lstat(os.path.join(cur, name))
-            out.append((prefix + name, st.st_size if statmod.S_ISREG(st.st_mode) else 0))
-    return out
-
-
 @dataclass
 class RebuildResult:
     mode: str                 # "stream" | "extract"
@@ -88,15 +63,8 @@ class RebuildResult:
     duration: float
 
 
+
 # ------------------------------------------------------------------ chemins
-
-def safe_rel(path: str) -> str:
-    """Chemin dans l'image, normalisé ; refuse ce qui sortirait de la racine."""
-    p = PurePosixPath(path.replace("\\", "/").strip("/"))
-    if not p.parts or any(part in ("", ".", "..") for part in p.parts):
-        raise ManagerError(f"chemin invalide dans l'image : {path!r}")
-    return str(p)
-
 
 def backup_path(image: Path) -> Path:
     return image.with_name(image.name + ".old")
@@ -109,205 +77,19 @@ def part_path(image: Path) -> Path:
 def expected_listing(old: list[str], changes: Changes) -> set[str]:
     """Arborescence attendue après application des changements."""
     out = set(old)
-    for rel in map(safe_rel, changes.delete):
+    for rel in map(squashfs.safe_rel, changes.delete):
         out = {p for p in out if p != rel and not p.startswith(rel + "/")}
     added = [*changes.write, *changes.copy]
     for dest, source in changes.trees.items():
-        added += [f"{safe_rel(dest)}/{rel}" for rel, _ in tree_entries(source)]
+        added += [f"{squashfs.safe_rel(dest)}/{rel}" for rel, _ in squashfs.tree_entries(source)]
         added.append(dest)
-    for rel in map(safe_rel, added):
+    for rel in map(squashfs.safe_rel, added):
         parts = rel.split("/")
         out.update("/".join(parts[:i]) for i in range(1, len(parts) + 1))
     return out
 
 
-# ------------------------------------------------------------------ processus
-
-# Attributs étendus gardés, espace user.* seulement : user.DOSATTRIB, où Wine
-# range les attributs Windows (caché, système, archive), porté par 115 images
-# sur 318 (16/11) et relu par le lanceur. Les autres espaces (security.*,
-# trusted.*) ne servent pas aux jeux et un utilisateur non root ne peut pas
-# les restaurer. (Retirés jusqu'au 16/11 : squashfuse 0.5 plantait en les
-# lisant ; ni le lanceur ni le manager n'utilisent plus squashfuse.)
-USER_XATTRS = ["-xattrs-include", r"^user\."]
-
-# Lecture impossible signalée par mksquashfs, qui continue alors avec un
-# fichier vide ou sans l'entrée : l'image serait incomplète
-_READ_ERROR_RE = re.compile(
-    r"Failed to read|Cannot stat|creating empty file|Transport endpoint is not connected|"
-    r"Input/output error|Software caused connection abort")
-
-
-def priority_prefix(settings: Settings) -> list[str]:
-    """Priorité basse (SPEC § 4) : c'est surtout du disque, le jeu passe avant."""
-    prefix: list[str] = []
-    if shutil.which("ionice"):
-        prefix += ["ionice", "-c", str(settings.task_priority_ionice)]
-    if shutil.which("nice"):
-        prefix += ["nice", "-n", str(settings.task_priority_nice)]
-    return prefix
-
-
-def _run(command: list[str], *, timeout: int) -> subprocess.CompletedProcess[bytes]:
-    try:
-        result = subprocess.run(command, capture_output=True, timeout=timeout, check=False)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise ManagerError(f"commande impossible : {' '.join(command)} ({exc})") from exc
-    if result.returncode:
-        detail = result.stderr.decode("utf-8", errors="replace").strip()
-        raise ManagerError(detail or f"commande en échec : {' '.join(command)}")
-    return result
-
-
-def run_progress(command: list[str], job: Job, phase: str, start: float, end: float,
-                 feed: Callable[[Any], None] | None = None) -> None:
-    """Commande longue (unsquashfs/mksquashfs -percentage) : chaque ligne
-    numérique est un pourcentage, ramené dans [start, end] ; annulable.
-    `feed(stdin)` alimente l'entrée de la commande dans un fil à part (mode
-    flux), l'entrée étant fermée ensuite."""
-    try:
-        proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                stdin=subprocess.PIPE if feed else subprocess.DEVNULL)
-    except OSError as exc:
-        raise ManagerError(f"commande impossible : {command[0]} ({exc})") from exc
-    if feed is not None:
-        assert proc.stdin is not None
-        stdin = proc.stdin
-
-        def pump() -> None:
-            try:
-                feed(stdin)
-            finally:
-                try:
-                    stdin.close()
-                except OSError:
-                    pass
-
-        threading.Thread(target=pump, daemon=True).start()
-
-    def watch() -> None:
-        while proc.poll() is None:
-            if job.cancel_event.wait(0.5):
-                proc.terminate()
-                return
-
-    threading.Thread(target=watch, daemon=True).start()
-    tail: deque[str] = deque(maxlen=15)
-    read_errors: list[str] = []
-    assert proc.stdout is not None
-    for raw in proc.stdout:
-        line = raw.decode("utf-8", errors="replace").strip()
-        if line.isdigit():
-            job.progress(phase, start + (end - start) * int(line) / 100)
-        elif line:
-            tail.append(line)
-            if _READ_ERROR_RE.search(line):
-                read_errors.append(line)
-    proc.wait()
-    job.check()
-    if proc.returncode:
-        raise ManagerError(f"{phase} en échec (code {proc.returncode}) : " + " / ".join(tail))
-    if read_errors:
-        raise ManagerError(f"{phase} : {len(read_errors)} lecture(s) impossible(s), image "
-                           f"incomplète refusée : " + " / ".join(read_errors[:3]))
-
-
-# ------------------------------------------------------------------ espace disque
-
-def uncompressed_size(settings: Settings, image: Path) -> int:
-    """Somme des tailles des fichiers de l'image (`unsquashfs -lls`, table seule)."""
-    out = _run([settings.unsquashfs, "-lls", str(image)], timeout=300).stdout
-    total = 0
-    for line in out.decode("utf-8", errors="replace").splitlines():
-        fields = line.split(None, 3)
-        if len(fields) >= 3 and fields[0].startswith("-") and fields[2].isdigit():
-            total += int(fields[2])
-    return total
-
-
-def space_needed(settings: Settings, image: Path, changes: Changes,
-                 mode: str) -> dict[Path, int]:
-    """Octets nécessaires par point de montage (le .part à côté de l'image,
-    l'extraction dans le dossier de travail, à côté de l'image par défaut)."""
-    copies = sum(src.stat().st_size for src in changes.copy.values())
-    copies += sum(size for src in changes.trees.values() for _, size in tree_entries(src))
-    writes = sum(len(data) for data in changes.write.values())
-    needs: dict[Path, int] = {}
-    image_dir = image.parent
-    needs[image_dir] = int(image.stat().st_size * _SPACE_MARGIN) + copies + writes
-    if mode == "extract":
-        tmp = settings.tmp_dir or image_dir
-        extract = uncompressed_size(settings, image) + copies + writes
-        if _same_fs(tmp, image_dir):
-            needs[image_dir] += extract
-        else:
-            needs[tmp] = extract
-    return needs
-
-
-def _same_fs(a: Path, b: Path) -> bool:
-    try:
-        return existing_parent(a).stat().st_dev == existing_parent(b).stat().st_dev
-    except OSError:
-        return False
-
-
-def existing_parent(path: Path) -> Path:
-    while not path.exists() and path != path.parent:
-        path = path.parent
-    return path
-
-
-def check_space(needs: dict[Path, int]) -> None:
-    for path, need in needs.items():
-        free = shutil.disk_usage(existing_parent(path)).free
-        if free < need:
-            raise ManagerError(f"espace insuffisant sur {path} : {_human(need)} nécessaires, "
-                               f"{_human(free)} libres")
-
-
-def _human(n: float) -> str:
-    for unit in ("o", "Ko", "Mo", "Go"):
-        if n < 1024:
-            return f"{n:.0f} {unit}"
-        n /= 1024
-    return f"{n:.1f} To"
-
-
-# ------------------------------------------------------------------ montages
-
-def squashfs_version(settings: Settings) -> tuple[int, int] | None:
-    """Version de unsquashfs (« unsquashfs version 4.7.5 (…) »), None si absent."""
-    try:
-        r = subprocess.run([settings.unsquashfs, "-version"], capture_output=True, timeout=10,
-                           check=False)
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    m = re.search(rb"version (\d+)\.(\d+)", r.stdout + r.stderr)
-    return (int(m.group(1)), int(m.group(2))) if m else None
-
-
-def stream_missing(settings: Settings) -> str | None:
-    """Ce qui manque au mode flux, ou None s'il est possible. squashfs-tools
-    4.7 : unsquashfs 4.6 plante (« buffer overflow ») sur une valeur
-    d'attribut binaire en écrivant la description."""
-    version = squashfs_version(settings)
-    if version is None:
-        return f"{settings.unsquashfs} introuvable"
-    if version < (4, 7):
-        return f"unsquashfs {version[0]}.{version[1]} (squashfs-tools 4.7 ou plus récent requis)"
-    return None
-
-
-def choose_mode(settings: Settings) -> str:
-    if settings.rebuild_mode == "stream":
-        if (reason := stream_missing(settings)) is not None:
-            raise ManagerError(f"mode stream demandé mais impossible : {reason}")
-        return "stream"
-    if settings.rebuild_mode == "extract":
-        return "extract"
-    return "stream" if stream_missing(settings) is None else "extract"
-
+# ------------------------------------------------------------------ journal
 
 def _log_tail(log: Path, lines: int = 8) -> str:
     try:
@@ -324,7 +106,7 @@ def apply_changes(root: Path, changes: Changes) -> None:
 
     Un fichier remplacé est d'abord supprimé : sur l'overlay, l'écraser
     déclencherait la copie complète de l'original dans la couche haute."""
-    for rel in map(safe_rel, changes.delete):
+    for rel in map(squashfs.safe_rel, changes.delete):
         target = root / rel
         if target.is_dir() and not target.is_symlink():
             shutil.rmtree(target)
@@ -332,7 +114,7 @@ def apply_changes(root: Path, changes: Changes) -> None:
             target.unlink()
     items: list[tuple[str, bytes | Path]] = [*changes.write.items(), *changes.copy.items()]
     for rel, source in items:
-        target = root / safe_rel(rel)
+        target = root / squashfs.safe_rel(rel)
         if target.is_dir() and not target.is_symlink():
             raise ManagerError(f"{rel} est un dossier dans l'image")
         if target.exists() or target.is_symlink():
@@ -343,8 +125,8 @@ def apply_changes(root: Path, changes: Changes) -> None:
         else:
             shutil.copy2(source, target)
     for dest, source in changes.trees.items():
-        base = root / safe_rel(dest)
-        for rel, _ in tree_entries(source):
+        base = root / squashfs.safe_rel(dest)
+        for rel, _ in squashfs.tree_entries(source):
             src, target = source / rel, base / rel
             if src.is_dir() and not src.is_symlink():
                 if target.is_symlink() or (target.exists() and not target.is_dir()):
@@ -358,7 +140,7 @@ def apply_changes(root: Path, changes: Changes) -> None:
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, target, follow_symlinks=False)
     for rel, link_target in changes.links.items():
-        target = root / safe_rel(rel)
+        target = root / squashfs.safe_rel(rel)
         if target.is_dir() and not target.is_symlink():
             raise ManagerError(f"{rel} est un dossier dans l'image")
         if target.exists() or target.is_symlink():
@@ -398,7 +180,7 @@ def pseudo_plan(changes: Changes, existing: set[str], work: Path, uid: int,
         replace(rel)
         pseudo.append(f"{pseudo_quote(rel)} l {pseudo_quote(str(source.resolve()))}")
 
-    for rel in map(safe_rel, changes.delete):
+    for rel in map(squashfs.safe_rel, changes.delete):
         if present(rel):
             gone.add(rel)
     written = work / "written"
@@ -407,16 +189,16 @@ def pseudo_plan(changes: Changes, existing: set[str], work: Path, uid: int,
         tmp = written / str(i)
         tmp.write_bytes(data)
         tmp.chmod(0o644)
-        add_file(safe_rel(rel), tmp)
+        add_file(squashfs.safe_rel(rel), tmp)
     for rel, source in changes.copy.items():
-        add_file(safe_rel(rel), source)
+        add_file(squashfs.safe_rel(rel), source)
     for dest, source in changes.trees.items():
-        dest = safe_rel(dest)
+        dest = squashfs.safe_rel(dest)
         if not present(dest) and dest not in defined:
             make_dirs(dest)
             pseudo.append(f"{pseudo_quote(dest)} d 755 {uid} {gid}")
             defined.add(dest)
-        for rel, _ in tree_entries(source):
+        for rel, _ in squashfs.tree_entries(source):
             target, src = f"{dest}/{rel}", source / rel
             if src.is_symlink():
                 replace(target)
@@ -429,7 +211,7 @@ def pseudo_plan(changes: Changes, existing: set[str], work: Path, uid: int,
             else:
                 add_file(target, src)
     for rel, link_target in changes.links.items():
-        rel = safe_rel(rel)
+        rel = squashfs.safe_rel(rel)
         replace(rel)
         pseudo.append(f"{pseudo_quote(rel)} s 777 {uid} {gid} {link_target}")
     return gone, pseudo
@@ -513,7 +295,7 @@ def _build_stream(settings: Settings, image: Path, part: Path, work: Path,
     log = work / "unsquashfs.log"
     with open(log, "wb") as err:
         try:
-            src = subprocess.Popen([settings.unsquashfs, *USER_XATTRS, "-pf", "-", str(image)],
+            src = subprocess.Popen([settings.unsquashfs, *squashfs.USER_XATTRS, "-pf", "-", str(image)],
                                    stdout=subprocess.PIPE, stderr=err, stdin=subprocess.DEVNULL)
         except OSError as exc:
             raise ManagerError(f"commande impossible : {settings.unsquashfs} ({exc})") from exc
@@ -527,10 +309,10 @@ def _build_stream(settings: Settings, image: Path, part: Path, work: Path,
             feed_error.append(exc)
 
     try:
-        run_progress([*priority_prefix(settings), settings.mksquashfs, "-", str(part),
-                      *settings.mksquashfs_opts, *owner_opts, *USER_XATTRS, "-noappend",
-                      "-percentage", "-pf", "-"],
-                     job, "mksquashfs", 0.02, 0.92, feed=feed)
+        squashfs.run_progress([*squashfs.priority_prefix(settings), settings.mksquashfs, "-", str(part),
+                               *settings.mksquashfs_opts, *owner_opts, *squashfs.USER_XATTRS, "-noappend",
+                               "-percentage", "-pf", "-"],
+                              job, "mksquashfs", 0.02, 0.92, feed=feed)
     finally:
         if src.poll() is None:
             src.terminate()
@@ -547,60 +329,14 @@ def _build_extract(settings: Settings, image: Path, part: Path, work: Path,
     root = work / "root"
     # Attributs user.* seulement : un utilisateur non root ne peut pas
     # restaurer les autres (security.*, trusted.*).
-    run_progress([*priority_prefix(settings), settings.unsquashfs, *USER_XATTRS,
-                   "-percentage", "-d", str(root), str(image)],
-                  job, "extraction", 0.0, 0.45)
+    squashfs.run_progress([*squashfs.priority_prefix(settings), settings.unsquashfs, *squashfs.USER_XATTRS,
+                           "-percentage", "-d", str(root), str(image)],
+                          job, "extraction", 0.0, 0.45)
     apply_changes(root, changes)
     job.check()
-    run_progress([*priority_prefix(settings), settings.mksquashfs, str(root), str(part),
-                   *settings.mksquashfs_opts, *owner_opts, *USER_XATTRS, "-noappend", "-percentage"],
-                  job, "mksquashfs", 0.45, 0.92)
-
-
-# ------------------------------------------------------------------ vérification
-
-def verify(settings: Settings, part: Path, expected: set[str], changes: Changes) -> None:
-    """SPEC § 3.4 : table lisible, arborescence identique à celle attendue,
-    fichiers écrits relus à l'octet près."""
-    _run([settings.unsquashfs, "-s", str(part)], timeout=120)
-    listing = list_files_uncached(settings, part)
-    if listing is None:
-        raise ManagerError("vérification : arborescence de la nouvelle image illisible")
-    actual = set(listing)
-    if actual != expected:
-        missing = sorted(expected - actual)[:5]
-        extra = sorted(actual - expected)[:5]
-        raise ManagerError(f"vérification : arborescence inattendue (manquants : {missing}, "
-                           f"en trop : {extra})")
-    for rel, data in changes.write.items():
-        content = _run([settings.unsquashfs, "-cat", str(part), safe_rel(rel)],
-                       timeout=60).stdout
-        if content != data:
-            raise ManagerError(f"vérification : {rel} reconstruit différent")
-    if changes.copy:
-        # Une seule lecture de la table pour toutes les tailles : relire chaque
-        # fichier copié (-cat) prendrait des heures sur un gros patch
-        sizes = file_sizes(settings, part)
-        for rel, source in changes.copy.items():
-            if sizes.get(safe_rel(rel)) != source.stat().st_size:
-                raise ManagerError(f"vérification : taille de {rel} différente de la source")
-
-
-_LLS_RE = re.compile(r"^(\S)\S*\s+\S+\s+(\d+)\s+(\S+ \S+)\s+squashfs-root/(.+)$")
-
-
-_LLN_OWNER_RE = re.compile(r"^\S+\s+(\d+)/(\d+)\s")
-
-
-def image_owners(settings: Settings, image: Path) -> set[tuple[int, int]]:
-    """Propriétaires (uid, gid) présents dans l'image (unsquashfs -lln)."""
-    out = _run([settings.unsquashfs, "-lln", str(image)], timeout=600).stdout
-    owners = set()
-    for line in out.decode("utf-8", "replace").splitlines():
-        m = _LLN_OWNER_RE.match(line)
-        if m:
-            owners.add((int(m.group(1)), int(m.group(2))))
-    return owners
+    squashfs.run_progress([*squashfs.priority_prefix(settings), settings.mksquashfs, str(root), str(part),
+                           *settings.mksquashfs_opts, *owner_opts, *squashfs.USER_XATTRS, "-noappend", "-percentage"],
+                          job, "mksquashfs", 0.45, 0.92)
 
 
 def _owner_opts(settings: Settings, image: Path, job: Job) -> list[str]:
@@ -610,30 +346,11 @@ def _owner_opts(settings: Settings, image: Path, job: Job) -> list[str]:
     peut pas recopier un dossier root pour le modifier (EPERM). Batocera,
     qui lance les jeux en root, ne dépend pas du propriétaire."""
     uid, gid = os.getuid(), os.getgid()
-    before = image_owners(settings, image)
+    before = squashfs.image_owners(settings, image)
     if before and before != {(uid, gid)}:
         owners = ", ".join(f"{u}:{g}" for u, g in sorted(before))
         job.log(f"Propriétaire : {owners} → {uid}:{gid} (utilisateur du service)")
     return ["-force-uid", str(uid), "-force-gid", str(gid)]
-
-
-def table(settings: Settings, image: Path) -> dict[str, tuple[str, int, str]]:
-    """Table de l'image (unsquashfs -lls) : {chemin: (type, taille, date)}, type
-    « - » fichier, « d » dossier, « l » lien ; date « AAAA-MM-JJ HH:MM »."""
-    out = _run([settings.unsquashfs, "-lls", str(image)], timeout=600).stdout
-    entries: dict[str, tuple[str, int, str]] = {}
-    for line in out.decode("utf-8", "replace").splitlines():
-        m = _LLS_RE.match(line)
-        if m:
-            kind, size, date, rel = m.groups()
-            if kind == "l":
-                rel = rel.split(" -> ", 1)[0]
-            entries[rel] = (kind, int(size), date)
-    return entries
-
-
-def file_sizes(settings: Settings, image: Path) -> dict[str, int]:
-    return {rel: size for rel, (kind, size, _) in table(settings, image).items() if kind == "-"}
 
 
 # ------------------------------------------------------------------ reconstruction
@@ -694,14 +411,14 @@ def rebuild(settings: Settings, image: Path, changes: Changes, job: Job | None =
         raise ManagerError("jeu en cours d'utilisation")
     add_cover(settings, image, changes, job)
 
-    mode = choose_mode(settings)
+    mode = squashfs.choose_mode(settings)
     if mode == "stream":
         job.log("Mode : flux (sans montage ni extraction)")
     elif settings.rebuild_mode == "extract":
         job.log("Mode : extraction (imposé par la configuration)")
     else:
-        job.log(f"Mode : extraction complète — flux impossible : {stream_missing(settings)}")
-    check_space(space_needed(settings, image, changes, mode))
+        job.log(f"Mode : extraction complète — flux impossible : {squashfs.stream_missing(settings)}")
+    diskspace.check_space(diskspace.space_needed(settings, image, changes, mode))
     before = image.stat()
     owner_opts = _owner_opts(settings, image, job)
     old_listing = list_files_uncached(settings, image)
@@ -716,7 +433,7 @@ def rebuild(settings: Settings, image: Path, changes: Changes, job: Job | None =
             build(settings, image, part, tmp, changes, job, owner_opts, set(old_listing))
         job.check()
         job.progress("vérification", 0.93)
-        verify(settings, part, expected, changes)
+        squashfs.verify(settings, part, expected, changes)
         job.check()
         job.progress("échange", 0.98)
         _swap(image, part, backup, before, in_use)

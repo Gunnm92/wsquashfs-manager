@@ -206,7 +206,8 @@ def test_pack_resumes_after_rename(pack_env):
 
 
 def test_game_version_engine_vs_game():
-    from app.services.analyze import ExeInfo, game_version
+    from app.services.analyze import game_version
+    from app.services.pe import ExeInfo
     def version(name, value, engine):
         return game_version(ExeInfo(product_name=name, product_version=value), engine)[0]
     assert version("SAND LAND", "1.0.3.0", "unreal") == "1.0.3.0"
@@ -246,7 +247,7 @@ def test_knowledge_base_overrides_rules_and_flags_existing(tmp_path):
 
 
 def test_shipped_games_yaml_is_valid():
-    from app.services.analyze import load_games
+    from app.services.gamedb import load_games
     assert any(g["exe"] == "Astebreed.exe" for g in load_games())
 
 
