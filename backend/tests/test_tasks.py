@@ -10,7 +10,8 @@ from pathlib import Path
 import pytest
 
 from app.models import Task, TaskStatus
-from app.services.rebuild import Job, RebuildError
+from app.services.errors import ManagerError
+from app.services.jobs import Job
 from app.services.tasks import QueueLocked, TaskConflict, TaskQueue
 
 
@@ -85,7 +86,7 @@ def test_worker_runs_tasks_and_records_failures(tmp_path: Path):
         return "fini"
 
     def ko(task, job):
-        raise RebuildError("disque plein")
+        raise ManagerError("disque plein")
 
     def bug(task, job):
         raise ZeroDivisionError
@@ -114,7 +115,7 @@ def test_worker_survives_state_write_failure(tmp_path: Path, monkeypatch):
     worker mourait et plus aucune tâche ne démarrait jusqu'au redémarrage."""
     import app.services.tasks as tasks_mod
 
-    real = tasks_mod._write_atomic
+    real = tasks_mod.write_atomic
     full = {"on": False}
 
     def write(target, text, durable=False):
@@ -126,7 +127,7 @@ def test_worker_survives_state_write_failure(tmp_path: Path, monkeypatch):
         full["on"] = True            # le disque se remplit pendant la tâche
         return "fini"
 
-    monkeypatch.setattr(tasks_mod, "_write_atomic", write)
+    monkeypatch.setattr(tasks_mod, "write_atomic", write)
     queue = TaskQueue(tmp_path / "tasks.json", {"fill": fill_disk, "ok": lambda t, j: None})
     queue.start()
     try:
@@ -165,7 +166,7 @@ def test_cancel_pending_and_running(tmp_path: Path):
     def slow(task, job: Job):
         started.set()
         while True:
-            job.check()             # lève RebuildCancelled une fois annulée
+            job.check()             # lève JobCancelled une fois annulée
             time.sleep(0.01)
 
     queue = TaskQueue(tmp_path / "tasks.json", {"slow": slow})

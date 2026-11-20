@@ -9,8 +9,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import deps, main
-from app.services import activity, saves
-from app.services.trial import AgentUnreachable
+from app.services import activity, clients
+from app.services.agent import AgentUnreachable
 from tests.test_machine_api import mapi  # noqa: F401 (fixture)
 
 
@@ -103,12 +103,12 @@ def test_update_route(ui, monkeypatch):
         def update(self):
             return {"code": 0, "output": "ok", "before": "a", "after": "b", "restart": True}
 
-    monkeypatch.setattr(saves, "open_machine", lambda settings, machine_id, timeout: Host())
+    monkeypatch.setattr(clients, "open_machine", lambda settings, machine_id, timeout: Host())
     assert ui.post("/api/saves/machines/m1/update").json()["restart"] is True
 
     class Down:
         def update(self):
             raise AgentUnreachable("agent injoignable")
 
-    monkeypatch.setattr(saves, "open_machine", lambda settings, machine_id, timeout: Down())
+    monkeypatch.setattr(clients, "open_machine", lambda settings, machine_id, timeout: Down())
     assert ui.post("/api/saves/machines/m1/update").status_code == 502

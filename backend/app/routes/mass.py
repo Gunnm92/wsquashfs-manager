@@ -15,6 +15,7 @@ from .. import deps
 from ..services import art_choice, scan
 from ..services.artwork import embedded_cover
 from ..services.autorun import KEY_NAME_RE, apply_ops, decode_autorun, override_path
+from ..services.errors import ManagerError
 from ..services.operations import (
     commit_params,
     effective_autorun,
@@ -22,7 +23,7 @@ from ..services.operations import (
     plan_files,
     write_override,
 )
-from ..services.rebuild import RebuildError, existing_parent, validate_backup
+from ..services.rebuild import existing_parent, validate_backup
 
 router = APIRouter()
 logger = logging.getLogger("wsquashfs-manager")
@@ -87,12 +88,12 @@ def mass_autorun_preview(body: MassAutorun):
             items.append({"id": image_id, "name": info.name,
                           "before": current.render() if current else None,
                           "after": wanted.render(), "changed": changed,
-                          "issues": wanted.validate(set(scan._list_files(deps._settings, info.path))),
+                          "issues": wanted.validate(set(scan.list_files(deps._settings, info.path))),
                           "blocked": None})
             continue
         try:
             plan = plan_autorun(deps._settings, info.path, info.name, info.system, body.params())
-        except RebuildError as exc:
+        except ManagerError as exc:
             items.append({"id": image_id, "name": info.name, "error": str(exc)})
             continue
         before = decode_autorun(plan.before)[0] if plan.before is not None else None
@@ -138,7 +139,7 @@ def mass_autorun(body: MassAutorun):
             info = deps._find_image(image_id)
             plan = plan_autorun(deps._settings, info.path, info.name, info.system, params,
                                 validate=False)
-        except (HTTPException, RebuildError) as exc:
+        except (HTTPException, ManagerError) as exc:
             skipped.append({"id": image_id, "reason": getattr(exc, "detail", str(exc))})
             continue
         has_override = override_path(info.path).exists()
@@ -224,7 +225,7 @@ def mass_files_preview(body: MassFiles):
             continue
         try:
             plan = plan_files(deps._settings, info.path, info.name, info.system, body.params())
-        except RebuildError as exc:
+        except ManagerError as exc:
             items.append({"id": image_id, "name": info.name, "error": str(exc)})
             continue
         rebuilds = not plan.changes.is_empty()
@@ -249,7 +250,7 @@ def mass_files(body: MassFiles):
         try:
             info = deps._find_image(image_id)
             plan = plan_files(deps._settings, info.path, info.name, info.system, params)
-        except (HTTPException, RebuildError) as exc:
+        except (HTTPException, ManagerError) as exc:
             skipped.append({"id": image_id, "reason": getattr(exc, "detail", str(exc))})
             continue
         if not plan.changed:

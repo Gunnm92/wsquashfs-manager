@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from .. import deps
-from ..services.rebuild import RebuildError
+from ..services.errors import ManagerError
 from ..services.trial import MAINTENANCE_COMMANDS, host_status, maintenance, maintenance_game_rule
 
 router = APIRouter()
@@ -36,7 +36,7 @@ def game_host_maintenance(body: MaintenanceRequest):
     image = deps._find_image(body.id).path if body.id else None
     try:
         return maintenance(deps._settings, body.action, image)
-    except RebuildError as exc:
+    except ManagerError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
@@ -64,5 +64,5 @@ def launcher_doctor(refresh: bool = False):
     sections vérifiées et runners installés. Mis en cache quelques minutes."""
     try:
         return deps._doctor(refresh)
-    except RebuildError as exc:
+    except ManagerError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc

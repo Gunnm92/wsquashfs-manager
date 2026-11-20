@@ -22,9 +22,11 @@ from pathlib import Path
 from ..config import Settings, work_area
 from ..models import Task
 from . import scan
+from .errors import ManagerError
+from .jobs import Job
 from .links import LinkReport, classify, image_links
-from .operations import _task_image, image_autorun
-from .rebuild import Changes, Job, RebuildError, rebuild
+from .operations import image_autorun, task_image
+from .rebuild import Changes, rebuild
 from .trial import steambox_fetch, steambox_listing
 
 _NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
@@ -64,9 +66,9 @@ class RunnerPlan:
 
 def _check_names(dest: str, sub: str) -> None:
     if not _NAME_RE.match(dest):
-        raise RebuildError(f"nom de runner invalide : {dest!r}")
+        raise ManagerError(f"nom de runner invalide : {dest!r}")
     if sub and (not _SUB_RE.match(sub) or any(p in (".", "..") for p in sub.split("/"))):
-        raise RebuildError(f"sous-dossier invalide : {sub!r}")
+        raise ManagerError(f"sous-dossier invalide : {sub!r}")
 
 
 def _with_parents(paths: set[str]) -> set[str]:
@@ -78,9 +80,9 @@ def _with_parents(paths: set[str]) -> set[str]:
 
 
 def image_state(settings: Settings, image: Path) -> tuple[list[str], list[tuple[str, str]]]:
-    files = scan._list_files_uncached(settings, image)
+    files = scan.list_files_uncached(settings, image)
     if files is None:
-        raise RebuildError("arborescence de l'image illisible (unsquashfs -l)")
+        raise ManagerError("arborescence de l'image illisible (unsquashfs -l)")
     return files, image_links(image, settings.unsquashfs)
 
 
@@ -150,7 +152,7 @@ def suggest(settings: Settings, image: Path, runners: list[dict]) -> dict:
         if path not in listings:
             try:
                 listings[path] = steambox_listing(settings, path)
-            except RebuildError:
+            except ManagerError:
                 listings[path] = {}
         return listings[path]
 
@@ -215,7 +217,7 @@ def run_relink(settings: Settings, task: Task, job: Job) -> str:
     """Gestionnaire de la tâche « relink » : réécrit en relatif les liens du
     prefix qui pointent vers un dossier absent de l'image mais présent dans
     runners/ (ex. un runner intégré, dont les liens gardent un chemin absolu)."""
-    image, _ = _task_image(task)
+    image, _ = task_image(task)
     files, links = image_state(settings, image)
     report = classify(links, files)
     if not report.fixable:
@@ -234,7 +236,7 @@ def run_relink(settings: Settings, task: Task, job: Job) -> str:
 
 def run_runner(settings: Settings, task: Task, job: Job) -> str:
     """Gestionnaire de la tâche « runner »."""
-    image, _ = _task_image(task)
+    image, _ = task_image(task)
     p = task.params
     plan = plan_runner(settings, image, p["source"], p.get("sub", ""), p["dest"],
                        bool(p.get("set_key")))

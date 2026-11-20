@@ -11,9 +11,9 @@ import pytest
 from app.config import Settings
 from app.models import Task
 from app.services.analyze import analyze_folder, report
+from app.services.jobs import Job
 from app.services.links import classify, folder_links, image_links
 from app.services.operations import run_pack
-from app.services.rebuild import Job
 
 needs_tools = pytest.mark.skipif(not shutil.which("mksquashfs"), reason="squashfs-tools absent")
 

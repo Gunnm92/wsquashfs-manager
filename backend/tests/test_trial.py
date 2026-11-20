@@ -7,8 +7,9 @@ from pathlib import Path
 import pytest
 
 from app.config import Settings
+from app.services import agent as agent_client
 from app.services import trial
-from app.services.rebuild import RebuildError
+from app.services.errors import ManagerError
 
 REPORT = {
     "code": 0, "elapsed": 60, "launcher_alive": True, "game_seen": True,
@@ -56,7 +57,7 @@ def test_game_host_off_by_default_and_legacy_docker_becomes_off(tmp_path, monkey
     assert _settings(tmp_path, monkeypatch).game_host == "off"
     (tmp_path / "config.json").write_text('{"game_host": "docker", "steambox_container": "SteamBox"}')
     assert _settings(tmp_path, monkeypatch).game_host == "off"
-    with pytest.raises(RebuildError, match="non choisi"):
+    with pytest.raises(ManagerError, match="non choisi"):
         trial.game_host(_settings(tmp_path, monkeypatch))
 
 
@@ -104,7 +105,7 @@ def test_maintenance_table_local_arguments(tmp_path, monkeypatch):
     s.game_host = "local"
     assert trial.MAINTENANCE_ACTIONS == ("list", "umount", "clean", "save", "saves", "sync", "sync-status")
     calls = []
-    monkeypatch.setattr(trial.LocalHost, "exec", lambda self, cmd: (calls.append(cmd[4:]) or (0, b"ok")))
+    monkeypatch.setattr(agent_client.LocalHost, "exec", lambda self, cmd: (calls.append(cmd[4:]) or (0, b"ok")))
     image = Path("/n/importe/ou/Jeu.wsquashfs")
     trial.maintenance(s, "save", image)
     trial.maintenance(s, "saves")
@@ -115,11 +116,11 @@ def test_maintenance_table_local_arguments(tmp_path, monkeypatch):
     assert calls == [["--save", str(image)], ["--saves"], ["--sync"], ["--sync", str(image)],
                      ["--sync", "status"], ["--list"]]
     calls.clear()
-    with pytest.raises(RebuildError, match="--save demande un jeu"):
+    with pytest.raises(ManagerError, match="--save demande un jeu"):
         trial.maintenance(s, "save")
-    with pytest.raises(RebuildError, match="--saves ne prend pas de jeu"):
+    with pytest.raises(ManagerError, match="--saves ne prend pas de jeu"):
         trial.maintenance(s, "saves", image)
-    with pytest.raises(RebuildError, match="non autorisée"):
+    with pytest.raises(ManagerError, match="non autorisée"):
         trial.maintenance(s, "saves-all")
     assert calls == []
 
@@ -143,7 +144,7 @@ def test_normalize_doctor_fills_missing_fields():
 
 
 def test_normalize_doctor_refuses_non_object():
-    with pytest.raises(RebuildError, match="inattendu"):
+    with pytest.raises(ManagerError, match="inattendu"):
         trial.normalize_doctor(["pas", "un", "objet"], "SteamBox")
 
 

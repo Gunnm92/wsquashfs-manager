@@ -177,7 +177,7 @@ def _wildcard_escape(path: str) -> str:
     return re.sub(r"([\\*?\[\]])", r"\\\1", path)
 
 
-def _pseudo_quote(path: str) -> str:
+def pseudo_quote(path: str) -> str:
     """Nom pour une définition pseudo de mksquashfs (guillemets, échappements)."""
     return '"' + path.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
@@ -194,6 +194,6 @@ def relink_options(fixable: dict[str, str], work: Path, uid: int, gid: int,
     pseudo = work / "relink.pseudo"
     exclude.write_text("".join(_wildcard_escape(base + rel) + "\n" for rel in fixable),
                        encoding="utf-8")
-    pseudo.write_text("".join(f"{_pseudo_quote(rel)} s 777 {uid} {gid} {target}\n"
+    pseudo.write_text("".join(f"{pseudo_quote(rel)} s 777 {uid} {gid} {target}\n"
                               for rel, target in fixable.items()), encoding="utf-8")
     return ["-wildcards", "-ef", str(exclude), "-pf", str(pseudo)]

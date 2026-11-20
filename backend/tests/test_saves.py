@@ -31,21 +31,24 @@ from app.config import (
     get_settings,
     save_machine_url,
     save_saves_machines,
+    save_saves_order,
     saves_client_id,
     saves_machines,
     set_saves_machine_field,
 )
 from app.models import Task
-from app.services import machine_api, saves
-from app.services.rebuild import Job, RebuildError
-from app.services.tasks import TaskQueue
-from app.services.trial import (
+from app.services import clients, machine_api, saves
+from app.services.agent import (
     OLD_AGENT_MESSAGE,
     AgentHost,
     AgentProbeError,
     SavesBusy,
+    agent_cert_path,
     fingerprint_pem,
 )
+from app.services.errors import ManagerError
+from app.services.jobs import Job
+from app.services.tasks import TaskQueue
 
 TOKEN = "jeton-saves"                 # jeton durable de l'agent (rendu par /v1/pair, jamais dans un code)
 SECRET = "secret-du-code"             # secret d'un code d'association : usage unique
@@ -304,19 +307,19 @@ def make_settings(tmp: Path, **kw) -> Settings:
 def associate(settings: Settings, agent: dict) -> dict:
     """Association avec un code neuf (`wsquashfs-launcher --pair` relancé sur la machine)."""
     agent["st"]["pair_open"] = True
-    return saves.add_machine(settings, f"wsq://{SECRET}@127.0.0.1:{agent['port']}#{agent['fp']}")
+    return clients.add_machine(settings, f"wsq://{SECRET}@127.0.0.1:{agent['port']}#{agent['fp']}")
 
 
 def refused(settings: Settings, code: str) -> AgentProbeError:
     """Association refusée : l'exception (avec son code HTTP et son message)."""
     with pytest.raises(AgentProbeError) as info:
-        saves.add_machine(settings, code)
+        clients.add_machine(settings, code)
     return info.value
 
 
 def machine_ids(settings: Settings) -> dict[str, str]:
     """Nom → identifiant des machines enregistrées."""
-    return {m["name"]: m["id"] for m in saves.machine_rows(settings)}
+    return {m["name"]: m["id"] for m in clients.machine_rows(settings)}
 
 
 def gz(text: str) -> bytes:
@@ -343,7 +346,7 @@ def test_game_names_are_derived_like_the_image_stem():
 @pytest.mark.parametrize("name", ["../x", "a/b", "a\\b", ".cache", "", "a..b", "x\x00y", "x" * 201])
 def test_invalid_game_names_are_refused(name):
     assert not saves.valid_game(name)
-    with pytest.raises(RebuildError, match="nom de jeu invalide"):
+    with pytest.raises(ManagerError, match="nom de jeu invalide"):
         saves.check_game(name)
 
 
@@ -361,7 +364,7 @@ def test_association_names_the_machine_and_hides_secrets(agents, tmp_path):
     settings = make_settings(tmp_path)
     added = associate(settings, steambox)
     assert added["name"] == "steambox" and added["replaced"] is False
-    rows = saves.machine_rows(settings)
+    rows = clients.machine_rows(settings)
     assert [r["name"] for r in rows] == ["steambox"]
     text = json.dumps({"added": added, "rows": rows})
     assert TOKEN not in text and "BEGIN CERTIFICATE" not in text
@@ -387,8 +390,8 @@ def test_same_fingerprint_or_same_url_replaces(agents, tmp_path):
 def test_wrong_fingerprint_or_secret_is_refused(agents, tmp_path):
     steambox = agents("steambox")
     settings = make_settings(tmp_path)
-    with pytest.raises(RebuildError, match="ne correspond pas"):
-        saves.add_machine(settings, f"wsq://{SECRET}@127.0.0.1:{steambox['port']}#{'AB' * 32}")
+    with pytest.raises(ManagerError, match="ne correspond pas"):
+        clients.add_machine(settings, f"wsq://{SECRET}@127.0.0.1:{steambox['port']}#{'AB' * 32}")
     bad = agents("refusee", secret="autre-code")
     assert refused(settings, f"wsq://{SECRET}@127.0.0.1:{bad['port']}#{bad['fp']}").status == 422
     assert saves_machines(settings) == []
@@ -397,8 +400,8 @@ def test_wrong_fingerprint_or_secret_is_refused(agents, tmp_path):
 def test_wrong_fingerprint_is_refused_before_the_secret_is_sent(agents, tmp_path):
     steambox = agents("steambox")
     settings = make_settings(tmp_path)
-    with pytest.raises(RebuildError, match="ne correspond pas"):
-        saves.add_machine(settings, f"wsq://{SECRET}@127.0.0.1:{steambox['port']}#{'AB' * 32}")
+    with pytest.raises(ManagerError, match="ne correspond pas"):
+        clients.add_machine(settings, f"wsq://{SECRET}@127.0.0.1:{steambox['port']}#{'AB' * 32}")
     assert steambox["st"]["pairs"] == [] and steambox["st"]["log"] == []      # rien n'est parti
     assert saves_machines(settings) == []
 
@@ -441,14 +444,14 @@ def test_game_host_listed_first_unless_same_url(agents, tmp_path):
     host = agents("sb-agent")
     settings = make_settings(tmp_path, game_host="agent", agent_url=host["url"], agent_token=TOKEN)
     (settings.state_dir / "agent-cert.pem").write_text(host["pem"])
-    rows = saves.machine_rows(settings)
+    rows = clients.machine_rows(settings)
     assert rows[0]["id"] == "game-host" and rows[0]["removable"] is False
     assert rows[0]["fingerprint"] == fingerprint_pem(host["pem"])
     with pytest.raises(ValueError, match="non supprimable"):
-        saves.remove_machine(settings, "game-host")
+        clients.remove_machine(settings, "game-host")
     # la même adresse enregistrée dans la liste : elle remplace la ligne d'office
     associate(settings, host)
-    rows = saves.machine_rows(settings)
+    rows = clients.machine_rows(settings)
     assert [r["id"] for r in rows] != ["game-host"] and len(rows) == 1
 
 
@@ -456,10 +459,10 @@ def test_remove_machine(agents, tmp_path):
     steambox = agents("steambox")
     settings = make_settings(tmp_path)
     added = associate(settings, steambox)
-    saves.remove_machine(settings, added["id"])
+    clients.remove_machine(settings, added["id"])
     assert saves_machines(settings) == []
     with pytest.raises(KeyError):
-        saves.remove_machine(settings, added["id"])
+        clients.remove_machine(settings, added["id"])
 
 
 # ------------------------------------------------------------------ client (AgentHost)
@@ -484,14 +487,14 @@ def test_saves_errors_are_clear(agents, tmp_path):
     steambox = agents("steambox")
     settings = make_settings(tmp_path)
     bad_token = AgentHost(settings, 10, pem=steambox["pem"], url=steambox["url"], token="faux")
-    with pytest.raises(RebuildError, match="jeton refusé : refaire l'association"):
+    with pytest.raises(ManagerError, match="jeton refusé : refaire l'association"):
         bad_token.saves_list()
     other = agents("autre", cert_dir="autre-cert")
     wrong_cert = AgentHost(settings, 10, pem=other["pem"], url=steambox["url"], token=TOKEN)
-    with pytest.raises(RebuildError, match="certificat du client différent"):
+    with pytest.raises(ManagerError, match="certificat du client différent"):
         wrong_cert.saves_list()
     closed = AgentHost(settings, 2, pem=steambox["pem"], url="https://127.0.0.1:1", token=TOKEN)
-    with pytest.raises(RebuildError, match="injoignable"):
+    with pytest.raises(ManagerError, match="injoignable"):
         closed.saves_list()
 
 
@@ -543,7 +546,7 @@ def test_store_refuses_invalid_game_name(tmp_path):
     settings = make_settings(tmp_path)
     part = tmp_path / "x.part"
     part.write_bytes(gz("x"))
-    with pytest.raises(RebuildError, match="nom de jeu invalide"):
+    with pytest.raises(ManagerError, match="nom de jeu invalide"):
         saves.store(settings, "../evasion", part, fingerprint="F", newest=1, size=1, profile=None, source="s")
     assert not (settings.state_dir / "evasion").exists()
 
@@ -657,7 +660,7 @@ def test_failed_push_marks_the_task_failed_with_its_result(agents, tmp_path):
                 size=len(data), profile=None, source="x")
     task = Task(id="t1", kind="saves", params={"op": "push", "targets": [machine_ids(settings)["a-machine"]],
                                                "games": ["Jeu"]})
-    with pytest.raises(RebuildError, match="1 échec"):
+    with pytest.raises(ManagerError, match="1 échec"):
         saves.run_saves(settings, task, Job())
     assert task.params["result"]["results"][0]["ok"] is False
 
@@ -758,7 +761,7 @@ def test_push_auto_task_result_is_kept_and_reported(agents, tmp_path):
     ids = machine_ids(settings)
     task = Task(id="t2", kind="saves", params={"op": "push_auto", "targets": [ids["m1"], ids["m2"]],
                                                "games": None})
-    with pytest.raises(RebuildError, match="1 échec"):
+    with pytest.raises(ManagerError, match="1 échec"):
         saves.run_saves(settings, task, Job())
     assert task.params["result"]["push"]["results"][0]["ok"] is False
 
@@ -945,7 +948,7 @@ def test_delete_unreachable_machine_fails_for_each_game(agents, tmp_path):
 
 def test_delete_refuses_invalid_game_name(tmp_path):
     settings = make_settings(tmp_path)
-    with pytest.raises(RebuildError, match="nom de jeu invalide"):
+    with pytest.raises(ManagerError, match="nom de jeu invalide"):
         saves.delete(settings, [], ["../x"], manager=True)
 
 
@@ -955,7 +958,7 @@ def test_delete_task_reports_partial_failure(agents, tmp_path):
     associate(settings, busy)
     task = Task(id="t9", kind="saves", params={"op": "delete", "machines": delete_machine_ids(settings, "occupee"),
                                                "games": ["Jeu"], "manager": False})
-    with pytest.raises(RebuildError, match="1 échec"):
+    with pytest.raises(ManagerError, match="1 échec"):
         saves.run_saves(settings, task, Job())
     assert task.params["result"]["results"][0]["ok"] is False
 
@@ -1267,17 +1270,17 @@ def test_chosen_icon_wins_over_detection_and_can_be_reset(agents, tmp_path):
     settings = make_settings(tmp_path)
     associate(settings, sb)
     mid = machine_ids(settings)["sb"]
-    assert saves.set_icon(settings, mid, "batocera") == {"id": mid, "icon": "batocera", "icon_set": True}
+    assert clients.set_icon(settings, mid, "batocera") == {"id": mid, "icon": "batocera", "icon_set": True}
     row = saves.status(settings)["machines"][0]
     assert (row["os"], row["icon"], row["icon_set"]) == ("steamos", "batocera", True)
-    assert saves.machine_rows(settings)[0]["icon"] == "batocera"
-    saves.set_icon(settings, mid, None)
+    assert clients.machine_rows(settings)[0]["icon"] == "batocera"
+    clients.set_icon(settings, mid, None)
     row = saves.status(settings)["machines"][0]
     assert (row["icon"], row["icon_set"]) == ("steamos", False)
     # l'icône choisie survit à une nouvelle association de la même machine
-    saves.set_icon(settings, mid, "linux")
+    clients.set_icon(settings, mid, "linux")
     associate(settings, sb)
-    assert saves.machine_rows(settings)[0]["icon"] == "linux"
+    assert clients.machine_rows(settings)[0]["icon"] == "linux"
 
 
 def test_game_host_icon_is_read_back_from_config(tmp_path, monkeypatch):
@@ -1381,12 +1384,12 @@ def test_associated_machine_becomes_the_game_host(agents, api):
     assert config["game_host"] == "agent" and config["agent_url"] == aibox["url"]
     assert config["game_host_machine"] == mid
     # Même certificat épinglé que l'association : la machine d'essai répond sans nouveau code
-    assert saves.agent_cert_path(settings).read_text().strip() == aibox["pem"].strip()
+    assert agent_cert_path(settings).read_text().strip() == aibox["pem"].strip()
     assert saves.AgentHost(settings, 15).info()["host"] == "aibox"
     # Pas de doublon « machine d'essai » dans la liste : même adresse que la machine associée
-    assert [r["id"] for r in saves.machine_rows(settings)] == [mid]
+    assert [r["id"] for r in clients.machine_rows(settings)] == [mid]
     assert client.put("/api/config/game_host/machine", json={"id": "inconnue"}).status_code == 404
-    assert client.put("/api/config/game_host/machine", json={"id": saves.GAME_HOST_ID}).status_code == 404
+    assert client.put("/api/config/game_host/machine", json={"id": clients.GAME_HOST_ID}).status_code == 404
 
 
 def test_forgetting_the_game_host_machine_leaves_no_ghost(agents, api):
@@ -1521,13 +1524,13 @@ def test_association_declares_the_manager_when_its_address_is_set(agents, tmp_pa
     associate(settings, steambox)
     declared = steambox["st"]["manager"]
     assert declared["url"] == MANAGER_URL
-    assert declared["fingerprint"] == saves.manager_fingerprint(settings).replace(":", "")
+    assert declared["fingerprint"] == clients.manager_fingerprint(settings).replace(":", "")
     assert len(declared["fingerprint"]) == 64 and declared["fingerprint"] == declared["fingerprint"].upper()
     assert declared["name"].startswith("wsquashfs-manager (")
     assert declared["ui"] == f"http://192.168.1.10:{settings.port}"     # interface, pour --tray
-    machine = saves.saves_machines(settings)[0]
+    machine = saves_machines(settings)[0]
     assert machine["manager_token_sha256"] == hashlib.sha256(declared["token"].encode()).hexdigest()
-    assert declared["token"] not in json.dumps(saves.machine_rows(settings))
+    assert declared["token"] not in json.dumps(clients.machine_rows(settings))
     assert declared["token"] not in (tmp_path / "config.json").read_text()    # seule l'empreinte est écrite
     assert ("PUT", "/v1/saves/manager") in [(e["method"], e["path"]) for e in steambox["st"]["log"]]
 
@@ -1537,7 +1540,7 @@ def test_no_declaration_without_manager_address(agents, tmp_path):
     steambox = agents("steambox", version="9")
     associate(settings, steambox)
     assert steambox["st"]["manager"] is None
-    assert "manager_token_sha256" not in saves.saves_machines(settings)[0]
+    assert "manager_token_sha256" not in saves_machines(settings)[0]
 
 
 def test_older_agent_is_not_declared_and_association_holds(agents, tmp_path):
@@ -1546,15 +1549,15 @@ def test_older_agent_is_not_declared_and_association_holds(agents, tmp_path):
     machine = associate(settings, steambox)
     assert steambox["st"]["manager"] is None
     assert machine["name"] == "steambox"
-    assert saves.saves_machines(settings)[0].get("manager_token_sha256") is None
+    assert saves_machines(settings)[0].get("manager_token_sha256") is None
 
 
 def test_failed_declaration_keeps_the_association(agents, tmp_path, caplog):
     settings = make_settings(tmp_path, machine_url=MANAGER_URL)
     steambox = agents("steambox", version="9", no_manager=True)
     machine = associate(settings, steambox)
-    assert machine["name"] == "steambox" and len(saves.machine_rows(settings)) == 1
-    assert saves.saves_machines(settings)[0].get("manager_token_sha256") is None
+    assert machine["name"] == "steambox" and len(clients.machine_rows(settings)) == 1
+    assert saves_machines(settings)[0].get("manager_token_sha256") is None
     assert "n'a pas pu s'y déclarer" in caplog.text
 
 
@@ -1615,7 +1618,7 @@ def test_status_survives_a_missing_certificate(agents, tmp_path, monkeypatch):
     steambox = agents("steambox", version="9")
     associate(settings, steambox)
     settings.machine_url = MANAGER_URL
-    monkeypatch.setattr(saves.shutil, "which", lambda name: None)
+    monkeypatch.setattr(clients.shutil, "which", lambda name: None)
     machine = saves.status(settings)["machines"][0]
     assert machine["ok"] is True
     assert steambox["st"]["manager"] is None
@@ -1628,7 +1631,7 @@ def test_new_manager_address_is_declared_again(agents, tmp_path):
     steambox = agents("steambox", version="9")
     associate(settings, steambox)
     settings.machine_url = "https://10.0.0.9:8790"
-    assert saves.redeclare_manager(settings) == [machine_ids(settings)["steambox"]]
+    assert clients.redeclare_manager(settings) == [machine_ids(settings)["steambox"]]
     assert steambox["st"]["manager"]["url"] == "https://10.0.0.9:8790"
 
 
@@ -1889,11 +1892,11 @@ def test_put_does_not_push_when_auto_push_is_off(agents, tmp_path, monkeypatch):
 def test_manager_ui_url_given_to_the_machines(tmp_path):
     """Adresse de l'interface déclarée aux machines : ui_url si réglée (proxy), sinon l'hôte de
     machine_url sur le port de l'interface ; rien sans adresse du manager."""
-    assert saves.manager_ui_url(make_settings(tmp_path)) == ""
+    assert clients.manager_ui_url(make_settings(tmp_path)) == ""
     settings = make_settings(tmp_path, machine_url="https://10.1.1.1:8790")
-    assert saves.manager_ui_url(settings) == f"http://10.1.1.1:{settings.port}"
+    assert clients.manager_ui_url(settings) == f"http://10.1.1.1:{settings.port}"
     settings.ui_url = "https://wsq.example.lan/"
-    assert saves.manager_ui_url(settings) == "https://wsq.example.lan/"
+    assert clients.manager_ui_url(settings) == "https://wsq.example.lan/"
 
 
 HEX_A, HEX_B, HEX_C = "ab" * 32, "cd" * 32, "ef" * 32
@@ -2129,7 +2132,7 @@ def test_resolve_keep_a_conflict_version_makes_it_current(tmp_path):
     datas = sorted((d / f"{n}.tar.gz").read_bytes() for n in saves.archives(settings, "Jeu"))
     assert datas == [gz("client2"), gz("manager")]                  # ancienne courante + version écartée
     assert saves.machine_state(settings, "Jeu", "m2") == fp_of(gz("client2"))
-    with pytest.raises(RebuildError, match="inconnue"):
+    with pytest.raises(ManagerError, match="inconnue"):
         saves.resolve(settings, "Jeu", "n'existe-pas")
 
 
@@ -2190,12 +2193,12 @@ def test_resolve_keep_client_makes_its_copy_current(agents, tmp_path):
 def test_resolve_keep_client_needs_a_reachable_client_with_the_game(agents, tmp_path):
     b, settings, bid = one_auto(agents, tmp_path, {})
     store_v(settings, "Jeu", "manager")
-    with pytest.raises(RebuildError, match="n'a pas ce jeu"):
+    with pytest.raises(ManagerError, match="n'a pas ce jeu"):
         saves.resolve(settings, "Jeu", f"client:{bid}")
-    with pytest.raises(RebuildError, match="client inconnu"):
+    with pytest.raises(ManagerError, match="client inconnu"):
         saves.resolve(settings, "Jeu", "client:inconnu")
     b["st"]["token"] = "autre"
-    with pytest.raises(RebuildError, match="injoignable"):
+    with pytest.raises(ManagerError, match="injoignable"):
         saves.resolve(settings, "Jeu", f"client:{bid}")
 
 
@@ -2299,8 +2302,8 @@ def test_steambox_icon_can_be_chosen(agents, tmp_path):
     settings = make_settings(tmp_path)
     associate(settings, sb)
     mid = machine_ids(settings)["sb"]
-    assert saves.set_icon(settings, mid, "steambox")["icon"] == "steambox"
-    assert saves.machine_rows(settings)[0]["icon"] == "steambox"
+    assert clients.set_icon(settings, mid, "steambox")["icon"] == "steambox"
+    assert clients.machine_rows(settings)[0]["icon"] == "steambox"
 
 
 def test_client_order_is_saved_and_applied_to_rows(agents, tmp_path):
@@ -2309,13 +2312,13 @@ def test_client_order_is_saved_and_applied_to_rows(agents, tmp_path):
     associate(settings, first)
     associate(settings, second)
     ids = machine_ids(settings)
-    assert [r["name"] for r in saves.machine_rows(settings)] == ["alpha", "beta"]
-    assert saves.set_machine_order(settings, [ids["beta"], ids["alpha"]]) == [ids["beta"], ids["alpha"]]
-    assert [r["name"] for r in saves.machine_rows(settings)] == ["beta", "alpha"]
+    assert [r["name"] for r in clients.machine_rows(settings)] == ["alpha", "beta"]
+    assert clients.set_machine_order(settings, [ids["beta"], ids["alpha"]]) == [ids["beta"], ids["alpha"]]
+    assert [r["name"] for r in clients.machine_rows(settings)] == ["beta", "alpha"]
     assert [m["name"] for m in saves.status(settings)["machines"]] == ["beta", "alpha"]
     # un client absent de l'ordre enregistré passe en dernier
-    saves.save_saves_order(settings, [ids["beta"]])
-    assert [r["name"] for r in saves.machine_rows(settings)] == ["beta", "alpha"]
+    save_saves_order(settings, [ids["beta"]])
+    assert [r["name"] for r in clients.machine_rows(settings)] == ["beta", "alpha"]
 
 
 def test_client_order_must_list_each_client_once(agents, tmp_path):
@@ -2324,11 +2327,11 @@ def test_client_order_must_list_each_client_once(agents, tmp_path):
     associate(settings, agents("beta"))
     ids = machine_ids(settings)
     with pytest.raises(ValueError):
-        saves.set_machine_order(settings, [ids["alpha"]])                    # incomplet
+        clients.set_machine_order(settings, [ids["alpha"]])                    # incomplet
     with pytest.raises(ValueError):
-        saves.set_machine_order(settings, [ids["alpha"], ids["alpha"]])      # doublon
+        clients.set_machine_order(settings, [ids["alpha"], ids["alpha"]])      # doublon
     with pytest.raises(ValueError):
-        saves.set_machine_order(settings, [ids["alpha"], "inconnu"])        # inconnu
+        clients.set_machine_order(settings, [ids["alpha"], "inconnu"])        # inconnu
 
 
 def test_record_state_date_la_synchro_et_synced_times_prend_la_plus_recente(tmp_path, monkeypatch):

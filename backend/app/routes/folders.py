@@ -19,6 +19,7 @@ from ..services.analyze import FolderAnalysis, add_local_game, analyze_folder, r
 from ..services.artwork import ecrire_cover_dossier, folder_cover
 from ..services.autorun import KEY_NAME_RE, Autorun, decode_autorun
 from ..services.durable import write_atomic
+from ..services.errors import ManagerError
 from ..services.operations import (
     find_folders,
     folder_not_in_image,
@@ -26,7 +27,6 @@ from ..services.operations import (
     pack_target,
     remove_tree,
 )
-from ..services.rebuild import RebuildError
 from ..services.tasks import TaskConflict
 from .mass import MassIds
 
@@ -333,7 +333,7 @@ def folders_delete(body: MassIds):
             skipped.append({"id": folder_id, "reason": "dossier inconnu"})
             continue
         image = pack_target(Path(folder["path"]))
-        if not image.exists() or not scan._unsquashfs_ok(deps._settings, image):
+        if not image.exists() or not scan.unsquashfs_ok(deps._settings, image):
             skipped.append({"id": folder_id,
                             "reason": "image absente ou illisible : dossier gardé"})
             continue
@@ -344,7 +344,7 @@ def folders_delete(body: MassIds):
         # autre version, ou un dossier modifié depuis l'empaquetage, garde le dossier
         try:
             differ = folder_not_in_image(deps._settings, Path(folder["path"]), image)
-        except RebuildError as exc:
+        except ManagerError as exc:
             skipped.append({"id": folder_id, "reason": f"{exc} : dossier gardé"})
             continue
         if differ:

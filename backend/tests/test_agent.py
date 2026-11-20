@@ -19,8 +19,9 @@ from typing import ClassVar
 import pytest
 
 from app.config import Settings
+from app.services import agent as agent_client
 from app.services import trial
-from app.services.rebuild import RebuildError
+from app.services.errors import ManagerError
 
 PNG = b"\x89PNG\r\n\x1a\nfake"
 TOKEN = "jeton-de-test"                  # jeton durable, rendu par /v1/pair
@@ -150,18 +151,18 @@ def fresh_fake_agent():
 
 
 def test_fingerprint_matches_pair_format(agent):
-    fp = trial.fingerprint_pem(agent["pem"])
+    fp = agent_client.fingerprint_pem(agent["pem"])
     assert len(fp.split(":")) == 32 and fp == fp.upper()
 
 
 def test_info_with_pinned_certificate(agent, tmp_path):
-    host = trial.AgentHost(settings_for(tmp_path, agent["pem"], agent["url"]), 10)
+    host = agent_client.AgentHost(settings_for(tmp_path, agent["pem"], agent["url"]), 10)
     assert host.info()["host"] == "fake"
 
 
 def test_wrong_token_is_reported_clearly(agent, tmp_path):
-    host = trial.AgentHost(settings_for(tmp_path, agent["pem"], agent["url"], token="faux"), 10)
-    with pytest.raises(RebuildError, match="jeton"):
+    host = agent_client.AgentHost(settings_for(tmp_path, agent["pem"], agent["url"], token="faux"), 10)
+    with pytest.raises(ManagerError, match="jeton"):
         host.info()
 
 
@@ -169,18 +170,18 @@ def test_other_certificate_is_refused(agent, tmp_path):
     other = tmp_path / "autre"
     other.mkdir()
     cert, _ = make_cert(other)
-    host = trial.AgentHost(settings_for(tmp_path, cert.read_text(), agent["url"]), 10)
-    with pytest.raises(RebuildError, match="injoignable"):
+    host = agent_client.AgentHost(settings_for(tmp_path, cert.read_text(), agent["url"]), 10)
+    with pytest.raises(ManagerError, match="injoignable"):
         host.info()
 
 
 def test_not_associated_without_certificate(tmp_path):
-    with pytest.raises(RebuildError, match="non associé"):
-        trial.AgentHost(settings_for(tmp_path, None, "https://127.0.0.1:1"), 10)
+    with pytest.raises(ManagerError, match="non associé"):
+        agent_client.AgentHost(settings_for(tmp_path, None, "https://127.0.0.1:1"), 10)
 
 
 def test_doctor_and_runner_operations(agent, tmp_path):
-    host = trial.AgentHost(settings_for(tmp_path, agent["pem"], agent["url"]), 10)
+    host = agent_client.AgentHost(settings_for(tmp_path, agent["pem"], agent["url"]), 10)
     assert host.doctor()["runners"][0]["name"] == "GE-Proton"
     assert host.listing("/opt/ge") == RUNNER_TREE
     chunks = []
@@ -193,32 +194,32 @@ def test_trial_through_agent_returns_report_and_screenshot(agent, tmp_path):
     image = tmp_path / "roms" / "win" / "Jeu.wsquashfs"
     image.parent.mkdir(parents=True)
     image.write_bytes(b"hsqs")
-    host = trial.AgentHost(settings, 10)
+    host = agent_client.AgentHost(settings, 10)
     assert host.path_of(image) == "win/Jeu.wsquashfs"
     data, shot = host.trial("win/Jeu.wsquashfs", 60)
     assert shot == PNG and data["game_seen"] is True and data["windows"][0]["name"] == "Jeu"
-    with pytest.raises(RebuildError, match="image introuvable"):
+    with pytest.raises(ManagerError, match="image introuvable"):
         host.trial("win/Absent.wsquashfs", 60)
 
 
 def test_game_host_agent_selected_by_settings(agent, tmp_path):
     settings = settings_for(tmp_path, agent["pem"], agent["url"])
     host = trial.game_host(settings)
-    assert isinstance(host, trial.AgentHost)
+    assert isinstance(host, agent_client.AgentHost)
     assert trial.host_name(settings) == f"l'agent ({agent['url']})"
 
 
 def test_maintenance_refuses_unlisted_actions(agent, tmp_path):
     settings = settings_for(tmp_path, agent["pem"], agent["url"])
-    with pytest.raises(RebuildError, match="non autorisée"):
+    with pytest.raises(ManagerError, match="non autorisée"):
         trial.maintenance(settings, "clear")          # --clear n'est pas exposé
-    with pytest.raises(RebuildError, match="non autorisée"):
+    with pytest.raises(ManagerError, match="non autorisée"):
         trial.maintenance(settings, "erase")          # --erase non plus
-    with pytest.raises(RebuildError, match="non autorisée"):
+    with pytest.raises(ManagerError, match="non autorisée"):
         trial.maintenance(settings, "pack")
-    with pytest.raises(RebuildError, match="non autorisée"):
+    with pytest.raises(ManagerError, match="non autorisée"):
         trial.maintenance(settings, "backup")         # retiré du lanceur (--saves le remplace)
-    with pytest.raises(RebuildError, match="ne prend pas de jeu"):
+    with pytest.raises(ManagerError, match="ne prend pas de jeu"):
         trial.maintenance(settings, "clean", tmp_path / "Jeu.wsquashfs")
 
 
@@ -244,11 +245,11 @@ def test_maintenance_game_rule_refused_before_calling_agent(agent, tmp_path):
     settings = settings_for(tmp_path, agent["pem"], agent["url"])
     image = tmp_path / "roms" / "win" / "Jeu.wsquashfs"
     FakeAgent.bodies.clear()
-    with pytest.raises(RebuildError, match="demande un jeu"):
+    with pytest.raises(ManagerError, match="demande un jeu"):
         trial.maintenance(settings, "save")           # save exige un jeu
-    with pytest.raises(RebuildError, match="ne prend pas de jeu"):
+    with pytest.raises(ManagerError, match="ne prend pas de jeu"):
         trial.maintenance(settings, "saves", image)   # saves : tous les jeux seulement
-    with pytest.raises(RebuildError, match="--sync status ne prend pas de jeu"):
+    with pytest.raises(ManagerError, match="--sync status ne prend pas de jeu"):
         trial.maintenance(settings, "sync-status", image)
     assert FakeAgent.bodies == []
 
@@ -264,36 +265,36 @@ def test_host_status_connected_and_refused(agent, tmp_path):
 
 def test_pair_code_is_parsed():
     fp = "AB" * 32
-    pair = trial.parse_pair_code(f"wsq://secret-ABC_12@192.168.1.20:8790#{fp}")
+    pair = agent_client.parse_pair_code(f"wsq://secret-ABC_12@192.168.1.20:8790#{fp}")
     assert pair == {"url": "https://192.168.1.20:8790", "secret": "secret-ABC_12", "fingerprint": fp}
 
 
 def fingerprint_of(pem: str) -> str:
-    return trial.fingerprint_pem(pem).replace(":", "")
+    return agent_client.fingerprint_pem(pem).replace(":", "")
 
 
 def test_pairing_exchanges_the_secret_for_the_durable_token(agent, tmp_path):
-    paired = trial.pair_agent(agent["url"], PAIR_SECRET, fingerprint_of(agent["pem"]), MACHINE)
+    paired = agent_client.pair_agent(agent["url"], PAIR_SECRET, fingerprint_of(agent["pem"]), MACHINE)
     assert paired["token"] == TOKEN and paired["host"] == "fake" and paired["url"] == agent["url"]
-    assert paired["pem"] == agent["pem"] and paired["fingerprint"] == trial.fingerprint_pem(agent["pem"])
+    assert paired["pem"] == agent["pem"] and paired["fingerprint"] == agent_client.fingerprint_pem(agent["pem"])
     sent = FakeAgent.pairs[0]
     assert sent["auth"] == f"Bearer {PAIR_SECRET}" and sent["machine"] == MACHINE
     assert sent["body"]["name"].startswith("wsquashfs-manager (") and len(sent["body"]["name"]) <= 64
     # le jeton durable sert ensuite, lié à cet identifiant ; le secret ne sert plus
-    host = trial.AgentHost(settings_for(tmp_path, agent["pem"], agent["url"]), 10,
+    host = agent_client.AgentHost(settings_for(tmp_path, agent["pem"], agent["url"]), 10,
                            token=paired["token"], client_id=MACHINE)
     assert host.info()["host"] == "fake"
 
 
 def test_used_or_wrong_secret_is_refused_with_a_clear_message(agent):
     fp = fingerprint_of(agent["pem"])
-    trial.pair_agent(agent["url"], PAIR_SECRET, fp, MACHINE)
-    with pytest.raises(trial.AgentProbeError, match="expiré ou déjà utilisé") as used:
-        trial.pair_agent(agent["url"], PAIR_SECRET, fp, MACHINE)
+    agent_client.pair_agent(agent["url"], PAIR_SECRET, fp, MACHINE)
+    with pytest.raises(agent_client.AgentProbeError, match="expiré ou déjà utilisé") as used:
+        agent_client.pair_agent(agent["url"], PAIR_SECRET, fp, MACHINE)
     assert used.value.status == 422
     FakeAgent.pair["open"] = True
-    with pytest.raises(trial.AgentProbeError, match="expiré ou déjà utilisé") as wrong:
-        trial.pair_agent(agent["url"], "autre", fp, MACHINE)
+    with pytest.raises(agent_client.AgentProbeError, match="expiré ou déjà utilisé") as wrong:
+        agent_client.pair_agent(agent["url"], "autre", fp, MACHINE)
     assert wrong.value.status == 422
 
 
@@ -301,38 +302,38 @@ def test_other_certificate_is_refused_before_the_secret_is_sent(agent, tmp_path)
     other = tmp_path / "autre"
     other.mkdir()
     cert, _ = make_cert(other)
-    with pytest.raises(trial.AgentProbeError, match="ne correspond pas") as info:
-        trial.pair_agent(agent["url"], PAIR_SECRET, fingerprint_of(cert.read_text()), MACHINE)
+    with pytest.raises(agent_client.AgentProbeError, match="ne correspond pas") as info:
+        agent_client.pair_agent(agent["url"], PAIR_SECRET, fingerprint_of(cert.read_text()), MACHINE)
     assert info.value.status == 422
     assert FakeAgent.seen == [] and FakeAgent.pairs == []          # aucune requête n'est partie
 
 
 def test_agent_without_pairing_route_is_too_old(agent):
     FakeAgent.pair["missing"] = True
-    with pytest.raises(trial.AgentProbeError, match="agent trop ancien") as info:
-        trial.pair_agent(agent["url"], PAIR_SECRET, fingerprint_of(agent["pem"]), MACHINE)
-    assert info.value.status == 422 and info.value.args[0] == trial.OLD_AGENT_MESSAGE
+    with pytest.raises(agent_client.AgentProbeError, match="agent trop ancien") as info:
+        agent_client.pair_agent(agent["url"], PAIR_SECRET, fingerprint_of(agent["pem"]), MACHINE)
+    assert info.value.status == 422 and info.value.args[0] == agent_client.OLD_AGENT_MESSAGE
 
 
 def test_pairing_answer_from_a_version_below_7_is_too_old(agent):
     FakeAgent.pair["version"] = "6"
-    with pytest.raises(trial.AgentProbeError, match="agent trop ancien") as info:
-        trial.pair_agent(agent["url"], PAIR_SECRET, fingerprint_of(agent["pem"]), MACHINE)
+    with pytest.raises(agent_client.AgentProbeError, match="agent trop ancien") as info:
+        agent_client.pair_agent(agent["url"], PAIR_SECRET, fingerprint_of(agent["pem"]), MACHINE)
     assert info.value.status == 422
 
 
 def test_unreachable_agent_at_pairing(agent):
-    with pytest.raises(trial.AgentProbeError, match="injoignable") as info:
-        trial.pair_agent("https://127.0.0.1:1", PAIR_SECRET, "AB" * 32, MACHINE)
+    with pytest.raises(agent_client.AgentProbeError, match="injoignable") as info:
+        agent_client.pair_agent("https://127.0.0.1:1", PAIR_SECRET, "AB" * 32, MACHINE)
     assert info.value.status == 502
 
 
 def test_every_request_carries_the_identifier_bound_at_pairing(agent, tmp_path):
-    trial.pair_agent(agent["url"], PAIR_SECRET, fingerprint_of(agent["pem"]), MACHINE)
-    other = trial.AgentHost(settings_for(tmp_path, agent["pem"], agent["url"]), 10, client_id="beef" * 8)
-    with pytest.raises(RebuildError, match="jeton refusé"):
+    agent_client.pair_agent(agent["url"], PAIR_SECRET, fingerprint_of(agent["pem"]), MACHINE)
+    other = agent_client.AgentHost(settings_for(tmp_path, agent["pem"], agent["url"]), 10, client_id="beef" * 8)
+    with pytest.raises(ManagerError, match="jeton refusé"):
         other.info()
-    with pytest.raises(RebuildError, match="jeton refusé"):
+    with pytest.raises(ManagerError, match="jeton refusé"):
         other.doctor()
 
 
@@ -340,4 +341,4 @@ def test_every_request_carries_the_identifier_bound_at_pairing(agent, tmp_path):
                                   "wsq://@hote:8790#" + "AB" * 32, "wsq://j@hote:8790#AA"])
 def test_bad_pair_code_is_refused(code):
     with pytest.raises(ValueError):
-        trial.parse_pair_code(code)
+        agent_client.parse_pair_code(code)

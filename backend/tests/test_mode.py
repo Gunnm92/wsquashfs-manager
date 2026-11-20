@@ -17,7 +17,7 @@ from app.config import Settings, get_settings, save_mode
 from app.models import ImageInfo
 from app.routes import images
 from app.services import scan
-from app.services.rebuild import RebuildError
+from app.services.errors import ManagerError
 
 DETAIL = "mode autonome : fonction connectée désactivée (Réglages › Mode)"
 MACHINE = {"id": "m1", "name": "steambox", "url": "https://10.0.0.2:8790", "token": "t", "pem": "p"}
@@ -162,7 +162,7 @@ def test_connected_task_refused_in_autonomous_mode(tmp_path, monkeypatch):
     monkeypatch.setattr(deps, "_settings", _settings(tmp_path))
     deps._settings.mode = "autonome"
     handler = deps._connected_task(lambda settings, task, job: calls.append((settings, task)) or "fait")
-    with pytest.raises(RebuildError, match="mode autonome"):
+    with pytest.raises(ManagerError, match="mode autonome"):
         handler("tâche", None)
     assert calls == []
     deps._settings.mode = "connecte"

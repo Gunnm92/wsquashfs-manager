@@ -15,9 +15,10 @@ from fastapi import HTTPException
 from .config import Settings, get_settings, in_night
 from .models import ImageInfo, ImageState, Task
 from .services import analyze as analyze_mod
-from .services import saves as saves_svc
+from .services import clients as clients_svc
 from .services import scan
 from .services.analyze import FolderAnalysis
+from .services.errors import ManagerError
 from .services.install import run_install
 from .services.operations import (
     reset_saves,
@@ -27,7 +28,7 @@ from .services.operations import (
     run_pack,
     run_verify,
 )
-from .services.rebuild import RebuildError, backup_path
+from .services.rebuild import backup_path
 from .services.runners import run_relink, run_runner
 from .services.saves import run_saves
 from .services.tasks import TaskConflict, TaskQueue
@@ -78,7 +79,7 @@ def _connected_task(handler):
     restée en file avant le passage en autonome échoue au lieu de se connecter)."""
     def run(task, job):
         if _settings.mode == "autonome":
-            raise RebuildError(MODE_AUTONOME_DETAIL)
+            raise ManagerError(MODE_AUTONOME_DETAIL)
         return handler(_settings, task, job)
     return run
 
@@ -173,7 +174,7 @@ def _old_action(image_id: str, action, fresh: bool = True) -> ImageInfo:
         raise HTTPException(status_code=409, detail="jeu en cours d'utilisation")
     try:
         action(info.path)
-    except RebuildError as exc:
+    except ManagerError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not fresh:
         return info
@@ -189,7 +190,7 @@ def _reset_saves(image_id: str) -> str:
         raise HTTPException(status_code=409, detail=reason)
     try:
         return reset_saves(_settings, info.path).name
-    except (RebuildError, OSError) as exc:
+    except (ManagerError, OSError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
@@ -202,6 +203,6 @@ _ANALYSES_MAX = 64
 
 def _saves_machine(machine_id: str) -> dict:
     try:
-        return saves_svc.find_machine(_settings, machine_id)
+        return clients_svc.find_machine(_settings, machine_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"client inconnu : {machine_id}") from None

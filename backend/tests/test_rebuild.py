@@ -13,11 +13,10 @@ import pytest
 
 from app.config import Settings
 from app.services import rebuild
+from app.services.errors import ManagerError
+from app.services.jobs import Job, JobCancelled
 from app.services.rebuild import (
     Changes,
-    Job,
-    RebuildCancelled,
-    RebuildError,
     expected_listing,
     purge_backups,
     restore_backup,
@@ -68,7 +67,7 @@ def test_safe_rel_refuses_escapes():
     assert safe_rel("\\drive_c\\game\\a.dll") == "drive_c/game/a.dll"
     assert safe_rel("a/./b") == "a/b"
     for bad in ("", "/", "../etc/passwd", "a/../../b", "a/.."):
-        with pytest.raises(RebuildError):
+        with pytest.raises(ManagerError):
             safe_rel(bad)
 
 
@@ -121,7 +120,7 @@ def test_rebuild_adds_and_deletes_files(image: Path, tmp_path: Path, mode: str):
 @needs_tools
 def test_rebuild_refuses_when_old_exists(image: Path, settings: Settings):
     image.with_name(image.name + ".old").write_bytes(b"backup")
-    with pytest.raises(RebuildError, match="sauvegarde existante"):
+    with pytest.raises(ManagerError, match="sauvegarde existante"):
         rebuild.rebuild(settings, image, Changes(write={"autorun.cmd": b"CMD=x\r\n"}))
 
 
@@ -134,7 +133,7 @@ def test_game_started_during_rebuild_keeps_original(image: Path, settings: Setti
         calls.append(1)
         return len(calls) > 1        # libre au départ, lancé avant l'échange
 
-    with pytest.raises(RebuildError, match="lancé pendant"):
+    with pytest.raises(ManagerError, match="lancé pendant"):
         rebuild.rebuild(settings, image, Changes(write={"autorun.cmd": b"CMD=x\r\n"}),
                         in_use=in_use)
     assert image.read_bytes() == before
@@ -150,7 +149,7 @@ def test_failed_verification_leaves_original(image: Path, settings: Settings, mo
         (root / "autorun.cmd").write_bytes(b"autre chose")
 
     monkeypatch.setattr(rebuild, "apply_changes", bad_apply)
-    with pytest.raises(RebuildError, match="vérification"):
+    with pytest.raises(ManagerError, match="vérification"):
         rebuild.rebuild(settings, image, Changes(write={"autorun.cmd": b"CMD=x\r\n"}))
     assert image.read_bytes() == before
     assert not image.with_name(image.name + ".part").exists()
@@ -167,7 +166,7 @@ def test_cancel_cleans_up(image: Path, settings: Settings, monkeypatch):
         real(command, job_, phase, start, end)
 
     monkeypatch.setattr(rebuild, "run_progress", cancel_then_run)
-    with pytest.raises(RebuildCancelled):
+    with pytest.raises(JobCancelled):
         rebuild.rebuild(settings, image, Changes(write={"autorun.cmd": b"CMD=x\r\n"}), job)
     assert image.read_bytes() == before
     assert not image.with_name(image.name + ".part").exists()
@@ -179,13 +178,13 @@ def test_cancel_cleans_up(image: Path, settings: Settings, monkeypatch):
 def test_space_check_blocks_before_work(image: Path, settings: Settings, monkeypatch):
     monkeypatch.setattr(rebuild.shutil, "disk_usage",
                         lambda path: shutil._ntuple_diskusage(10**12, 10**12, 10))
-    with pytest.raises(RebuildError, match="espace insuffisant"):
+    with pytest.raises(ManagerError, match="espace insuffisant"):
         rebuild.rebuild(settings, image, Changes(write={"autorun.cmd": b"CMD=x\r\n"}))
 
 
 def test_stream_mode_requires_pf(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(rebuild, "stream_missing", lambda settings: "unsquashfs sans -pf")
-    with pytest.raises(RebuildError, match="stream"):
+    with pytest.raises(ManagerError, match="stream"):
         rebuild.choose_mode(Settings(rebuild_mode="stream"))
     assert rebuild.choose_mode(Settings(rebuild_mode="auto")) == "extract"
 
@@ -199,7 +198,7 @@ def test_validate_and_restore_backup(tmp_path: Path):
     restore_backup(image)
     assert image.read_bytes() == b"old"
     assert not image.with_name("Jeu.wsquashfs.old").exists()
-    with pytest.raises(RebuildError):
+    with pytest.raises(ManagerError):
         validate_backup(image)
 
     image.with_name("Jeu.wsquashfs.old").write_bytes(b"old2")
@@ -232,7 +231,7 @@ def test_run_progress_reports_tail_on_failure(tmp_path: Path):
     script = tmp_path / "p.sh"
     script.write_text("#!/bin/sh\necho 'FATAL ERROR: no space'\nexit 1\n")
     script.chmod(0o755)
-    with pytest.raises(RebuildError, match="no space"):
+    with pytest.raises(ManagerError, match="no space"):
         rebuild.run_progress([str(script)], Job(), "mksquashfs", 0, 1)
 
 
@@ -242,7 +241,7 @@ def test_run_progress_cancel_kills_process(tmp_path: Path):
     script.chmod(0o755)
     job = Job()
     threading.Timer(0.2, job.cancel).start()
-    with pytest.raises(RebuildCancelled):
+    with pytest.raises(JobCancelled):
         rebuild.run_progress([str(script)], job, "mksquashfs", 0, 1)
 
 
@@ -428,7 +427,7 @@ def test_run_progress_refuses_unreadable_files(tmp_path: Path):
                       "echo 'Cannot stat dir/file /m/dosdevices because Transport endpoint is "
                       "not connected, ignoring'\necho 100\n")
     script.chmod(0o755)
-    with pytest.raises(RebuildError, match="2 lecture.*system.reg"):
+    with pytest.raises(ManagerError, match="2 lecture.*system.reg"):
         rebuild.run_progress([str(script)], Job(), "mksquashfs", 0, 1)
 
 

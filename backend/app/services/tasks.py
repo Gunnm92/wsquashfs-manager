@@ -8,7 +8,7 @@
   arrêtée (le ``.part`` est nettoyé par la reconstruction).
 
 Les gestionnaires (`handlers`) reçoivent la tâche et un `Job` ; ils lèvent
-`RebuildError` en cas d'échec et retournent un message de fin facultatif.
+`ManagerError` en cas d'échec et retournent un message de fin facultatif.
 """
 
 from __future__ import annotations
@@ -26,9 +26,10 @@ from collections.abc import Callable
 from pathlib import Path
 
 from ..models import Task, TaskStatus
-from .durable import append_line
-from .rebuild import Job, RebuildCancelled, RebuildError, part_path
-from .scan import _write_atomic
+from .durable import append_line, write_atomic
+from .errors import ManagerError
+from .jobs import Job, JobCancelled
+from .rebuild import part_path
 
 Handler = Callable[[Task, Job], str | None]
 
@@ -115,7 +116,7 @@ class TaskQueue:
                 del self._tasks[old.id]
             text = json.dumps([t.model_dump(mode="json") for t in self._tasks.values()],
                               indent=1)
-        _write_atomic(self.state_file, text, durable=True)
+        write_atomic(self.state_file, text, durable=True)
 
     def _persist(self) -> None:
         """Enregistrement depuis les workers : un échec d'écriture (disque plein…)
@@ -282,7 +283,7 @@ class TaskQueue:
         """Exécute une tâche déjà marquée « en cours » (appelé par les workers)."""
         try:
             message = self.handlers[task.kind](task, job)
-        except RebuildCancelled:
+        except JobCancelled:
             if self._stopping and task.kind in NOT_RESUMED:
                 status, error = TaskStatus.CANCELLED, None
                 message = "Interrompue par l'arrêt du service : non relancée"
@@ -294,7 +295,7 @@ class TaskQueue:
                 task.progress, task.phase, task.started_at = 0.0, "", None
             else:
                 status, error, message = TaskStatus.CANCELLED, None, "Annulée, image inchangée"
-        except RebuildError as exc:
+        except ManagerError as exc:
             status, error, message = TaskStatus.FAILED, str(exc), f"Échec : {exc}"
         except Exception as exc:  # noqa: BLE001 — un bug ne doit pas tuer la file
             status, error = TaskStatus.FAILED, f"erreur interne : {exc!r}"

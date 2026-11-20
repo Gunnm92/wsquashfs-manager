@@ -12,6 +12,8 @@ from app.config import Settings
 from app.models import Task
 from app.services import scan
 from app.services.autorun import Autorun
+from app.services.errors import ManagerError
+from app.services.jobs import Job
 from app.services.operations import (
     plan_files,
     reset_saves,
@@ -19,7 +21,6 @@ from app.services.operations import (
     run_files,
     run_verify,
 )
-from app.services.rebuild import Job, RebuildError
 
 pytestmark = pytest.mark.skipif(not shutil.which("mksquashfs"), reason="squashfs-tools absent")
 
@@ -110,7 +111,7 @@ def test_registry_refused_without_prefix(env, tmp_path):
     image = tmp_path / "roms" / "win" / "Seul.wsquashfs"
     image.parent.mkdir(parents=True)
     subprocess.run(["mksquashfs", str(src), str(image), "-noappend", "-quiet"], check=True)
-    with pytest.raises(RebuildError, match="pas de prefix"):
+    with pytest.raises(ManagerError, match="pas de prefix"):
         plan_files(settings, image, "Seul", "win", task.params)
 
 
@@ -119,7 +120,7 @@ def test_delete_and_missing_source(env):
     plan = plan_files(settings, image, "Jeu", None, {"delete": ["SYSTEM.REG", "absent.txt"]})
     assert plan.changes.delete == ["system.reg"]
     assert any("absent.txt" in w for w in plan.warnings)
-    with pytest.raises(RebuildError, match="source introuvable"):
+    with pytest.raises(ManagerError, match="source introuvable"):
         plan_files(settings, image, "Jeu", None, {"copy": [{"dest": "a", "source": "/nope"}]})
 
 
@@ -128,13 +129,13 @@ def test_verify(env):
     task = Task(id="v", kind="verify", image="arcade/Jeu", image_path=str(image))
     assert run_verify(settings, task, Job()) == "Image intègre, autorun cohérent"
     image.write_bytes(b"pas une image")
-    with pytest.raises(RebuildError, match="table"):
+    with pytest.raises(ManagerError, match="table"):
         run_verify(settings, task, Job())
 
 
 def test_reset_saves_renames(env):
     settings, image, _ = env
-    with pytest.raises(RebuildError):
+    with pytest.raises(ManagerError):
         reset_saves(settings, image)
     (settings.saves_dir / "Jeu").mkdir(parents=True)
     renamed = reset_saves(settings, image)

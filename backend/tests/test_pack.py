@@ -12,8 +12,9 @@ import pytest
 from app.config import Settings
 from app.models import Task
 from app.services.analyze import analyze_folder, bat_details, name_similarity, report
+from app.services.errors import ManagerError
+from app.services.jobs import Job, JobCancelled
 from app.services.operations import find_folders, folder_stem, run_pack
-from app.services.rebuild import Job, RebuildCancelled, RebuildError
 
 needs_tools = pytest.mark.skipif(not shutil.which("mksquashfs"), reason="squashfs-tools absent")
 
@@ -184,13 +185,13 @@ def test_pack_never_overwrites_and_cancel_cleans(pack_env):
     settings, folder, task = pack_env
     image = folder.with_name("Mon Jeu.wsquashfs")
     image.write_bytes(b"existante")
-    with pytest.raises(RebuildError, match="existe déjà"):
+    with pytest.raises(ManagerError, match="existe déjà"):
         run_pack(settings, task(), Job())
     assert image.read_bytes() == b"existante" and folder.is_dir()
     image.unlink()
     job = Job()
     job.cancel()
-    with pytest.raises(RebuildCancelled):
+    with pytest.raises(JobCancelled):
         run_pack(settings, task(rename_wine=False), job)
     assert not image.exists() and not image.with_name(image.name + ".part").exists()
     assert folder.is_dir()
@@ -205,9 +206,9 @@ def test_pack_resumes_after_rename(pack_env):
 
 
 def test_game_version_engine_vs_game():
-    from app.services.analyze import ExeInfo, _game_version
+    from app.services.analyze import ExeInfo, game_version
     def version(name, value, engine):
-        return _game_version(ExeInfo(product_name=name, product_version=value), engine)[0]
+        return game_version(ExeInfo(product_name=name, product_version=value), engine)[0]
     assert version("SAND LAND", "1.0.3.0", "unreal") == "1.0.3.0"
     assert version("Aces of the Luftwaffe Squadron", "1.0.7.0", "unity") == "1.0.7.0"
     assert version("BootstrapPackagedGame", "6566", "unreal") is None

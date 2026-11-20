@@ -22,9 +22,10 @@ from ..config import (
     save_sgdb,
     saves_machines,
 )
-from ..services import saves as saves_svc
+from ..services import clients as clients_svc
+from ..services.agent import agent_cert_path, fingerprint_pem
 from ..services.sgdb import tester_cle
-from ..services.trial import agent_cert_path, fingerprint_pem, host_name
+from ..services.trial import host_name
 
 router = APIRouter()
 
@@ -51,11 +52,11 @@ def get_config():
         "session_process": deps._settings.session_process,
         "agent_url": deps._settings.agent_url,
         "agent_fingerprint": _agent_fingerprint(),
-        "game_host_machine": saves_svc.game_host_machine(deps._settings),   # client associé choisi, "" sinon
+        "game_host_machine": clients_svc.game_host_machine(deps._settings),   # client associé choisi, "" sinon
         # Manager vu par les clients (synchro automatique) : adresse réglée, port d'écoute, empreinte
         "machine_url": deps._settings.machine_url,
         "machine_port": deps._settings.machine_port,
-        "machine_fingerprint": saves_svc.manager_fingerprint(deps._settings, create=False),
+        "machine_fingerprint": clients_svc.manager_fingerprint(deps._settings, create=False),
         "auto_push_interval": deps._settings.auto_push_interval,     # mise à jour automatique des clients en retard
         # Icônes et jaquettes SteamGridDB : la clé n'est jamais renvoyée, seulement son existence
         "sgdb_configured": bool(deps._settings.sgdb_api_key),
@@ -66,7 +67,7 @@ def get_config():
 
 def _trial_name() -> str:
     """Nom du client d'essai (celui de l'association), sinon sa description technique."""
-    machine_id = saves_svc.game_host_machine(deps._settings)
+    machine_id = clients_svc.game_host_machine(deps._settings)
     name = next((m["name"] for m in saves_machines(deps._settings) if m["id"] == machine_id), "")
     return name or host_name(deps._settings)
 
@@ -107,7 +108,7 @@ def set_game_host_machine(body: GameHostMachine):
     """Client d'essai = un client déjà associé (onglet Sauvegardes) : son adresse, son
     jeton et son certificat sont repris, sans nouveau code d'association."""
     try:
-        saves_svc.use_as_game_host(deps._settings, body.id)
+        clients_svc.use_as_game_host(deps._settings, body.id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"client inconnu : {body.id}") from None
     except ValueError as exc:
@@ -129,7 +130,7 @@ def set_machine_url(body: MachineUrl):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     # Les clients déjà déclarés gardent l'ancienne adresse : redéclaration, en arrière-plan (une
     # machine éteinte ne bloque pas l'enregistrement ; elle sera déclarée à son prochain statut).
-    threading.Thread(target=saves_svc.redeclare_manager, args=(deps._settings,), daemon=True).start()
+    threading.Thread(target=clients_svc.redeclare_manager, args=(deps._settings,), daemon=True).start()
     return get_config()
 
 

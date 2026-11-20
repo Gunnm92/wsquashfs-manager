@@ -11,8 +11,10 @@ import pytest
 
 from app.config import Settings
 from app.models import Task
+from app.services.errors import ManagerError
+from app.services.jobs import Job
 from app.services.operations import run_cover
-from app.services.rebuild import COVER, Job, RebuildError
+from app.services.rebuild import COVER
 
 needs_tools = pytest.mark.skipif(
     not (shutil.which("mksquashfs") and shutil.which("unsquashfs")),
@@ -101,7 +103,7 @@ def test_cover_refuses_existing_folder(tmp_path: Path):
     image = _image(tmp_path, {".wsquashfs/autre": b"x"})
     _es_cover(image)
     data = image.read_bytes()
-    with pytest.raises(RebuildError, match="reconstruire"):
+    with pytest.raises(ManagerError, match="reconstruire"):
         _run(image, tmp_path)
     assert image.read_bytes() == data
 
@@ -113,7 +115,7 @@ def test_cover_refuses_image_in_use(tmp_path: Path, monkeypatch):
     _es_cover(image)
     data = image.read_bytes()
     monkeypatch.setattr(scan, "image_in_use", lambda path: True)
-    with pytest.raises(RebuildError, match="en cours"):
+    with pytest.raises(ManagerError, match="en cours"):
         _run(image, tmp_path)
     assert image.read_bytes() == data
 
@@ -144,10 +146,10 @@ def _replace_setup(monkeypatch, tmp_path: Path, *, present: bool, current: bytes
         files += [".wsquashfs", ".wsquashfs/autre"]
     art_path = tmp_path / "sgdb.png"
     art_path.write_bytes(NEW)
-    monkeypatch.setattr(scan, "_list_files_uncached", lambda settings, img: files)
+    monkeypatch.setattr(scan, "list_files_uncached", lambda settings, img: files)
     monkeypatch.setattr(scan, "read_autorun_bytes", lambda settings, img: b"CMD=game.exe\r\n")
     monkeypatch.setattr(scan, "image_in_use", lambda img: False)
-    monkeypatch.setattr(scan, "_unsquashfs_cat", lambda settings, img, member: current)
+    monkeypatch.setattr(scan, "unsquashfs_cat", lambda settings, img, member: current)
     monkeypatch.setattr(artwork_mod, "artwork",
                         lambda settings, img, cmd, dir_, **kwargs: artwork_mod.Artwork(art_path, "image/png", kind))
     calls = []
@@ -206,7 +208,7 @@ def test_replace_true_without_cover_appends(monkeypatch, tmp_path: Path):
     commands = []
     listings = iter([["Game/game.exe", "autorun.cmd"],
                      ["Game/game.exe", "autorun.cmd", ".wsquashfs", COVER]])
-    monkeypatch.setattr(operations.scan, "_list_files_uncached", lambda s, i: next(listings))
+    monkeypatch.setattr(operations.scan, "list_files_uncached", lambda s, i: next(listings))
     monkeypatch.setattr(operations, "run_progress",
                         lambda command, job, phase, start, end: commands.append(command))
     monkeypatch.setattr(operations.subprocess, "run",

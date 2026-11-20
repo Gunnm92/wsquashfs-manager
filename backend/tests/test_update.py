@@ -11,7 +11,8 @@ import pytest
 from app.config import Settings
 from app.models import Task
 from app.services import scan
-from app.services.rebuild import Job, RebuildError
+from app.services.errors import ManagerError
+from app.services.jobs import Job
 from app.services.update import default_anchor, plan_update, run_update
 
 pytestmark = pytest.mark.skipif(not shutil.which("mksquashfs"), reason="squashfs-tools absent")
@@ -76,9 +77,9 @@ def test_plan_full_build_deletes_missing_but_protects(env):
     settings, image, patch, _ = env
     plan = plan_update(settings, image, patch, "drive_c/Game", delete_missing=True, version="2.0")
     assert plan.deleted == ["drive_c/Game/data/level1.pak", "drive_c/Game/data/old.pak"]
-    with pytest.raises(RebuildError, match="racine d'un prefix"):
+    with pytest.raises(ManagerError, match="racine d'un prefix"):
         plan_update(settings, image, patch, "", delete_missing=True)
-    with pytest.raises(RebuildError, match="n'existe pas"):
+    with pytest.raises(ManagerError, match="n'existe pas"):
         plan_update(settings, image, patch, "drive_c/Nope")
 
 

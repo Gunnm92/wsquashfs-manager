@@ -28,9 +28,11 @@ from pathlib import Path
 from ..config import Settings
 from ..models import Task
 from . import scan
-from .analyze import _game_version, read_exe, scan_folder
+from .analyze import game_version, read_exe, scan_folder
 from .autorun import Autorun, decode_autorun, exe_from_cmd, normalize_path
-from .rebuild import Changes, Job, RebuildError, rebuild, safe_rel, table
+from .errors import ManagerError
+from .jobs import Job
+from .rebuild import Changes, rebuild, safe_rel, table
 
 _LIST_LIMIT = 300          # fichiers détaillés dans l'aperçu (les totaux restent exacts)
 
@@ -89,7 +91,7 @@ def _source_mtime(path: Path) -> str:
 def plan_update(settings: Settings, image: Path, source: Path, anchor: str,
                 delete_missing: bool = False, version: str | None = None) -> UpdatePlan:
     if not source.is_dir():
-        raise RebuildError(f"dossier source introuvable : {source}")
+        raise ManagerError(f"dossier source introuvable : {source}")
     entries = table(settings, image)
     by_lower = {rel.lower(): rel for rel in entries}
 
@@ -99,7 +101,7 @@ def plan_update(settings: Settings, image: Path, source: Path, anchor: str,
         anchor = safe_rel(anchor)
         found = by_lower.get(anchor.lower())
         if found is None or entries[found][0] != "d":
-            raise RebuildError(f"le dossier {anchor} n'existe pas dans l'image")
+            raise ManagerError(f"le dossier {anchor} n'existe pas dans l'image")
         anchor = found
     plan = UpdatePlan(anchor=anchor)
     prefix = f"{anchor}/" if anchor else ""
@@ -123,7 +125,7 @@ def plan_update(settings: Settings, image: Path, source: Path, anchor: str,
             continue
         kind, before, date = entries[existing]
         if kind == "d":
-            raise RebuildError(f"{existing} est un dossier dans l'image, un fichier dans la source")
+            raise ManagerError(f"{existing} est un dossier dans l'image, un fichier dans la source")
         if before == size and date == _source_mtime(source / rel):
             plan.same += 1
             continue
@@ -132,7 +134,7 @@ def plan_update(settings: Settings, image: Path, source: Path, anchor: str,
 
     if delete_missing:
         if not anchor and any(r.lower() in ("system.reg", "config_info") for r in entries):
-            raise RebuildError("suppression des fichiers absents refusée à la racine d'un prefix : "
+            raise ManagerError("suppression des fichiers absents refusée à la racine d'un prefix : "
                                "choisir le dossier du jeu comme point d'ancrage")
         # Dossiers qui contiennent des fichiers de la source : à garder
         source_dirs = {"/".join(path.split("/")[:i]) for path in in_source
@@ -155,7 +157,7 @@ def plan_update(settings: Settings, image: Path, source: Path, anchor: str,
         exe = normalize_path(f"{autorun.get('DIR') or ''}/{exe_from_cmd(cmd)}")
         exe_rel = next((r for r in src.sizes if f"{prefix}{r}".lower() == exe), None)
         if exe_rel:
-            found, why = _game_version(read_exe(source / exe_rel), None)
+            found, why = game_version(read_exe(source / exe_rel), None)
             plan.version, plan.version_hint = found, why
     else:
         plan.version = version or None
@@ -200,7 +202,7 @@ def set_aside_masked(settings: Settings, image: Path, paths: list[str]) -> Path 
 def run_update(settings: Settings, task: Task, job: Job) -> str:
     """Gestionnaire de la tâche « update »."""
     if not task.image_path:
-        raise RebuildError("tâche sans image")
+        raise ManagerError("tâche sans image")
     image = Path(task.image_path)
     p = task.params
     plan = plan_update(settings, image, Path(p["source"]), p.get("anchor", ""),

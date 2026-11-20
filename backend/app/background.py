@@ -9,7 +9,8 @@ import threading
 
 from . import deps
 from .services import saves as saves_svc
-from .services.rebuild import RebuildError, purge_backups
+from .services.errors import ManagerError
+from .services.rebuild import purge_backups
 
 logger = logging.getLogger("wsquashfs-manager")
 
@@ -37,6 +38,6 @@ def _purge_old_backups() -> None:
     try:
         images = [info.path for info in deps._refresh_library(force=False)]
         purge_backups(images, deps._settings.old_retention_days)
-    except (OSError, RebuildError):
+    except (OSError, ManagerError):
         # tâche de fond : un dossier inaccessible ne bloque pas le démarrage
         logger.exception("purge des .old impossible")

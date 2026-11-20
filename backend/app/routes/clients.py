@@ -7,9 +7,9 @@ from pydantic import BaseModel, Field
 
 from .. import deps
 from ..services import activity
-from ..services import saves as saves_svc
-from ..services.rebuild import RebuildError
-from ..services.trial import AgentProbeError, AgentUnreachable
+from ..services import clients as clients_svc
+from ..services.agent import AgentProbeError, AgentUnreachable
+from ..services.errors import ManagerError
 
 router = APIRouter()
 
@@ -21,14 +21,14 @@ class SavesMachineAdd(BaseModel):
 @router.get("/api/saves/machines")
 def saves_machines_list():
     """Machines de la synchronisation (jeton et certificat jamais renvoyés)."""
-    return {"machines": saves_svc.machine_rows(deps._settings)}
+    return {"machines": clients_svc.machine_rows(deps._settings)}
 
 
 @router.post("/api/saves/machines")
 def saves_machine_add(body: SavesMachineAdd):
     """Associe un client par son code wsq:// ; même empreinte ou même adresse → remplacement."""
     try:
-        return saves_svc.add_machine(deps._settings, body.code)
+        return clients_svc.add_machine(deps._settings, body.code)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except AgentProbeError as exc:
@@ -38,7 +38,7 @@ def saves_machine_add(body: SavesMachineAdd):
 @router.delete("/api/saves/machines/{machine_id}")
 def saves_machine_remove(machine_id: str):
     try:
-        saves_svc.remove_machine(deps._settings, machine_id)
+        clients_svc.remove_machine(deps._settings, machine_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"client inconnu : {machine_id}") from None
     except ValueError as exc:
@@ -56,12 +56,12 @@ def _machine_dirs(machine_id: str, change: tuple[str, ...] = ()) -> dict:
     """Dossiers déclarés d'un client ; 404 client inconnu, 502 injoignable, 422 refus de
     l'agent (chemin hors HOME, nom invalide, agent trop ancien...)."""
     try:
-        return saves_svc.machine_dirs(deps._settings, machine_id, change)
+        return clients_svc.machine_dirs(deps._settings, machine_id, change)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"client inconnu : {machine_id}") from None
     except AgentUnreachable as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    except RebuildError as exc:
+    except ManagerError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
@@ -95,7 +95,7 @@ class SavesMachineOrder(BaseModel):
 def saves_machines_order(body: SavesMachineOrder):
     """Ordre des clients dans le bandeau et les listes (chaque client une seule fois)."""
     try:
-        return {"ids": saves_svc.set_machine_order(deps._settings, body.ids)}
+        return {"ids": clients_svc.set_machine_order(deps._settings, body.ids)}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -104,7 +104,7 @@ def saves_machines_order(body: SavesMachineOrder):
 def saves_machine_icon(machine_id: str, body: SavesMachineIcon):
     """Icône choisie à la main d'un client ; null la rend à la détection (système)."""
     try:
-        return saves_svc.set_icon(deps._settings, machine_id, body.icon)
+        return clients_svc.set_icon(deps._settings, machine_id, body.icon)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"client inconnu : {machine_id}") from None
     except ValueError as exc:
@@ -122,10 +122,10 @@ def clients_activity(since: int = -1):
 def saves_machine_update(machine_id: str):
     """Met à jour le lanceur du client (agent 11, binaire vérifié par son empreinte) ; l'agent se relance."""
     try:
-        return saves_svc.open_machine(deps._settings, machine_id, timeout=330).update()
+        return clients_svc.open_machine(deps._settings, machine_id, timeout=330).update()
     except KeyError:
         raise HTTPException(status_code=404, detail=f"client inconnu : {machine_id}") from None
     except AgentUnreachable as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    except RebuildError as exc:
+    except ManagerError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

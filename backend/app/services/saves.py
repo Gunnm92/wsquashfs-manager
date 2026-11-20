@@ -1,7 +1,7 @@
 """Manager de sauvegardes et synchronisation entre machines (SPEC « Manager de sauvegardes »).
 
-- Machines : celles de config.json (`saves_machines`, associées par code
-  wsq://), plus le client d'essai en mode agent (id « game-host », d'office).
+- Machines : le registre des clients est dans clients.py (config.json,
+  `saves_machines`, plus le client d'essai en mode agent, id « game-host »).
 - Manager : `state_dir/saves-reserve/<jeu>/` avec `current.tar.gz`, `meta.json`
   et, avant chaque remplacement, l'ancienne version datée (3 gardées).
 - Opérations : pull (machine → manager), push (manager → machines),
@@ -16,54 +16,47 @@ Les écritures du manager passent par durable.py (fichier .part, fsync,
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
 import re
 import secrets
-import shutil
-import socket
-import subprocess
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from ..config import (
     ICONS,
     Settings,
-    save_game_host,
-    save_saves_game_host_icon,
-    save_saves_machines,
-    save_saves_order,
-    saves_client_id,
-    saves_machines,
-    saves_order,
-    set_saves_machine_field,
 )
 from ..models import Task, TaskStatus
 from . import activity
-from .durable import append_line, fsync_dir, publish_new, swap_keep_old, write_atomic
-from .rebuild import Job, RebuildError
-from .trial import (
+from .agent import (
     AgentHost,
     SavesBusy,
-    agent_cert_path,
-    fingerprint_pem,
-    pair_agent,
-    parse_pair_code,
 )
+from .clients import (
+    MANAGER_PEER_VERSION,
+    declare_manager,
+    find_machine,
+    machine_label,
+    machine_rows,
+    manager_fingerprint,
+    manager_ui_url,
+    open_machine,
+    version_at_least,
+)
+from .durable import append_line, fsync_dir, publish_new, swap_keep_old, write_atomic
+from .errors import ManagerError
+from .jobs import Job
 
 log = logging.getLogger("wsquashfs-manager")
-GAME_HOST_ID = "game-host"          # client d'essai en mode agent : toujours listée, non supprimable
 KEEP_ARCHIVES = 3                   # versions datées gardées par jeu
 RESERVE_DIR = "saves-reserve"
 CURRENT = "current.tar.gz"
 META = "meta.json"
-MANAGER_PEER_VERSION = 9            # premier agent qui accepte la déclaration du manager (PUT /v1/saves/manager)
 STORE_LOCK = threading.Lock()       # meta.json de la réserve : un écrit à la fois (envoi d'un client, synchro auto)
 
 _GAME_RE = re.compile(r"^[^./\\\x00][^/\\\x00]{0,199}$")
@@ -91,7 +84,7 @@ def clean_dir(value: object) -> str | None:
 
 def check_game(name: object) -> str:
     if not valid_game(name):
-        raise RebuildError(f"nom de jeu invalide : {name!r}")
+        raise ManagerError(f"nom de jeu invalide : {name!r}")
     return str(name)
 
 
@@ -107,303 +100,6 @@ def game_name(filename: str) -> str:
 
 def _dedupe(names) -> list[str]:
     return list(dict.fromkeys(names))
-
-
-# ------------------------------------------------------------------ machines
-
-def _norm(url: str) -> str:
-    return url.strip().rstrip("/").lower()
-
-
-def _host_of(url: str) -> str:
-    return urlsplit(url).hostname or url
-
-
-def _fingerprint_or_empty(pem: str | None) -> str:
-    try:
-        return fingerprint_pem(pem) if pem else ""
-    except (ValueError, OSError):
-        return ""
-
-
-def _chosen_icon(value: object) -> str | None:
-    """Icône choisie à la main, si elle est connue ; sinon None (détection)."""
-    return value if isinstance(value, str) and value in ICONS else None
-
-
-def machine_rows(settings: Settings) -> list[dict]:
-    """Machines de la synchronisation, sans jeton ni certificat :
-    {id, name, url, fingerprint, kind, removable, icon} ; `icon` est l'icône choisie
-    à la main, None si elle n'est pas choisie (la détection vient de status)."""
-    rows: list[dict] = []
-    saved_urls = set()
-    for machine in saves_machines(settings):
-        saved_urls.add(_norm(machine["url"]))
-        rows.append({"id": machine["id"], "name": machine["name"], "url": machine["url"],
-                     "fingerprint": _fingerprint_or_empty(machine["pem"]),
-                     "kind": "saved", "removable": True, "icon": _chosen_icon(machine.get("icon"))})
-    if settings.game_host == "agent" and settings.agent_url and _norm(settings.agent_url) not in saved_urls:
-        cert = agent_cert_path(settings)
-        pem = cert.read_text() if cert.exists() else None
-        url = settings.agent_url.rstrip("/")
-        rows.insert(0, {"id": GAME_HOST_ID, "name": f"client d'essai ({_host_of(url)})", "url": url,
-                        "fingerprint": _fingerprint_or_empty(pem), "kind": "game_host", "removable": False,
-                        "icon": _chosen_icon(settings.saves_game_host_icon)})
-    # Ordre choisi dans Réglages > Clients (bandeau, listes) ; les clients absents de l'ordre suivent
-    rank = {machine_id: i for i, machine_id in enumerate(saves_order(settings))}
-    rows.sort(key=lambda row: rank.get(row["id"], len(rank)))
-    return rows
-
-
-def set_machine_order(settings: Settings, ids: list[str]) -> list[str]:
-    """Enregistre l'ordre des clients : doit contenir chaque client exactement une fois.
-    ValueError sinon."""
-    current = [row["id"] for row in machine_rows(settings)]
-    if len(set(ids)) != len(ids) or sorted(ids) != sorted(current):
-        raise ValueError("ordre incomplet : chaque client doit figurer une seule fois")
-    save_saves_order(settings, list(ids))
-    return list(ids)
-
-
-def game_host_machine(settings: Settings) -> str:
-    """Client associé qui sert de client d'essai (même adresse), "" sinon."""
-    if settings.game_host != "agent" or not settings.agent_url:
-        return ""
-    for machine in saves_machines(settings):
-        if _norm(machine["url"]) == _norm(settings.agent_url):
-            return machine["id"]
-    return ""
-
-
-def use_as_game_host(settings: Settings, machine_id: str) -> None:
-    """Fait d'un client associé le client d'essai (Réglages) : même adresse, même jeton,
-    même certificat épinglé, sans nouvelle association. KeyError si elle est inconnue. Le
-    processus de session vient de son /v1/info s'il répond, sinon le réglage actuel reste."""
-    machine = next((m for m in saves_machines(settings) if m["id"] == machine_id), None)
-    if machine is None:
-        raise KeyError(machine_id)
-    session = settings.session_process
-    try:
-        info = AgentHost(settings, 15, url=machine["url"], token=machine["token"], pem=machine["pem"]).info()
-        session = str(info.get("session_process") or session)
-    except RebuildError:
-        pass
-    cert = agent_cert_path(settings)
-    cert.parent.mkdir(parents=True, exist_ok=True)
-    write_atomic(cert, machine["pem"].strip() + "\n")
-    save_game_host(settings, {"game_host": "agent", "agent_url": machine["url"],
-                              "agent_token": machine["token"], "session_process": session})
-
-
-def find_machine(settings: Settings, machine_id: str) -> dict:
-    """Ligne du client ; KeyError si elle n'existe pas (ou plus)."""
-    for row in machine_rows(settings):
-        if row["id"] == machine_id:
-            return row
-    raise KeyError(machine_id)
-
-
-def _label(settings: Settings, machine_id: str) -> str:
-    try:
-        return find_machine(settings, machine_id)["name"]
-    except KeyError:
-        raise RebuildError(f"client inconnu : {machine_id}") from None
-
-
-def open_machine(settings: Settings, machine_id: str, timeout: float = 3600) -> AgentHost:
-    """Client HTTPS vers un client de la synchronisation (certificat épinglé)."""
-    client_id = saves_client_id(settings)
-    if machine_id == GAME_HOST_ID:
-        if settings.game_host != "agent" or not settings.agent_url:
-            raise RebuildError("client d'essai : plus en mode agent")
-        return AgentHost(settings, timeout, client_id=client_id)
-    for machine in saves_machines(settings):
-        if machine["id"] == machine_id:
-            return AgentHost(settings, timeout, pem=machine["pem"], url=machine["url"],
-                             token=machine["token"], client_id=client_id)
-    raise RebuildError(f"client inconnu : {machine_id}")
-
-
-def add_machine(settings: Settings, code: str) -> dict:
-    """Associe un client par son code wsq:// : le secret du code s'échange ici, une
-    seule fois, contre le jeton durable de ce manager (pair_agent) ; seul ce jeton est
-    enregistré. Même empreinte ou même adresse qu'un client enregistré : remplacement.
-    ValueError si le code est illisible ; AgentProbeError (avec son code HTTP) sinon."""
-    pair = parse_pair_code(code)
-    paired = pair_agent(pair["url"], pair["secret"], pair["fingerprint"], saves_client_id(settings))
-    name = paired["host"] or _host_of(paired["url"])
-    machines = saves_machines(settings)
-    matches = [i for i, m in enumerate(machines)
-               if _norm(m["url"]) == _norm(paired["url"])
-               or _fingerprint_or_empty(m["pem"]).replace(":", "") == paired["fingerprint"].replace(":", "")]
-    entry = {"id": secrets.token_hex(4), "name": name, "url": paired["url"],
-             "token": paired["token"], "pem": paired["pem"]}
-    if matches:
-        entry["id"] = machines[matches[0]]["id"]          # le remplacement garde l'identifiant
-        if _chosen_icon(machines[matches[0]].get("icon")):
-            entry["icon"] = machines[matches[0]]["icon"]  # et l'icône choisie à la main
-        kept = [m for i, m in enumerate(machines) if i not in matches]
-        kept.insert(matches[0], entry)
-        machines = kept
-    else:
-        machines.append(entry)
-    save_saves_machines(settings, machines)
-    try:
-        declare_manager(settings, entry["id"])
-    except (RebuildError, OSError) as exc:
-        log.warning("client %s associé, mais le manager n'a pas pu s'y déclarer : %s", name, exc)
-    return {"id": entry["id"], "name": name, "url": paired["url"],
-            "fingerprint": paired["fingerprint"], "replaced": bool(matches)}
-
-
-def machine_tls(settings: Settings, create: bool = True) -> tuple[Path, Path]:
-    """Certificat auto-signé du manager pour les clients (state_dir/tls/cert.pem et key.pem),
-    créé une fois avec openssl. create faux : pas de création (le fichier doit exister).
-    RebuildError si openssl manque ou échoue."""
-    folder = settings.state_dir / "tls"
-    cert, key = folder / "cert.pem", folder / "key.pem"
-    if (cert.is_file() and key.is_file()) or not create:
-        return cert, key
-    if not shutil.which("openssl"):
-        raise RebuildError("openssl absent : certificat du manager pour les clients impossible")
-    folder.mkdir(parents=True, exist_ok=True)
-    cert_part, key_part = folder / "cert.pem.part", folder / "key.pem.part"
-    try:
-        subprocess.run(["openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1",
-                        "-nodes", "-keyout", str(key_part), "-out", str(cert_part), "-days", "3650",
-                        "-subj", "/CN=wsquashfs-manager",
-                        "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1"],
-                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except (OSError, subprocess.CalledProcessError) as exc:
-        key_part.unlink(missing_ok=True)
-        cert_part.unlink(missing_ok=True)
-        raise RebuildError(f"certificat du manager pour les clients impossible : {exc}") from exc
-    os.chmod(key_part, 0o600)
-    os.replace(key_part, key)
-    os.replace(cert_part, cert)
-    fsync_dir(folder)
-    return cert, key
-
-
-def manager_fingerprint(settings: Settings, create: bool = True) -> str:
-    """Empreinte du certificat du manager, au format affiché (« AA:BB… ») ; "" si absent et
-    create faux, ou illisible."""
-    cert, _ = machine_tls(settings, create)
-    try:
-        return fingerprint_pem(cert.read_text()) if cert.is_file() else ""
-    except (OSError, ValueError):
-        return ""
-
-
-def _version_at_least(info: dict | None, minimum: int) -> bool:
-    version = str((info or {}).get("version") or "")
-    return version.isdigit() and int(version) >= minimum
-
-
-def declare_manager(settings: Settings, machine_id: str, info: dict | None = None) -> bool:
-    """Déclare le manager à un client associé (agent version 9) : un jeton neuf est envoyé
-    avec l'adresse (Réglages) et l'empreinte du certificat du manager. Seule l'empreinte
-    SHA-256 du jeton est gardée, et seulement après l'accord de l'agent. False, sans rien
-    faire, si l'adresse du manager n'est pas réglée ou si l'agent est plus ancien.
-    KeyError : client inconnu ; RebuildError : refus ou client injoignable."""
-    if not settings.machine_url:
-        return False
-    if not any(m["id"] == machine_id for m in saves_machines(settings)):
-        raise KeyError(machine_id)
-    host = open_machine(settings, machine_id, timeout=15)
-    if info is None:
-        info = host.info()
-    if not _version_at_least(info, MANAGER_PEER_VERSION):
-        return False
-    fingerprint = manager_fingerprint(settings).replace(":", "")
-    token = secrets.token_urlsafe(32)
-    name = f"wsquashfs-manager ({socket.gethostname()})"[:64]
-    host.saves_manager_put(name, settings.machine_url, token, fingerprint, ui=manager_ui_url(settings))
-    set_saves_machine_field(settings, machine_id, "manager_token_sha256",
-                            hashlib.sha256(token.encode("utf-8")).hexdigest())
-    return True
-
-
-def manager_ui_url(settings: Settings) -> str:
-    """Adresse de l'interface donnée aux clients : ui_url (Réglages, proxy), sinon l'hôte de
-    machine_url sur le port de l'interface, en http ; "" sans adresse du manager."""
-    if settings.ui_url:
-        return settings.ui_url
-    host = urlsplit(settings.machine_url).hostname if settings.machine_url else None
-    if not host:
-        return ""
-    return f"http://[{host}]:{settings.port}" if ":" in host else f"http://{host}:{settings.port}"
-
-
-def redeclare_manager(settings: Settings) -> list[str]:
-    """Déclare le manager (nouvelle adresse) à chaque client associé joignable ; erreurs
-    ignorées (client éteint, agent ancien). Retourne les clients déclarés."""
-    done = []
-    for machine in saves_machines(settings):
-        try:
-            if declare_manager(settings, machine["id"]):
-                done.append(machine["id"])
-        except (KeyError, RebuildError):
-            continue
-    return done
-
-
-def remove_machine(settings: Settings, machine_id: str) -> None:
-    """KeyError si le client n'est pas enregistré ; le client d'essai ne se retire pas.
-    Si le client oublié était le client d'essai, celui-ci n'est plus choisi et
-    désactivé : sinon son adresse resterait listée comme « client d'essai », injoignable.
-    """
-    if machine_id == GAME_HOST_ID:
-        raise ValueError("client d'essai : non supprimable (choisir un autre client d'essai dans le bandeau Clients)")
-    machines = saves_machines(settings)
-    kept = [m for m in machines if m["id"] != machine_id]
-    if len(kept) == len(machines):
-        raise KeyError(machine_id)
-    was_game_host = game_host_machine(settings) == machine_id
-    save_saves_machines(settings, kept)
-    activity.forget(machine_id)
-    if was_game_host:
-        save_game_host(settings, {"game_host": "off", "agent_url": "", "agent_token": ""})
-
-
-def machine_dirs(settings: Settings, machine_id: str, change: tuple[str, ...] = ()) -> dict:
-    """Dossiers déclarés d'un client (agent v8) : {dirs: [{name, path}], eden}. `change` :
-    ("put", nom, chemin) ou ("delete", nom) avant la lecture. KeyError : client inconnu ;
-    RebuildError (AgentUnreachable si injoignable) : refus de l'agent, avec son message."""
-    find_machine(settings, machine_id)
-    host = open_machine(settings, machine_id, timeout=30)
-    if change and change[0] == "put":
-        data = host.saves_dir_put(change[1], change[2])
-    elif change and change[0] == "delete":
-        data = host.saves_dir_delete(change[1])
-    else:
-        data = host.saves_dirs()
-    dirs = data.get("dirs") if isinstance(data, dict) else None
-    if not isinstance(dirs, list):
-        raise RebuildError("réponse illisible du client (dossiers)")
-    return {"dirs": [{"name": str(d.get("name", "")), "path": str(d.get("path", ""))}
-                     for d in dirs if isinstance(d, dict)],
-            "eden": str(data.get("eden") or "")}
-
-
-def set_icon(settings: Settings, machine_id: str, icon: str | None) -> dict:
-    """Icône choisie à la main d'un client (None : retour à la détection).
-    KeyError si le client est inconnue ; ValueError si l'icône n'est pas dans ICONS."""
-    find_machine(settings, machine_id)
-    if icon is not None and icon not in ICONS:
-        raise ValueError(f"icône inconnue : {icon} (valeurs : {', '.join(ICONS)})")
-    if machine_id == GAME_HOST_ID:
-        save_saves_game_host_icon(settings, icon)
-    else:
-        machines = saves_machines(settings)
-        for machine in machines:
-            if machine["id"] == machine_id:
-                if icon is None:
-                    machine.pop("icon", None)
-                else:
-                    machine["icon"] = icon
-        save_saves_machines(settings, machines)
-    return {"id": machine_id, "icon": icon, "icon_set": icon is not None}
 
 
 # ------------------------------------------------------------------ manager
@@ -634,7 +330,7 @@ def resolve(settings: Settings, game: str, keep: str, job: Job | None = None) ->
     (puis _prune). Tout client encore en conflit après relecture (action « conflit », qu'une
     version soit rangée ou non) et dont la copie n'a pas été retenue est noté « à l'empreinte de sa
     copie » : il apparaît alors en retard et reçoit la version du manager à la synchro suivante (au
-    lieu de repasser en conflit). Rien à départager : ok, sans rien changer. RebuildError si `keep`
+    lieu de repasser en conflit). Rien à départager : ok, sans rien changer. ManagerError si `keep`
     est inconnu, ou si le client choisi est injoignable ou n'a pas le jeu."""
     check_game(game)
     entries = status(settings, [game], refresh=True)["games"]
@@ -647,17 +343,17 @@ def resolve(settings: Settings, game: str, keep: str, job: Job | None = None) ->
         try:
             find_machine(settings, client_id)
         except KeyError:
-            raise RebuildError(f"client inconnu : {client_id}") from None
+            raise ManagerError(f"client inconnu : {client_id}") from None
         row = next((m for m in machines if m["id"] == client_id), None)
         if row is None or row["state"] == "injoignable":
-            raise RebuildError(f"client injoignable : {(row or {}).get('name') or client_id}"
+            raise ManagerError(f"client injoignable : {(row or {}).get('name') or client_id}"
                                + (f" ({row['message']})" if row and row["message"] else ""))
         if row["state"] != "présente":
-            raise RebuildError(f"{row['name']} n'a pas ce jeu")
+            raise ManagerError(f"{row['name']} n'a pas ce jeu")
         host = open_machine(settings, client_id)
         got = _pull_one(settings, host, row["name"], game, _present_listing(host.saves_list()).get(game))
         if not got["ok"]:
-            raise RebuildError(f"{row['name']} : {got['message']}")
+            raise ManagerError(f"{row['name']} : {got['message']}")
         received = got["fingerprint"]
     with STORE_LOCK:
         d = reserve_dir(settings, game)
@@ -666,7 +362,7 @@ def resolve(settings: Settings, game: str, keep: str, job: Job | None = None) ->
         if keep != "manager" and not client_id:
             chosen = next((v for v in versions if v["name"] == keep), None)
             if chosen is None:
-                raise RebuildError(f"version de conflit inconnue : {keep}")
+                raise ManagerError(f"version de conflit inconnue : {keep}")
         elif keep == "manager" and not versions and not conflicted:
             return {"ok": True, "message": "rien à départager", "kept": "manager", "archived": [], "behind": []}
         current, meta_path = d / CURRENT, d / META
@@ -771,7 +467,7 @@ def pull(settings: Settings, source_id: str, games: list[str] | None,
     Par jeu : {game, ok, message, fingerprint, newest}. Accusé (saves_ack) après
     chaque réception réussie."""
     host = open_machine(settings, source_id)
-    source = _label(settings, source_id)
+    source = machine_label(settings, source_id)
     listing = _present_listing(host.saves_list())
     wanted = sorted(n for n in listing if valid_game(n)) if games is None else _dedupe(games)
     results = []
@@ -813,7 +509,7 @@ def _pull_one(settings: Settings, host: AgentHost, source: str, game: str,
     except SavesBusy:
         result["message"] = f"jeu en cours sur {source} : non récupéré"
         return result
-    except (RebuildError, OSError) as exc:
+    except (ManagerError, OSError) as exc:
         result["message"] = str(exc)
         return result
     finally:
@@ -821,7 +517,7 @@ def _pull_one(settings: Settings, host: AgentHost, source: str, game: str,
     warning = ""
     try:
         host.saves_ack(game, fingerprint)
-    except RebuildError as exc:
+    except ManagerError as exc:
         warning = f" (état non enregistré sur {source} : {exc})"
     result.update(ok=True, fingerprint=fingerprint, newest=newest,
                   message=f"récupérée de {source}{warning}")
@@ -838,9 +534,9 @@ def push(settings: Settings, target_ids: list[str], games: list[str] | None,
         try:
             host = open_machine(settings, machine_id)
             error = ""
-        except RebuildError as exc:
+        except ManagerError as exc:
             host, error = None, str(exc)
-        targets.append((machine_id, _label(settings, machine_id), host, error))
+        targets.append((machine_id, machine_label(settings, machine_id), host, error))
     total = len(wanted) * len(targets)
     results: list[dict] = []
     for game in wanted:
@@ -858,18 +554,18 @@ def _push_one(settings: Settings, game: str, machine_id: str, label: str,
               "message": "", "archived": None, "fingerprint": "", "busy": False}
     try:
         if host is None:
-            raise RebuildError(error or "client indisponible")
+            raise ManagerError(error or "client indisponible")
         meta = reserve_meta(settings, game)
         archive = reserve_dir(settings, game) / CURRENT
         if meta is None or not archive.is_file():
-            raise RebuildError("absent du manager")
+            raise ManagerError("absent du manager")
         reply = host.saves_put(game, archive, meta.get("profile"), clean_dir(meta.get("dir")))
         fingerprint = str(reply.get("fingerprint") or meta.get("fingerprint") or "")
         result["archived"] = bool(reply.get("archived"))
     except SavesBusy:
         result.update(message=f"jeu en cours sur {label} : non envoyée", busy=True)
         return result
-    except RebuildError as exc:
+    except ManagerError as exc:
         result["message"] = str(exc)
         return result
     except OSError as exc:
@@ -878,7 +574,7 @@ def _push_one(settings: Settings, game: str, machine_id: str, label: str,
     message = f"envoyée vers {label}"
     try:
         host.saves_ack(game, fingerprint)          # POST /v1/saves/state : le client garde l'empreinte commune
-    except RebuildError as exc:
+    except ManagerError as exc:
         message += f" (état non enregistré : {exc})"
     result.update(ok=True, message=message, fingerprint=fingerprint)
     return result
@@ -900,12 +596,12 @@ def _delete_one(game: str, machine_id: str, label: str, host: AgentHost | None, 
               "message": "", "archived": None}
     try:
         if host is None:
-            raise RebuildError(error or "client indisponible")
+            raise ManagerError(error or "client indisponible")
         reply = host.saves_delete(game)
     except SavesBusy:
         result["message"] = f"jeu en cours sur {label} : non supprimée"
         return result
-    except RebuildError as exc:
+    except ManagerError as exc:
         result["message"] = str(exc)
         return result
     if not int(reply.get("removed") or 0):
@@ -926,15 +622,15 @@ def delete(settings: Settings, machine_ids: list[str], games: list[str], manager
     wanted = _dedupe(games)
     bad = [g for g in wanted if not valid_game(g)]
     if bad:
-        raise RebuildError(f"nom de jeu invalide : {bad[0]!r}")
+        raise ManagerError(f"nom de jeu invalide : {bad[0]!r}")
     targets = []
     for machine_id in _dedupe(machine_ids):
         try:
             host = open_machine(settings, machine_id)
             error = ""
-        except RebuildError as exc:
+        except ManagerError as exc:
             host, error = None, str(exc)
-        targets.append((machine_id, _label(settings, machine_id), host, error))
+        targets.append((machine_id, machine_label(settings, machine_id), host, error))
     per_game = len(targets) + (1 if manager else 0)
     total = len(wanted) * per_game
     results: list[dict] = []
@@ -956,7 +652,7 @@ def _delete_manager(settings: Settings, game: str) -> dict:
               "message": "", "archived": None}
     try:
         reply = remove_from_manager(settings, game)
-    except (RebuildError, OSError) as exc:
+    except (ManagerError, OSError) as exc:
         result["message"] = str(exc)
         return result
     result.update(ok=True, message=reply["message"], archived=reply["archived"] or None)
@@ -1241,7 +937,7 @@ def status(settings: Settings, games: list[str] | None = None, refresh: bool = F
 
     try:
         manager_fp = manager_fingerprint(settings).replace(":", "") if settings.machine_url else ""
-    except RebuildError as exc:             # pas de certificat (openssl absent) : pas de déclaration, l'état reste
+    except ManagerError as exc:             # pas de certificat (openssl absent) : pas de déclaration, l'état reste
         log.warning("%s", exc)
         manager_fp = ""
 
@@ -1259,7 +955,7 @@ def status(settings: Settings, games: list[str] | None = None, refresh: bool = F
         try:
             host = open_machine(settings, row["id"], timeout=15)
             listing = _present_listing(host.saves_list(timeout=15))
-        except RebuildError as exc:
+        except ManagerError as exc:
             with _unreachable_lock:
                 _unreachable[key] = (time.monotonic(), str(exc))
             return None, str(exc), "", {}
@@ -1267,15 +963,15 @@ def status(settings: Settings, games: list[str] | None = None, refresh: bool = F
             _unreachable.pop(key, None)
         try:
             info = host.info()
-        except RebuildError:
+        except ManagerError:
             info = {}
         info = info if isinstance(info, dict) else {}
-        if (manager_fp and row["kind"] == "saved" and _version_at_least(info, MANAGER_PEER_VERSION)
+        if (manager_fp and row["kind"] == "saved" and version_at_least(info, MANAGER_PEER_VERSION)
                 and (str(info.get("manager") or "").replace(":", "").upper() != manager_fp.upper()
                      or ("manager_ui" in info and info["manager_ui"] != manager_ui_url(settings)))):
             try:
                 declare_manager(settings, row["id"], info)
-            except (RebuildError, OSError, KeyError) as exc:
+            except (ManagerError, OSError, KeyError) as exc:
                 log.warning("déclaration du manager à %s impossible : %s", row["name"], exc)
         return listing, "", str(info.get("os") or ""), info
 
@@ -1425,13 +1121,13 @@ def _sync_auto(settings: Settings, games: list[str] | None, exclude: set[str]) -
         try:
             host = open_machine(settings, row["id"], timeout=15)
             info = host.info()
-        except RebuildError:
+        except ManagerError:
             continue                # injoignable, ou sans certificat : ignorée sans bruit
         if not isinstance(info, dict) or not info.get("auto"):
             continue                # synchro auto désactivée sur le client : jamais modifiée
         try:
             listing = _present_listing(host.saves_list(timeout=15))
-        except RebuildError:
+        except ManagerError:
             continue
         clients.append((row, host, listing))
     results: list[dict] = []
@@ -1526,7 +1222,7 @@ def _keep_conflict(settings: Settings, host: AgentHost, row: dict, game: str, en
     except SavesBusy:
         out.update(action="jeu en cours", busy=True,
                    message=f"jeu en cours sur {row['name']} : conflit retenté au prochain passage")
-    except (RebuildError, OSError) as exc:
+    except (ManagerError, OSError) as exc:
         out.update(action="échec", message=f"conflit : copie de {row['name']} non rangée : {exc}")
     finally:
         part.unlink(missing_ok=True)
@@ -1603,7 +1299,7 @@ def run_saves(settings: Settings, task: Task, job: Job) -> str:
                 result["push"] = push(settings, behind, [game], job)
                 items += result["push"]["results"]
     else:
-        raise RebuildError(f"opération de sauvegardes inconnue : {op}")
+        raise ManagerError(f"opération de sauvegardes inconnue : {op}")
     task.params["result"] = result
     for item in items:
         job.log(f"{item['game']} : {item['message']}")
@@ -1611,6 +1307,6 @@ def run_saves(settings: Settings, task: Task, job: Job) -> str:
     if not items:
         return "rien à faire"
     if failed:
-        raise RebuildError(f"{len(failed)} échec(s) sur {len(items)} ({label}) : "
+        raise ManagerError(f"{len(failed)} échec(s) sur {len(items)} ({label}) : "
                            f"{failed[0]['game']} : {failed[0]['message']}")
     return f"{len(items)} opération(s) réussie(s) {label}"

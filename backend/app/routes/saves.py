@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, model_validator
 
 from .. import deps
+from ..services import clients as clients_svc
 from ..services import saves as saves_svc
 from ..services.artwork import switch_artwork
 
@@ -159,7 +160,7 @@ def saves_resolve(body: SavesResolve):
         raise HTTPException(status_code=422, detail=f"nom de jeu invalide : {body.game}")
     if body.keep.startswith("client:"):
         try:
-            saves_svc.find_machine(deps._settings, body.keep[len("client:"):])
+            clients_svc.find_machine(deps._settings, body.keep[len("client:"):])
         except KeyError:
             raise HTTPException(status_code=422, detail=f"client inconnu : {body.keep[len('client:'):]}") from None
     elif body.keep != "manager" and body.keep not in {v["name"] for v in saves_svc.conflict_versions(deps._settings, body.game)}:

@@ -40,7 +40,7 @@ def client(monkeypatch, queue, tmp_path):
         info.path.parent.mkdir(parents=True)
         info.path.write_bytes(b"img")
     monkeypatch.setattr(scan, "scan_all", lambda settings, force=False: images)
-    monkeypatch.setattr(scan, "_list_files",
+    monkeypatch.setattr(scan, "list_files",
                         lambda settings, image: ["Game", "Game/game.exe"])
     monkeypatch.setattr(scan, "read_autorun_bytes", lambda settings, image: AUTORUN)
     monkeypatch.setattr(scan, "image_in_use", lambda image: False)

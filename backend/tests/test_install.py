@@ -37,9 +37,10 @@ from app import deps, main
 from app.config import save_saves_machines, saves_machines
 from app.models import Task
 from app.services import install
-from app.services.rebuild import Job, RebuildCancelled, RebuildError
+from app.services.agent import AgentRejected, AgentUnreachable, fingerprint_pem
+from app.services.errors import ManagerError
+from app.services.jobs import Job, JobCancelled
 from app.services.tasks import TaskQueue
-from app.services.trial import AgentRejected, AgentUnreachable, fingerprint_pem
 
 BLOCK = 1 << 20
 GIB = 1 << 30
@@ -374,7 +375,7 @@ def test_one_failing_machine_does_not_stop_the_others(games_agents, tmp_path):
 
 
 def test_only_wsquashfs_images_install(tmp_path):
-    with pytest.raises(RebuildError, match="seules les images .wsquashfs"):
+    with pytest.raises(ManagerError, match="seules les images .wsquashfs"):
         install.install(make_settings(tmp_path), make_image(tmp_path, BLOCK, name="Jeu.pc"), [])
 
 
@@ -388,7 +389,7 @@ def test_cancel_stops_between_blocks(games_agents, tmp_path):
         holder["job"].cancel()
 
     holder["job"] = Job(on_progress=cancel_after_first_block)
-    with pytest.raises(RebuildCancelled):
+    with pytest.raises(JobCancelled):
         install.install(settings, image, [mid], holder["job"])
     assert puts(steambox) == [0]                             # un seul bloc envoyé, rien validé
     assert len(steambox["st"]["parts"][NAME]) == BLOCK and steambox["st"]["games"] == {}
@@ -421,7 +422,7 @@ def test_mounted_game_fails_on_that_machine_only(games_agents, tmp_path):
 
 
 def test_uninstall_refuses_a_bad_name(tmp_path):
-    with pytest.raises(RebuildError, match="nom d'image invalide"):
+    with pytest.raises(ManagerError, match="nom d'image invalide"):
         install.uninstall(make_settings(tmp_path), "../Jeu.wsquashfs", [])
 
 
@@ -469,14 +470,14 @@ def test_run_install_keeps_the_result_and_fails_partially(games_agents, tmp_path
     image = make_image(tmp_path, BLOCK)
     task = Task(id="t1", kind="install", image="arcade/Jeu", image_path=str(image),
                 params={"op": "install", "machines": [ids["steambox"], ids["busy"]]})
-    with pytest.raises(RebuildError, match="1 échec"):
+    with pytest.raises(ManagerError, match="1 échec"):
         install.run_install(settings, task, Job())
     results = task.params["result"]["results"]
     assert [r["ok"] for r in results] == [True, False]         # busy : autre version déjà installée
     assert results[1]["message"].startswith("une autre version")
     task = Task(id="t2", kind="install", params={"op": "uninstall", "name": NAME,
                                                  "machines": [ids["busy"]]})
-    with pytest.raises(RebuildError, match="1 échec"):
+    with pytest.raises(ManagerError, match="1 échec"):
         install.run_install(settings, task, Job())
     assert task.params["result"]["results"][0]["ok"] is False
     assert install.run_install(settings, Task(id="t3", kind="install", params={

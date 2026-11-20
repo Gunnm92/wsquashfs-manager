@@ -39,12 +39,12 @@ from .autorun import (
     override_path,
 )
 from .durable import fsync_dir, publish_new, write_atomic
+from .errors import ManagerError
+from .jobs import Job
 from .links import classify, folder_links, image_links, relink_options
 from .rebuild import (
     USER_XATTRS,
     Changes,
-    Job,
-    RebuildError,
     file_sizes,
     priority_prefix,
     rebuild,
@@ -90,7 +90,7 @@ def plan_autorun(settings: Settings, image: Path, name: str, system: str | None,
     if "text" in params:
         base = params.get("base_sha")
         if base is not None and base != autorun_sha(before):
-            raise RebuildError("l'autorun de l'image a changé depuis l'ouverture de "
+            raise ManagerError("l'autorun de l'image a changé depuis l'ouverture de "
                                "l'éditeur : rouvrir la fiche")
         encoding = params.get("encoding") or encoding
         new = Autorun.parse(params["text"])
@@ -99,20 +99,20 @@ def plan_autorun(settings: Settings, image: Path, name: str, system: str | None,
         new = apply_ops(current, params["ops"], name, system)
         after_text = new.render()
     if not new.lines:
-        raise RebuildError("l'autorun obtenu est vide")
+        raise ManagerError("l'autorun obtenu est vide")
     try:
         after = after_text.encode(encoding)
     except UnicodeEncodeError as exc:
         char = exc.object[exc.start]
-        raise RebuildError(f"caractère impossible à écrire en {encoding} : {char!r}") from exc
-    issues = new.validate(set(scan._list_files(settings, image))) if validate else []
+        raise ManagerError(f"caractère impossible à écrire en {encoding} : {char!r}") from exc
+    issues = new.validate(set(scan.list_files(settings, image))) if validate else []
     return AutorunPlan(before=before, after=after, after_text=after_text, encoding=encoding,
                        issues=issues)
 
 
 def run_autorun(settings: Settings, task: Task, job: Job) -> str:
     """Gestionnaire de la tâche « autorun »."""
-    image, system = _task_image(task)
+    image, system = task_image(task)
     plan = plan_autorun(settings, image, image.stem, system, task.params, validate=False)
     if not plan.changed:
         message = "Autorun déjà à jour : image non reconstruite"
@@ -197,7 +197,7 @@ def _same_content(settings: Settings, image: Path, member: str, source: Path) ->
     reconstruit pas l'image pour rien."""
     if source.stat().st_size > _COMPARE_LIMIT:
         return False
-    return scan._unsquashfs_cat(settings, image, member) == source.read_bytes()
+    return scan.unsquashfs_cat(settings, image, member) == source.read_bytes()
 
 
 def _image_case(path: str, by_lower: dict[str, str]) -> str:
@@ -216,7 +216,7 @@ def _fill(text: str, variables: dict[str, str | None], what: str) -> str:
         token = "{" + var + "}"
         if token in text:
             if value is None:
-                raise RebuildError(f"{what} : {token} inconnu (exécutable de CMD introuvable "
+                raise ManagerError(f"{what} : {token} inconnu (exécutable de CMD introuvable "
                                    "dans l'image)")
             text = text.replace(token, value)
     return text
@@ -243,9 +243,9 @@ def plan_files(settings: Settings, image: Path, name: str, system: str | None,
     Une valeur de registre est aussi posée dans la couche de sauvegardes
     (saves/<jeu>/…) si le fichier y existe : Wine le réécrit à chaque partie,
     et cette copie masque celle de l'image."""
-    files = scan._list_files(settings, image)
+    files = scan.list_files(settings, image)
     if not files:
-        raise RebuildError("arborescence de l'image illisible")
+        raise ManagerError("arborescence de l'image illisible")
     by_lower = {f.lower(): f for f in files}
     data = scan.read_autorun_bytes(settings, image)
     autorun = Autorun.parse(decode_autorun(data)[0]) if data is not None else None
@@ -260,11 +260,11 @@ def plan_files(settings: Settings, image: Path, name: str, system: str | None,
     for item in params.get("copy", []):
         source = Path(item["source"])
         if not source.is_file():
-            raise RebuildError(f"fichier source introuvable : {source}")
+            raise ManagerError(f"fichier source introuvable : {source}")
         dest = _image_case(safe_rel(_fill(item["dest"], variables, "destination")), by_lower)
         existing = by_lower.get(dest.lower())
         if existing and any(f.startswith(existing + "/") for f in files):
-            raise RebuildError(f"{dest} est un dossier dans l'image")
+            raise ManagerError(f"{dest} est un dossier dans l'image")
         if existing and _same_content(settings, image, existing, source):
             actions.append({"action": "same", "path": dest, "detail": "déjà identique"})
             continue
@@ -286,14 +286,14 @@ def plan_files(settings: Settings, image: Path, name: str, system: str | None,
     for item in params.get("reg", []):
         reg_file = prefix_reg(files, item.get("file", "user.reg"))
         if reg_file is None:
-            raise RebuildError("pas de prefix Wine dans l'image (jeu seul) : registre "
+            raise ManagerError("pas de prefix Wine dans l'image (jeu seul) : registre "
                                "impossible à modifier")
         key = _fill(item["key"], variables, "clé de registre")
         before = changes.write.get(reg_file)
         if before is None:
-            before = scan._unsquashfs_cat(settings, image, reg_file)
+            before = scan.unsquashfs_cat(settings, image, reg_file)
             if before is None:
-                raise RebuildError(f"{reg_file} illisible")
+                raise ManagerError(f"{reg_file} illisible")
         text = before.decode("latin-1")
         after = set_value(text, key, item["name"], item["value"]).encode("latin-1")
         detail = f'[{key}] "{item["name"]}"="{item["value"]}"'
@@ -320,7 +320,7 @@ def _write_saves(writes: dict[Path, bytes]) -> None:
 
 def run_files(settings: Settings, task: Task, job: Job) -> str:
     """Gestionnaire de la tâche « files »."""
-    image, system = _task_image(task)
+    image, system = task_image(task)
     plan = plan_files(settings, image, image.stem, system, task.params)
     for warning in plan.warnings:
         job.log(f"Attention : {warning}")
@@ -332,7 +332,7 @@ def run_files(settings: Settings, task: Task, job: Job) -> str:
         message = (f"Terminé en {result.duration:.0f} s (mode {result.mode}), "
                    f"original conservé en {result.backup.name}")
     elif scan.image_in_use(image):
-        raise RebuildError("jeu en cours d'utilisation")
+        raise ManagerError("jeu en cours d'utilisation")
     if plan.saves_writes:
         _write_saves(plan.saves_writes)
         scan.forget_saves(image.stem)
@@ -340,9 +340,9 @@ def run_files(settings: Settings, task: Task, job: Job) -> str:
     return message
 
 
-def _task_image(task: Task) -> tuple[Path, str | None]:
+def task_image(task: Task) -> tuple[Path, str | None]:
     if not task.image_path:
-        raise RebuildError("tâche sans image")
+        raise ManagerError("tâche sans image")
     system = task.image.split("/", 1)[0] if task.image and "/" in task.image else None
     return Path(task.image_path), system
 
@@ -351,14 +351,14 @@ def _task_image(task: Task) -> tuple[Path, str | None]:
 
 def run_verify(settings: Settings, task: Task, job: Job) -> str:
     """SPEC § 2.4 : table de l'image lisible, autorun lisible et cohérent."""
-    image, _ = _task_image(task)
+    image, _ = task_image(task)
     job.progress("table", 0.1)
-    if not scan._unsquashfs_ok(settings, image):
-        raise RebuildError("table de l'image illisible (unsquashfs -s)")
+    if not scan.unsquashfs_ok(settings, image):
+        raise ManagerError("table de l'image illisible (unsquashfs -s)")
     job.progress("arborescence", 0.4)
-    files = scan._list_files_uncached(settings, image)
+    files = scan.list_files_uncached(settings, image)
     if files is None:
-        raise RebuildError("arborescence illisible (unsquashfs -l)")
+        raise ManagerError("arborescence illisible (unsquashfs -l)")
     job.log(f"{len(files)} entrées")
     job.progress("autorun", 0.8)
     data = scan.read_autorun_bytes(settings, image)
@@ -391,25 +391,25 @@ def run_cover(settings: Settings, task: Task, job: Job) -> str:
 
     replace = bool(task.params.get("replace"))
     choice = task.params.get("choice")          # clé d'un candidat de l'aperçu (art_choice)
-    image, _ = _task_image(task)
+    image, _ = task_image(task)
     job.progress("arborescence", 0.01)
-    files = scan._list_files_uncached(settings, image)
+    files = scan.list_files_uncached(settings, image)
     if files is None:
-        raise RebuildError("arborescence illisible (unsquashfs -l)")
+        raise ManagerError("arborescence illisible (unsquashfs -l)")
     present = COVER in files
     if present and not replace:
         return "Illustration déjà présente : rien à faire"
     if COVER_DIR in files and not replace:
         # mksquashfs renommerait le nouveau dossier (.wsquashfs_1) : passer
         # par une reconstruction, qui la dépose (add_cover)
-        raise RebuildError(f"{COVER_DIR}/ existe sans illustration : reconstruire l'image")
+        raise ManagerError(f"{COVER_DIR}/ existe sans illustration : reconstruire l'image")
     if choice:
         # Candidat choisi dans l'aperçu : exactement celui-là, sans repli sur une autre source
         from .art_choice import CandidatError, Cible, candidat_fichier
         try:
             art = candidat_fichier(settings, Cible(task.image or "", image), str(choice), "full")
         except CandidatError as exc:
-            raise RebuildError(f"illustration choisie indisponible ({exc}) : "
+            raise ManagerError(f"illustration choisie indisponible ({exc}) : "
                                "aucune autre source n'est utilisée") from exc
     else:
         data = scan.read_autorun_bytes(settings, image)
@@ -425,7 +425,7 @@ def run_cover(settings: Settings, task: Task, job: Job) -> str:
     if replace and (present or COVER_DIR in files):
         return _replace_cover(settings, image, art, present, job, choisie=bool(choice))
     if scan.image_in_use(image):
-        raise RebuildError("jeu en cours d'utilisation")
+        raise ManagerError("jeu en cours d'utilisation")
     cover = art.path.read_bytes()
     with work_area(settings, image, "cover-") as tmp:
         folder = tmp / "src" / COVER_DIR
@@ -440,13 +440,13 @@ def run_cover(settings: Settings, task: Task, job: Job) -> str:
                       *USER_XATTRS, "-percentage"],
                      job, "ajout", 0.2, 0.9)
     job.progress("vérification", 0.92)
-    after = scan._list_files_uncached(settings, image)
+    after = scan.list_files_uncached(settings, image)
     if after is None or set(after) != set(files) | {COVER_DIR, COVER}:
-        raise RebuildError("vérification : arborescence inattendue après l'ajout")
+        raise ManagerError("vérification : arborescence inattendue après l'ajout")
     verify_out = subprocess.run([settings.unsquashfs, "-cat", str(image), COVER],
                                 capture_output=True, timeout=60, check=False).stdout
     if verify_out != cover:
-        raise RebuildError("vérification : illustration relue différente")
+        raise ManagerError("vérification : illustration relue différente")
     return f"Illustration ajoutée ({'jaquette' if art.kind == 'es' else 'icône'}, {len(cover) // 1024} Kio)"
 
 
@@ -462,7 +462,7 @@ def _replace_cover(settings: Settings, image: Path, art, present: bool, job: Job
     from .rebuild import COVER, Changes, rebuild
 
     cover = art.path.read_bytes()
-    current = scan._unsquashfs_cat(settings, image, COVER) if present else None
+    current = scan.unsquashfs_cat(settings, image, COVER) if present else None
     if current == cover:
         if not choisie and art.kind != "sgdb" and not settings.sgdb_api_key:
             # Sans clé, la source est la jaquette ES ou l'icône : souvent celle déjà intégrée
@@ -486,7 +486,7 @@ def reset_saves(settings: Settings, image: Path) -> Path:
     <jeu>.avant-<date>, jamais supprimé."""
     saves = settings.saves_dir / image.stem
     if not saves.is_dir():
-        raise RebuildError("aucune sauvegarde pour ce jeu")
+        raise ManagerError("aucune sauvegarde pour ce jeu")
     target = saves.with_name(f"{saves.name}.avant-{time.strftime('%Y%m%d-%H%M%S')}")
     os.rename(saves, target)
     fsync_dir(saves.parent)
@@ -572,13 +572,13 @@ def remove_tree(path: Path, attempts: int = 6) -> None:
 def folder_not_in_image(settings: Settings, folder: Path, image: Path) -> list[str]:
     """Fichiers du dossier absents de l'image ou d'une autre taille : le dossier n'est pas
     supprimable sans perte. `autorun.cmd` (remplacé à l'empaquetage) et `.wsquashfs/`
-    (illustration) ne comptent pas. RebuildError si l'image est illisible."""
+    (illustration) ne comptent pas. ManagerError si l'image est illisible."""
     try:
         in_image = {rel.lower(): size for rel, size in file_sizes(settings, image).items()}
     except (OSError, subprocess.SubprocessError) as exc:
-        raise RebuildError(f"image illisible : {exc}") from exc
+        raise ManagerError(f"image illisible : {exc}") from exc
     if not in_image:
-        raise RebuildError("image illisible ou vide")
+        raise ManagerError("image illisible ou vide")
     differ = []
     for rel, size in tree_entries(folder):
         path = folder / rel
@@ -612,28 +612,28 @@ def run_pack(settings: Settings, task: Task, job: Job) -> str:
     if not source.is_dir() and wine.is_dir():
         source = wine                # tâche reprise après un renommage déjà fait
     if not source.is_dir():
-        raise RebuildError(f"dossier introuvable : {source}")
+        raise ManagerError(f"dossier introuvable : {source}")
     target = pack_target(source)
     part = target.with_name(target.name + ".part")
     if target.exists():
-        raise RebuildError(f"{target.name} existe déjà : jamais écrasé")
+        raise ManagerError(f"{target.name} existe déjà : jamais écrasé")
     if part.exists():
         part.unlink()               # reste d'une tâche interrompue
     if not shutil.which(settings.mksquashfs):
-        raise RebuildError(f"outil requis introuvable : {settings.mksquashfs}")
+        raise ManagerError(f"outil requis introuvable : {settings.mksquashfs}")
 
     job.progress("analyse", 0.0)
     listing = scan_folder(source)
     job.log(f"{len(listing.sizes)} fichiers, {listing.total_size / 1e9:.1f} Go")
     free = shutil.disk_usage(source.parent).free
     if free < listing.total_size * 1.02:
-        raise RebuildError(f"espace insuffisant : {listing.total_size / 1e9:.1f} Go à écrire "
+        raise ManagerError(f"espace insuffisant : {listing.total_size / 1e9:.1f} Go à écrire "
                            f"au pire, {free / 1e9:.1f} Go libres")
     job.check()
 
     if params.get("rename_wine") and source != wine:
         if wine.exists():
-            raise RebuildError(f"{wine.name} existe déjà")
+            raise ManagerError(f"{wine.name} existe déjà")
         os.rename(source, wine)
         fsync_dir(source.parent)
         job.log(f"Renommé : {source.name} → {wine.name}")
@@ -655,7 +655,7 @@ def run_pack(settings: Settings, task: Task, job: Job) -> str:
         expected -= set(old_autorun)
         expected.add("autorun.cmd")
     elif not old_autorun:
-        raise RebuildError("ni autorun existant ni autorun proposé")
+        raise ManagerError("ni autorun existant ni autorun proposé")
 
     done = False
     try:
@@ -680,14 +680,14 @@ def run_pack(settings: Settings, task: Task, job: Job) -> str:
         if links.fixable:
             left = classify(image_links(part, settings.unsquashfs), expected).fixable
             if left:
-                raise RebuildError(f"vérification : {len(left)} lien(s) non réécrit(s), "
+                raise ManagerError(f"vérification : {len(left)} lien(s) non réécrit(s), "
                                    f"ex. {next(iter(left))}")
         os.chmod(part, 0o644)
         job.progress("écriture sur le disque", 0.97)
         try:
             publish_new(part, target)        # jamais d'écrasement, même en course
         except FileExistsError:
-            raise RebuildError(f"{target.name} est apparu pendant l'empaquetage") from None
+            raise ManagerError(f"{target.name} est apparu pendant l'empaquetage") from None
         done = True
     finally:
         if not done:

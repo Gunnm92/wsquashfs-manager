@@ -25,10 +25,11 @@ from pathlib import Path
 
 from ..config import Settings
 from ..models import Task
+from .agent import AgentHost, AgentUnreachable, InstallChecksum, InstallOffset
+from .clients import find_machine, machine_rows, open_machine
 from .durable import write_atomic
-from .rebuild import Job, RebuildCancelled, RebuildError
-from .saves import find_machine, machine_rows, open_machine
-from .trial import AgentHost, AgentUnreachable, InstallChecksum, InstallOffset
+from .errors import ManagerError
+from .jobs import Job, JobCancelled
 
 BLOCK_SIZE = 256 << 20          # octets par PUT
 READ_SIZE = 1 << 20             # lecture locale et hachage
@@ -47,7 +48,7 @@ def valid_name(name: object) -> bool:
 
 def image_name(path: Path) -> str:
     if not valid_name(path.name):
-        raise RebuildError("seules les images .wsquashfs s'installent")
+        raise ManagerError("seules les images .wsquashfs s'installent")
     return path.name
 
 
@@ -124,7 +125,7 @@ def _digest_prefix(image: Path, upto: int):
         while left:
             data = f.read(min(READ_SIZE, left))
             if not data:
-                raise RebuildError("image modifiée pendant l'envoi")
+                raise ManagerError("image modifiée pendant l'envoi")
             digest.update(data)
             left -= len(data)
     return digest
@@ -136,7 +137,7 @@ def _blocks(f, length: int, digest) -> Iterator[bytes]:
     while left:
         data = f.read(min(READ_SIZE, left))
         if not data:
-            raise RebuildError("image modifiée pendant l'envoi")
+            raise ManagerError("image modifiée pendant l'envoi")
         digest.update(data)
         left -= len(data)
         yield data
@@ -192,11 +193,11 @@ def _send(host: AgentHost, settings: Settings, machine_id: str, name: str, size:
         except InstallChecksum as exc:
             # Le .part a été effacé par le client : un seul nouvel envoi complet
             if restarted:
-                raise RebuildError(f"empreinte refusée deux fois par {label} : envoi abandonné") from exc
+                raise ManagerError(f"empreinte refusée deux fois par {label} : envoi abandonné") from exc
             restarted = True
         except (AgentUnreachable, InstallOffset) as exc:
             if attempt >= len(RETRY_PAUSES):
-                raise RebuildError(f"envoi interrompu, reprises épuisées : {exc}") from exc
+                raise ManagerError(f"envoi interrompu, reprises épuisées : {exc}") from exc
             time.sleep(RETRY_PAUSES[attempt])
             attempt += 1
             _check(job)
@@ -214,9 +215,9 @@ def _install_one(settings: Settings, machine_id: str, name: str, size: int, imag
     stats = {"sent": 0, "t0": time.monotonic()}
     try:
         _install_on(settings, machine_id, name, size, image, job, label, out, stats)
-    except RebuildCancelled:
+    except JobCancelled:
         raise
-    except RebuildError as exc:
+    except ManagerError as exc:
         out["message"] = str(exc)
     except OSError as exc:
         out["message"] = f"image illisible : {exc}"
@@ -262,7 +263,7 @@ def install(settings: Settings, image_path: Path, machine_ids: list[str],
     try:
         size = image_path.stat().st_size
     except OSError as exc:
-        raise RebuildError(f"image illisible : {exc}") from exc
+        raise ManagerError(f"image illisible : {exc}") from exc
     results = []
     for machine_id in dict.fromkeys(machine_ids):
         _check(job)
@@ -277,7 +278,7 @@ def uninstall(settings: Settings, name: str, machine_ids: list[str],
     """Désinstalle le jeu des clients → {name, results:[{machine, machine_id, ok, message}]}.
     Pas installé : réussite sans effet. Jeu monté ou en cours : échec pour ce client."""
     if not valid_name(name):
-        raise RebuildError(f"nom d'image invalide : {name!r}")
+        raise ManagerError(f"nom d'image invalide : {name!r}")
     results = []
     for machine_id in dict.fromkeys(machine_ids):
         _check(job)
@@ -285,7 +286,7 @@ def uninstall(settings: Settings, name: str, machine_ids: list[str],
         out = {"machine": label, "machine_id": machine_id, "ok": False, "message": ""}
         try:
             reply = open_machine(settings, machine_id).games_delete(name)
-        except RebuildError as exc:
+        except ManagerError as exc:
             out["message"] = str(exc)
         else:
             if reply.get("removed"):
@@ -310,7 +311,7 @@ def status(settings: Settings) -> dict:
                  "set": False, "free": 0, "games": [], "parts": [], "rate": rates.get(row["id"], 0)}
         try:
             games = open_machine(settings, row["id"], timeout=15).games_list(timeout=15)
-        except RebuildError as exc:
+        except ManagerError as exc:
             entry["message"] = str(exc)
             return entry
         entry.update(
@@ -344,14 +345,14 @@ def run_install(settings: Settings, task: Task, job: Job) -> str:
     machines = list(p.get("machines") or [])
     if op == "install":
         if not task.image_path:
-            raise RebuildError("image absente de la tâche")
+            raise ManagerError("image absente de la tâche")
         result = install(settings, Path(task.image_path), machines, job)
         label = f"sur {len(machines)} client(s)"
     elif op == "uninstall":
         result = uninstall(settings, str(p.get("name") or ""), machines, job)
         label = f"de {len(machines)} client(s)"
     else:
-        raise RebuildError(f"opération d'installation inconnue : {op}")
+        raise ManagerError(f"opération d'installation inconnue : {op}")
     task.params["result"] = result
     items = result["results"]
     for item in items:
@@ -360,6 +361,6 @@ def run_install(settings: Settings, task: Task, job: Job) -> str:
     if not items:
         return "rien à faire"
     if failed:
-        raise RebuildError(f"{len(failed)} échec(s) sur {len(items)} ({label}) : "
+        raise ManagerError(f"{len(failed)} échec(s) sur {len(items)} ({label}) : "
                            f"{failed[0]['machine']} : {failed[0]['message']}")
     return f"{len(items)} opération(s) réussie(s) {label}"

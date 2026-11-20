@@ -566,7 +566,7 @@ _ENGINE_VERSION_RE = re.compile(r"^\+\+UE|^(20\d\d|6000)\.\d+\.\d+|\d+f\d+|^\d+$
 _ENGINE_PRODUCTS = {"bootstrappackagedgame", "unreal engine", "unity player", "unityplayer"}
 
 
-def _game_version(info: ExeInfo | None, engine: str | None) -> tuple[str | None, str]:
+def game_version(info: ExeInfo | None, engine: str | None) -> tuple[str | None, str]:
     """Version du jeu d'après les ressources de l'exécutable.
 
     Constat sur les jeux réels : une vraie version s'accompagne d'un
@@ -630,7 +630,7 @@ def propose(scan: FolderScan, candidate: Candidate | None, prefix: str, arch: st
     add("CMD", candidate.cmd or quote_cmd(exe_name), "; ".join(candidate.reasons) or "exécutable",
         "high" if candidate.score >= 40 else "medium" if candidate.score >= 20 else "low")
     info = candidate.info
-    version, why = _game_version(info, engine)
+    version, why = game_version(info, engine)
     if version:
         add("GAME_VERSION", version, f"{why}, à confirmer", "medium")
     elif why:

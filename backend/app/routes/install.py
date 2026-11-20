@@ -8,10 +8,10 @@ from pydantic import BaseModel, Field
 
 from .. import deps
 from ..services import install as install_svc
+from ..services.agent import AgentRejected, AgentUnreachable
+from ..services.errors import ManagerError
 from ..services.install import valid_name
-from ..services.rebuild import RebuildError
 from ..services.tasks import TaskConflict
-from ..services.trial import AgentRejected, AgentUnreachable
 
 router = APIRouter()
 
@@ -92,5 +92,5 @@ def install_set_dir(machine_id: str, body: InstallDir):
         return install_svc.set_dir(deps._settings, machine_id, body.dir)
     except AgentRejected as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except (AgentUnreachable, RebuildError) as exc:
+    except (AgentUnreachable, ManagerError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc

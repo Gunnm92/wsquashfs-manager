@@ -20,8 +20,10 @@ from app.models import ImageInfo, Task
 from app.routes import library, mass
 from app.services import art_choice, artwork, scan, sgdb
 from app.services import rebuild as rebuild_mod
+from app.services.errors import ManagerError
+from app.services.jobs import Job
 from app.services.operations import run_cover
-from app.services.rebuild import COVER, Job, RebuildError
+from app.services.rebuild import COVER
 from app.services.tasks import TaskQueue
 
 
@@ -432,7 +434,7 @@ def masse(tmp_path, monkeypatch):
 
     monkeypatch.setattr(deps, "_find_image", trouver)
     # tâches de la file jamais réelles : arborescence illisible (aucun outil ici), rien au réseau
-    monkeypatch.setattr(scan, "_list_files_uncached", lambda settings, img: None)
+    monkeypatch.setattr(scan, "list_files_uncached", lambda settings, img: None)
     # embedded_cover est importée dans les deux routeurs qui l'appellent
     for routeur in (library, mass):
         monkeypatch.setattr(routeur, "embedded_cover", lambda settings, path: (
@@ -486,9 +488,9 @@ def _run_setup(monkeypatch, tmp_path: Path, *, present: bool, current: bytes | N
     image.parent.mkdir(parents=True)
     image.write_bytes(b"squashfs")
     files = ["Game/game.exe", "autorun.cmd"] + ([".wsquashfs", COVER] if present else [])
-    monkeypatch.setattr(scan, "_list_files_uncached", lambda settings, img: files)
+    monkeypatch.setattr(scan, "list_files_uncached", lambda settings, img: files)
     monkeypatch.setattr(scan, "image_in_use", lambda img: False)
-    monkeypatch.setattr(scan, "_unsquashfs_cat", lambda settings, img, member: current)
+    monkeypatch.setattr(scan, "unsquashfs_cat", lambda settings, img, member: current)
 
     def interdit(*args, **kwargs):
         raise AssertionError("sélection automatique appelée alors qu'un choix est imposé")
@@ -531,7 +533,7 @@ def test_run_cover_choix_identique_a_l_integree(monkeypatch, tmp_path, cfg, api)
 def test_run_cover_choix_introuvable_echoue_sans_repli(monkeypatch, tmp_path, cfg, api):
     api.add_grid(1, 9, "Bob", PNG1)
     image, calls = _run_setup(monkeypatch, tmp_path, present=True, current=b"ancienne")
-    with pytest.raises(RebuildError, match="aucune autre source"):
+    with pytest.raises(ManagerError, match="aucune autre source"):
         run_cover(cfg, _cover_task(image, {"replace": True, "choice": "sgdb:999"}), Job())
     assert calls == []
 
@@ -540,14 +542,14 @@ def test_run_cover_choix_indisponible_echoue_sans_repli(monkeypatch, tmp_path, c
     api.add_grid(1, 9, "Bob", PNG1)
     api.cdn_status = 500
     image, calls = _run_setup(monkeypatch, tmp_path, present=True, current=b"ancienne")
-    with pytest.raises(RebuildError, match="indisponible"):
+    with pytest.raises(ManagerError, match="indisponible"):
         run_cover(cfg, _cover_task(image, {"replace": True, "choice": "sgdb:1"}), Job())
     assert calls == []
 
 
 def test_run_cover_choix_es_absent_echoue(monkeypatch, tmp_path, cfg, api):
     image, calls = _run_setup(monkeypatch, tmp_path, present=True, current=b"ancienne")
-    with pytest.raises(RebuildError, match="indisponible"):
+    with pytest.raises(ManagerError, match="indisponible"):
         run_cover(cfg, _cover_task(image, {"replace": True, "choice": "es"}), Job())
     assert calls == []
 

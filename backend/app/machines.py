@@ -12,9 +12,9 @@ from fastapi import FastAPI
 
 from . import deps
 from .config import Settings
+from .services import clients as clients_svc
 from .services import machine_api
-from .services import saves as saves_svc
-from .services.rebuild import RebuildError
+from .services.errors import ManagerError
 
 logger = logging.getLogger("wsquashfs-manager")
 
@@ -32,8 +32,8 @@ def _start_machine_server(settings: Settings) -> uvicorn.Server | None:
     if settings.machine_port <= 0:
         return None
     try:
-        cert, key = saves_svc.machine_tls(settings)
-    except RebuildError as exc:
+        cert, key = clients_svc.machine_tls(settings)
+    except ManagerError as exc:
         logger.error("clients : %s", exc)
         return None
     # log_config et log_level à None : uvicorn configure la journalisation pour tout le processus ;

@@ -15,8 +15,8 @@ from fastapi.testclient import TestClient
 
 from app import deps, machines, main
 from app.config import save_saves_machines, saves_machines
-from app.services import machine_api, saves
-from app.services.rebuild import RebuildError
+from app.services import clients, machine_api, saves
+from app.services.errors import ManagerError
 from tests.test_saves import make_settings
 
 GAME = "Jeu"
@@ -220,20 +220,20 @@ def test_manager_certificate_has_the_pairing_format(tmp_path):
     if not shutil.which("openssl"):
         pytest.skip("openssl absent")
     settings = make_settings(tmp_path)
-    shown = saves.manager_fingerprint(settings)
+    shown = clients.manager_fingerprint(settings)
     parts = shown.split(":")
     assert len(parts) == 32 and all(len(p) == 2 and p == p.upper() for p in parts)
-    cert, key = saves.machine_tls(settings, create=False)
+    cert, key = clients.machine_tls(settings, create=False)
     assert cert.is_file() and key.is_file() and (key.stat().st_mode & 0o077) == 0
-    assert saves.manager_fingerprint(settings) == shown            # créé une seule fois
+    assert clients.manager_fingerprint(settings) == shown            # créé une seule fois
 
 
 def test_no_certificate_without_openssl(tmp_path, monkeypatch):
     settings = make_settings(tmp_path)
-    monkeypatch.setattr(saves.shutil, "which", lambda name: None)
-    with pytest.raises(RebuildError):
-        saves.machine_tls(settings)
-    assert saves.manager_fingerprint(settings, create=False) == ""
+    monkeypatch.setattr(clients.shutil, "which", lambda name: None)
+    with pytest.raises(ManagerError):
+        clients.machine_tls(settings)
+    assert clients.manager_fingerprint(settings, create=False) == ""
 
 
 def test_server_is_off_when_the_port_is_zero(tmp_path, monkeypatch):
@@ -260,10 +260,10 @@ def test_machine_server_serves_only_the_machine_api(tmp_path, monkeypatch):
         while not server.started and time.monotonic() < deadline:
             time.sleep(0.05)
         assert server.started
-        pem = saves.machine_tls(settings, create=False)[0].read_text()
-        from app.services.trial import _pinned_context
+        pem = clients.machine_tls(settings, create=False)[0].read_text()
+        from app.services.agent import pinned_context
         url = f"https://127.0.0.1:{port}"
-        with httpx.Client(base_url=url, verify=_pinned_context(pem)) as client:
+        with httpx.Client(base_url=url, verify=pinned_context(pem)) as client:
             ok = client.get("/v1/info", headers={"Authorization": "Bearer jeton-a", "X-Wsq-Machine": "steambox-sync"})
             assert ok.status_code == 200 and ok.json()["version"] == "manager"
             assert client.get("/", headers={"Authorization": "Bearer jeton-a"}).status_code == 404

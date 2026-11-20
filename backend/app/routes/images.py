@@ -16,8 +16,9 @@ from ..models import ImageInfo
 from ..services import scan
 from ..services.analyze import analyze_image, report
 from ..services.autorun import KEY_HELP, Autorun, decode_autorun, merge_override, override_path
+from ..services.errors import ManagerError
 from ..services.operations import autorun_sha, plan_autorun, write_override
-from ..services.rebuild import RebuildError, existing_parent, restore_backup, validate_backup
+from ..services.rebuild import existing_parent, restore_backup, validate_backup
 from ..services.runners import plan_runner, suggest
 from ..services.trial import game_host, host_name
 from ..services.update import default_anchor, plan_update
@@ -33,7 +34,7 @@ def image_detail(id: str):
 @router.get("/api/image/files")
 def image_files(id: str, q: str = "", limit: int = 2000):
     """Arborescence de l'image (lecture seule), avec recherche (casse ignorée)."""
-    files = scan._list_files(deps._settings, deps._find_image(id).path)
+    files = scan.list_files(deps._settings, deps._find_image(id).path)
     needle = q.lower()
     matches = [f for f in files if needle in f.lower()] if needle else files
     return {"total": len(files), "matches": len(matches), "files": matches[:limit]}
@@ -93,7 +94,7 @@ def _update_plan(info: ImageInfo, body: UpdateRequest):
     try:
         return plan_update(deps._settings, info.path, Path(body.source), body.anchor,
                            body.delete_missing, body.version)
-    except RebuildError as exc:
+    except ManagerError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
@@ -186,7 +187,7 @@ class AutorunEdit(BaseModel):
 def _plan(info: ImageInfo, params: dict, validate: bool = True):
     try:
         return plan_autorun(deps._settings, info.path, info.name, info.system, params, validate)
-    except RebuildError as exc:
+    except ManagerError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
@@ -225,7 +226,7 @@ def override_write(id: str, body: AutorunEdit):
     wanted = Autorun(lines=body.lines, eol=body.eol, trailing_eol=body.trailing_eol)
     keys = write_override(deps._settings, info.path, wanted)
     return {"keys": keys, "image": deps._fresh_image(id),
-            "issues": wanted.validate(set(scan._list_files(deps._settings, info.path)))}
+            "issues": wanted.validate(set(scan.list_files(deps._settings, info.path)))}
 
 
 @router.delete("/api/image/override")
@@ -271,12 +272,12 @@ def image_links_report(id: str):
     else:
         try:
             runners = deps._doctor().get("runners", [])
-        except RebuildError as exc:
+        except ManagerError as exc:
             runners = []        # client d'essai désactivé ou injoignable : constat sans proposition
             steambox_error = str(exc)
     try:
         return {**suggest(deps._settings, info.path, runners), "steambox_error": steambox_error}
-    except RebuildError as exc:
+    except ManagerError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
@@ -295,13 +296,13 @@ def image_runner(id: str, body: RunnerRequest):
     info = deps._find_image(id)
     try:
         installed = {r["path"].rstrip("/") for r in deps._doctor().get("runners", [])}
-    except RebuildError as exc:
+    except ManagerError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     if body.source.rstrip("/") not in installed:
         raise HTTPException(status_code=422, detail=f"runner inconnu de {host_name(deps._settings)} (--doctor)")
     try:
         plan = plan_runner(deps._settings, info.path, body.source, body.sub, body.dest, body.set_key)
-    except RebuildError as exc:
+    except ManagerError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     title = (f"runner : {plan.dest_prefix}" + (f", {plan.key}={plan.dest}" if plan.autorun else ""))
     task = deps._submit(info, "runner", {"source": plan.source, "sub": plan.sub, "dest": plan.dest,
@@ -330,7 +331,7 @@ def image_trial(id: str, body: TrialRequest):
     info = deps._find_image(id)
     try:
         target = game_host(deps._settings).path_of(info.path)
-    except RebuildError as exc:
+    except ManagerError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     task = deps._submit(info, "trial", {"duration": body.duration, "target": target},
                    f"essai {body.duration} s", rebuild=False, night=body.when == "night")

@@ -32,13 +32,6 @@ _CACHE_VERSION = 3          # à incrémenter quand le contenu mis en cache chan
 _SYSTEM_DIRS = ("drive_c/windows/",)
 
 
-def _write_atomic(target: Path, text: str, durable: bool = False) -> None:
-    """Écriture atomique : la file de tâches et les requêtes écrivent en
-    parallèle, un lecteur ne doit jamais voir un fichier à moitié écrit.
-    `durable` : attendre le disque (état de la file ; pas pour un cache)."""
-    write_atomic(target, text, durable=durable)
-
-
 def image_id(image: Path, system: str | None) -> str:
     return f"{system}/{image.stem}" if system else image.stem
 
@@ -105,18 +98,18 @@ def find_damaged(settings: Settings) -> list[dict]:
         image = old.with_name(old.name[:-len(".old")])
         if not image.exists():
             problem = "image absente"
-        elif not _unsquashfs_ok(settings, image):
+        elif not unsquashfs_ok(settings, image):
             problem = "image illisible"
         else:
             continue
-        if not _unsquashfs_ok(settings, old):
+        if not unsquashfs_ok(settings, old):
             continue                    # rien de sain à remettre
         out.append({"id": image_id(image, system), "image": str(image), "old": str(old),
                     "problem": problem, "old_size": old.stat().st_size})
     return out
 
 
-def _unsquashfs_cat(settings: Settings, image: Path, member: str) -> bytes | None:
+def unsquashfs_cat(settings: Settings, image: Path, member: str) -> bytes | None:
     if not shutil.which(settings.unsquashfs):
         return None
     try:
@@ -127,7 +120,7 @@ def _unsquashfs_cat(settings: Settings, image: Path, member: str) -> bytes | Non
     return r.stdout if r.returncode == 0 else None
 
 
-def _unsquashfs_ok(settings: Settings, image: Path) -> bool:
+def unsquashfs_ok(settings: Settings, image: Path) -> bool:
     """Superbloc et table lisibles (`unsquashfs -s`)."""
     try:
         return subprocess.run([settings.unsquashfs, "-s", str(image)], capture_output=True,
@@ -139,7 +132,7 @@ def _unsquashfs_ok(settings: Settings, image: Path) -> bool:
 def read_autorun_bytes(settings: Settings, image: Path) -> bytes | None:
     """Lit l'autorun sans monter l'image (`unsquashfs -cat`), octets bruts
     (l'encodage est conservé à la réécriture). None s'il n'y en a pas."""
-    return _unsquashfs_cat(settings, image, "autorun.cmd")
+    return unsquashfs_cat(settings, image, "autorun.cmd")
 
 
 def _read_autorun_from_image(settings: Settings, image: Path) -> str | None:
@@ -159,7 +152,7 @@ def parse_listing(text: str) -> list[str]:
     return out
 
 
-def _list_files_uncached(settings: Settings, image: Path) -> list[str] | None:
+def list_files_uncached(settings: Settings, image: Path) -> list[str] | None:
     if not shutil.which(settings.unsquashfs):
         return None
     try:
@@ -172,7 +165,7 @@ def _list_files_uncached(settings: Settings, image: Path) -> list[str] | None:
     return parse_listing(r.stdout.decode("utf-8", errors="replace"))
 
 
-def _list_files(settings: Settings, image: Path) -> list[str]:
+def list_files(settings: Settings, image: Path) -> list[str]:
     """Arborescence de l'image, mise en cache par (taille, mtime) : un prefix
     compte des dizaines de milliers d'entrées, relues à chaque validation
     d'autorun et à chaque aperçu d'action en masse."""
@@ -188,11 +181,11 @@ def _list_files(settings: Settings, image: Path) -> list[str]:
             return cached["files"]
     except (OSError, ValueError, KeyError, TypeError):
         pass
-    files = _list_files_uncached(settings, image)
+    files = list_files_uncached(settings, image)
     if files is None:
         return []
-    _write_atomic(cache_file, json.dumps({"size": stat.st_size, "mtime": stat.st_mtime,
-                                          "files": files}))
+    write_atomic(cache_file, json.dumps({"size": stat.st_size, "mtime": stat.st_mtime,
+                                         "files": files}), durable=False)
     return files
 
 
@@ -253,7 +246,7 @@ def _fakeping_candidates(files: list[str]) -> list[str]:
 
 def _has_fakeping(settings: Settings, image: Path, files: list[str]) -> bool:
     for member in _fakeping_candidates(files):
-        data = _unsquashfs_cat(settings, image, member)
+        data = unsquashfs_cat(settings, image, member)
         if data and b"fakeping" in data:
             return True
     return False
@@ -439,7 +432,7 @@ def _apply_dynamic(settings: Settings, info: ImageInfo, prefixes: set[str],
     if override is not None:
         base = _read_autorun_from_image(settings, image)
         _autorun_fields(info, merge_override(Autorun.parse(base) if base else None, override))
-        _apply_joined(info, _list_files(settings, image) if len(info.joined_runners) == 1 else None)
+        _apply_joined(info, list_files(settings, image) if len(info.joined_runners) == 1 else None)
     if in_use:
         info.state = ImageState.IN_USE
     elif info.has_old:
@@ -492,7 +485,7 @@ def scan_image(settings: Settings, image: Path, system: str | None) -> ImageInfo
     scan_all."""
     stat = image.stat()
     autorun_text = _read_autorun_from_image(settings, image)
-    files = _list_files(settings, image)
+    files = list_files(settings, image)
     a = Autorun.parse(autorun_text) if autorun_text else None
 
     info = ImageInfo(
@@ -548,6 +541,6 @@ def scan_all(settings: Settings, force: bool = False) -> list[ImageInfo]:
         }
         results.append(_apply_dynamic(settings, info, prefixes, mounts, held, force))
 
-    _write_atomic(cache_file, json.dumps({"version": _CACHE_VERSION, "images": new_entries},
-                                         indent=1))
+    write_atomic(cache_file, json.dumps({"version": _CACHE_VERSION, "images": new_entries},
+                                        indent=1), durable=False)
     return results

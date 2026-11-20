@@ -11,8 +11,8 @@ import pytest
 from app.config import Settings
 from app.models import Task
 from app.services import runners, scan
+from app.services.jobs import Job
 from app.services.links import classify, image_links
-from app.services.rebuild import Job
 
 needs_tools = pytest.mark.skipif(
     not (shutil.which("mksquashfs") and shutil.which("unsquashfs")), reason="squashfs-tools absent")
@@ -92,7 +92,7 @@ def test_join_whole_runner(tmp_path, box):
     autorun = subprocess.run(["unsquashfs", "-cat", str(image), "autorun.cmd"],
                              capture_output=True, check=True).stdout
     assert b"PROTON=GE-Proton-latest" in autorun
-    files = scan._list_files_uncached(settings, image)
+    files = scan.list_files_uncached(settings, image)
     assert classify(image_links(image), files).count == 0
     assert image.with_name("KH3.wsquashfs.old").exists()
 
@@ -122,7 +122,7 @@ def test_complete_joined_runner(tmp_path, box):
     task = Task(id="r", kind="runner", image="win/Anno", image_path=str(image),
                 params={"source": SLR, "sub": s["sub"], "dest": s["dest"], "set_key": False})
     runners.run_runner(settings, task, Job())
-    files = scan._list_files_uncached(settings, image)
+    files = scan.list_files_uncached(settings, image)
     assert f"{den}/files/lib/wine/icu/i386-windows/icudt68.dll" in files
     assert f"{den}/files/lib/wine/x86_64-windows/d3d11.dll" in files          # existant gardé
     assert classify(image_links(image), files).count == 0
@@ -132,7 +132,7 @@ def test_complete_joined_runner(tmp_path, box):
 
 
 def test_names_refused(tmp_path):
-    with pytest.raises(runners.RebuildError):
+    with pytest.raises(runners.ManagerError):
         runners._check_names("../x", "")
-    with pytest.raises(runners.RebuildError):
+    with pytest.raises(runners.ManagerError):
         runners._check_names("GE", "files/../../etc")

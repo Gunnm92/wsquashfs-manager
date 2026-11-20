@@ -575,8 +575,14 @@ backend/app/
 └── services/
     ├── scan.py          # scan + cache, lecture sans montage (unsquashfs)
     ├── autorun.py       # lecture/écriture ligne à ligne, validations, opérations
+    ├── errors.py        # ManagerError : l'erreur commune des services
+    ├── jobs.py          # Job (progression, journal, annulation) et JobCancelled
     ├── rebuild.py       # reconstruction en flux / extraction, vérification, .old
     ├── tasks.py         # file de tâches persistante
+    ├── agent.py         # client de l'agent du lanceur (LocalHost, AgentHost), association par code wsq://
+    ├── clients.py       # registre des clients (machines associées), déclaration du manager
+    ├── saves.py         # réserve et synchronisation des sauvegardes (s'appuie sur clients.py)
+    ├── trial.py         # essai chronométré, diagnostic, maintenance, choix du client d'essai
     ├── operations.py    # tâches : autorun, fichiers/registre, vérification (aperçu = exécution)
     ├── registry.py      # édition des .reg Wine (user.reg, system.reg)
     ├── analyze.py       # analyse d'un dossier, PE, choix de l'exécutable, proposition

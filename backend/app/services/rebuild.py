@@ -36,20 +36,14 @@ from typing import Any
 
 from ..config import Settings, work_area
 from .durable import fsync_dir, restore, swap_keep_old
-from .links import _pseudo_quote
-from .scan import _list_files_uncached, read_autorun_bytes
+from .errors import ManagerError
+from .jobs import Job
+from .links import pseudo_quote
+from .scan import list_files_uncached, read_autorun_bytes
 
 # Marge sur la taille de la nouvelle image (≈ l'ancienne) : la compression
 # d'un fichier remplacé peut différer.
 _SPACE_MARGIN = 1.05
-
-
-class RebuildError(RuntimeError):
-    """Une reconstruction n'a pas pu être menée à son terme."""
-
-
-class RebuildCancelled(RebuildError):
-    """Reconstruction annulée à la demande ; rien n'a été modifié."""
 
 
 @dataclass
@@ -85,31 +79,6 @@ def tree_entries(source: Path) -> list[tuple[str, int]]:
     return out
 
 
-class Job:
-    """Suivi d'une reconstruction : progression, journal, annulation."""
-
-    def __init__(self, on_progress: Callable[[str, float], None] | None = None,
-                 on_log: Callable[[str], None] | None = None):
-        self.cancel_event = threading.Event()
-        self._on_progress = on_progress
-        self._on_log = on_log
-
-    def progress(self, phase: str, fraction: float) -> None:
-        if self._on_progress:
-            self._on_progress(phase, max(0.0, min(1.0, fraction)))
-
-    def log(self, message: str) -> None:
-        if self._on_log:
-            self._on_log(message)
-
-    def cancel(self) -> None:
-        self.cancel_event.set()
-
-    def check(self) -> None:
-        if self.cancel_event.is_set():
-            raise RebuildCancelled("annulée")
-
-
 @dataclass
 class RebuildResult:
     mode: str                 # "stream" | "extract"
@@ -125,7 +94,7 @@ def safe_rel(path: str) -> str:
     """Chemin dans l'image, normalisé ; refuse ce qui sortirait de la racine."""
     p = PurePosixPath(path.replace("\\", "/").strip("/"))
     if not p.parts or any(part in ("", ".", "..") for part in p.parts):
-        raise RebuildError(f"chemin invalide dans l'image : {path!r}")
+        raise ManagerError(f"chemin invalide dans l'image : {path!r}")
     return str(p)
 
 
@@ -183,10 +152,10 @@ def _run(command: list[str], *, timeout: int) -> subprocess.CompletedProcess[byt
     try:
         result = subprocess.run(command, capture_output=True, timeout=timeout, check=False)
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise RebuildError(f"commande impossible : {' '.join(command)} ({exc})") from exc
+        raise ManagerError(f"commande impossible : {' '.join(command)} ({exc})") from exc
     if result.returncode:
         detail = result.stderr.decode("utf-8", errors="replace").strip()
-        raise RebuildError(detail or f"commande en échec : {' '.join(command)}")
+        raise ManagerError(detail or f"commande en échec : {' '.join(command)}")
     return result
 
 
@@ -200,7 +169,7 @@ def run_progress(command: list[str], job: Job, phase: str, start: float, end: fl
         proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 stdin=subprocess.PIPE if feed else subprocess.DEVNULL)
     except OSError as exc:
-        raise RebuildError(f"commande impossible : {command[0]} ({exc})") from exc
+        raise ManagerError(f"commande impossible : {command[0]} ({exc})") from exc
     if feed is not None:
         assert proc.stdin is not None
         stdin = proc.stdin
@@ -237,9 +206,9 @@ def run_progress(command: list[str], job: Job, phase: str, start: float, end: fl
     proc.wait()
     job.check()
     if proc.returncode:
-        raise RebuildError(f"{phase} en échec (code {proc.returncode}) : " + " / ".join(tail))
+        raise ManagerError(f"{phase} en échec (code {proc.returncode}) : " + " / ".join(tail))
     if read_errors:
-        raise RebuildError(f"{phase} : {len(read_errors)} lecture(s) impossible(s), image "
+        raise ManagerError(f"{phase} : {len(read_errors)} lecture(s) impossible(s), image "
                            f"incomplète refusée : " + " / ".join(read_errors[:3]))
 
 
@@ -293,7 +262,7 @@ def check_space(needs: dict[Path, int]) -> None:
     for path, need in needs.items():
         free = shutil.disk_usage(existing_parent(path)).free
         if free < need:
-            raise RebuildError(f"espace insuffisant sur {path} : {_human(need)} nécessaires, "
+            raise ManagerError(f"espace insuffisant sur {path} : {_human(need)} nécessaires, "
                                f"{_human(free)} libres")
 
 
@@ -333,7 +302,7 @@ def stream_missing(settings: Settings) -> str | None:
 def choose_mode(settings: Settings) -> str:
     if settings.rebuild_mode == "stream":
         if (reason := stream_missing(settings)) is not None:
-            raise RebuildError(f"mode stream demandé mais impossible : {reason}")
+            raise ManagerError(f"mode stream demandé mais impossible : {reason}")
         return "stream"
     if settings.rebuild_mode == "extract":
         return "extract"
@@ -365,7 +334,7 @@ def apply_changes(root: Path, changes: Changes) -> None:
     for rel, source in items:
         target = root / safe_rel(rel)
         if target.is_dir() and not target.is_symlink():
-            raise RebuildError(f"{rel} est un dossier dans l'image")
+            raise ManagerError(f"{rel} est un dossier dans l'image")
         if target.exists() or target.is_symlink():
             target.unlink()
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -383,7 +352,7 @@ def apply_changes(root: Path, changes: Changes) -> None:
                 target.mkdir(parents=True, exist_ok=True)
                 continue
             if target.is_dir() and not target.is_symlink():
-                raise RebuildError(f"{dest}/{rel} est un dossier dans l'image")
+                raise ManagerError(f"{dest}/{rel} est un dossier dans l'image")
             if target.exists() or target.is_symlink():
                 target.unlink()
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -391,7 +360,7 @@ def apply_changes(root: Path, changes: Changes) -> None:
     for rel, link_target in changes.links.items():
         target = root / safe_rel(rel)
         if target.is_dir() and not target.is_symlink():
-            raise RebuildError(f"{rel} est un dossier dans l'image")
+            raise ManagerError(f"{rel} est un dossier dans l'image")
         if target.exists() or target.is_symlink():
             target.unlink()
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -416,7 +385,7 @@ def pseudo_plan(changes: Changes, existing: set[str], work: Path, uid: int,
         for i in range(1, len(parts)):
             parent = "/".join(parts[:i])
             if not present(parent) and parent not in defined:
-                pseudo.append(f"{_pseudo_quote(parent)} d 755 {uid} {gid}")
+                pseudo.append(f"{pseudo_quote(parent)} d 755 {uid} {gid}")
                 defined.add(parent)
 
     def replace(rel: str) -> None:
@@ -427,7 +396,7 @@ def pseudo_plan(changes: Changes, existing: set[str], work: Path, uid: int,
 
     def add_file(rel: str, source: Path) -> None:
         replace(rel)
-        pseudo.append(f"{_pseudo_quote(rel)} l {_pseudo_quote(str(source.resolve()))}")
+        pseudo.append(f"{pseudo_quote(rel)} l {pseudo_quote(str(source.resolve()))}")
 
     for rel in map(safe_rel, changes.delete):
         if present(rel):
@@ -445,24 +414,24 @@ def pseudo_plan(changes: Changes, existing: set[str], work: Path, uid: int,
         dest = safe_rel(dest)
         if not present(dest) and dest not in defined:
             make_dirs(dest)
-            pseudo.append(f"{_pseudo_quote(dest)} d 755 {uid} {gid}")
+            pseudo.append(f"{pseudo_quote(dest)} d 755 {uid} {gid}")
             defined.add(dest)
         for rel, _ in tree_entries(source):
             target, src = f"{dest}/{rel}", source / rel
             if src.is_symlink():
                 replace(target)
-                pseudo.append(f"{_pseudo_quote(target)} s 777 {uid} {gid} {os.readlink(src)}")
+                pseudo.append(f"{pseudo_quote(target)} s 777 {uid} {gid} {os.readlink(src)}")
             elif src.is_dir():
                 if not present(target) and target not in defined:
                     make_dirs(target)
-                    pseudo.append(f"{_pseudo_quote(target)} d 755 {uid} {gid}")
+                    pseudo.append(f"{pseudo_quote(target)} d 755 {uid} {gid}")
                     defined.add(target)
             else:
                 add_file(target, src)
     for rel, link_target in changes.links.items():
         rel = safe_rel(rel)
         replace(rel)
-        pseudo.append(f"{_pseudo_quote(rel)} s 777 {uid} {gid} {link_target}")
+        pseudo.append(f"{pseudo_quote(rel)} s 777 {uid} {gid} {link_target}")
     return gone, pseudo
 
 
@@ -547,7 +516,7 @@ def _build_stream(settings: Settings, image: Path, part: Path, work: Path,
             src = subprocess.Popen([settings.unsquashfs, *USER_XATTRS, "-pf", "-", str(image)],
                                    stdout=subprocess.PIPE, stderr=err, stdin=subprocess.DEVNULL)
         except OSError as exc:
-            raise RebuildError(f"commande impossible : {settings.unsquashfs} ({exc})") from exc
+            raise ManagerError(f"commande impossible : {settings.unsquashfs} ({exc})") from exc
     assert src.stdout is not None
     feed_error: list[BaseException] = []
 
@@ -567,9 +536,9 @@ def _build_stream(settings: Settings, image: Path, part: Path, work: Path,
             src.terminate()
         src.wait()
     if src.returncode:
-        raise RebuildError(f"unsquashfs -pf en échec (code {src.returncode}) : {_log_tail(log)}")
+        raise ManagerError(f"unsquashfs -pf en échec (code {src.returncode}) : {_log_tail(log)}")
     if feed_error:
-        raise RebuildError(f"flux interrompu : {feed_error[0]}")
+        raise ManagerError(f"flux interrompu : {feed_error[0]}")
 
 
 def _build_extract(settings: Settings, image: Path, part: Path, work: Path,
@@ -594,27 +563,27 @@ def verify(settings: Settings, part: Path, expected: set[str], changes: Changes)
     """SPEC § 3.4 : table lisible, arborescence identique à celle attendue,
     fichiers écrits relus à l'octet près."""
     _run([settings.unsquashfs, "-s", str(part)], timeout=120)
-    listing = _list_files_uncached(settings, part)
+    listing = list_files_uncached(settings, part)
     if listing is None:
-        raise RebuildError("vérification : arborescence de la nouvelle image illisible")
+        raise ManagerError("vérification : arborescence de la nouvelle image illisible")
     actual = set(listing)
     if actual != expected:
         missing = sorted(expected - actual)[:5]
         extra = sorted(actual - expected)[:5]
-        raise RebuildError(f"vérification : arborescence inattendue (manquants : {missing}, "
+        raise ManagerError(f"vérification : arborescence inattendue (manquants : {missing}, "
                            f"en trop : {extra})")
     for rel, data in changes.write.items():
         content = _run([settings.unsquashfs, "-cat", str(part), safe_rel(rel)],
                        timeout=60).stdout
         if content != data:
-            raise RebuildError(f"vérification : {rel} reconstruit différent")
+            raise ManagerError(f"vérification : {rel} reconstruit différent")
     if changes.copy:
         # Une seule lecture de la table pour toutes les tailles : relire chaque
         # fichier copié (-cat) prendrait des heures sur un gros patch
         sizes = file_sizes(settings, part)
         for rel, source in changes.copy.items():
             if sizes.get(safe_rel(rel)) != source.stat().st_size:
-                raise RebuildError(f"vérification : taille de {rel} différente de la source")
+                raise ManagerError(f"vérification : taille de {rel} différente de la source")
 
 
 _LLS_RE = re.compile(r"^(\S)\S*\s+\S+\s+(\d+)\s+(\S+ \S+)\s+squashfs-root/(.+)$")
@@ -710,19 +679,19 @@ def rebuild(settings: Settings, image: Path, changes: Changes, job: Job | None =
     job = job or Job()
     began = time.monotonic()
     if not image.is_file():
-        raise RebuildError(f"image introuvable : {image}")
+        raise ManagerError(f"image introuvable : {image}")
     if changes.is_empty():
-        raise RebuildError("aucun changement à appliquer")
+        raise ManagerError("aucun changement à appliquer")
     backup, part = backup_path(image), part_path(image)
     if backup.exists():
-        raise RebuildError(f"sauvegarde existante à valider ou restaurer : {backup.name}")
+        raise ManagerError(f"sauvegarde existante à valider ou restaurer : {backup.name}")
     if part.exists():
-        raise RebuildError(f"reconstruction inachevée présente : {part.name}")
+        raise ManagerError(f"reconstruction inachevée présente : {part.name}")
     for tool in (settings.unsquashfs, settings.mksquashfs):
         if not shutil.which(tool):
-            raise RebuildError(f"outil requis introuvable : {tool}")
+            raise ManagerError(f"outil requis introuvable : {tool}")
     if in_use and in_use(image):
-        raise RebuildError("jeu en cours d'utilisation")
+        raise ManagerError("jeu en cours d'utilisation")
     add_cover(settings, image, changes, job)
 
     mode = choose_mode(settings)
@@ -735,9 +704,9 @@ def rebuild(settings: Settings, image: Path, changes: Changes, job: Job | None =
     check_space(space_needed(settings, image, changes, mode))
     before = image.stat()
     owner_opts = _owner_opts(settings, image, job)
-    old_listing = _list_files_uncached(settings, image)
+    old_listing = list_files_uncached(settings, image)
     if old_listing is None:
-        raise RebuildError("arborescence de l'image illisible (unsquashfs -l)")
+        raise ManagerError("arborescence de l'image illisible (unsquashfs -l)")
     expected = expected_listing(old_listing, changes)
 
     swapped = False
@@ -764,9 +733,9 @@ def _swap(image: Path, part: Path, backup: Path, before: os.stat_result,
           in_use: Callable[[Path], bool] | None) -> None:
     now = image.stat()
     if (now.st_size, now.st_mtime_ns) != (before.st_size, before.st_mtime_ns):
-        raise RebuildError("l'image a été modifiée pendant la reconstruction")
+        raise ManagerError("l'image a été modifiée pendant la reconstruction")
     if in_use and in_use(image):
-        raise RebuildError("jeu lancé pendant la reconstruction : image d'origine conservée")
+        raise ManagerError("jeu lancé pendant la reconstruction : image d'origine conservée")
     os.chmod(part, statmod.S_IMODE(before.st_mode))
     try:
         os.chown(part, before.st_uid, before.st_gid)
@@ -776,7 +745,7 @@ def _swap(image: Path, part: Path, backup: Path, before: os.stat_result,
         # .part sur le disque avant l'échange ; l'original reste en .old
         swap_keep_old(image, part, backup)
     except OSError as exc:
-        raise RebuildError(f"échange final impossible : {exc}") from exc
+        raise ManagerError(f"échange final impossible : {exc}") from exc
 
 
 # ------------------------------------------------------------------ .old
@@ -785,7 +754,7 @@ def validate_backup(image: Path) -> None:
     """« Valider » : la nouvelle image convient, l'ancienne est supprimée."""
     backup = backup_path(image)
     if not backup.exists():
-        raise RebuildError("aucune sauvegarde .old")
+        raise ManagerError("aucune sauvegarde .old")
     backup.unlink()
     fsync_dir(image.parent)
 
@@ -794,7 +763,7 @@ def restore_backup(image: Path) -> None:
     """« Revenir à l'ancienne » : la nouvelle image est remplacée par l'.old."""
     backup = backup_path(image)
     if not backup.exists():
-        raise RebuildError("aucune sauvegarde .old")
+        raise ManagerError("aucune sauvegarde .old")
     restore(backup, image)
 
 

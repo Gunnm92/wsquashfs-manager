@@ -289,7 +289,7 @@ explicite, la machine source étant choisie.
 ### 2.8 Installer un jeu sur une machine
 
 Une image `.wsquashfs` de la bibliothèque est envoyée aux machines associées
-(celles de l'onglet Sauvegardes, `services/saves.machine_rows`) par leur agent
+(celles de l'onglet Sauvegardes, `services/clients.machine_rows`) par leur agent
 (`/v1/games/*`, agent v6). Le lanceur n'est pas modifié ; le raccourci reste à
 ajouter à la main sur la machine.
 
