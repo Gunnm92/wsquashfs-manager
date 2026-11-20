@@ -427,15 +427,21 @@
     <div id="s-body" class="lib" hidden>
       <div class="toolbar">
         <label class="search"><svg class="ico"><use href="#i-search"/></svg><input type="search" id="s-search" placeholder="Jeu…"></label>
+        <div class="filters" id="s-filters"></div>
         <button type="button" class="filter-clear" id="s-clear-filter" hidden><span id="s-clear-filter-label"></span><svg class="ico sm"><use href="#i-x"/></svg></button>
         <span class="spacer"></span>
         <span id="s-visible"></span>
+        <div class="pills icons" id="s-layout">
+          <button data-layout="list" title="Liste" aria-label="Liste"><svg class="ico sm"><use href="#i-list"/></svg></button>
+          <button data-layout="grid" title="Jaquettes" aria-label="Jaquettes"><svg class="ico sm"><use href="#i-grid"/></svg></button>
+        </div>
       </div>
       <div id="s-status"></div>
-      <div class="glist ilist svlist">
+      <div class="glist ilist svlist" id="s-list">
         <div class="grow head" id="s-thead"></div>
         <div id="s-rows"></div>
       </div>
+      <div class="ggrid" id="s-grid" hidden></div>
     </div>
 
     <div class="selbar" id="s-selection" hidden>
@@ -453,6 +459,21 @@
       <button class="iconbtn bare lg" id="s-clear" title="Désélectionner" aria-label="Désélectionner"><svg class="ico"><use href="#i-x"/></svg></button>
     </div>
   </section>
+
+  <!-- Fiche d'un jeu (comme celle d'une image) : état par client, copie du manager, conflits, actions -->
+  <aside id="sv-detail" class="panel" hidden>
+    <header class="detail-head">
+      <div class="cover-wrap" id="svd-cover"></div>
+      <div class="t">
+        <h2 id="svd-title"></h2>
+        <div class="status-line" id="svd-status"></div>
+      </div>
+      <button class="iconbtn" id="svd-close" title="Fermer" aria-label="Fermer"><svg class="ico"><use href="#i-x"/></svg></button>
+    </header>
+    <div class="dactions" id="svd-actions"></div>
+    <div id="svd-op"></div>
+    <section class="dpane dcards" id="svd-body"></section>
+  </aside>
 </main>
 
 <!-- ================================================================ Aide (contenu : assets/help.html, chargé à l'ouverture) -->
@@ -625,7 +646,7 @@
   <div id="p-cards"></div>
   <div id="p-result"></div>
   <div class="dlg-foot sticky">
-    <label class="toggle"><input type="checkbox" class="switch" id="p-rename" checked><span>Renommer <code>.pc</code> en <code>.wine</code></span></label>
+    <label class="toggle"><input type="checkbox" class="switch" id="p-rename"><span>Renommer <code>.pc</code> en <code>.wine</code></span></label>
     <label class="toggle" title="Seulement après vérification de l'image"><input type="checkbox" class="switch" id="p-delete"><span>Supprimer le dossier après vérification</span></label>
     <span class="spacer"></span>
     <button class="btn secondary" data-close>Fermer</button>
@@ -653,6 +674,7 @@
   <div id="un-status"></div>
   <div class="in-targets" id="un-targets"></div>
   <p class="dlg-intro sd-note">L'image est supprimée du client (pas d'archive : elle reste dans la bibliothèque). Le jeu ne doit pas être lancé.</p>
+  <label class="toggle" title="Archivées sur le client puis effacées ; la copie du manager et celles des autres clients restent"><input type="checkbox" class="switch" id="un-saves"><span>Supprimer aussi les sauvegardes de ce jeu sur ces clients</span></label>
   <div class="dlg-foot">
     <button class="btn bare sm" id="un-refresh" title="Relit l'état des clients"><svg class="ico sm"><use href="#i-refresh"/></svg>Actualiser</button>
     <span class="spacer"></span>

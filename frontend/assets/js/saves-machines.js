@@ -70,8 +70,9 @@ function openDirs(m) {
 
 // Entrée de menu : bouton (cochée, danger) avec icône optionnelle
 export function menuItem(label, iconName, action, { checked = null, danger = false, role = "menuitem", tag = "" } = {}) {
-  const b = el("button", { type: "button", className: danger ? "danger" : "", role, "aria-checked": checked === null ? undefined : String(checked) },
-    el("span", { className: "nocheck" }, checked ? icon("check", "sm") : null),
+  // La place de la coche n'existe que dans un menu de choix (durée, icône, source) : les libellés restent alignés
+  const b = el("button", { type: "button", className: `menu-item${danger ? " danger" : ""}`, role, "aria-checked": checked === null ? undefined : String(checked) },
+    checked === null ? null : el("span", { className: "nocheck" }, checked ? icon("check", "sm") : null),
     icon(iconName, "sm"), el("span", { textContent: label }, tag ? el("em", { className: "dd-tag", textContent: tag }) : null));
   b.onclick = () => { closeMenu(); action(); };
   return b;

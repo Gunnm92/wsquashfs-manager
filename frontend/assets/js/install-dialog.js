@@ -4,6 +4,7 @@ import { api } from "./api.js";
 import { $, badge, el, icon, size, state, toast, withBusy, withTip } from "./core.js";
 import { notice } from "./detail/autorun.js";
 import { canInstallOn, etaText, gamesOf, imageFile, inst, instDialog, instPlan, installedOn, isWsq, loadInstall, machineIcon, machineOf, selectedImages } from "./install.js";
+import { PRESENT_STATES, gameOfItem, stateOf, sv } from "./saves.js";
 import { refreshTasks } from "./tasks.js";
 
 const DLG_INST = { install: "dlg-install", uninstall: "dlg-uninstall" };
@@ -21,6 +22,7 @@ function openUninstall(images) {
   const todo = images.filter(isWsq);
   if (!todo.length) { toast("Seules les images .wsquashfs se désinstallent", "alert", true); return; }
   instDialog.current = { mode: "uninstall", images: todo, skipped: images.length - todo.length, picked: null, edit: null, busy: false };
+  $("un-saves").checked = false;            // jamais par défaut : choix explicite à chaque désinstallation
   paintInstDialog();
   $(DLG_INST.uninstall).showModal();
   loadInstall();
@@ -154,11 +156,27 @@ async function runInstallDialog(install) {
     $(DLG_INST[d.mode]).close();
     const count = `${data.tasks.length} tâche${data.tasks.length > 1 ? "s" : ""}`;
     toast(install ? `Installation lancée (${count})` : `Désinstallation lancée (${count})`, install ? "drive" : "trash");
+    if (!install && $("un-saves").checked) await deleteSavesToo(d.images, machines);
     refreshTasks();
   } catch (error) {
     d.busy = false;
     toast(error.message, "alert", true);
     paintInstDialog();
+  }
+}
+
+// Désinstallation avec « Supprimer aussi les sauvegardes » : une tâche de suppression sur les clients cochés
+// qui ont une copie de ces jeux (archivée puis effacée) ; ni le manager ni les autres clients
+async function deleteSavesToo(images, machines) {
+  const games = [...new Set(images.map(gameOfItem))].map((name) => sv.games.find((g) => g.game === name)).filter(Boolean);
+  const targets = machines.filter((id) => games.some((g) => PRESENT_STATES.has(stateOf(g, id)?.state)));
+  const withSaves = games.filter((g) => targets.some((id) => PRESENT_STATES.has(stateOf(g, id)?.state)));
+  if (!withSaves.length) { toast("Aucune sauvegarde de ce jeu sur ces clients : rien à supprimer", "info"); return; }
+  try {
+    await api("/api/saves/delete", { method: "POST", body: { games: withSaves.map((g) => g.game), machines: targets, manager: false } });
+    toast(`Suppression des sauvegardes lancée (${withSaves.length} jeu${withSaves.length > 1 ? "x" : ""})`, "trash");
+  } catch (error) {
+    toast(`Sauvegardes non supprimées : ${error.message}`, "alert", true);
   }
 }
 

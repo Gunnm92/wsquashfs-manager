@@ -2,13 +2,14 @@
 
 import { api } from "./api.js";
 import { paintInitials, putArt, showArt } from "./art.js";
-import { $, bigSize, el, emptyState, hideAnimated, icon, setUnavailable, showAnimated, size, stagger, state, storage, when } from "./core.js";
+import { $, ago, bigSize, el, emptyState, hideAnimated, icon, setUnavailable, showAnimated, size, stagger, state, storage, when } from "./core.js";
 import { notice } from "./detail/autorun.js";
 import { openDetail } from "./detail/detail.js";
 import { paintClients, showView } from "./header.js";
 import { renderLibrary, todoChip } from "./library.js";
-import { menus, openMenuNode } from "./menu.js";
+import { filterDropdown, menus, openMenuNode } from "./menu.js";
 import { loadActivity } from "./activity.js";
+import { busyIcons } from "./aicons.js";
 import { connected } from "./mode.js";
 import { menuItem, onMachine } from "./saves-machines.js";
 import { openResolve } from "./saves-resolve.js";
@@ -28,8 +29,8 @@ export const PRESENT_STATES = new Set(["présente", "identique", "plus avancée"
 // Nom affiché d'une ligne : nom lisible d'un dossier déclaré ou d'un jeu Switch, sinon le jeu
 export const gameLabel = (g) => g.label || g.game;
 
-// Sections du tableau : une par système Batocera de l'image du jeu (dossier sous roms/), puis Switch,
-// Dossiers, et « Autres » (aucune image trouvée). Ordre : Jeux PC, autres systèmes, Switch, Dossiers, Autres.
+// Plateformes (filtre de la barre) : une par système Batocera de l'image du jeu (dossier sous roms/), puis
+// Switch, Dossiers, et « Autres » (aucune image trouvée). Ordre : Jeux PC, autres systèmes, Switch, Dossiers, Autres.
 const SYSTEM_LABELS = { win: "Jeux PC", arcadepc: "Arcade PC", "type-x": "Taito Type X", "type-x2": "Taito Type X²",
   nesicax: "NESiCAxLive", nesicax2: "NESiCAxLive 2", exaarcadia: "exA-Arcadia", adrenaline: "Adrenaline", unis: "UNIS",
   segaalls: "Sega ALLS", segaer: "Sega Europa-R", seganu: "Sega Nu", segare: "Sega RingEdge", segarw: "Sega RingWide",
@@ -43,8 +44,9 @@ const sectionTitle = (key) => key === "switch" ? "Switch" : key === "dossier" ? 
 
 const sectionRank = (key) => key === "sys:win" ? 0 : key === "switch" ? 2 : key === "dossier" ? 3 : key === "sys:" ? 4 : 1;
 
-// Sections repliées (clic sur leur titre), mémorisées dans le navigateur
-const savesCollapsed = new Set((() => { try { return JSON.parse(storage.get("wsfs-saves-collapsed") || "[]"); } catch { return []; } })());
+// Filtre de plateforme et tri des colonnes, mémorisés dans le navigateur (relus par init : core.js
+// n'est pas encore initialisé quand ce module est évalué)
+const SORT_KEY = "wsfs-saves-sort", PLATFORM_KEY = "wsfs-saves-platform", LAYOUT_KEY = "wsfs-saves-layout";
 
 export const OS_ICONS = ["linux", "steamos", "steambox", "batocera"];   // icônes choisissables d'un client
 
@@ -56,6 +58,10 @@ export const sv = {
   loaded: false, error: "", seq: 0,
   todo: "", selected: new Set(), unchecked: new Set(),   // todo : pastille « À traiter » active ; unchecked : cibles décochées
   source: AUTO,
+  platform: "",          // plateforme filtrée ("" : toutes)
+  sort: { key: "name", dir: 1 },   // colonne triée : name, size, played, synced
+  current: null,         // jeu dont la fiche est ouverte
+  layout: "list",        // liste ou jaquettes, comme Images
   op: null,              // { text } pendant une opération
   result: null,          // { task, error } de la dernière opération
 };
@@ -212,16 +218,35 @@ function svBase(scope) {
   const reach = reachableIds(), offline = Boolean(scope && !scope.ok);
   return sv.games.filter((g) => (offline ? Boolean(g.reserve) : Boolean(g.reserve) || reach.some((id) => onMachine(g, id))))
     .filter((g) => !scope || presentOn(g, scope.id))
-    .map((g) => ({ g, sync: syncOf(g, scope), copy: copyOf(g, scope) }));
+    .map((g) => ({ g, sync: syncOf(g, scope), copy: copyOf(g, scope),
+      // Dernière synchro : du client choisi, sinon du jeu (la plus récente)
+      synced: (scope ? stateOf(g, scope.id)?.synced : g.synced_at) || 0 }));
 }
 
-// Pastille « À traiter » active et recherche
+// Valeur de tri d'une ligne ; à égalité, le nom
+const SORTERS = { size: (r) => r.copy?.size || 0, played: (r) => r.copy?.t || 0, synced: (r) => r.synced };
+const byName = (a, b) => gameLabel(a.g).localeCompare(gameLabel(b.g), "fr", { numeric: true, sensitivity: "base" });
+
+// Pastille « À traiter » active, plateforme, recherche ; tri de la colonne choisie
 function svVisible(base) {
   const q = $("s-search").value.trim().toLowerCase();
+  const { key, dir } = sv.sort, value = SORTERS[key];
   return base.filter((r) => (!q || r.g.game.toLowerCase().includes(q) || gameLabel(r.g).toLowerCase().includes(q))
+    && (!sv.platform || sectionOf(r.g) === sv.platform)
     && (sv.todo !== "conflict" || r.sync.kind === "conflict")
     && (sv.todo !== "sync" || r.sync.kind === "send" || r.sync.kind === "get"))
-    .sort((a, b) => gameLabel(a.g).localeCompare(gameLabel(b.g), "fr", { numeric: true, sensitivity: "base" }));
+    .sort((a, b) => (value ? dir * (value(a) - value(b)) : 0) || (value ? byName(a, b) : dir * byName(a, b)));
+}
+
+// Filtre Plateforme (comme les filtres des Images) : seulement s'il y a plusieurs plateformes
+function paintPlatformFilter(base) {
+  const keys = [...new Set(base.map((r) => sectionOf(r.g)))]
+    .sort((a, b) => sectionRank(a) - sectionRank(b) || sectionTitle(a).localeCompare(sectionTitle(b), "fr"));
+  if (sv.platform && !keys.includes(sv.platform)) sv.platform = "";
+  const options = keys.map((k) => [k, null, "", sectionTitle(k), base.filter((r) => sectionOf(r.g) === k).length]);
+  $("s-filters").replaceChildren(...(keys.length > 1 || sv.platform ? [filterDropdown({
+    label: "Plateforme", all: "Toutes les plateformes", total: base.length, options, value: sv.platform,
+    onChoose: (value) => { sv.platform = value; storage.set(PLATFORM_KEY, value); paintSvList(); } })] : []));
 }
 
 let svSig = null;           // client, pastille et recherche : les lignes entrent en cascade
@@ -229,10 +254,12 @@ let svSig = null;           // client, pastille et recherche : les lignes entren
 function paintSvList() {
   const scope = scopeMachine(), base = svBase(scope), visible = svVisible(base);
   const total = base.reduce((n, r) => n + (r.copy?.size || 0), 0);
-  $("sv-count").textContent = `${base.length} sauvegarde${base.length > 1 ? "s" : ""}`;
-  // Hors ligne, les tailles viennent de la copie du manager (dernière synchro), pas du client
-  const sizeWhere = !scope ? "sur tous les clients" : scope.ok ? `sur ${scope.name}` : "à la dernière synchro";
-  $("sv-size").textContent = base.length ? `${bigSize(total, 1)} ${sizeWhere}` : "";
+  // En-tête comme Images : « N sauvegardes » (« sur <client> » s'il est choisi), la taille seule ;
+  // hors ligne, les tailles viennent de la copie du manager (dernière synchro), dit l'infobulle
+  const saves = (n) => `${n} sauvegarde${n > 1 ? "s" : ""}`;
+  $("sv-count").textContent = scope ? `${saves(base.length)} sur ${scope.name}` : saves(base.length);
+  $("sv-size").textContent = base.length ? bigSize(total, 2) : "";
+  $("sv-size").title = !scope ? "Sur tous les clients" : scope.ok ? `Sur ${scope.name}` : `${scope.name} hors ligne : tailles à sa dernière synchro`;
   const off = Boolean(scope && !scope.ok);
   $("sv-offline").hidden = !off;
   $("sv-offline").replaceChildren(...(off ? [icon("wifi"), el("span", { textContent: `${scope.name} est hors ligne : sauvegardes connues à sa dernière synchro. Rien ne peut être envoyé avant son retour.` })] : []));
@@ -248,39 +275,45 @@ function paintSvList() {
   const todoName = { conflict: "Conflits", sync: "À synchroniser" }[sv.todo] || "";
   $("s-clear-filter").hidden = !todoName;
   $("s-clear-filter-label").textContent = todoName;
-  $("s-visible").textContent = `${visible.length} sur ${base.length} · ${scope ? scope.name : "Tous"}`;
+  $("s-visible").textContent = visible.length === base.length ? saves(base.length) : `${visible.length} sur ${base.length}`;
 
-  const sig = [scope?.id ?? "all", sv.todo, $("s-search").value.trim()].join("|");
+  const sig = [scope?.id ?? "all", sv.todo, sv.platform, sv.sort.key, sv.sort.dir, $("s-search").value.trim()].join("|");
   const enter = sig !== svSig;
   svSig = sig;
-  // Sections (Jeux PC, Switch, Dossiers…) : groupes repliables dans le même tableau
-  const sections = [...new Set(visible.map((r) => sectionOf(r.g)))]
-    .sort((a, b) => sectionRank(a) - sectionRank(b) || sectionTitle(a).localeCompare(sectionTitle(b), "fr"));
-  const multi = sections.length > 1;
-  const folded = (key) => multi && savesCollapsed.has(key);
-  const shown = visible.filter((r) => !folded(sectionOf(r.g)));
-  const all = el("input", { type: "checkbox", checked: shown.length > 0 && shown.every((r) => sv.selected.has(r.g.game)),
+  const all = el("input", { type: "checkbox", checked: visible.length > 0 && visible.every((r) => sv.selected.has(r.g.game)),
     title: "Tout sélectionner (filtre actuel)" });
-  all.onchange = () => { shown.forEach((r) => (all.checked ? sv.selected.add(r.g.game) : sv.selected.delete(r.g.game))); paintSvList(); paintSelection(); };
-  $("s-thead").replaceChildren(all, el("span", { textContent: "Jeu ↑" }), el("span", { className: "c-size r", textContent: "Taille" }),
-    el("span", { className: "c-when", textContent: "Dernière partie" }), el("span", { textContent: "Synchro" }), el("span"));
-
-  const groupRow = (key, count) => {
-    const button = el("button", { type: "button", className: `sv-group-btn${folded(key) ? " folded" : ""}`, "aria-expanded": String(!folded(key)),
-      title: folded(key) ? "Afficher cette section" : "Replier cette section" },
-      icon("chevd", "sm"), el("span", { textContent: sectionTitle(key) }), el("span", { className: "count", textContent: count }));
-    button.onclick = () => {
-      savesCollapsed.has(key) ? savesCollapsed.delete(key) : savesCollapsed.add(key);
-      storage.set("wsfs-saves-collapsed", JSON.stringify([...savesCollapsed]));
+  all.onchange = () => { visible.forEach((r) => (all.checked ? sv.selected.add(r.g.game) : sv.selected.delete(r.g.game))); paintSvList(); paintSelection(); };
+  // En-têtes triables, comme dans Images ; une date se trie d'abord de la plus récente
+  const sortBtn = (key, label, cls = "", first = 1) => {
+    const arrow = sv.sort.key === key ? (sv.sort.dir > 0 ? " ↑" : " ↓") : "";
+    const b = el("button", { type: "button", className: cls, textContent: label + arrow,
+      title: key === "synced" ? "Trier par dernière synchro : ce qui a changé récemment" : `Trier par ${label.toLowerCase()}` });
+    b.onclick = () => {
+      sv.sort = { key, dir: sv.sort.key === key ? -sv.sort.dir : first };
+      storage.set(SORT_KEY, JSON.stringify(sv.sort));
       paintSvList();
     };
-    return el("div", { className: "sv-group" }, button);
+    return b;
   };
+  $("s-thead").replaceChildren(all, sortBtn("name", "Jeu"), sortBtn("size", "Taille", "c-size r", -1),
+    sortBtn("played", "Dernière partie", "c-when", -1), sortBtn("synced", "Synchro", "", -1), el("span"));
+  paintPlatformFilter(base);
+
   const images = imageIds();
-  const rows = sections.flatMap((key) => {
-    const list = visible.filter((r) => sectionOf(r.g) === key);
-    return [...(multi ? [groupRow(key, list.length)] : []), ...(folded(key) ? [] : list.map((r) => svListRow(r, enter, images)))];
-  });
+  const grid = sv.layout === "grid";
+  $("s-list").hidden = grid;
+  $("s-grid").hidden = !grid;
+  for (const b of $("s-layout").children) b.classList.toggle("on", b.dataset.layout === sv.layout);
+  if (grid) {
+    $("s-grid").replaceChildren(...visible.map((r) => svCard(r, images)));
+    if (!visible.length) $("s-grid").append(el("div", { className: "fcard-empty" }, base.length
+      ? emptyState("search", "Aucun jeu pour ces filtres", "Élargir la recherche ou retirer le filtre.")
+      : emptyState("save", "Aucune sauvegarde", "Les clients associés n'ont aucune sauvegarde de partie.")));
+    $("s-rows").replaceChildren();
+    return;
+  }
+  $("s-grid").replaceChildren();
+  const rows = visible.map((r) => svListRow(r, enter, images));
   if (!visible.length) rows.push(el("div", { className: "svempty" }, base.length
     ? emptyState("search", "Aucun jeu pour ces filtres", "Élargir la recherche ou retirer le filtre.")
     : emptyState("save", "Aucune sauvegarde", "Les clients associés n'ont aucune sauvegarde de partie.")));
@@ -291,7 +324,7 @@ function paintSvList() {
 const openImage = (id) => { showView("images"); openDetail(id); };
 
 // Une ligne : case, vignette et jeu, taille, dernière partie, synchro et son bouton, menu « ⋯ »
-function svListRow({ g, sync, copy }, enter, images) {
+function svListRow({ g, sync, copy, synced }, enter, images) {
   const scope = scopeMachine();
   const selected = sv.selected.has(g.game);
   const img = images.get(g.game);
@@ -329,15 +362,19 @@ function svListRow({ g, sync, copy }, enter, images) {
       el("div", { className: "t" }, nameNode)),
     el("span", { className: "gsize c-size", textContent: copy ? size(copy.size) : "—" }),
     el("span", { className: "sv-when c-when", textContent: whenText || "—", title: copy ? when(copy.t) : "" }),
-    el("div", { className: `sync ${sync.kind}`, title: sync.title + (g.check ? " · la plus lourde n'est pas la plus récente : à vérifier" : "") },
-      el("span", { className: "sync-lbl" }, icon(SYNC_ICON[sync.kind], "sm"), el("span", { textContent: SYNC_LABEL[sync.kind] })),
+    el("div", { className: `sync ${sync.kind}`, title: sync.title + (g.check ? " · la plus lourde n'est pas la plus récente : à vérifier" : "")
+      + (synced ? ` · dernière synchro le ${when(synced)}` : " · jamais synchronisé") },
+      el("span", { className: "sync-txt" },
+        el("span", { className: "sync-lbl" }, icon(SYNC_ICON[sync.kind], "sm"), el("span", { textContent: SYNC_LABEL[sync.kind] })),
+        el("span", { className: "sync-ago", textContent: synced ? ago(synced) : "jamais synchronisé" })),
       primary),
     wrap);
   row.dataset.id = g.game;
+  // Clic sur la ligne : la fiche du jeu, comme dans Images ; la case coche la ligne
+  if (sv.current === g.game) row.classList.add("current");
   row.onclick = (event) => {
     if (event.target.closest("button, input")) return;
-    box.checked = !box.checked;
-    box.onchange();
+    openSave(g.game);
   };
   box.onchange = () => {
     box.checked ? sv.selected.add(g.game) : sv.selected.delete(g.game);
@@ -345,6 +382,27 @@ function svListRow({ g, sync, copy }, enter, images) {
     paintSelection();
   };
   return row;
+}
+
+// Jaquette d'un jeu (vue « Jaquettes ») : affiche, case de sélection, pastille de synchro ; clic : sa fiche
+function svCard({ g, sync, synced }, images) {
+  const img = images.get(g.game);
+  const box = el("input", { type: "checkbox", checked: sv.selected.has(g.game), title: "Sélectionner", "aria-label": `Sélectionner ${gameLabel(g)}` });
+  box.onclick = (event) => event.stopPropagation();
+  box.onchange = () => {
+    box.checked ? sv.selected.add(g.game) : sv.selected.delete(g.game);
+    card.classList.toggle("selected", box.checked);
+    paintSelection();
+  };
+  const badge = el("span", { className: `sv-badge ${sync.kind}`, title: `${SYNC_LABEL[sync.kind]} · ${sync.title}` }, icon(SYNC_ICON[sync.kind], "xs"));
+  const card = el("div", { className: `gcard sv-card${sv.selected.has(g.game) ? " selected" : ""}${sv.current === g.game ? " current" : ""}` },
+    el("div", { className: "gart" }, saveThumb(g, img, "gcover", "poster"), box, badge),
+    el("div", { className: "meta" }, el("div", { className: "n", textContent: gameLabel(g), title: gameLabel(g) }),
+      el("div", { className: "sub" }, el("span", { className: `sync-mini ${sync.kind}`, textContent: SYNC_LABEL[sync.kind] }),
+        el("span", { textContent: synced ? ago(synced) : "jamais", title: synced ? `Dernière synchro le ${when(synced)}` : "Jamais synchronisé" }))));
+  card.dataset.id = g.game;
+  card.onclick = () => openSave(g.game);
+  return card;
 }
 
 export function paintSavesView() {
@@ -364,6 +422,7 @@ export function paintSavesView() {
     paintSvList();
     paintStatus();
   }
+  paintSaveDetail();
   paintSelection();
 }
 
@@ -371,12 +430,12 @@ export function paintSavesView() {
 // jaquette du gamelist.xml de Batocera (jeu Switch, /api/saves/art), sinon initiales.
 const svArt = { cache: new Map(), done: new Map() };
 
-function saveThumb(g, imgId) {
-  const node = el("span", { className: "thumb sv-thumb", "aria-hidden": "true" });
+function saveThumb(g, imgId, className = "thumb sv-thumb", source = "image") {
+  const node = el("span", { className, "aria-hidden": "true" });
   const item = imgId ? state.byId.get(imgId) : null;
   if (item) {
     node.dataset.id = item.id;          // showArt vérifie que la vignette est toujours celle de l'image
-    showArt(node, item);
+    showArt(node, item, source);
     return node;
   }
   if (g.kind === "switch" && svArt.done.has(g.game)) {
@@ -425,6 +484,145 @@ function rowItems(g) {
     ...(top ? absentIn(g).map((id) => item(`Installer sur ${machineName(id)} (depuis ${top.name})`, "arrow", busyReason, () => pushFrom(g, top.id, [id]))) : []),
     item("Supprimer…", "trash", busyReason, () => openSaveDelete([g]), true),
   ];
+}
+
+// ------------------------------------------------------------------ fiche d'un jeu
+// Même gabarit que la fiche d'une image : en-tête (jaquette, nom, ligne d'état), actions du jeu (celle que
+// propose la synchro, la fiche de l'image), puis Clients et Manager avec, sur chaque ligne, les actions qui
+// la concernent en icônes (pas de menu : la fiche sert à voir d'un coup ce qui peut être fait), et Conflit.
+
+// Bouton qui a lancé l'opération en cours : son icône travaille en boucle jusqu'à la fin (la fiche est
+// redessinée pendant l'opération, d'où la clé gardée dans sv.opAct). Après l'image d'arrêt posée par aicon().
+function working(button, key) {
+  if (!sv.op || sv.opAct !== key) return;
+  button.classList.add("is-busy");
+  button.setAttribute("aria-busy", "true");
+  requestAnimationFrame(() => busyIcons(button, true));
+}
+
+const STATE_TEXT = { "à jour": ["À jour", ""], remonter: ["En avance", "accent"], descendre: ["En retard", "accent"],
+  conflit: ["Conflit", "warn"] };
+const STATUS_TONE = { ok: "", send: "accent", get: "accent", conflict: "warn", none: "idle", absent: "idle", off: "idle" };
+
+export function openSave(game) {
+  sv.current = game;
+  $("saves-main").classList.add("with-detail");
+  if ($("sv-detail").hidden) showAnimated($("sv-detail"), "is-leaving");
+  paintSvList();
+  paintSaveDetail();
+}
+
+export function closeSave() {
+  sv.current = null;
+  hideAnimated($("sv-detail"), "is-leaving", 200, () => $("saves-main").classList.remove("with-detail"));
+  for (const node of document.querySelectorAll("#s-rows .current, #s-grid .current")) node.classList.remove("current");
+}
+
+function paintSaveDetail() {
+  if (!sv.current) return;
+  const scope = scopeMachine();
+  const g = sv.games.find((x) => x.game === sv.current);
+  if (!g) { closeSave(); return; }
+  if (!sv.op) sv.opAct = null;          // aucune opération : la dernière action retenue est oubliée
+  const sync = syncOf(g, scope), copy = copyOf(g, scope);
+  const synced = (scope ? stateOf(g, scope.id)?.synced : g.synced_at) || 0;
+  const img = imageIds().get(g.game);
+  const sep = () => el("span", { className: "sep", textContent: "·" });
+
+  $("svd-cover").replaceChildren(saveThumb(g, img, "cover"));
+  $("svd-title").textContent = gameLabel(g);
+  $("svd-title").title = gameLabel(g);
+  $("svd-status").replaceChildren(
+    el("span", { className: `st ${STATUS_TONE[sync.kind] ?? ""}`, textContent: SYNC_LABEL[sync.kind], title: sync.title }),
+    ...(copy ? [sep(), el("span", { textContent: size(copy.size) })] : []),
+    sep(), el("span", { textContent: synced ? `synchro ${ago(synced)}` : "jamais synchronisé", title: synced ? when(synced) : "" }));
+
+  // Actions : une seule principale (celle que propose la synchro), la fiche de l'image, puis « ⋯ »
+  const primary = sync.button ? el("button", { type: "button", className: "btn primary sm", disabled: busy() },
+    icon(sync.kind === "conflict" ? "alert" : "sync", "sm"), el("span", { textContent: sync.button })) : null;
+  if (primary) primary.onclick = () => { sv.opAct = "primary"; sync.act(); };
+  if (primary) working(primary, "primary");
+  const imageBtn = img ? el("button", { type: "button", className: "btn secondary sm", title: "Ouvrir la fiche de l'image dans Images" },
+    icon("image", "sm"), el("span", { textContent: "Fiche de l'image" })) : null;
+  if (imageBtn) imageBtn.onclick = () => openImage(img);
+  $("svd-actions").replaceChildren(...[primary, imageBtn].filter(Boolean));
+  $("svd-actions").hidden = !primary && !imageBtn;
+  $("svd-op").replaceChildren(...(sv.op ? [el("div", { className: "notice info", role: "status" },
+    el("span", { className: "spinner" }), el("span", { textContent: sv.op.text }))] : []));
+
+  const row = (label, value, action = null) => el("div", { className: "frow" }, el("span", { className: "k", textContent: label }),
+    el("span", { className: "v" }, value instanceof Node ? value : document.createTextNode(String(value))), action || el("span"));
+  const card = (title, rows, link = null) => el("div", {},
+    el("div", { className: "dsec-row" }, el("p", { className: "dsec", textContent: title }), link),
+    el("div", { className: "dcard" }, ...rows));
+  const linkBtn = (text, action) => { const b = el("button", { type: "button", className: "linklike", textContent: text }); b.onclick = action; return b; };
+
+  // Actions d'une ligne, en icônes : seulement celles qui ont un sens ici ; pendant une opération, grisées
+  const busyReason = busy() ? BUSY : "";
+  const conflict = Boolean(g.conflicts?.length || g.machines.some((s) => s.action === "conflit"));
+  const act = (iconName, label, fn, danger = false) => {
+    const b = el("button", { type: "button", className: `iconbtn bare sm${danger ? " danger" : ""}`, title: label, "aria-label": label }, icon(iconName, "sm"));
+    b.onclick = () => { sv.opAct = label; fn(); };
+    setUnavailable(b, busyReason);
+    working(b, label);
+    return b;
+  };
+  const acts = (...nodes) => el("span", { className: "svd-acts" }, ...nodes.filter(Boolean));
+  const reach = reachableIds(), top = sourceOf(g);
+  const clientActs = (m, s) => {
+    if (!m.ok || s?.state === "injoignable") return null;
+    if (!s || s.state === "absente") {
+      // Pas de copie : l'installer, depuis le manager s'il l'a, sinon depuis le client le plus avancé
+      if (g.reserve) return acts(act("install", `Installer sur ${m.name} (version du manager)`, () => pushManager(g, [m.id])));
+      return top ? acts(act("install", `Installer sur ${m.name} (depuis ${top.name})`, () => pushFrom(g, top.id, [m.id]))) : null;
+    }
+    const others = presentIn(g).filter((o) => o.id !== s.id && o.fingerprint !== s.fingerprint && reach.includes(o.id)).map((o) => o.id);
+    return acts(
+      !conflict && !inManager(g, s) ? act("save", `Envoyer la copie de ${m.name} au manager`, () => pullGames([g], m.id)) : null,
+      !conflict && s.action === "descendre" && g.reserve ? act("install", `Récupérer la version du manager sur ${m.name}`, () => pushManager(g, [m.id])) : null,
+      !conflict && others.length ? act("sync", `Copier de ${m.name} vers ${names(others)}`, () => pushFrom(g, m.id, others)) : null,
+      act("trash", `Supprimer la sauvegarde de ${m.name}…`, () => openSaveDelete([g], m.id), true));
+  };
+
+  // Clients : état de la copie de chacun, taille, dernière partie, dernière synchro, ses actions
+  const clientRows = sv.machines.map((m) => {
+    const s = stateOf(g, m.id);
+    const label = el("span", { className: "svd-client" }, osIcon(m.icon, "sm"), el("span", { textContent: m.name }));
+    let stateNode;
+    if (!m.ok || s?.state === "injoignable") stateNode = el("span", { className: "svd-state idle", textContent: "Hors ligne" });
+    else if (!s || s.state === "absente") stateNode = el("span", { className: "svd-state idle", textContent: "Pas de copie" });
+    else {
+      const [text, tone] = STATE_TEXT[s.action] || ["Présente", ""];
+      stateNode = el("span", { className: `svd-state ${tone}`, textContent: text });
+    }
+    const facts = s && PRESENT_STATES.has(s.state)
+      ? [size(s.size), s.newest ? `partie ${dayText(s.newest)}` : "", s.synced ? `synchro ${ago(s.synced)}` : ""].filter(Boolean).join(" · ") : "";
+    const value = el("span", { className: "svd-facts" }, stateNode, facts ? el("span", { className: "muted", textContent: facts }) : null);
+    return el("div", { className: "frow" }, el("span", { className: "k" }, label), el("span", { className: "v" }, value), clientActs(m, s) || el("span"));
+  });
+
+  // Manager : la copie de référence, d'où elle vient, quand elle a été reçue, versions archivées
+  const r = g.reserve;
+  const received = r?.fetched_at ? Date.parse(r.fetched_at) / 1000 : 0;
+  const managerRows = r ? [
+    row("Taille", size(r.size)),
+    ...(r.newest ? [row("Dernière partie", dayText(r.newest))] : []),
+    ...(received ? [row("Reçue", el("span", { textContent: ago(received), title: when(received) }))] : []),
+    ...(r.source ? [row("Venue de", r.source)] : []),
+    row("Archives", r.archives ? `${r.archives} version${r.archives > 1 ? "s" : ""} précédente${r.archives > 1 ? "s" : ""}` : "aucune"),
+  ] : [row("Copie", el("span", { className: "faint", textContent: "aucune : le manager n'a pas encore reçu ce jeu" }))];
+
+  // Manager : envoyer sa version aux clients joignables qui en ont une autre, supprimer sa copie
+  const managerActs = r ? acts(
+    !conflict && reachManagerTargets(g).length ? act("install", `Envoyer la version du manager à ${names(reachManagerTargets(g))}`, () => pushReserve(g)) : null,
+    act("trash", "Supprimer la copie du manager…", () => openSaveDelete([g], "manager"), true)) : null;
+  const cards = [card("Clients", clientRows), card("Manager", managerRows, managerActs)];
+  if (g.conflicts?.length) {
+    cards.push(card("Conflit", g.conflicts.map((v) => row(v.source || machineName(v.machine_id) || "Client",
+      [size(v.size), v.newest ? `partie ${dayText(v.newest)}` : ""].filter(Boolean).join(" · "))),
+      linkBtn("Départager…", () => openResolve(g))));
+  }
+  $("svd-body").replaceChildren(...cards);
 }
 
 export function paintStatus() {
@@ -526,9 +724,23 @@ async function pollSaves() {
 
 export function init() {
   // Menus de la barre : d'où part la copie, et vers quels clients (cases)
-  $("s-source").onclick = () => openMenuNode($("s-source-dd"), sourceItems(sv.games.filter((g) => sv.selected.has(g.game))));
-  $("s-targets").onclick = () => openMenuNode($("s-targets-dd"), [el("div", { className: "dd-sub", textContent: "Vers" }), ...targetItems()]);
+  $("s-source").onclick = () => openMenuNode($("s-source-dd"), sourceItems(sv.games.filter((g) => sv.selected.has(g.game))), $("s-source"), { list: true });
+  $("s-targets").onclick = () => openMenuNode($("s-targets-dd"), [el("div", { className: "dd-sub", textContent: "Vers" }), ...targetItems()], $("s-targets"), { list: true });
   $("s-search").addEventListener("input", paintSvList);
+  $("svd-close").onclick = closeSave;
+  sv.platform = storage.get(PLATFORM_KEY) || "";
+  sv.layout = storage.get(LAYOUT_KEY) === "grid" ? "grid" : "list";
+  $("s-layout").onclick = (event) => {
+    const b = event.target.closest("button[data-layout]");
+    if (!b || b.dataset.layout === sv.layout) return;
+    sv.layout = b.dataset.layout;
+    storage.set(LAYOUT_KEY, sv.layout);
+    paintSvList();
+  };
+  try {
+    const stored = JSON.parse(storage.get(SORT_KEY) || "null");
+    if (["name", "size", "played", "synced"].includes(stored?.key) && Math.abs(stored.dir) === 1) sv.sort = stored;
+  } catch { /* tri mémorisé illisible : tri par nom */ }
   $("s-clear-filter").onclick = () => { sv.todo = ""; paintSvList(); };
   setInterval(pollSaves, SAVES_POLL_MS);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) pollSaves(); });

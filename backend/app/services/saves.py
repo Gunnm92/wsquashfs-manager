@@ -567,11 +567,15 @@ def base_state(settings: Settings, game: str, machine_id: str, entry: dict | Non
 
 
 def record_state(settings: Settings, game: str, machine_id: str, fingerprint: str) -> None:
-    """Enregistre que le client a cette empreinte pour ce jeu (meta.json, écriture atomique)."""
+    """Enregistre que le client a cette empreinte pour ce jeu, et quand (`synced`, secondes epoch :
+    dernière synchro de ce client pour ce jeu) ; meta.json, écriture atomique."""
     meta = reserve_meta(settings, game) or {}
     states = dict(meta["states"]) if isinstance(meta.get("states"), dict) else {}
     states[machine_id] = fingerprint
     meta["states"] = states
+    synced = dict(meta["synced"]) if isinstance(meta.get("synced"), dict) else {}
+    synced[machine_id] = int(time.time())
+    meta["synced"] = synced
     write_atomic(reserve_dir(settings, game) / META, json.dumps(meta, indent=2, ensure_ascii=False) + "\n")
 
 
@@ -1071,6 +1075,21 @@ def pull_auto(settings: Settings, games: list[str] | None, job: Job | None = Non
     return {"source": {"id": "", "name": "les plus avancées"}, "results": results}
 
 
+def synced_times(settings: Settings, game: str) -> tuple[dict[str, int], int]:
+    """({client: dernière synchro}, dernière synchro du jeu), en secondes epoch (0 : jamais).
+    Celle du jeu est la plus récente des synchros des clients, ou, pour les échanges notés avant
+    l'enregistrement de ces dates, la dernière réception d'une version par le manager (`fetched_at`)."""
+    meta = reserve_meta(settings, game) or {}
+    raw = meta.get("synced") if isinstance(meta.get("synced"), dict) else {}
+    by_machine = {str(k): int(v) for k, v in raw.items() if isinstance(v, (int, float))}
+    fetched = 0
+    try:
+        fetched = int(datetime.fromisoformat(str(meta.get("fetched_at") or "")).timestamp())
+    except ValueError:
+        pass
+    return by_machine, max([fetched, *by_machine.values()])
+
+
 def _reserve_summary(settings: Settings, game: str) -> dict | None:
     if not (reserve_dir(settings, game) / CURRENT).is_file():
         return None
@@ -1310,8 +1329,11 @@ def status(settings: Settings, games: list[str] | None = None, refresh: bool = F
                 client_newest=state["newest"], manager_newest=manager_newest,
                 client_content=state["content"], manager_content=manager_content)
             state["conflict"] = state["action"] == "conflit" or state["id"] in in_conflict
+        synced, synced_at = synced_times(settings, game)
+        for state in states:
+            state["synced"] = synced.get(state["id"], 0)
         kind = kind_of(game)
-        out.append({"game": game, "label": label_of(game, [listing for listing, _, _, _ in fetched]),
+        out.append({"game": game, "synced_at": synced_at, "label": label_of(game, [listing for listing, _, _, _ in fetched]),
                     "kind": kind, "system": system_of(settings, game) if kind == "jeu" else "",
                     "reserve": _reserve_summary(settings, game), "machines": states,
                     "check": verdict["check"], "check_by": verdict["check_by"],

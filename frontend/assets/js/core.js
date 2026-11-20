@@ -18,8 +18,14 @@ export const state = {
 
 export const $ = (id) => document.getElementById(id);
 
+// Élément : propriétés DOM (className, textContent, onclick…) ; une clé à tiret (« aria-label »,
+// « aria-expanded », « data-x ») est un attribut HTML, pas une propriété (undefined : pas d'attribut)
 export const el = (tag, props = {}, ...children) => {
-  const node = Object.assign(document.createElement(tag), props);
+  const node = document.createElement(tag);
+  for (const [key, value] of Object.entries(props)) {
+    if (!key.includes("-")) node[key] = value;
+    else if (value !== undefined && value !== null) node.setAttribute(key, value);
+  }
   node.append(...children.filter((c) => c !== null && c !== undefined && c !== false));
   return node;
 };
@@ -83,6 +89,18 @@ export const size = (n) => n >= 1e9 ? `${(n / 1e9).toFixed(1).replace(".", ",")}
 export const bigSize = (n, digits = 1) => n >= 1e12 ? `${(n / 1e12).toFixed(digits).replace(".", ",")} To` : size(n);
 
 export const when = (t) => t ? new Date(t * 1000).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "";
+
+// Temps écoulé depuis t (secondes epoch) : « à l'instant », « il y a 5 min », « il y a 3 h », « il y a 2 j »,
+// « il y a 4 mois », « il y a 1 an » ; "" si t est vide
+export function ago(t) {
+  if (!t) return "";
+  const s = Math.max(0, Date.now() / 1000 - t);
+  if (s < 60) return "à l'instant";
+  const [n, unit] = s < 3600 ? [s / 60, "min"] : s < 86400 ? [s / 3600, "h"] : s < 30 * 86400 ? [s / 86400, "j"]
+    : s < 365 * 86400 ? [s / (30 * 86400), "mois"] : [s / (365 * 86400), "an"];
+  const k = Math.floor(n);
+  return `il y a ${k} ${unit === "an" && k > 1 ? "ans" : unit}`;
+}
 
 export const cap = (s) => s ? s[0].toUpperCase() + s.slice(1) : s;
 

@@ -29,7 +29,7 @@ import { api } from "./api.js";
 import { $, state, storage } from "./core.js";
 import { buildForm } from "./detail/autorun.js";
 import { showView } from "./header.js";
-import { loadInstall } from "./install.js";
+import { init as initInstall, loadInstall } from "./install.js";
 import { loadLibrary, renderFilters } from "./library.js";
 import { applyMode, connected } from "./mode.js";
 import { loadSaves, paintSavesView } from "./saves.js";
@@ -61,6 +61,7 @@ initHeader();
 initFolders();
 initWhen();
 initInstallDialog();
+initInstall();
 
 (async () => {
   fillWhen();

@@ -6,7 +6,7 @@ import { $, bigSize, cap, dotIc, el, emptyState, hideAnimated, icon, showAnimate
 import { markCurrent, openDetail, renderDetailHeader } from "./detail/detail.js";
 import { chosenClient, paintRefreshAgo } from "./header.js";
 import { gamesOf, imageFile, inst, instPins, machineOf } from "./install.js";
-import { closeMenu, markOpen, menus } from "./menu.js";
+import { closeMenu, filterDropdown } from "./menu.js";
 import { applyMode } from "./mode.js";
 import { paintSelectionActions } from "./selbar.js";
 import { loadSaves } from "./saves.js";
@@ -165,36 +165,8 @@ export function renderFilters() {
     const options = def.options().map((o) => [...o, base.filter((i) => matches(i, def.key, o[0])).length])
       .filter((o) => o[0] === f[def.key] || (o[4] > 0 && o[4] < total));
     if (!options.length) { f[def.key] = ""; return null; }
-    const current = options.find(([v]) => v === f[def.key]);
-    if (!current) f[def.key] = "";
-    const button = el("button", { type: "button", className: "dd-btn", title: def.label },
-      current?.[1] ? el("span", { className: `dot-ic ${current[2]}` }, icon(current[1])) : null,
-      el("span", { textContent: current ? current[3] : def.label }), icon("chevd", "xs"));
-    button.setAttribute("aria-haspopup", "listbox");
-    button.setAttribute("aria-expanded", "false");
-    const wrap = el("div", { className: `dd${current ? " active" : ""}` }, button);
-    button.onclick = () => {
-      const wasOpen = menus.open?.parentElement === wrap;
-      closeMenu();
-      if (wasOpen) return;
-      const choose = (value) => { f[def.key] = value; renderLibrary(); };
-      const item = (value, iconName, tone, label, n) => {
-        const b = el("button", { type: "button", className: value === f[def.key] ? "on" : "" },
-          iconName ? el("span", { className: `dot-ic ${tone}` }, icon(iconName)) : el("span", { className: "dot-ic t-off" }),
-          el("span", { textContent: label }), el("span", { className: "n", textContent: n ?? "" }),
-          value === f[def.key] ? icon("check", "sm") : el("span", { className: "nocheck" }));
-        b.onclick = () => choose(value);
-        return b;
-      };
-      menus.open = el("div", { className: "dd-menu", role: "listbox" }, item("", null, "", def.all, total), ...options.map((o) => item(...o)));
-      wrap.append(menus.open);
-      markOpen(menus.open, button);
-      // Menu plus large que l'espace à droite (téléphone, dernier filtre) : décalé pour rester à l'écran
-      const wrapLeft = wrap.getBoundingClientRect().left;
-      menus.open.style.left = `${Math.max(8 - wrapLeft, Math.min(0, innerWidth - 8 - wrapLeft - menus.open.offsetWidth))}px`;
-      menus.open.querySelector("button.on, button")?.focus();
-    };
-    return wrap;
+    if (!options.some(([v]) => v === f[def.key])) f[def.key] = "";
+    return filterDropdown({ ...def, total, options, value: f[def.key], onChoose: (value) => { f[def.key] = value; renderLibrary(); } });
   }).filter(Boolean));
   for (const b of $("layout").children) b.classList.toggle("on", b.dataset.layout === state.layout);
 }
@@ -302,8 +274,8 @@ export function renderLibrary() {
       return b;
     };
     $("thead").replaceChildren(all, sortBtn("name", "Jeu"), el("span", { className: "c-prefix", textContent: "Prefix" }),
-      el("span", { className: "c-profile", textContent: "Réglages" }),
-      sortBtn("size", "Taille", "r"), sortBtn("saves_size", "Sauveg.", "r c-saves"), sortBtn("state", "État", "c-state"));
+      sortBtn("size", "Taille", "r"), sortBtn("saves_size", "Sauveg.", "r c-saves"), sortBtn("state", "État", "c-state"),
+      el("span", { className: "c-pad", textContent: "Manette" }), el("span", { className: "c-profile", textContent: "Réglages" }));
     $("rows").replaceChildren(...stagger(visible.map((i) => listRow(i, enter))));
     if (!visible.length) $("rows").append(empty);
     $("grid").replaceChildren();
@@ -312,7 +284,7 @@ export function renderLibrary() {
   renderSelection();
 }
 
-// Une ligne de la liste : case, jaquette et nom (version), préfixe, réglages actifs, taille, sauvegardes, état
+// Une ligne de la liste : case, jaquette et nom (version), préfixe, taille, sauvegardes, état, manette, réglages actifs
 const PREFIX_LABEL = { wine_batocera: "Wine", wine_other: "Wine", wine_proton: "Proton", game_only: "Aucun", unknown: "Inconnu" };
 
 function listRow(i, enter) {
@@ -321,19 +293,26 @@ function listRow(i, enter) {
     el("div", { className: "iname" }, thumb(i), el("div", { className: "t" },
       el("span", { className: "n", textContent: i.name, title: i.name }), versionLabel(i), instPins(i))),
     el("span", { className: `prefix c-prefix${i.type === "game_only" ? " none" : ""}`, textContent: PREFIX_LABEL[i.type] || "Inconnu" }),
-    listFlags(i),
     el("span", { className: "gsize", textContent: size(i.size) }),
     el("span", { className: "gsize c-saves", textContent: i.saves_present ? size(i.saves_size) : "" }),
-    listState(i));
+    listState(i),
+    padCell(i),
+    listFlags(i));
   row.dataset.id = i.id;
   row.onclick = () => openDetail(i.id);
   return row;
 }
 
-// Réglages actifs seulement : DualSense par son icône, surcharge à inscrire nommée
+// Manette : le logo seul (le nom en infobulle) ; DualSense ressort, Xbox (le défaut) reste discrète
+function padCell(i) {
+  const name = i.hidraw ? "DualSense" : "Xbox";
+  return el("span", { className: `c-pad pad ${i.hidraw ? "hidraw" : "xinput"}`, role: "img", ariaLabel: `Manette : ${name}`,
+    title: i.hidraw ? "Manette : DualSense (accès direct, clé HIDRAW)" : "Manette : Xbox" }, icon(i.hidraw ? "dualsense" : "xbox"));
+}
+
+// Réglages actifs seulement : commande pendant le jeu, surcharge à inscrire
 function listFlags(i) {
   const flags = [];
-  if (i.hidraw) flags.push(el("span", { className: "flag hidraw", role: "img", title: "Manette DualSense (accès direct, clé HIDRAW)", ariaLabel: "Manette DualSense" }, icon("dualsense", "xs")));
   if (i.attach) flags.push(el("span", { className: "flag attach", textContent: "ATTACH", title: `Commande pendant le jeu : ${i.attach}` }));
   if ((i.override || []).length) flags.push(el("span", { className: "flag warn", textContent: "Surcharge", title: "Surcharge à inscrire dans l'image" }));
   return el("span", { className: "flags c-profile" }, ...flags);

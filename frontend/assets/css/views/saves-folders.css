@@ -6,6 +6,8 @@
 .svlist .sv-when { font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sync { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; font-size: 12.5px; font-weight: 600; color: var(--faint); }
 .sync-lbl { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.sync-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sync-ago { font-size: 11.5px; font-weight: 400; color: var(--faint); white-space: nowrap; }
 .sync .ico { stroke-width: 2.4; }
 .sync.send, .sync.get { color: var(--accent-300); }
 .sync.send .ico { transform: rotate(-90deg); }      /* ↑ : cette copie part */
@@ -17,9 +19,6 @@
 .sv-more { display: inline-flex; justify-self: end; }
 .sv-more .iconbtn { width: 30px; height: 30px; color: var(--faint); }
 .sv-more .iconbtn:hover { color: var(--text); }
-.svlist .sv-group { padding: 14px 14px 2px; }
-.svlist .sv-group .sv-group-btn { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-.svlist .sv-group .count { font-weight: 600; color: var(--faint); }
 .svempty { display: grid; place-items: center; }
 .notice.sv-offline { margin: 0; background: var(--s2); color: var(--muted); animation: expand var(--dur-med) var(--ease-out); }
 .sv-offline .ico { color: var(--faint); }
@@ -65,3 +64,34 @@ main.images.with-detail .flist .grow { grid-template-columns: 28px minmax(180px,
 main.images.with-detail .flist .c-profile, main.images.with-detail .flist .grow > .profile { display: none; }
 #fdetail .dactions { margin-top: 16px; }
 #fdetail .dpane { margin-top: 18px; }
+
+/* Fiche d'un jeu ouverte : le tableau garde Jeu et Synchro (comme Images garde Jeu, Prefix, Taille, État) */
+main.images.with-detail .svlist .grow { grid-template-columns: 28px minmax(160px, 1fr) minmax(150px, 1fr) 34px; }
+main.images.with-detail .svlist :is(.c-size, .c-when) { display: none; }
+.svd-client { display: inline-flex; align-items: center; gap: 8px; min-width: 0; color: var(--text); }
+.svd-client > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.svd-facts { display: flex; flex-direction: column; gap: 2px; }
+.svd-facts .muted { font-size: 12px; color: var(--muted); }
+.svd-state { font-weight: 600; color: var(--text); }
+.svd-state.accent { color: var(--accent-300); }
+.svd-state.warn { color: var(--warn); }
+.svd-state.idle { color: var(--faint); font-weight: 400; }
+#sv-detail .dcards { margin-top: 18px; }
+.svd-acts { display: inline-flex; align-items: center; gap: 2px; }
+.svd-acts .iconbtn.danger:hover, .dsec-row .iconbtn.danger:hover { background: var(--err-900); color: var(--err); }
+#svd-actions[hidden] { display: none; }
+/* Action dangereuse : la corbeille est rouge au repos aussi, on sait avant de cliquer */
+.svd-acts .iconbtn.danger, .dsec-row .iconbtn.danger { color: var(--err); }
+/* Dans une ligne de fiche, .frow .ico colore les icônes en violet : une icône d'action prend la couleur de son bouton */
+.frow .svd-acts .iconbtn .ico { color: inherit; }
+/* Jaquettes des sauvegardes : pastille de synchro (couleur = ce qui reste à faire), état en bas de carte */
+.sv-card .sv-badge { position: absolute; top: 10px; right: 10px; width: 24px; height: 24px; display: grid; place-items: center;
+  border-radius: 50%; background: var(--bg-a75); color: var(--faint); }
+.sv-card .sv-badge.send, .sv-card .sv-badge.get { color: var(--accent-300); }
+.sv-card .sv-badge.send .ico { transform: rotate(-90deg); }
+.sv-card .sv-badge.get .ico { transform: rotate(90deg); }
+.sv-card .sv-badge.conflict { color: var(--warn); }
+.sv-card .sync-mini { font-weight: 600; color: var(--faint); }
+.sv-card .sync-mini.send, .sv-card .sync-mini.get { color: var(--accent-300); }
+.sv-card .sync-mini.conflict { color: var(--warn); }
+#s-grid[hidden], #s-list[hidden] { display: none; }

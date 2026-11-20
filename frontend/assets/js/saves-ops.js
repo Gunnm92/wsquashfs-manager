@@ -25,7 +25,8 @@ export function openPair() {
 // manager ; pré-cochée si un des jeux y a une sauvegarde, sinon grisée. Valider : tâche « saves ».
 let sdGames = [];
 
-export function openSaveDelete(games) {
+// `only` : client (ou « manager ») seul coché au départ, depuis la fiche d'un jeu ; sinon tout ce qui a une copie
+export function openSaveDelete(games, only = null) {
   sdGames = games;
   const gameNames = games.map(gameLabel);
   const total = gameNames.length;
@@ -33,7 +34,7 @@ export function openSaveDelete(games) {
   const rest = total - 3;
   $("sd-games").textContent = `${total} jeu${total > 1 ? "x" : ""} : ${shownNames}${rest > 0 ? ` et ${rest} autre${rest > 1 ? "s" : ""}` : ""}`;
   const row = (id, label, count, iconNode, detail) => {
-    const box = el("input", { type: "checkbox", checked: count > 0, disabled: count === 0 });
+    const box = el("input", { type: "checkbox", checked: count > 0 && (!only || id === only), disabled: count === 0 });
     box.dataset.id = id;
     box.onchange = sdRefresh;
     return el("label", { className: `sd-row${count ? "" : " none"}` }, box, iconNode,

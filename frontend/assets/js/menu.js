@@ -1,6 +1,6 @@
 // menu.js — Menus déroulants et menus d'actions : ouverture, positionnement, fermeture.
 
-import { el, hideAnimated } from "./core.js";
+import { el, hideAnimated, icon } from "./core.js";
 
 export const menus = { open: null };
 
@@ -43,15 +43,51 @@ export function placeMenu(menu, wrap) {
   positionMenu(menu, wrap);
 }
 
-// Ouvre un menu sous (ou au-dessus de) son déclencheur ; un second clic le referme
-export function openMenuNode(wrap, nodes, trigger = wrap.querySelector("[aria-haspopup]")) {
+// Ouvre un menu sous (ou au-dessus de) son déclencheur ; un second clic le referme. Menu d'actions
+// (« ⋯ », menu d'un client, durée d'essai) : même composant que le menu ⚙ (.menu, .menu-item) ;
+// `list` : liste de choix d'une barre (source, cibles), composant des listes déroulantes (.dd-menu).
+export function openMenuNode(wrap, nodes, trigger = wrap.querySelector("[aria-haspopup]"), { list = false } = {}) {
   const open = menus.open?.owner === wrap;
   closeMenu();
   if (open) return;
-  menus.open = el("div", { className: "dd-menu end sv-menu", role: "menu" }, ...nodes);
+  menus.open = el("div", { className: list ? "dd-menu end sv-menu" : "menu act-menu", role: "menu" }, ...nodes);
   placeMenu(menus.open, wrap);
   markOpen(menus.open, trigger);
   menus.open.querySelector("button:not([disabled])")?.focus({ preventScroll: true });
+}
+
+// Filtre en liste déroulante (Images, Sauvegardes) : le bouton affiche le choix actif (« Prefix : Wine »
+// devient « Wine », bordure accent) ; le menu liste « tous » puis chaque choix avec son nombre de jeux.
+// options : [valeur, icône ou null, ton, libellé, nombre] ; onChoose(valeur), "" pour tous.
+export function filterDropdown({ label, all, total, options, value, onChoose }) {
+  const current = options.find(([v]) => v === value);
+  const button = el("button", { type: "button", className: "dd-btn", title: label },
+    current?.[1] ? el("span", { className: `dot-ic ${current[2]}` }, icon(current[1])) : null,
+    el("span", { textContent: current ? current[3] : label }), icon("chevd", "xs"));
+  button.setAttribute("aria-haspopup", "listbox");
+  button.setAttribute("aria-expanded", "false");
+  const wrap = el("div", { className: `dd${current ? " active" : ""}` }, button);
+  button.onclick = () => {
+    const wasOpen = menus.open?.parentElement === wrap;
+    closeMenu();
+    if (wasOpen) return;
+    const item = (v, iconName, tone, text, n) => {
+      const b = el("button", { type: "button", className: v === value ? "on" : "" },
+        iconName ? el("span", { className: `dot-ic ${tone}` }, icon(iconName)) : el("span", { className: "dot-ic t-off" }),
+        el("span", { textContent: text }), el("span", { className: "n", textContent: n ?? "" }),
+        v === value ? icon("check", "sm") : el("span", { className: "nocheck" }));
+      b.onclick = () => { closeMenu(); onChoose(v); };
+      return b;
+    };
+    menus.open = el("div", { className: "dd-menu", role: "listbox" }, item("", null, "", all, total), ...options.map((o) => item(...o)));
+    wrap.append(menus.open);
+    markOpen(menus.open, button);
+    // Menu plus large que l'espace à droite (téléphone, dernier filtre) : décalé pour rester à l'écran
+    const wrapLeft = wrap.getBoundingClientRect().left;
+    menus.open.style.left = `${Math.max(8 - wrapLeft, Math.min(0, innerWidth - 8 - wrapLeft - menus.open.offsetWidth))}px`;
+    menus.open.querySelector("button.on, button")?.focus();
+  };
+  return wrap;
 }
 
 export function init() {

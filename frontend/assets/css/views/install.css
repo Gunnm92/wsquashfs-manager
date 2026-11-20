@@ -32,3 +32,4 @@
 .sync-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; overflow-wrap: anywhere; }
 .sync-list li.ok { color: var(--accent2-300); }
 .sync-list li.err { color: var(--err-200); }
+#dlg-uninstall > .toggle { margin: 4px 0 14px; }

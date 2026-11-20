@@ -108,3 +108,34 @@ export function renderInstBox() {
   $("d-inst-where").textContent = text;
   setUnavailable($("d-inst-uninstall"), ids.length ? "" : "Pas installée sur un client joignable");
 }
+
+// Relecture périodique de l'état des clients, dans toutes les vues : un client qui se connecte (ou
+// s'éteint) apparaît dans l'en-tête sans recharger la page. Page visible, aucune lecture en cours ni
+// dialogue d'installation ouvert ; la vue n'est repeinte que si un client a changé.
+const CLIENTS_POLL_MS = 20000;
+const machinesSig = (machines) => JSON.stringify(machines.map((m) => [m.id, m.name, m.ok, m.free, m.games.length, m.parts.length]));
+
+async function pollClients() {
+  if (!connected() || document.hidden || inst.loading || instDialog.current) return;
+  const seq = ++inst.seq;
+  inst.loading = true;
+  try {
+    const status = await api("/api/install/status", { timeout: 60000 });
+    if (seq !== inst.seq) return;
+    const changed = !inst.loaded || machinesSig(status.machines) !== machinesSig(inst.machines);
+    inst.machines = status.machines;
+    inst.loaded = true;
+    inst.error = "";
+    if (changed) {
+      paintInstall();
+      paintSettingsClients();
+    }
+  } catch { /* manager momentanément injoignable : prochaine lecture */ } finally {
+    if (seq === inst.seq) inst.loading = false;
+  }
+}
+
+export function init() {
+  setInterval(pollClients, CLIENTS_POLL_MS);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) pollClients(); });
+}

@@ -60,6 +60,17 @@ body[data-view="folders"] #client-seg, body[data-view="folders"] #client-info { 
 .menu-item:hover { background: var(--s2); }
 .menu-item .ico { color: var(--muted); }
 .menu-item .ago { margin-left: auto; font-size: 11.5px; color: var(--muted); }
+/* Menus d'action (« ⋯ », menu d'un client, durée d'essai) : le composant du menu ⚙ (.menu, .menu-item ci-dessus), placé par menu.js en position fixe sous son déclencheur */
+.menu.act-menu { z-index: 45; width: auto; min-width: 230px; max-width: min(360px, calc(100vw - 16px)); gap: 2px; }
+.act-menu .menu-item > span:not(.nocheck) { flex: 1; }
+.menu .menu-item:focus-visible { background: var(--s2); outline: none; }
+.menu .menu-item:disabled, .menu .menu-item[aria-disabled="true"] { opacity: .4; cursor: not-allowed; }
+.menu .menu-item:disabled:hover { background: transparent; }
+.menu .menu-item.danger, .menu .menu-item.danger .ico { color: var(--err); }
+.menu .menu-item.danger:hover { background: var(--err-900); }
+.menu .menu-item[aria-checked="true"] { color: var(--accent-300); }
+.menu .menu-item .nocheck { width: 14px; flex: none; }
+.menu .dd-sub { padding: 10px 10px 4px; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 #btn-refresh .ico { transition: transform var(--dur-slow) var(--ease-spring); }
 
 @keyframes menupop { from { opacity: 0; transform: translateY(-4px) scale(.97); } }

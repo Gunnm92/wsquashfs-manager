@@ -2329,3 +2329,18 @@ def test_client_order_must_list_each_client_once(agents, tmp_path):
         saves.set_machine_order(settings, [ids["alpha"], ids["alpha"]])      # doublon
     with pytest.raises(ValueError):
         saves.set_machine_order(settings, [ids["alpha"], "inconnu"])        # inconnu
+
+
+def test_record_state_date_la_synchro_et_synced_times_prend_la_plus_recente(tmp_path, monkeypatch):
+    """Dernière synchro : datée par client à chaque échange noté ; celle du jeu est la plus récente,
+    à défaut la dernière réception par le manager (échanges notés avant ces dates)."""
+    settings = make_settings(tmp_path)
+    store_manager_version(settings, "Jeu", gz("v1"))
+    by_machine, last = saves.synced_times(settings, "Jeu")
+    assert by_machine == {} and last > 0                        # fetched_at de la version reçue
+    monkeypatch.setattr(saves.time, "time", lambda: 2_000_000_000)
+    saves.record_state(settings, "Jeu", "aaaa0001", fp_of(gz("v1")))
+    monkeypatch.setattr(saves.time, "time", lambda: 2_000_000_500)
+    saves.record_state(settings, "Jeu", "bbbb0002", fp_of(gz("v1")))
+    assert saves.synced_times(settings, "Jeu") == ({"aaaa0001": 2_000_000_000, "bbbb0002": 2_000_000_500}, 2_000_000_500)
+    assert saves.synced_times(settings, "Absent") == ({}, 0)
