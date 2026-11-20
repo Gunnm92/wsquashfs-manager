@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 
 from app import deps, machines, main
 from app.config import save_saves_machines, saves_machines
-from app.services import clients, machine_api, saves
+from app.services import clients, machine_api, saves_store
 from app.services.errors import ManagerError
 from tests.test_saves import make_settings
 
@@ -84,16 +84,16 @@ def test_the_interface_is_not_served(mapi):
 def test_list_gives_the_state_of_the_calling_machine(mapi):
     client, settings, headers_a, headers_b = mapi
     data = gz("v1")
-    saves.store(settings, GAME, part_of(settings, data), fingerprint=fp(data), newest=42, size=7,
+    saves_store.store(settings, GAME, part_of(settings, data), fingerprint=fp(data), newest=42, size=7,
                 profile="prefixe", source="steambox")
-    saves.record_state(settings, GAME, "aaaa0001", fp(data))
+    saves_store.record_state(settings, GAME, "aaaa0001", fp(data))
     listed = client.get("/v1/saves/list", headers=headers_a).json()["games"]
     assert listed == [{"name": GAME, "fingerprint": fp(data), "newest": 42, "size": 7, "state": fp(data)}]
     assert client.get("/v1/saves/list", headers=headers_b).json()["games"][0]["state"] == ""
 
 
 def part_of(settings, data: bytes):
-    folder = saves.reserve_dir(settings, GAME)
+    folder = saves_store.reserve_dir(settings, GAME)
     folder.mkdir(parents=True, exist_ok=True)
     part = folder / "test.part"
     part.write_bytes(data)
@@ -104,27 +104,27 @@ def test_put_stores_the_archive_and_archives_the_previous_version(mapi):
     client, settings, headers_a, _ = mapi
     first = put_tar(client, headers_a, gz("v1"), profile="proton")
     assert first.status_code == 200 and first.json() == {"fingerprint": fp(gz("v1")), "archived": ""}
-    assert saves.reserve_meta(settings, GAME)["profile"] == "proton"
+    assert saves_store.reserve_meta(settings, GAME)["profile"] == "proton"
     second = put_tar(client, headers_a, gz("v2"))
     assert second.status_code == 200 and second.json()["archived"].endswith(".tar.gz")
-    meta = saves.reserve_meta(settings, GAME)
+    meta = saves_store.reserve_meta(settings, GAME)
     assert meta["fingerprint"] == fp(gz("v2")) and meta["size"] == len(gz("v2"))
     assert meta["source"] == "steambox" and meta["profile"] is None
-    assert saves.archives(settings, GAME)[0] == second.json()["archived"][:-len(".tar.gz")]
+    assert saves_store.archives(settings, GAME)[0] == second.json()["archived"][:-len(".tar.gz")]
 
 
 def test_put_keeps_three_archived_versions(mapi):
     client, settings, headers_a, _ = mapi
     for index in range(5):
         assert put_tar(client, headers_a, gz(f"v{index}")).status_code == 200
-    assert len(saves.archives(settings, GAME)) == saves.KEEP_ARCHIVES == 3
+    assert len(saves_store.archives(settings, GAME)) == saves_store.KEEP_ARCHIVES == 3
 
 
 def test_same_version_is_not_archived(mapi):
     client, settings, headers_a, _ = mapi
     put_tar(client, headers_a, gz("v1"))
     again = put_tar(client, headers_a, gz("v1"))
-    assert again.json()["archived"] == "" and saves.archives(settings, GAME) == []
+    assert again.json()["archived"] == "" and saves_store.archives(settings, GAME) == []
 
 
 def test_put_without_a_valid_fingerprint_is_refused(mapi):
@@ -133,15 +133,15 @@ def test_put_without_a_valid_fingerprint_is_refused(mapi):
     assert missing.status_code == 400
     short = put_tar(client, headers_a, gz("v1"), fingerprint="abc")
     assert short.status_code == 400
-    assert saves.reserve_games(settings) == []
+    assert saves_store.reserve_games(settings) == []
 
 
 def test_put_of_a_body_that_is_not_gzip_leaves_nothing(mapi):
     client, settings, headers_a, _ = mapi
     assert put_tar(client, headers_a, b"texte").status_code == 400
     assert put_tar(client, headers_a, b"").status_code == 400
-    assert saves.reserve_games(settings) == []
-    folder = saves.reserve_dir(settings, GAME)
+    assert saves_store.reserve_games(settings) == []
+    folder = saves_store.reserve_dir(settings, GAME)
     assert not folder.exists() or list(folder.iterdir()) == []
 
 
@@ -153,8 +153,8 @@ def test_put_over_the_size_limit_is_refused(mapi, monkeypatch):
     chunked = client.put("/v1/saves/tar", params={"game": GAME}, headers={**headers_a, "X-Wsq-Fingerprint": fp(gz("x"))},
                          content=iter([gz("trop long"), b"encore"]))
     assert chunked.status_code == 413
-    assert saves.reserve_games(settings) == []
-    folder = saves.reserve_dir(settings, GAME)
+    assert saves_store.reserve_games(settings) == []
+    folder = saves_store.reserve_dir(settings, GAME)
     assert not folder.exists() or list(folder.iterdir()) == []
 
 
@@ -213,7 +213,7 @@ def test_put_needs_a_known_token(mapi):
     client, settings, _, _ = mapi
     response = put_tar(client, {"Authorization": "Bearer inconnu", "X-Wsq-Machine": "x"}, gz("v1"))
     assert response.status_code == 401
-    assert saves.reserve_games(settings) == []
+    assert saves_store.reserve_games(settings) == []
 
 
 def test_manager_certificate_has_the_pairing_format(tmp_path):

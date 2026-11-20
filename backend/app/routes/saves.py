@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field, model_validator
 from .. import deps
 from ..services import clients as clients_svc
 from ..services import saves as saves_svc
+from ..services import saves_status as status_service
+from ..services import saves_store
 from ..services.artwork import switch_artwork
 
 router = APIRouter()
@@ -37,7 +39,7 @@ def saves_status(id: str | None = None, refresh: bool = False):
     (`conflicts`). Sans id : tous les jeux connus ; avec id d'image : ce jeu. Un client injoignable
     est sauté pendant 30 s ; refresh=1 l'interroge quand même."""
     games = [saves_svc.game_name(deps._find_image(id).path.name)] if id is not None else None
-    return saves_svc.status(deps._settings, games, refresh=refresh)
+    return status_service.status(deps._settings, games, refresh=refresh)
 
 
 class SavesSelection(BaseModel):
@@ -106,7 +108,7 @@ def saves_push(body: SavesPush):
         params = {"op": "push_from", "source": body.source, "targets": body.targets, "games": games}
         title = f"sauvegardes : {source['name']} → {len(targets)} client(s)"
     else:
-        reserve = set(saves_svc.reserve_games(deps._settings))
+        reserve = set(saves_store.reserve_games(deps._settings))
         if games is None and not reserve:
             raise HTTPException(status_code=422, detail="manager vide : rien à envoyer")
         missing = [game for game in games or [] if game not in reserve]
@@ -163,7 +165,7 @@ def saves_resolve(body: SavesResolve):
             clients_svc.find_machine(deps._settings, body.keep[len("client:"):])
         except KeyError:
             raise HTTPException(status_code=422, detail=f"client inconnu : {body.keep[len('client:'):]}") from None
-    elif body.keep != "manager" and body.keep not in {v["name"] for v in saves_svc.conflict_versions(deps._settings, body.game)}:
+    elif body.keep != "manager" and body.keep not in {v["name"] for v in saves_store.conflict_versions(deps._settings, body.game)}:
         raise HTTPException(status_code=422, detail=f"version de conflit inconnue : {body.keep}")
     params = {"op": "resolve", "game": body.game, "keep": body.keep, "push": body.push}
     title = f"sauvegardes : départager {body.game} ({'manager' if body.keep == 'manager' else 'version retenue'})"

@@ -1,4 +1,4 @@
-"""API des clients pour la synchro automatique des sauvegardes (services/saves.py).
+"""API des clients pour la synchro automatique des sauvegardes (services/saves_*.py).
 
 Le manager écoute en HTTPS sur machine_port (main.py) et ne sert que ce routeur, jamais
 l'interface. Il parle le même protocole que l'agent de wsquashfs-launcher (routes
@@ -33,7 +33,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from ..config import Settings, saves_machines
-from . import activity
+from . import activity, saves_store, saves_sync
 from . import saves as saves_svc
 
 MAX_ARCHIVE = 2 << 30               # 2 Gio, comme les envois vers l'agent
@@ -104,11 +104,11 @@ def build_router(settings_of: Callable[[], Settings]) -> APIRouter:
     def saves_list(machine: Machine):
         settings = settings_of()
         games = []
-        for name in saves_svc.reserve_games(settings):
-            meta = saves_svc.reserve_meta(settings, name) or {}
+        for name in saves_store.reserve_games(settings):
+            meta = saves_store.reserve_meta(settings, name) or {}
             games.append({"name": name, "fingerprint": str(meta.get("fingerprint") or ""),
                           "newest": int(meta.get("newest") or 0), "size": int(meta.get("size") or 0),
-                          "state": saves_svc.machine_state(settings, name, machine["id"]),
+                          "state": saves_store.machine_state(settings, name, machine["id"]),
                           **({"dir": meta["dir"]} if saves_svc.clean_dir(meta.get("dir")) else {})})
         return {"games": games}
 
@@ -116,8 +116,8 @@ def build_router(settings_of: Callable[[], Settings]) -> APIRouter:
     def saves_tar(machine: Machine, game: str = ""):
         settings = settings_of()
         _check_game(game)
-        current = saves_svc.reserve_dir(settings, game) / saves_svc.CURRENT
-        meta = saves_svc.reserve_meta(settings, game) or {}
+        current = saves_store.reserve_dir(settings, game) / saves_store.CURRENT
+        meta = saves_store.reserve_meta(settings, game) or {}
         if not current.is_file() or not meta.get("fingerprint"):
             raise HTTPException(status_code=404, detail="aucune sauvegarde")
         headers = {"X-Wsq-Fingerprint": str(meta["fingerprint"])}
@@ -149,7 +149,7 @@ def build_router(settings_of: Callable[[], Settings]) -> APIRouter:
         declared = request.headers.get("content-length", "")
         if declared.isdigit() and int(declared) > MAX_ARCHIVE:
             raise HTTPException(status_code=413, detail="archive trop volumineuse")
-        folder = saves_svc.reserve_dir(settings, game)
+        folder = saves_store.reserve_dir(settings, game)
         folder.mkdir(parents=True, exist_ok=True)
         fd, name = tempfile.mkstemp(dir=folder, prefix="upload-", suffix=".part")
         part = Path(name)
@@ -175,42 +175,42 @@ def build_router(settings_of: Callable[[], Settings]) -> APIRouter:
             if dir_path is not None and saves_svc.clean_dir(dir_path) is None:
                 raise HTTPException(status_code=400, detail="dossier invalide (X-Wsq-Dir)")
             newest = _header_int(request, "x-wsq-newest", int(time.time()))
-            with saves_svc.STORE_LOCK:      # un envoi à la fois dans la réserve (pas d'entrelacement)
-                meta = saves_svc.reserve_meta(settings, game) or {}
-                current = saves_svc.current_fingerprint(settings, game)
-                action = saves_svc.decide(
-                    saves_svc.machine_state(settings, game, machine["id"]), fingerprint, current,
+            with saves_store.STORE_LOCK:      # un envoi à la fois dans la réserve (pas d'entrelacement)
+                meta = saves_store.reserve_meta(settings, game) or {}
+                current = saves_store.current_fingerprint(settings, game)
+                action = saves_sync.decide(
+                    saves_store.machine_state(settings, game, machine["id"]), fingerprint, current,
                     client_newest=newest, manager_newest=int(meta.get("newest") or 0),
-                    client_content=content, manager_content=saves_svc.current_content(settings, game))
+                    client_content=content, manager_content=saves_store.current_content(settings, game))
                 if action == "conflit":     # les deux ont changé : la copie est rangée à part, rien n'est remplacé
-                    stored = saves_svc.store_conflict(
+                    stored = saves_store.store_conflict(
                         settings, game, part, machine_id=machine["id"], fingerprint=fingerprint,
                         newest=newest, size=files_size, source=machine["name"], content=content,
                         profile=profile, dir_path=dir_path)
                     return {"fingerprint": fingerprint, "archived": "", "conflict": True,
                             "version": stored["name"]}
                 if action == "à jour":      # même contenu : rien n'est écrit, seule la base est notée
-                    saves_svc.record_state(settings, game, machine["id"], current)
+                    saves_store.record_state(settings, game, machine["id"], current)
                     return {"fingerprint": current, "archived": "", "same": True}
                 if action == "descendre":   # copie plus ancienne que celle du manager : rien n'est remplacé
                     behind = True
                 else:
-                    _, archived = saves_svc.store_archived(settings, game, part, fingerprint=fingerprint,
+                    _, archived = saves_store.store_archived(settings, game, part, fingerprint=fingerprint,
                                                            newest=newest, size=files_size, profile=profile,
                                                            source=machine["name"], dir_path=dir_path,
                                                            content=content)
-                    saves_svc.record_state(settings, game, machine["id"], fingerprint)
+                    saves_store.record_state(settings, game, machine["id"], fingerprint)
         except OSError as exc:
             raise HTTPException(status_code=500, detail=f"écriture dans le manager impossible : {exc}") from exc
         finally:
             part.unlink(missing_ok=True)
         if behind:                  # ce client reçoit la version du manager (pas d'exclusion)
             if settings.auto_push_interval:
-                _background(saves_svc.sync_auto, settings, [game])
+                _background(saves_sync.sync_auto, settings, [game])
             return {"fingerprint": current, "archived": "", "behind": True}
         # Les autres clients en retard (synchro auto) reçoivent cette version, sans retarder la réponse
         if settings.auto_push_interval:
-            _background(saves_svc.sync_auto, settings, [game], exclude={machine["id"]})
+            _background(saves_sync.sync_auto, settings, [game], exclude={machine["id"]})
         return {"fingerprint": fingerprint, "archived": archived}
 
     @router.post("/v1/saves/state")
@@ -219,12 +219,12 @@ def build_router(settings_of: Callable[[], Settings]) -> APIRouter:
         _check_game(body.game)
         # Sous STORE_LOCK : contrôle et écriture d'un bloc, et record_state (lecture-écriture de
         # meta.json) ne peut plus remettre l'ancienne empreinte par-dessus un envoi concurrent
-        with saves_svc.STORE_LOCK:
-            current = saves_svc.current_fingerprint(settings, body.game)
+        with saves_store.STORE_LOCK:
+            current = saves_store.current_fingerprint(settings, body.game)
             if not current or current.lower() != body.fingerprint.lower():
                 raise HTTPException(status_code=409, detail="la version du manager a changé entre-temps : "
                                                             "relancer la synchronisation")
-            saves_svc.record_state(settings, body.game, machine["id"], body.fingerprint)
+            saves_store.record_state(settings, body.game, machine["id"], body.fingerprint)
         return {"fingerprint": body.fingerprint}
 
     return router

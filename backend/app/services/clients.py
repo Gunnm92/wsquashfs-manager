@@ -8,7 +8,7 @@
 - Manager : certificat auto-signé pour l'écoute des clients, et déclaration
   du manager à chaque client (adresse, jeton propre, empreinte).
 
-Les sauvegardes elles-mêmes sont dans saves.py, qui s'appuie sur ce module.
+Les sauvegardes elles-mêmes sont dans saves_*.py, qui s'appuient sur ce module.
 """
 
 from __future__ import annotations
@@ -36,13 +36,7 @@ from ..config import (
     set_saves_machine_field,
 )
 from . import activity
-from .agent import (
-    AgentHost,
-    agent_cert_path,
-    fingerprint_pem,
-    pair_agent,
-    parse_pair_code,
-)
+from .agent import AgentHost, agent_cert_path, fingerprint_pem, pair_agent, parse_pair_code
 from .durable import fsync_dir, write_atomic
 from .errors import ManagerError
 
@@ -235,7 +229,7 @@ def manager_fingerprint(settings: Settings, create: bool = True) -> str:
         return ""
 
 
-def version_at_least(info: dict | None, minimum: int) -> bool:
+def _version_at_least(info: dict | None, minimum: int) -> bool:
     version = str((info or {}).get("version") or "")
     return version.isdigit() and int(version) >= minimum
 
@@ -253,7 +247,7 @@ def declare_manager(settings: Settings, machine_id: str, info: dict | None = Non
     host = open_machine(settings, machine_id, timeout=15)
     if info is None:
         info = host.info()
-    if not version_at_least(info, MANAGER_PEER_VERSION):
+    if not _version_at_least(info, MANAGER_PEER_VERSION):
         return False
     fingerprint = manager_fingerprint(settings).replace(":", "")
     token = secrets.token_urlsafe(32)
@@ -273,6 +267,20 @@ def manager_ui_url(settings: Settings) -> str:
     if not host:
         return ""
     return f"http://[{host}]:{settings.port}" if ":" in host else f"http://{host}:{settings.port}"
+
+
+def ensure_declared(settings: Settings, row: dict, info: dict, manager_fp: str) -> None:
+    """Déclare le manager à un client associé (agent version 9 ou plus) qui ne le déclare pas
+    encore, ou dont l'adresse d'interface connue (manager_ui de /v1/info, absente des
+    anciens agents) diffère. `manager_fp` : empreinte du manager sans « : », "" sans
+    déclaration possible. Erreurs ignorées (journalisées)."""
+    if (manager_fp and row["kind"] == "saved" and _version_at_least(info, MANAGER_PEER_VERSION)
+            and (str(info.get("manager") or "").replace(":", "").upper() != manager_fp.upper()
+                 or ("manager_ui" in info and info["manager_ui"] != manager_ui_url(settings)))):
+        try:
+            declare_manager(settings, row["id"], info)
+        except (ManagerError, OSError, KeyError) as exc:
+            log.warning("déclaration du manager à %s impossible : %s", row["name"], exc)
 
 
 def redeclare_manager(settings: Settings) -> list[str]:

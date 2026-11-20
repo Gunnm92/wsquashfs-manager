@@ -581,7 +581,11 @@ backend/app/
     ├── tasks.py         # file de tâches persistante
     ├── agent.py         # client de l'agent du lanceur (LocalHost, AgentHost), association par code wsq://
     ├── clients.py       # registre des clients (machines associées), déclaration du manager
-    ├── saves.py         # réserve et synchronisation des sauvegardes (s'appuie sur clients.py)
+    ├── saves.py         # noms de jeux et dossiers des sauvegardes (commun)
+    ├── saves_store.py   # réserve du manager : archives, conflits, états par client
+    ├── saves_sync.py    # pull, push, suppression, décision, synchro automatique
+    ├── saves_status.py  # état exposé par client et par jeu
+    ├── saves_actions.py # départage des conflits, envois automatiques, tâche « saves »
     ├── trial.py         # essai chronométré, diagnostic, maintenance, choix du client d'essai
     ├── operations.py    # tâches : autorun, fichiers/registre, vérification (aperçu = exécution)
     ├── registry.py      # édition des .reg Wine (user.reg, system.reg)
