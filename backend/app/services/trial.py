@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -227,6 +228,24 @@ def run_doctor(settings: Settings) -> dict:
         except ValueError as exc:
             raise ManagerError(f"rapport --doctor illisible sur {host.name}") from exc
     return {"container": host.name, **normalize_doctor(data, host.name)}
+
+
+# Dernier rapport --doctor (résultat, instant monotone) : vidé quand le client d'essai change
+doctor_cache: dict = {}
+
+
+DOCTOR_TTL = 300            # s : --doctor prend quelques secondes
+
+
+def doctor(settings: Settings, refresh: bool = False) -> dict:
+    """Rapport --doctor, mis en cache DOCTOR_TTL secondes ; `age` : secondes écoulées."""
+    now = time.monotonic()
+    cached = doctor_cache.get("result")
+    if cached and not refresh and now - cached[0] < DOCTOR_TTL:
+        return {**cached[1], "age": round(now - cached[0])}
+    result = run_doctor(settings)
+    doctor_cache["result"] = (now, result)
+    return {**result, "age": 0}
 
 
 # ------------------------------------------------------------------ fichiers du client d'essai

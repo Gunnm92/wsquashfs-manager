@@ -42,7 +42,7 @@ def add_manager_machine(settings, machine_id: str, name: str, token: str) -> Non
 def mapi(tmp_path, monkeypatch):
     """Client de machine_app (sans TLS) : deux machines déclarées, jetons A et B."""
     settings = make_settings(tmp_path)
-    monkeypatch.setattr(deps, "_settings", settings)
+    monkeypatch.setattr(deps, "settings", settings)
     add_manager_machine(settings, "aaaa0001", "steambox", "jeton-a")
     add_manager_machine(settings, "bbbb0002", "aibox", "jeton-b")
     headers_a = {"Authorization": "Bearer jeton-a", "X-Wsq-Machine": "steambox-sync"}
@@ -240,7 +240,7 @@ def test_no_certificate_without_openssl(tmp_path, monkeypatch):
 def test_server_is_off_when_the_port_is_zero(tmp_path, monkeypatch):
     settings = make_settings(tmp_path)
     assert settings.machine_port == 0
-    assert machines._start_machine_server(settings) is None
+    assert machines.start_machine_server(settings) is None
 
 
 def test_machine_server_serves_only_the_machine_api(tmp_path, monkeypatch):
@@ -252,9 +252,9 @@ def test_machine_server_serves_only_the_machine_api(tmp_path, monkeypatch):
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
     settings = make_settings(tmp_path, machine_port=port, machine_host="127.0.0.1")
-    monkeypatch.setattr(deps, "_settings", settings)
+    monkeypatch.setattr(deps, "settings", settings)
     add_manager_machine(settings, "aaaa0001", "steambox", "jeton-a")
-    server = machines._start_machine_server(settings)
+    server = machines.start_machine_server(settings)
     assert server is not None
     try:
         deadline = time.monotonic() + 10

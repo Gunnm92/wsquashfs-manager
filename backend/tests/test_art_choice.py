@@ -14,7 +14,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from app import deps, main
+from app import deps, library_index, main
 from app.config import Settings
 from app.models import ImageInfo, Task
 from app.routes import library, mass
@@ -340,9 +340,9 @@ def test_candidat_sgdb_panne_donne_502(cfg, api, image):
 
 @pytest.fixture
 def client(cfg, image, monkeypatch):
-    monkeypatch.setattr(deps, "_settings", cfg)
+    monkeypatch.setattr(deps, "settings", cfg)
     info = ImageInfo(id=ID_IMAGE, path=image, name="Portal2", system="windows", size=1)
-    monkeypatch.setattr(deps, "_find_image", lambda image_id: info)
+    monkeypatch.setattr(library_index, "find_image", lambda settings, image_id: info)
     return TestClient(main.app, headers={"x-wsfs-token": ""})
 
 
@@ -427,12 +427,12 @@ def masse(tmp_path, monkeypatch):
                                          size=3)
     illustrees: set[str] = set()
 
-    def trouver(image_id):
+    def trouver(settings, image_id):
         if image_id not in images:
             raise HTTPException(status_code=404, detail=f"image inconnue : {image_id}")
         return images[image_id]
 
-    monkeypatch.setattr(deps, "_find_image", trouver)
+    monkeypatch.setattr(library_index, "find_image", trouver)
     # tâches de la file jamais réelles : arborescence illisible (aucun outil ici), rien au réseau
     monkeypatch.setattr(scan, "list_files_uncached", lambda settings, img: None)
     # embedded_cover est importée dans les deux routeurs qui l'appellent

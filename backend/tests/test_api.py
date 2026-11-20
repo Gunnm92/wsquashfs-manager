@@ -10,10 +10,11 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from app import deps, main
+from app import deps, library_index, main
 from app.config import Settings
 from app.models import ImageInfo, TaskStatus
 from app.routes import game_host, mass
+from app.services import analyze as analyze_mod
 from app.services import scan
 from app.services.autorun import Autorun
 from app.services.tasks import TaskQueue
@@ -44,7 +45,7 @@ def client(monkeypatch, queue, tmp_path):
                         lambda settings, image: ["Game", "Game/game.exe"])
     monkeypatch.setattr(scan, "read_autorun_bytes", lambda settings, image: AUTORUN)
     monkeypatch.setattr(scan, "image_in_use", lambda image: False)
-    deps._library.clear()
+    library_index.library.clear()
     return TestClient(main.app, headers={"x-wsfs-token": ""})
 
 
@@ -55,14 +56,14 @@ def _edit(lines, **extra):
 # ------------------------------------------------------------------ auth
 
 def test_bad_token_gives_401_not_500(client, monkeypatch):
-    monkeypatch.setattr(deps._settings, "password", "sésame")
+    monkeypatch.setattr(deps.settings, "password", "sésame")
     assert client.get("/api/config", headers={"x-wsfs-token": "faux"}).status_code == 401
     assert client.get("/api/config").status_code == 401
     assert client.post("/login", json={"password": "faux"}).status_code == 401
 
 
 def test_good_token_passes_and_is_not_the_password(client, monkeypatch):
-    monkeypatch.setattr(deps._settings, "password", "sésame")
+    monkeypatch.setattr(deps.settings, "password", "sésame")
     token = client.post("/login", json={"password": "sésame"}).json()["token"]
     assert token and "sésame" not in token
     assert client.get("/api/config", headers={"x-wsfs-token": token}).status_code == 200
@@ -71,7 +72,7 @@ def test_good_token_passes_and_is_not_the_password(client, monkeypatch):
 def test_writes_without_ui_header_refused_when_no_password(client, monkeypatch):
     """Sans mot de passe, une écriture sans l'en-tête de l'interface (requête « simple » d'un
     autre site) est refusée ; les lectures et l'interface passent."""
-    monkeypatch.setattr(deps._settings, "password", "")
+    monkeypatch.setattr(deps.settings, "password", "")
     bare = TestClient(main.app)
     response = bare.post("/api/image/old/validate", params={"id": "windows/jeu"})
     assert response.status_code == 403 and "X-Wsfs-Token" in response.json()["detail"]
@@ -82,7 +83,7 @@ def test_writes_without_ui_header_refused_when_no_password(client, monkeypatch):
 
 def test_login_throttled_after_repeated_failures(client, monkeypatch):
     from app.routes import assets
-    monkeypatch.setattr(deps._settings, "password", "sésame")
+    monkeypatch.setattr(deps.settings, "password", "sésame")
     monkeypatch.setattr(assets, "LOGIN_DELAY", 0)
     monkeypatch.setattr(assets, "_login_failures", {})
     for _ in range(assets.LOGIN_MAX_FAILURES):
@@ -112,7 +113,7 @@ def test_mass_old_validate_scans_the_library_once(client, monkeypatch, tmp_path)
 # ------------------------------------------------------------------ personnalisation
 
 def test_custom_css_absent_gives_empty_css(client, monkeypatch, tmp_path):
-    monkeypatch.setattr(deps._settings, "state_dir", tmp_path)
+    monkeypatch.setattr(deps.settings, "state_dir", tmp_path)
     response = client.get("/custom.css")
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/css")
@@ -120,8 +121,8 @@ def test_custom_css_absent_gives_empty_css(client, monkeypatch, tmp_path):
 
 
 def test_custom_css_is_served_from_state_dir(client, monkeypatch, tmp_path):
-    monkeypatch.setattr(deps._settings, "state_dir", tmp_path)
-    monkeypatch.setattr(deps._settings, "password", "sésame")
+    monkeypatch.setattr(deps.settings, "state_dir", tmp_path)
+    monkeypatch.setattr(deps.settings, "password", "sésame")
     (tmp_path / "custom.css").write_text(":root { --accent: #e04f8a; }", encoding="utf-8")
     response = client.get("/custom.css")          # sans jeton : feuille publique, comme app.css
     assert response.status_code == 200
@@ -187,7 +188,7 @@ def test_autorun_edit_refuses_unchanged_stale_or_old(client):
     stale = _edit(["CMD=x.exe"], base_sha="0" * 64)
     response = client.post("/api/image/autorun", params={"id": "arcade/jeu"}, json=stale)
     assert response.status_code == 409 and "changé" in response.json()["detail"]
-    deps._find_image("arcade/jeu").path.with_suffix(".wsquashfs.old").write_bytes(b"")
+    library_index.find_image(deps.settings, "arcade/jeu").path.with_suffix(".wsquashfs.old").write_bytes(b"")
     response = client.post("/api/image/autorun", params={"id": "arcade/jeu"},
                            json=_edit(["CMD=x.exe"]))
     assert response.status_code == 409 and ".old" in response.json()["detail"]
@@ -198,7 +199,7 @@ def test_autorun_edit_refuses_unchanged_stale_or_old(client):
 def test_mass_preview_and_submit(client, queue):
     body = {"ids": ["arcade/jeu", "windows/jeu", "nope/x"],
             "ops": [{"op": "remove", "key": "HIDRAW"}]}
-    deps._find_image("windows/jeu").path.with_suffix(".wsquashfs.old").write_bytes(b"")
+    library_index.find_image(deps.settings, "windows/jeu").path.with_suffix(".wsquashfs.old").write_bytes(b"")
     preview = client.post("/api/mass/autorun/preview", json=body).json()
     by_id = {item["id"]: item for item in preview["items"]}
     assert by_id["arcade/jeu"]["changed"] and by_id["arcade/jeu"]["blocked"] is None
@@ -238,8 +239,8 @@ def test_end_to_end_edit_rebuild_validate(tmp_path, monkeypatch, queue):
     monkeypatch.setattr(scan, "_CACHE_DIR", tmp_path / "cache")
     for key, value in {"roms_dirs": [str(tmp_path / "roms")], "tmp_dir": tmp_path / "tmp",
                        "rebuild_mode": "extract", "saves_dir": tmp_path / "saves"}.items():
-        monkeypatch.setattr(deps._settings, key, value)
-    deps._library.clear()
+        monkeypatch.setattr(deps.settings, key, value)
+    library_index.library.clear()
     client = TestClient(main.app, headers={"x-wsfs-token": ""})
 
     library = client.get("/api/library").json()
@@ -281,7 +282,7 @@ def test_mass_files_input_validation(client):
 
 
 def test_mass_verify_is_not_blocked_by_old(client, queue):
-    deps._find_image("arcade/jeu").path.with_suffix(".wsquashfs.old").write_bytes(b"")
+    library_index.find_image(deps.settings, "arcade/jeu").path.with_suffix(".wsquashfs.old").write_bytes(b"")
     result = client.post("/api/mass/verify", json={"ids": ["arcade/jeu"]}).json()
     assert len(result["tasks"]) == 1 and queue.get(result["tasks"][0]).kind == "verify"
 
@@ -289,7 +290,7 @@ def test_mass_verify_is_not_blocked_by_old(client, queue):
 def test_mass_cover_queues_one_task_per_image(client, queue):
     """Illustration sans reconstruction : pas bloquée par un .old, une tâche
     « cover » par image, image inconnue signalée."""
-    deps._find_image("arcade/jeu").path.with_suffix(".wsquashfs.old").write_bytes(b"")
+    library_index.find_image(deps.settings, "arcade/jeu").path.with_suffix(".wsquashfs.old").write_bytes(b"")
     result = client.post("/api/mass/cover", json={"ids": ["arcade/jeu", "arcade/absent"]}).json()
     assert len(result["tasks"]) == 1 and queue.get(result["tasks"][0]).kind == "cover"
     assert [s["id"] for s in result["skipped"]] == ["arcade/absent"]
@@ -309,7 +310,7 @@ def test_mass_cover_default_is_add_only(client, queue):
 
 
 def test_saves_reset(client, monkeypatch, tmp_path):
-    monkeypatch.setattr(deps._settings, "saves_dir", tmp_path / "saves")
+    monkeypatch.setattr(deps.settings, "saves_dir", tmp_path / "saves")
     assert client.post("/api/image/saves/reset", params={"id": "arcade/jeu"}).status_code == 409
     (tmp_path / "saves" / "jeu").mkdir(parents=True)
     response = client.post("/api/image/saves/reset", params={"id": "arcade/jeu"})
@@ -318,7 +319,7 @@ def test_saves_reset(client, monkeypatch, tmp_path):
 
 # ------------------------------------------------------------------ maintenance du lanceur
 def test_maintenance_rejects_unlisted_actions_and_bad_game(client, monkeypatch):
-    monkeypatch.setattr(deps._settings, "mode", "connecte")
+    monkeypatch.setattr(deps.settings, "mode", "connecte")
     calls = []
     monkeypatch.setattr(game_host, "maintenance", lambda settings, action, image=None: calls.append((action, image)) or {})
     post = lambda body: client.post("/api/game_host/maintenance", json=body).status_code
@@ -332,7 +333,7 @@ def test_maintenance_rejects_unlisted_actions_and_bad_game(client, monkeypatch):
 
 
 def test_maintenance_sync_with_or_without_game(client, monkeypatch):
-    monkeypatch.setattr(deps._settings, "mode", "connecte")
+    monkeypatch.setattr(deps.settings, "mode", "connecte")
     calls = []
     monkeypatch.setattr(game_host, "maintenance", lambda settings, action, image=None: calls.append((action, image)) or {})
     assert client.post("/api/game_host/maintenance", json={"action": "sync"}).status_code == 200
@@ -352,8 +353,8 @@ def folders_client(tmp_path, monkeypatch, queue):
     (win / "Vide.pc").mkdir()
     (win / "Fait.pc").mkdir()
     (win / "Fait.wsquashfs").write_bytes(b"")
-    monkeypatch.setattr(deps._settings, "roms_dirs", [str(win)])
-    deps._analyses.clear()
+    monkeypatch.setattr(deps.settings, "roms_dirs", [str(win)])
+    analyze_mod.analyses.clear()
     return TestClient(main.app, headers={"x-wsfs-token": ""})
 
 
@@ -491,7 +492,7 @@ def test_config_systems_lists_game_dirs(client, monkeypatch, tmp_path):
     (roms / "win" / "A.wsquashfs").write_bytes(b"")
     (roms / "snes").mkdir()
     (roms / "snes" / "mario.sfc").write_bytes(b"")
-    monkeypatch.setattr(deps._settings, "roms_roots", [str(roms)])
+    monkeypatch.setattr(deps.settings, "roms_roots", [str(roms)])
     assert client.get("/api/config/systems").json() == [
         {"path": str(roms / "win"), "name": "win", "root": str(roms), "images": 1, "folders": 1}]
 
@@ -500,10 +501,10 @@ def test_night_window(client, monkeypatch, tmp_path, queue):
     from datetime import datetime
 
     from app import config
-    monkeypatch.setattr(deps._settings, "runtime_config_file", tmp_path / "cfg.json")
-    monkeypatch.setattr(deps._settings, "night_start", deps._settings.night_start)
-    monkeypatch.setattr(deps._settings, "night_end", deps._settings.night_end)
-    s = deps._settings
+    monkeypatch.setattr(deps.settings, "runtime_config_file", tmp_path / "cfg.json")
+    monkeypatch.setattr(deps.settings, "night_start", deps.settings.night_start)
+    monkeypatch.setattr(deps.settings, "night_end", deps.settings.night_end)
+    s = deps.settings
     cases = [("01:00", "07:00", "03:30", True), ("01:00", "07:00", "07:00", False),
              ("22:00", "06:00", "23:15", True), ("22:00", "06:00", "05:59", True),
              ("22:00", "06:00", "12:00", False)]

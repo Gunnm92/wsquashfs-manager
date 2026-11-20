@@ -15,7 +15,7 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from . import auth, background, deps, machines
+from . import auth, background, deps, machines, task_submit
 from .config import Settings
 from .routes import (
     assets,
@@ -45,16 +45,16 @@ async def lifespan(_app: FastAPI):
         raise SystemExit(f"wsquashfs-manager déjà lancé : {exc}") from exc
     deps.queue.load()
     deps.queue.start()
-    threading.Thread(target=background._purge_old_backups, daemon=True).start()
-    with machines._machine_lock:
-        machines._sync_machine_listener()
-    auto_push = threading.Thread(target=background._auto_push_loop, name="synchro-auto-boucle", daemon=True)
+    threading.Thread(target=background.purge_old_backups, daemon=True).start()
+    with machines.machine_lock:
+        machines.sync_machine_listener()
+    auto_push = threading.Thread(target=background.auto_push_loop, name="synchro-auto-boucle", daemon=True)
     auto_push.start()
     yield
-    background._background_stop.set()
-    with machines._machine_lock:
-        if machines._machine_server is not None:
-            machines._machine_server.should_exit = True
+    background.background_stop.set()
+    with machines.machine_lock:
+        if machines.machine_server is not None:
+            machines.machine_server.should_exit = True
     auto_push.join(timeout=10)
     deps.queue.stop()
 
@@ -67,14 +67,14 @@ SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
 
 @app.middleware("http")
 async def autonome_guard(request: Request, call_next):
-    if deps._settings.mode == "autonome" and auth._needs_connection(request.url.path):
-        return JSONResponse({"detail": deps.MODE_AUTONOME_DETAIL}, status_code=409)
+    if deps.settings.mode == "autonome" and auth.needs_connection(request.url.path):
+        return JSONResponse({"detail": task_submit.MODE_AUTONOME_DETAIL}, status_code=409)
     return await call_next(request)
 
 
 @app.middleware("http")
 async def simple_auth(request: Request, call_next):
-    if not deps._settings.password:
+    if not deps.settings.password:
         # Sans mot de passe, une page d'un autre site peut envoyer une requête « simple »
         # (POST sans corps JSON, DELETE…) au manager. Un en-tête personnalisé ne part jamais
         # d'une autre origine sans requête préalable (CORS), que le manager n'accepte pas :
@@ -89,7 +89,7 @@ async def simple_auth(request: Request, call_next):
     # Starlette décode les en-têtes en latin-1 : on retrouve les octets reçus.
     # Une HTTPException levée dans un middleware donnerait une erreur 500.
     token = request.headers.get("x-wsfs-token", "").encode("latin-1")
-    if not auth._same(token, auth._token(deps._settings.password)):
+    if not auth.same(token, auth.token(deps.settings.password)):
         return JSONResponse({"detail": "mot de passe invalide"}, status_code=401)
     return await call_next(request)
 
@@ -126,5 +126,5 @@ def run() -> None:
     # Journaux de l'application (purge des .old, synchro, tâches…) : sans handler, seuls les
     # avertissements sortaient. Les journaux d'uvicorn ont leurs propres handlers.
     logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(name)s: %(message)s")
-    check_access(deps._settings)
-    uvicorn.run(app, host=deps._settings.host, port=deps._settings.port)
+    check_access(deps.settings)
+    uvicorn.run(app, host=deps.settings.host, port=deps.settings.port)

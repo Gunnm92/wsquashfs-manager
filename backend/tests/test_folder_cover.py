@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from app import deps, main
 from app.config import Settings
 from app.models import Task
+from app.services import analyze as analyze_mod
 from app.services import art_choice, operations, sgdb
 from app.services.artwork import COVER_DIR, ecrire_cover_dossier, folder_cover
 from app.services.jobs import Job
@@ -53,15 +54,15 @@ def pret(tmp_path, monkeypatch):
     (folder / "bin").mkdir(parents=True)
     (folder / "bin" / "Jeu.exe").write_bytes(b"MZ")
     folder.chmod(0o750)
-    monkeypatch.setattr(deps._settings, "roms_dirs", [str(win)])
-    monkeypatch.setattr(deps._settings, "state_dir", tmp_path / "state")
-    monkeypatch.setattr(deps._settings, "sgdb_api_key", "cle-secrete")
-    monkeypatch.setattr(deps._settings, "sgdb_authors", [])
+    monkeypatch.setattr(deps.settings, "roms_dirs", [str(win)])
+    monkeypatch.setattr(deps.settings, "state_dir", tmp_path / "state")
+    monkeypatch.setattr(deps.settings, "sgdb_api_key", "cle-secrete")
+    monkeypatch.setattr(deps.settings, "sgdb_authors", [])
     queue = TaskQueue(tmp_path / "state" / "tasks.json", deps.queue.handlers)
     monkeypatch.setattr(deps, "queue", queue)
     monkeypatch.setattr(sgdb, "_down_until", 0.0)
     art_choice.oublier()
-    deps._analyses.clear()
+    analyze_mod.analyses.clear()
     calls: list[str] = []
     _mock(monkeypatch, calls)
     return {"folder": folder, "queue": queue, "calls": calls, "state": tmp_path / "state",
@@ -295,6 +296,6 @@ def test_art_cover_prend_l_affiche_steamgriddb_puis_l_illustration(pret, monkeyp
             return httpx.Response(200, json={"success": True, "data": [grille]})
         return httpx.Response(404)
     monkeypatch.setattr(sgdb, "TRANSPORT", httpx.MockTransport(handler))
-    sgdb.forget_sgdb_misses(deps._settings)
+    sgdb.forget_sgdb_misses(deps.settings)
     assert client.get("/api/folders/art", params={"id": ID, "kind": "cover"}).content == PNG1
     assert client.get("/api/folders/art", params={"id": ID}).content == PNG2

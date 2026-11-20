@@ -556,7 +556,9 @@ Les images sont désignées par leur identifiant `<système>/<nom>` en paramètr
 ```
 backend/app/
 ├── main.py              # création de l'application, démarrage/arrêt, middlewares, montage des routeurs
-├── deps.py              # état partagé : réglages, file de tâches, bibliothèque, caches, helpers communs
+├── deps.py              # état partagé (réglages, file de tâches) et dépendances FastAPI des routes (SettingsDep, QueueDep, ImageDep)
+├── library_index.py     # index en mémoire de la bibliothèque : refresh_library, find_image, fresh_image
+├── task_submit.py       # soumission de tâches, blocages (jeu lancé, .old, tâche en cours), mode autonome, .old et sauvegardes
 ├── auth.py              # jeton du mot de passe ; routes qui touchent un client (mode autonome)
 ├── background.py        # synchro automatique des clients, purge des .old (tâches de fond)
 ├── machines.py          # application des clients (machine_app) et écoute HTTPS selon le mode

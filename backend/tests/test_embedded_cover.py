@@ -15,7 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from app import deps, main
+from app import deps, library_index, main
 from app.config import Settings
 from app.models import ImageInfo
 from app.services import artwork
@@ -231,8 +231,8 @@ def test_folder_cover_dossier_lui_meme_lien(tmp_path):
 def client(cfg, tmp_path, monkeypatch):
     image = _image(tmp_path)
     info = ImageInfo(id="win/jeu", path=image, name="Jeu", system="win", size=5)
-    monkeypatch.setattr(deps, "_settings", cfg)
-    monkeypatch.setattr(deps, "_find_image", lambda image_id: info)
+    monkeypatch.setattr(deps, "settings", cfg)
+    monkeypatch.setattr(library_index, "find_image", lambda settings, image_id: info)
     monkeypatch.setattr(deps, "queue", TaskQueue(tmp_path / "state" / "tasks.json", deps.queue.handlers))
     return TestClient(main.app, headers={"x-wsfs-token": ""})
 

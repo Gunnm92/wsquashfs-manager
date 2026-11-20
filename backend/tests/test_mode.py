@@ -12,11 +12,12 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from app import deps, machines, main
+from app import deps, library_index, machines, main, task_submit
 from app.config import Settings, get_settings, save_mode
 from app.models import ImageInfo
 from app.routes import images
 from app.services import scan
+from app.services import trial as trial_svc
 from app.services.errors import ManagerError
 
 DETAIL = "mode autonome : fonction connectée désactivée (Réglages › Mode)"
@@ -41,8 +42,8 @@ def _settings(tmp_path: Path, **kw) -> Settings:
 def client(tmp_path, monkeypatch):
     settings = _settings(tmp_path)
     settings.mode = "autonome"
-    monkeypatch.setattr(deps, "_settings", settings)
-    monkeypatch.setattr(deps, "_library", {})
+    monkeypatch.setattr(deps, "settings", settings)
+    monkeypatch.setattr(library_index, "library", {})
     return TestClient(main.app, headers={"x-wsfs-token": ""})
 
 
@@ -90,19 +91,19 @@ def test_put_mode_validates_and_is_exposed(client):
 
 def test_put_mode_starts_and_stops_the_machine_listener(client, monkeypatch):
     started = []
-    monkeypatch.setattr(machines, "_start_machine_server", lambda settings: started.append(settings) or SimpleNamespace(should_exit=False))
-    monkeypatch.setattr(machines, "_machine_server", None)
-    deps._settings.machine_port = 8790
+    monkeypatch.setattr(machines, "start_machine_server", lambda settings: started.append(settings) or SimpleNamespace(should_exit=False))
+    monkeypatch.setattr(machines, "machine_server", None)
+    deps.settings.machine_port = 8790
     try:
         client.put("/api/config/mode", json={"mode": "connecte"})
         client.put("/api/config/mode", json={"mode": "connecte"})          # déjà démarrée : rien de plus
-        assert len(started) == 1 and machines._machine_server is not None
-        stopped = machines._machine_server
+        assert len(started) == 1 and machines.machine_server is not None
+        stopped = machines.machine_server
         client.put("/api/config/mode", json={"mode": "autonome"})
-        assert stopped.should_exit is True and machines._machine_server is None
+        assert stopped.should_exit is True and machines.machine_server is None
     finally:
-        machines._machine_server = None
-        deps._settings.machine_port = 0
+        machines.machine_server = None
+        deps.settings.machine_port = 0
 
 
 # ------------------------------------------------------------------ garde
@@ -144,36 +145,37 @@ def test_autonomous_still_serves_art_and_construction(client, monkeypatch, tmp_p
 def test_autonomous_image_links_does_not_ask_the_game_host(client, monkeypatch):
     info = ImageInfo(id="arcade/jeu", path=Path("/roms/arcade/jeu.wsquashfs"), name="jeu",
                           system="arcade", size=1)
-    monkeypatch.setattr(deps, "_find_image", lambda image_id: info)
-    monkeypatch.setattr(deps, "_doctor", lambda refresh=False: pytest.fail("machine interrogée"))
+    monkeypatch.setattr(library_index, "find_image", lambda settings, image_id: info)
+    monkeypatch.setattr(trial_svc, "doctor", lambda settings, refresh=False: pytest.fail("machine interrogée"))
     monkeypatch.setattr(images, "suggest", lambda settings, path, runners: {"links": [], "runners": runners})
     body = client.get("/api/image/links", params={"id": "arcade/jeu"}).json()
     assert body["steambox_error"] == DETAIL
 
 
 def test_connected_mode_lets_connected_routes_through(client, tmp_path, monkeypatch):
-    deps._settings.mode = "connecte"
+    deps.settings.mode = "connecte"
     assert client.get("/api/saves/machines").json() == {"machines": []}
     assert client.get("/api/install/status").status_code == 200
 
 
 def test_connected_task_refused_in_autonomous_mode(tmp_path, monkeypatch):
     calls = []
-    monkeypatch.setattr(deps, "_settings", _settings(tmp_path))
-    deps._settings.mode = "autonome"
-    handler = deps._connected_task(lambda settings, task, job: calls.append((settings, task)) or "fait")
+    monkeypatch.setattr(deps, "settings", _settings(tmp_path))
+    deps.settings.mode = "autonome"
+    handler = task_submit.connected_task(lambda settings, task, job: calls.append((settings, task)) or "fait",
+                                         deps.settings)
     with pytest.raises(ManagerError, match="mode autonome"):
         handler("tâche", None)
     assert calls == []
-    deps._settings.mode = "connecte"
+    deps.settings.mode = "connecte"
     assert handler("tâche", None) == "fait"
-    assert calls == [(deps._settings, "tâche")]      # le gestionnaire reçoit les réglages en premier
+    assert calls == [(deps.settings, "tâche")]      # le gestionnaire reçoit les réglages en premier
 
 
 def test_every_queue_handler_receives_settings_task_job(tmp_path, monkeypatch):
     """Chaque gestionnaire de la file appelle sa fonction métier avec (réglages, tâche, job)."""
-    monkeypatch.setattr(deps, "_settings", _settings(tmp_path))
-    deps._settings.mode = "connecte"
+    monkeypatch.setattr(deps, "settings", _settings(tmp_path))
+    deps.settings.mode = "connecte"
     appels: dict[str, tuple] = {}
 
     def espion(nom):
@@ -194,4 +196,4 @@ def test_every_queue_handler_receives_settings_task_job(tmp_path, monkeypatch):
     task, job = object(), object()
     for kind, nom in fonctions.items():
         assert deps.queue.handlers[kind](task, job) == nom
-        assert appels[nom] == (deps._settings, task, job), kind
+        assert appels[nom] == (deps.settings, task, job), kind

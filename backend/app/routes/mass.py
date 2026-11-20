@@ -11,7 +11,8 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from .. import deps
+from .. import library_index, task_submit
+from ..deps import QueueDep, SettingsDep
 from ..services import art_choice, scan
 from ..services.artwork import embedded_cover
 from ..services.autorun import KEY_NAME_RE, apply_ops, decode_autorun, override_path
@@ -69,35 +70,35 @@ class MassAutorun(BaseModel):
 
 
 @router.post("/api/mass/autorun/preview")
-def mass_autorun_preview(body: MassAutorun):
+def mass_autorun_preview(settings: SettingsDep, queue: QueueDep, body: MassAutorun):
     """Aperçu image par image, et espace disque nécessaire (chaque image
     reconstruite garde son .old jusqu'à validation)."""
     items: list[dict] = []
     needs: dict[str, dict] = {}
     for image_id in body.ids:
         try:
-            info = deps._find_image(image_id)
+            info = library_index.find_image(settings, image_id)
         except HTTPException:
             items.append({"id": image_id, "error": "image inconnue"})
             continue
         if body.target == "override":
             # Surcharge : comparée à l'autorun effectif, rien n'est reconstruit
-            current = effective_autorun(deps._settings, info.path)
+            current = effective_autorun(settings, info.path)
             wanted = apply_ops(current, body.params()["ops"], info.name, info.system)
             changed = current is None or wanted.render() != current.render()
             items.append({"id": image_id, "name": info.name,
                           "before": current.render() if current else None,
                           "after": wanted.render(), "changed": changed,
-                          "issues": wanted.validate(set(scan.list_files(deps._settings, info.path))),
+                          "issues": wanted.validate(set(scan.list_files(settings, info.path))),
                           "blocked": None})
             continue
         try:
-            plan = plan_autorun(deps._settings, info.path, info.name, info.system, body.params())
+            plan = plan_autorun(settings, info.path, info.name, info.system, body.params())
         except ManagerError as exc:
             items.append({"id": image_id, "name": info.name, "error": str(exc)})
             continue
         before = decode_autorun(plan.before)[0] if plan.before is not None else None
-        blocked = deps._blocked_reason(info) if plan.changed else None
+        blocked = task_submit.blocked_reason(queue, info) if plan.changed else None
         items.append({"id": image_id, "name": info.name, "before": before,
                       "after": plan.after_text, "changed": plan.changed,
                       "issues": plan.issues, "blocked": blocked})
@@ -112,7 +113,7 @@ def mass_autorun_preview(body: MassAutorun):
 
 
 @router.post("/api/mass/autorun")
-def mass_autorun(body: MassAutorun):
+def mass_autorun(settings: SettingsDep, queue: QueueDep, body: MassAutorun):
     """Crée une tâche par image modifiée ; les autres sont listées avec la raison.
     En surcharge (target=override), écrit tout de suite les surcharges, sans tâche."""
     created, skipped = [], []
@@ -121,23 +122,23 @@ def mass_autorun(body: MassAutorun):
         written = []
         for image_id in body.ids:
             try:
-                info = deps._find_image(image_id)
+                info = library_index.find_image(settings, image_id)
             except HTTPException as exc:
                 skipped.append({"id": image_id, "reason": exc.detail})
                 continue
-            current = effective_autorun(deps._settings, info.path)
+            current = effective_autorun(settings, info.path)
             wanted = apply_ops(current, params["ops"], info.name, info.system)
             if current is not None and wanted.render() == current.render():
                 skipped.append({"id": image_id, "reason": "aucun changement"})
                 continue
-            write_override(deps._settings, info.path, wanted)
+            write_override(settings, info.path, wanted)
             written.append(image_id)
-        deps._refresh_library(force=False)
+        library_index.refresh_library(settings, force=False)
         return {"tasks": [], "overrides": written, "skipped": skipped}
     for image_id in body.ids:
         try:
-            info = deps._find_image(image_id)
-            plan = plan_autorun(deps._settings, info.path, info.name, info.system, params,
+            info = library_index.find_image(settings, image_id)
+            plan = plan_autorun(settings, info.path, info.name, info.system, params,
                                 validate=False)
         except (HTTPException, ManagerError) as exc:
             skipped.append({"id": image_id, "reason": getattr(exc, "detail", str(exc))})
@@ -148,7 +149,7 @@ def mass_autorun(body: MassAutorun):
             continue
         task_params = {**params, "drop_override": True} if has_override else params
         try:
-            created.append(deps._submit(info, "autorun", task_params, title,
+            created.append(task_submit.submit(queue, info, "autorun", task_params, title,
                                    night=body.when == "night").id)
         except HTTPException as exc:
             skipped.append({"id": image_id, "reason": exc.detail})
@@ -212,24 +213,24 @@ class MassFiles(BaseModel):
 
 
 @router.post("/api/mass/files/preview")
-def mass_files_preview(body: MassFiles):
+def mass_files_preview(settings: SettingsDep, queue: QueueDep, body: MassFiles):
     """Aperçu : fichiers ajoutés/remplacés/supprimés et valeurs de registre,
     image par image, avec les sauvegardes qui masqueraient un changement."""
     items: list[dict] = []
     needs: dict[str, dict] = {}
     for image_id in body.ids:
         try:
-            info = deps._find_image(image_id)
+            info = library_index.find_image(settings, image_id)
         except HTTPException:
             items.append({"id": image_id, "error": "image inconnue"})
             continue
         try:
-            plan = plan_files(deps._settings, info.path, info.name, info.system, body.params())
+            plan = plan_files(settings, info.path, info.name, info.system, body.params())
         except ManagerError as exc:
             items.append({"id": image_id, "name": info.name, "error": str(exc)})
             continue
         rebuilds = not plan.changes.is_empty()
-        blocked = deps._blocked_reason(info, rebuilds) if plan.changed else None
+        blocked = task_submit.blocked_reason(queue, info, rebuilds) if plan.changed else None
         items.append({"id": image_id, "name": info.name, "changed": plan.changed,
                       "actions": plan.actions, "warnings": plan.warnings, "blocked": blocked})
         if rebuilds and not blocked:
@@ -243,13 +244,13 @@ def mass_files_preview(body: MassFiles):
 
 
 @router.post("/api/mass/files")
-def mass_files(body: MassFiles):
+def mass_files(settings: SettingsDep, queue: QueueDep, body: MassFiles):
     created, skipped = [], []
     params, title = body.params(), body.title()
     for image_id in body.ids:
         try:
-            info = deps._find_image(image_id)
-            plan = plan_files(deps._settings, info.path, info.name, info.system, params)
+            info = library_index.find_image(settings, image_id)
+            plan = plan_files(settings, info.path, info.name, info.system, params)
         except (HTTPException, ManagerError) as exc:
             skipped.append({"id": image_id, "reason": getattr(exc, "detail", str(exc))})
             continue
@@ -257,7 +258,7 @@ def mass_files(body: MassFiles):
             skipped.append({"id": image_id, "reason": "aucun changement"})
             continue
         try:
-            created.append(deps._submit(info, "files", params, title,
+            created.append(task_submit.submit(queue, info, "files", params, title,
                                    rebuild=not plan.changes.is_empty(),
                                    night=body.when == "night").id)
         except HTTPException as exc:
@@ -266,13 +267,13 @@ def mass_files(body: MassFiles):
 
 
 @router.post("/api/mass/verify")
-def mass_verify(body: MassIds):
+def mass_verify(settings: SettingsDep, queue: QueueDep, body: MassIds):
     """Vérification d'intégrité (lecture seule), une tâche par image."""
     created, skipped = [], []
     for image_id in body.ids:
         try:
-            info = deps._find_image(image_id)
-            created.append(deps._submit(info, "verify", {}, "vérification", rebuild=False,
+            info = library_index.find_image(settings, image_id)
+            created.append(task_submit.submit(queue, info, "verify", {}, "vérification", rebuild=False,
                                    night=body.when == "night").id)
         except HTTPException as exc:
             skipped.append({"id": image_id, "reason": exc.detail})
@@ -297,7 +298,7 @@ REFUS_REMPLACEMENT = "choisir l'illustration dans l'aperçu avant de remplacer"
 
 
 @router.post("/api/mass/cover")
-def mass_cover(body: MassCover):
+def mass_cover(settings: SettingsDep, queue: QueueDep, body: MassCover):
     """Illustration ajoutée aux images qui n'en ont pas, sans reconstruction
     (mksquashfs en ajout), une tâche par image. Avec `replace`, l'illustration
     déjà intégrée est remplacée par reconstruction (ancienne image gardée en .old) ;
@@ -307,15 +308,15 @@ def mass_cover(body: MassCover):
     title = "Remplacement de l'illustration" if body.replace else "illustration"
     for image_id in body.ids:
         try:
-            info = deps._find_image(image_id)
+            info = library_index.find_image(settings, image_id)
             choice = body.choices.get(image_id)
-            if body.replace and choice is None and embedded_cover(deps._settings, info.path) is not None:
+            if body.replace and choice is None and embedded_cover(settings, info.path) is not None:
                 skipped.append({"id": image_id, "reason": REFUS_REMPLACEMENT})
                 continue
             params: dict = {"replace": body.replace}
             if choice is not None:
                 params["choice"] = choice
-            created.append(deps._submit(info, "cover", params, title,
+            created.append(task_submit.submit(queue, info, "cover", params, title,
                                    rebuild=body.replace, night=body.when == "night").id)
         except HTTPException as exc:
             skipped.append({"id": image_id, "reason": exc.detail})
@@ -323,33 +324,33 @@ def mass_cover(body: MassCover):
 
 
 @router.post("/api/mass/saves/reset")
-def mass_saves_reset(body: MassIds):
+def mass_saves_reset(settings: SettingsDep, queue: QueueDep, body: MassIds):
     done, skipped = [], []
     for image_id in body.ids:
         try:
-            done.append({"id": image_id, "renamed": deps._reset_saves(image_id)})
+            done.append({"id": image_id, "renamed": task_submit.reset_saves(settings, queue, image_id)})
         except HTTPException as exc:
             skipped.append({"id": image_id, "reason": exc.detail})
     return {"done": done, "skipped": skipped}
 
 
 @router.post("/api/mass/override/commit")
-def mass_override_commit(body: MassIds):
+def mass_override_commit(settings: SettingsDep, queue: QueueDep, body: MassIds):
     """« Inscrire dans l'image » : reconstruit chaque image avec son autorun
     effectif, puis supprime sa surcharge."""
     created, skipped = [], []
     for image_id in body.ids:
         try:
-            info = deps._find_image(image_id)
+            info = library_index.find_image(settings, image_id)
         except HTTPException as exc:
             skipped.append({"id": image_id, "reason": exc.detail})
             continue
-        params = commit_params(deps._settings, info.path)
+        params = commit_params(settings, info.path)
         if params is None:
             skipped.append({"id": image_id, "reason": "pas de surcharge"})
             continue
         try:
-            created.append(deps._submit(info, "autorun", params, "surcharge inscrite dans l'image",
+            created.append(task_submit.submit(queue, info, "autorun", params, "surcharge inscrite dans l'image",
                                    night=body.when == "night").id)
         except HTTPException as exc:
             skipped.append({"id": image_id, "reason": exc.detail})
@@ -357,15 +358,15 @@ def mass_override_commit(body: MassIds):
 
 
 @router.post("/api/mass/old/validate")
-def mass_old_validate(body: MassIds):
+def mass_old_validate(settings: SettingsDep, queue: QueueDep, body: MassIds):
     done, skipped = [], []
     for image_id in body.ids:
         try:
-            deps._old_action(image_id, validate_backup, fresh=False)
+            task_submit.old_action(settings, queue, image_id, validate_backup, fresh=False)
             done.append(image_id)
             logger.info(".old supprimé : %s", image_id)
         except HTTPException as exc:
             skipped.append({"id": image_id, "reason": exc.detail})
     if done:
-        deps._refresh_library(force=False)      # une seule relecture, pas une par image
+        library_index.refresh_library(settings, force=False)      # une seule relecture, pas une par image
     return {"done": done, "skipped": skipped}

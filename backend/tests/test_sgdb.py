@@ -309,7 +309,7 @@ def test_save_sgdb_validation(cfg):
 
 @pytest.fixture
 def client(cfg, monkeypatch):
-    monkeypatch.setattr(deps, "_settings", cfg)
+    monkeypatch.setattr(deps, "settings", cfg)
     return TestClient(main.app, headers={"x-wsfs-token": ""})
 
 

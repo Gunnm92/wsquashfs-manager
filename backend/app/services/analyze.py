@@ -696,6 +696,13 @@ class FolderAnalysis:
         return self.candidates[0] if self.candidates else None
 
 
+# Analyses récentes (dossier ou image → mtime, analyse) : changer d'exécutable ne relit pas tout
+analyses: dict[str, tuple[float, FolderAnalysis]] = {}
+
+
+ANALYSES_MAX = 64
+
+
 _PE_CANDIDATES = 8      # en-têtes PE lus pour les meilleurs candidats seulement
 
 

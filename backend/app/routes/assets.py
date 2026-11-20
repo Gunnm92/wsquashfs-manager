@@ -11,7 +11,8 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from pydantic import BaseModel
 
-from .. import auth, deps
+from .. import auth
+from ..deps import SettingsDep
 
 router = APIRouter()
 
@@ -44,8 +45,8 @@ def _recent_failures(address: str, now: float) -> list[float]:
 
 
 @router.post("/login")
-def login(req: LoginReq, request: Request):
-    if not deps._settings.password:
+def login(settings: SettingsDep, req: LoginReq, request: Request):
+    if not settings.password:
         return {"token": ""}
     address = request.client.host if request.client else "?"
     now = time.monotonic()
@@ -54,14 +55,14 @@ def login(req: LoginReq, request: Request):
         if len(recent) >= LOGIN_MAX_FAILURES:
             wait = int(LOGIN_WINDOW - (now - recent[0])) + 1
             raise HTTPException(status_code=429, detail=f"trop d'essais : réessayer dans {wait // 60 + 1} min")
-    if not auth._same(req.password, deps._settings.password):
+    if not auth.same(req.password, settings.password):
         with _login_lock:
             _login_failures.setdefault(address, []).append(now)
         time.sleep(LOGIN_DELAY)
         raise HTTPException(status_code=401, detail="mot de passe invalide")
     with _login_lock:
         _login_failures.pop(address, None)
-    return {"token": auth._token(deps._settings.password)}
+    return {"token": auth.token(settings.password)}
 
 
 @router.get("/", response_class=FileResponse)
@@ -91,10 +92,10 @@ def asset(name: str):
 
 
 @router.get("/custom.css")
-def custom_css():
+def custom_css(settings: SettingsDep):
     """Feuille personnalisée : <state_dir>/custom.css (thèmes, jetons), chargée après app.css.
     Absente : réponse vide plutôt qu'un 404 dans la console du navigateur."""
-    path = deps._settings.state_dir / "custom.css"
+    path = settings.state_dir / "custom.css"
     headers = {"Cache-Control": "no-cache"}
     if not path.is_file():
         return Response("", media_type="text/css", headers=headers)

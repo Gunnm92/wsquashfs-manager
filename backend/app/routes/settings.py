@@ -10,8 +10,9 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from .. import deps, machines
+from .. import library_index, machines
 from ..config import (
+    Settings,
     in_night,
     save_auto_push_interval,
     save_game_host,
@@ -22,7 +23,9 @@ from ..config import (
     save_sgdb,
     saves_machines,
 )
+from ..deps import SettingsDep
 from ..services import clients as clients_svc
+from ..services import trial as trial_svc
 from ..services.agent import agent_cert_path, fingerprint_pem
 from ..services.sgdb import tester_cle
 from ..services.trial import host_name
@@ -31,49 +34,49 @@ router = APIRouter()
 
 
 @router.get("/api/config")
-def get_config():
+def get_config(settings: SettingsDep):
     return {
-        "mode": deps._settings.mode,                                  # autonome : rien de connecté ; connecte : le reste
-        "machine_listening": machines._machine_server is not None,        # écoute HTTPS des clients active
-        "roms_dirs": deps._settings.roms_dirs,
-        "saves_dir": str(deps._settings.saves_dir),
-        "tmp_dir": str(deps._settings.tmp_dir) if deps._settings.tmp_dir else "à côté de chaque image",
-        "roms_roots": deps._settings.roms_roots,
-        "night_start": deps._settings.night_start,
-        "night_end": deps._settings.night_end,
-        "night_now": in_night(deps._settings),
-        "concurrency": deps._settings.task_concurrency,
-        "old_retention_days": deps._settings.old_retention_days,
-        "rebuild_mode": deps._settings.rebuild_mode,
-        "tool_user": deps._settings.tool_user,
+        "mode": settings.mode,                                  # autonome : rien de connecté ; connecte : le reste
+        "machine_listening": machines.machine_server is not None,        # écoute HTTPS des clients active
+        "roms_dirs": settings.roms_dirs,
+        "saves_dir": str(settings.saves_dir),
+        "tmp_dir": str(settings.tmp_dir) if settings.tmp_dir else "à côté de chaque image",
+        "roms_roots": settings.roms_roots,
+        "night_start": settings.night_start,
+        "night_end": settings.night_end,
+        "night_now": in_night(settings),
+        "concurrency": settings.task_concurrency,
+        "old_retention_days": settings.old_retention_days,
+        "rebuild_mode": settings.rebuild_mode,
+        "tool_user": settings.tool_user,
         # Client d'essai (lancement d'essai, --doctor, runners installés)
-        "game_host": deps._settings.game_host,
-        "game_host_name": _trial_name(),
-        "session_process": deps._settings.session_process,
-        "agent_url": deps._settings.agent_url,
-        "agent_fingerprint": _agent_fingerprint(),
-        "game_host_machine": clients_svc.game_host_machine(deps._settings),   # client associé choisi, "" sinon
+        "game_host": settings.game_host,
+        "game_host_name": _trial_name(settings),
+        "session_process": settings.session_process,
+        "agent_url": settings.agent_url,
+        "agent_fingerprint": _agent_fingerprint(settings),
+        "game_host_machine": clients_svc.game_host_machine(settings),   # client associé choisi, "" sinon
         # Manager vu par les clients (synchro automatique) : adresse réglée, port d'écoute, empreinte
-        "machine_url": deps._settings.machine_url,
-        "machine_port": deps._settings.machine_port,
-        "machine_fingerprint": clients_svc.manager_fingerprint(deps._settings, create=False),
-        "auto_push_interval": deps._settings.auto_push_interval,     # mise à jour automatique des clients en retard
+        "machine_url": settings.machine_url,
+        "machine_port": settings.machine_port,
+        "machine_fingerprint": clients_svc.manager_fingerprint(settings, create=False),
+        "auto_push_interval": settings.auto_push_interval,     # mise à jour automatique des clients en retard
         # Icônes et jaquettes SteamGridDB : la clé n'est jamais renvoyée, seulement son existence
-        "sgdb_configured": bool(deps._settings.sgdb_api_key),
-        "sgdb_authors": deps._settings.sgdb_authors,
-        "sgdb_round_threshold": deps._settings.sgdb_round_threshold,
+        "sgdb_configured": bool(settings.sgdb_api_key),
+        "sgdb_authors": settings.sgdb_authors,
+        "sgdb_round_threshold": settings.sgdb_round_threshold,
     }
 
 
-def _trial_name() -> str:
+def _trial_name(settings: Settings) -> str:
     """Nom du client d'essai (celui de l'association), sinon sa description technique."""
-    machine_id = clients_svc.game_host_machine(deps._settings)
-    name = next((m["name"] for m in saves_machines(deps._settings) if m["id"] == machine_id), "")
-    return name or host_name(deps._settings)
+    machine_id = clients_svc.game_host_machine(settings)
+    name = next((m["name"] for m in saves_machines(settings) if m["id"] == machine_id), "")
+    return name or host_name(settings)
 
 
-def _agent_fingerprint() -> str:
-    cert = agent_cert_path(deps._settings)
+def _agent_fingerprint(settings: Settings) -> str:
+    cert = agent_cert_path(settings)
     try:
         return fingerprint_pem(cert.read_text()) if cert.exists() else ""
     except (OSError, ValueError):
@@ -86,17 +89,17 @@ class GameHostConfig(BaseModel):
 
 
 @router.put("/api/config/game_host")
-def set_game_host(body: GameHostConfig):
+def set_game_host(settings: SettingsDep, body: GameHostConfig):
     """Client d'essai : désactivé, ce serveur, ou le client associé déjà choisi (agent).
     Le mode agent ne associe rien : l'adresse et le jeton viennent du client choisi
     (PUT /api/config/game_host/machine), refusé tant qu'aucune machine n'est associée."""
     values = {"game_host": body.game_host, "session_process": body.session_process}
     try:
-        save_game_host(deps._settings, values)
+        save_game_host(settings, values)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    deps._doctor_cache.clear()           # l'état du lanceur est celui de l'ancienne machine
-    return get_config()
+    trial_svc.doctor_cache.clear()           # l'état du lanceur est celui de l'ancienne machine
+    return get_config(settings)
 
 
 class GameHostMachine(BaseModel):
@@ -104,17 +107,17 @@ class GameHostMachine(BaseModel):
 
 
 @router.put("/api/config/game_host/machine")
-def set_game_host_machine(body: GameHostMachine):
+def set_game_host_machine(settings: SettingsDep, body: GameHostMachine):
     """Client d'essai = un client déjà associé (onglet Sauvegardes) : son adresse, son
     jeton et son certificat sont repris, sans nouveau code d'association."""
     try:
-        clients_svc.use_as_game_host(deps._settings, body.id)
+        clients_svc.use_as_game_host(settings, body.id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"client inconnu : {body.id}") from None
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    deps._doctor_cache.clear()           # l'état du lanceur est celui de l'ancienne machine
-    return get_config()
+    trial_svc.doctor_cache.clear()           # l'état du lanceur est celui de l'ancienne machine
+    return get_config(settings)
 
 
 class MachineUrl(BaseModel):
@@ -122,16 +125,16 @@ class MachineUrl(BaseModel):
 
 
 @router.put("/api/config/machine_url")
-def set_machine_url(body: MachineUrl):
+def set_machine_url(settings: SettingsDep, body: MachineUrl):
     """Adresse du manager vue par les clients : déclarée à chaque client associé (agent v9)."""
     try:
-        save_machine_url(deps._settings, body.url)
+        save_machine_url(settings, body.url)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     # Les clients déjà déclarés gardent l'ancienne adresse : redéclaration, en arrière-plan (une
     # machine éteinte ne bloque pas l'enregistrement ; elle sera déclarée à son prochain statut).
-    threading.Thread(target=clients_svc.redeclare_manager, args=(deps._settings,), daemon=True).start()
-    return get_config()
+    threading.Thread(target=clients_svc.redeclare_manager, args=(settings,), daemon=True).start()
+    return get_config(settings)
 
 
 class SgdbConfig(BaseModel):
@@ -141,13 +144,13 @@ class SgdbConfig(BaseModel):
 
 
 @router.put("/api/config/sgdb")
-def set_sgdb(body: SgdbConfig):
+def set_sgdb(settings: SettingsDep, body: SgdbConfig):
     """Clé SteamGridDB, auteurs préférés et seuil de rondeur des icônes."""
     try:
-        save_sgdb(deps._settings, body.api_key, body.authors, body.threshold)
+        save_sgdb(settings, body.api_key, body.authors, body.threshold)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return get_config()
+    return get_config(settings)
 
 
 class SgdbTest(BaseModel):
@@ -155,10 +158,10 @@ class SgdbTest(BaseModel):
 
 
 @router.post("/api/config/sgdb/test")
-def test_sgdb(body: SgdbTest | None = None):
+def test_sgdb(settings: SettingsDep, body: SgdbTest | None = None):
     """Essai de la clé saisie (sinon de la clé enregistrée) par une recherche de « Portal » :
     rien n'est mis en cache ni enregistré."""
-    ok, message = tester_cle(deps._settings, body.api_key if body else None)
+    ok, message = tester_cle(settings, body.api_key if body else None)
     return {"ok": ok, "message": message}
 
 
@@ -167,21 +170,21 @@ class AutoPushInterval(BaseModel):
 
 
 @router.put("/api/config/auto_push")
-def set_auto_push(body: AutoPushInterval):
+def set_auto_push(settings: SettingsDep, body: AutoPushInterval):
     """Intervalle de la mise à jour automatique des clients en retard (0 : désactivée)."""
     try:
-        save_auto_push_interval(deps._settings, body.seconds)
+        save_auto_push_interval(settings, body.seconds)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return get_config()
+    return get_config(settings)
 
 
 @router.get("/api/config/systems")
-def config_systems():
+def config_systems(settings: SettingsDep):
     """Systèmes des dossiers de base (WSQUASHFS_MGR_ROMS_DIRS, ex. /roms) avec
     leur nombre d'images et de dossiers de jeux, pour « Réglages »."""
     out = []
-    for root in deps._settings.roms_roots or deps._settings.roms_dirs:
+    for root in settings.roms_roots or settings.roms_dirs:
         base = Path(root).expanduser()
         try:
             entries = sorted(base.iterdir())
@@ -208,16 +211,16 @@ class ModeConfig(BaseModel):
 
 
 @router.put("/api/config/mode")
-def set_mode(body: ModeConfig):
+def set_mode(settings: SettingsDep, body: ModeConfig):
     """Mode du manager. Passer en connecté démarre l'écoute des clients, passer en autonome
     l'arrête (sans redémarrer le manager)."""
     try:
-        save_mode(deps._settings, body.mode)
+        save_mode(settings, body.mode)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    with machines._machine_lock:
-        machines._sync_machine_listener()
-    return get_config()
+    with machines.machine_lock:
+        machines.sync_machine_listener()
+    return get_config(settings)
 
 
 class NightWindow(BaseModel):
@@ -226,13 +229,13 @@ class NightWindow(BaseModel):
 
 
 @router.put("/api/config/night")
-def set_night(body: NightWindow):
+def set_night(settings: SettingsDep, body: NightWindow):
     """Plage horaire des tâches programmées « cette nuit »."""
     try:
-        save_night(deps._settings, body.start, body.end)
+        save_night(settings, body.start, body.end)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return get_config()
+    return get_config(settings)
 
 
 class RomsDirs(BaseModel):
@@ -240,11 +243,11 @@ class RomsDirs(BaseModel):
 
 
 @router.put("/api/config/roms_dirs")
-def set_roms_dirs(body: RomsDirs):
+def set_roms_dirs(settings: SettingsDep, body: RomsDirs):
     dirs = [d.strip() for d in body.roms_dirs if d.strip()]
     missing = [d for d in dirs if not Path(d).expanduser().is_dir()]
     if missing:
         raise HTTPException(status_code=422, detail=f"dossier(s) introuvable(s) : {missing}")
-    save_roms_dirs(deps._settings, dirs)
-    deps._refresh_library(force=False)
-    return get_config()
+    save_roms_dirs(settings, dirs)
+    library_index.refresh_library(settings, force=False)
+    return get_config(settings)

@@ -25,7 +25,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from app import background, deps, machines, main
+from app import background, deps, library_index, machines, main
 from app.config import (
     Settings,
     get_settings,
@@ -1026,16 +1026,16 @@ def api(tmp_path, monkeypatch):
     settings = make_settings(tmp_path)
     settings.mode = "connecte"                  # API des machines : hors mode autonome
     queue = TaskQueue(tmp_path / "state" / "tasks.json", deps.queue.handlers)
-    monkeypatch.setattr(deps, "_settings", settings)
+    monkeypatch.setattr(deps, "settings", settings)
     monkeypatch.setattr(deps, "queue", queue)
     image = SimpleNamespace(path=Path("/roms/arcade/Jeu.pc.wsquashfs"))
 
-    def find_image(image_id):
+    def find_image(settings, image_id):
         if image_id == "arcade/Jeu":
             return image
         raise HTTPException(status_code=404, detail=f"image inconnue : {image_id}")
 
-    monkeypatch.setattr(deps, "_find_image", find_image)
+    monkeypatch.setattr(library_index, "find_image", find_image)
     return TestClient(main.app, headers={"x-wsfs-token": ""}), settings, queue
 
 
@@ -1830,7 +1830,7 @@ def test_put_from_a_pushes_to_b_but_not_back_to_a(agents, tmp_path, monkeypatch)
     a = agents("a-machine", games={"Jeu": (gz("a-old"), None, 100)}, auto=True)
     b = agents("b-machine", games={"Jeu": (gz("b-old"), None, 100)}, auto=True)
     settings = make_settings(tmp_path)
-    monkeypatch.setattr(deps, "_settings", settings)
+    monkeypatch.setattr(deps, "settings", settings)
     monkeypatch.setattr(machine_api, "_background", lambda target, *args, **kwargs: target(*args, **kwargs))
     monkeypatch.setattr(machine_api, "GZIP_MAGIC", b"GZ")          # les faux agents ne connaissent que « GZ »
     associate(settings, a)
@@ -1856,7 +1856,7 @@ def test_put_from_a_pushes_to_b_but_not_back_to_a(agents, tmp_path, monkeypatch)
 
 def test_auto_push_interval_is_checked_saved_and_read_back(tmp_path, monkeypatch):
     settings = make_settings(tmp_path)
-    monkeypatch.setattr(deps, "_settings", settings)
+    monkeypatch.setattr(deps, "settings", settings)
     client = TestClient(main.app, headers={"x-wsfs-token": ""})
     assert client.get("/api/config").json()["auto_push_interval"] == 120
     for bad in (-1, 86401):
@@ -1871,16 +1871,16 @@ def test_auto_push_loop_runs_each_interval_until_shutdown(tmp_path, monkeypatch)
     settings = make_settings(tmp_path)
     settings.auto_push_interval = 1
     settings.mode = "connecte"
-    monkeypatch.setattr(deps, "_settings", settings)
-    monkeypatch.setattr(background, "_background_stop", threading.Event())
+    monkeypatch.setattr(deps, "settings", settings)
+    monkeypatch.setattr(background, "background_stop", threading.Event())
     calls = []
     monkeypatch.setattr(saves_sync, "sync_auto", lambda s, *a, **k: calls.append(s) or [])
-    thread = threading.Thread(target=background._auto_push_loop, daemon=True)
+    thread = threading.Thread(target=background.auto_push_loop, daemon=True)
     thread.start()
     deadline = time.monotonic() + 10
     while not calls and time.monotonic() < deadline:
         time.sleep(0.05)
-    background._background_stop.set()
+    background.background_stop.set()
     thread.join(timeout=5)
     assert calls == [settings] and not thread.is_alive()
 
@@ -1888,15 +1888,15 @@ def test_auto_push_loop_runs_each_interval_until_shutdown(tmp_path, monkeypatch)
 def test_auto_push_loop_does_nothing_when_disabled(tmp_path, monkeypatch):
     settings = make_settings(tmp_path)
     settings.auto_push_interval = 0
-    monkeypatch.setattr(deps, "_settings", settings)
-    monkeypatch.setattr(background, "_background_stop", threading.Event())
+    monkeypatch.setattr(deps, "settings", settings)
+    monkeypatch.setattr(background, "background_stop", threading.Event())
     monkeypatch.setattr(background, "AUTO_PUSH_IDLE", 0.02)
     calls = []
     monkeypatch.setattr(saves_sync, "sync_auto", lambda s, *a, **k: calls.append(s) or [])
-    thread = threading.Thread(target=background._auto_push_loop, daemon=True)
+    thread = threading.Thread(target=background.auto_push_loop, daemon=True)
     thread.start()
     time.sleep(0.3)
-    background._background_stop.set()
+    background.background_stop.set()
     thread.join(timeout=5)
     assert calls == [] and not thread.is_alive()
 
@@ -1905,7 +1905,7 @@ def test_put_does_not_push_when_auto_push_is_off(agents, tmp_path, monkeypatch):
     a = agents("a-machine", auto=True)
     b = agents("b-machine", games={"Jeu": (gz("b-old"), None, 100)}, auto=True)
     settings = make_settings(tmp_path, auto_push_interval=0)
-    monkeypatch.setattr(deps, "_settings", settings)
+    monkeypatch.setattr(deps, "settings", settings)
     monkeypatch.setattr(machine_api, "_background", lambda target, *args, **kwargs: target(*args, **kwargs))
     monkeypatch.setattr(machine_api, "GZIP_MAGIC", b"GZ")
     associate(settings, a)
@@ -2061,7 +2061,7 @@ def test_sync_game_missing_from_the_manager_comes_up(agents, tmp_path):
 
 
 def agent_put(settings, monkeypatch, agent_id, data, **headers):
-    monkeypatch.setattr(deps, "_settings", settings)
+    monkeypatch.setattr(deps, "settings", settings)
     monkeypatch.setattr(machine_api, "_background", lambda target, *args, **kwargs: target(*args, **kwargs))
     monkeypatch.setattr(machine_api, "GZIP_MAGIC", b"GZ")
     set_saves_machine_field(settings, agent_id, "manager_token_sha256", hashlib.sha256(b"jeton-a").hexdigest())

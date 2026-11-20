@@ -33,7 +33,7 @@ from test_saves import (
     pair_reply,
 )
 
-from app import deps, main
+from app import deps, library_index, main
 from app.config import save_saves_machines, saves_machines
 from app.models import Task
 from app.services import install
@@ -500,18 +500,18 @@ def api(tmp_path, monkeypatch):
     settings = make_settings(tmp_path)
     settings.mode = "connecte"                  # API des machines : hors mode autonome
     queue = TaskQueue(tmp_path / "state" / "tasks.json", deps.queue.handlers)
-    monkeypatch.setattr(deps, "_settings", settings)
+    monkeypatch.setattr(deps, "settings", settings)
     monkeypatch.setattr(deps, "queue", queue)
     images = {"arcade/Jeu": SimpleNamespace(id="arcade/Jeu", path=Path("/roms/arcade/Jeu.wsquashfs")),
               "arcade/Autre": SimpleNamespace(id="arcade/Autre", path=Path("/roms/arcade/Autre.wsquashfs")),
               "arcade/Pc": SimpleNamespace(id="arcade/Pc", path=Path("/roms/arcade/Pc.pc"))}
 
-    def find_image(image_id):
+    def find_image(settings, image_id):
         if image_id in images:
             return images[image_id]
         raise HTTPException(status_code=404, detail=f"image inconnue : {image_id}")
 
-    monkeypatch.setattr(deps, "_find_image", find_image)
+    monkeypatch.setattr(library_index, "find_image", find_image)
     return TestClient(main.app, headers={"x-wsfs-token": ""}), settings, queue
 
 

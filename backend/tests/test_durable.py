@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from app import deps, main
+from app import deps, library_index, main
 from app.services import durable, scan
 from app.services.durable import publish_new, restore, swap_keep_old, write_atomic
 from app.services.tasks import TaskQueue
@@ -166,11 +166,11 @@ def test_damaged_images_found_and_restored(tmp_path, monkeypatch):
     _squash(src, roms / "saine.wsquashfs")                       # rien à signaler
     _squash(src, roms / "saine.wsquashfs.old")
     (roms / "perdue.wsquashfs.old").write_bytes(b"illisible")    # rien de sain à remettre
-    monkeypatch.setattr(deps._settings, "roms_dirs", [str(tmp_path / "roms")])
+    monkeypatch.setattr(deps.settings, "roms_dirs", [str(tmp_path / "roms")])
     monkeypatch.setattr(deps, "queue", TaskQueue(tmp_path / "state" / "tasks.json",
                                                  deps.queue.handlers))
     monkeypatch.setattr(scan, "image_in_use", lambda image: False)
-    monkeypatch.setattr(deps, "_refresh_library", lambda force: [])
+    monkeypatch.setattr(library_index, "refresh_library", lambda settings, force: [])
     client = TestClient(main.app, headers={"x-wsfs-token": ""})
 
     found = {d["id"]: d["problem"] for d in client.get("/api/recovery").json()}

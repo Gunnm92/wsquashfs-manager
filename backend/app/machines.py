@@ -28,7 +28,7 @@ def _serve_machines(server: uvicorn.Server) -> None:
         logger.error("clients : écoute impossible (%s)", exc)
 
 
-def _start_machine_server(settings: Settings) -> uvicorn.Server | None:
+def start_machine_server(settings: Settings) -> uvicorn.Server | None:
     """Écoute HTTPS des clients (machine_port, certificat du manager) dans un thread démoniaque ;
     seulement l'API des clients (machine_app), jamais l'interface. None si désactivée."""
     if settings.machine_port <= 0:
@@ -50,22 +50,22 @@ def _start_machine_server(settings: Settings) -> uvicorn.Server | None:
 
 
 # Écoute HTTPS des clients : seulement en mode connecté ; suit le passage d'un mode à l'autre
-_machine_server: uvicorn.Server | None = None
+machine_server: uvicorn.Server | None = None
 
 
-_machine_lock = threading.Lock()
+machine_lock = threading.Lock()
 
 
-def _sync_machine_listener() -> None:
+def sync_machine_listener() -> None:
     """Démarre l'écoute des clients si le mode est connecté, l'arrête sinon. Appelé sous
-    _machine_lock, au démarrage et à chaque changement de mode."""
-    global _machine_server
-    if deps._settings.mode == "connecte":
-        if _machine_server is None:
-            _machine_server = _start_machine_server(deps._settings)
-    elif _machine_server is not None:
-        _machine_server.should_exit = True
-        _machine_server = None
+    machine_lock, au démarrage et à chaque changement de mode."""
+    global machine_server
+    if deps.settings.mode == "connecte":
+        if machine_server is None:
+            machine_server = start_machine_server(deps.settings)
+    elif machine_server is not None:
+        machine_server.should_exit = True
+        machine_server = None
 
 
 # API des clients (synchro automatique) : application distincte, sur machine_port seulement,
@@ -74,7 +74,7 @@ machine_app = FastAPI(title="wsquashfs-manager (clients)", version="0.2.0",
                       docs_url=None, redoc_url=None, openapi_url=None)
 
 
-machine_app.include_router(machine_api.build_router(lambda: deps._settings))
+machine_app.include_router(machine_api.build_router(lambda: deps.settings))
 
 
 @machine_app.exception_handler(RequestValidationError)

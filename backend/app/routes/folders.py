@@ -12,7 +12,8 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
 
-from .. import deps
+from ..config import Settings
+from ..deps import QueueDep, SettingsDep
 from ..services import analyze as analyze_mod
 from ..services import art_choice, scan, sgdb
 from ..services.analyze import FolderAnalysis, add_local_game, analyze_folder, report
@@ -27,7 +28,7 @@ from ..services.operations import (
     pack_target,
     remove_tree,
 )
-from ..services.tasks import TaskConflict
+from ..services.tasks import TaskConflict, TaskQueue
 from .mass import MassIds
 
 router = APIRouter()
@@ -64,53 +65,53 @@ def knowledge_add(body: KnowledgeEntry):
         entry = add_local_game(body.model_dump())
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    deps._analyses.clear()                    # les propositions en cache en tiennent compte
+    analyze_mod.analyses.clear()                    # les propositions en cache en tiennent compte
     return entry
 
 
-def _folders() -> dict[str, dict]:
-    folders = {f["id"]: f for f in find_folders(deps._settings)}
+def _folders(settings: Settings, queue: TaskQueue) -> dict[str, dict]:
+    folders = {f["id"]: f for f in find_folders(settings)}
     for folder in folders.values():
-        task = deps.queue.active_for(folder["image_id"])
+        task = queue.active_for(folder["image_id"])
         folder["task"] = task.status.value if task else None
     return folders
 
 
-def _find_folder(folder_id: str) -> dict:
-    folder = _folders().get(folder_id)
+def _find_folder(settings: Settings, queue: TaskQueue, folder_id: str) -> dict:
+    folder = _folders(settings, queue).get(folder_id)
     if folder is None:
         raise HTTPException(status_code=404, detail=f"dossier inconnu : {folder_id}")
     return folder
 
 
 @router.get("/api/folders")
-def list_folders():
+def list_folders(settings: SettingsDep, queue: QueueDep):
     """Dossiers de jeux à empaqueter (*.pc, *.wine) des dossiers roms/."""
-    return list(_folders().values())
+    return list(_folders(settings, queue).values())
 
 
 def _analysis(folder: dict, refresh: bool) -> FolderAnalysis:
     path = Path(folder["path"])
     mtime = path.stat().st_mtime
-    cached = deps._analyses.get(folder["path"])
+    cached = analyze_mod.analyses.get(folder["path"])
     if cached and cached[0] == mtime and not refresh:
         return cached[1]
     fa = analyze_folder(path, folder["name"])
-    if len(deps._analyses) >= deps._ANALYSES_MAX:
-        deps._analyses.pop(next(iter(deps._analyses)))
-    deps._analyses[folder["path"]] = (mtime, fa)
+    if len(analyze_mod.analyses) >= analyze_mod.ANALYSES_MAX:
+        analyze_mod.analyses.pop(next(iter(analyze_mod.analyses)))
+    analyze_mod.analyses[folder["path"]] = (mtime, fa)
     return fa
 
 
 @router.get("/api/folders/art")
-def folder_art(id: str, kind: Literal["cover", "icon"] = "icon"):
+def folder_art(queue: QueueDep, settings: SettingsDep, id: str, kind: Literal["cover", "icon"] = "icon"):
     """Illustration d'un dossier à empaqueter, comme pour une image :
     - `icon` (vue liste) : `<dossier>/.wsquashfs/cover`, l'illustration qui sera intégrée ;
     - `cover` (jaquettes) : l'affiche SteamGridDB en cache (nom et jeu mémorisés du dossier),
       sinon cette même illustration.
     Sans cache HTTP durable : le fichier peut être ajouté à tout moment (revalidé à chaque affichage)."""
-    folder = _find_folder(id)
-    art = sgdb.sgdb_artwork(deps._settings, Path(folder["path"]), "cover", folder["id"]) if kind == "cover" else None
+    folder = _find_folder(settings, queue, id)
+    art = sgdb.sgdb_artwork(settings, Path(folder["path"]), "cover", folder["id"]) if kind == "cover" else None
     art = art or folder_cover(Path(folder["path"]))
     if art is None:
         raise HTTPException(status_code=404, detail="aucune illustration")
@@ -123,18 +124,18 @@ def _cible(folder: dict) -> art_choice.Cible:
 
 
 @router.get("/api/folders/art/candidates")
-def folder_art_candidates(id: str, q: str | None = Query(None, max_length=sgdb.ALIAS_NOM_MAX),
+def folder_art_candidates(queue: QueueDep, settings: SettingsDep, id: str, q: str | None = Query(None, max_length=sgdb.ALIAS_NOM_MAX),
                           game_id: int | None = None):
     """Aperçu de l'illustration d'un dossier à empaqueter (mêmes champs que pour une image).
     `q` et `game_id` : nom et jeu SteamGridDB, comme pour une image."""
-    return art_choice.apercu(deps._settings, _cible(_find_folder(id)), q, game_id)
+    return art_choice.apercu(settings, _cible(_find_folder(settings, queue, id)), q, game_id)
 
 
 @router.get("/api/folders/art/candidate")
-def folder_art_candidate(id: str, key: str, size: Literal["thumb", "full"] = "thumb"):
+def folder_art_candidate(queue: QueueDep, settings: SettingsDep, id: str, key: str, size: Literal["thumb", "full"] = "thumb"):
     """Image d'un candidat de l'aperçu d'un dossier (mêmes règles que pour une image)."""
     try:
-        art = art_choice.candidat_fichier(deps._settings, _cible(_find_folder(id)), key, size)
+        art = art_choice.candidat_fichier(settings, _cible(_find_folder(settings, queue, id)), key, size)
     except art_choice.CandidatError as exc:
         raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
     return FileResponse(art.path, media_type=art.media_type,
@@ -142,10 +143,10 @@ def folder_art_candidate(id: str, key: str, size: Literal["thumb", "full"] = "th
 
 
 @router.delete("/api/folders/art/alias")
-def folder_art_alias_reset(id: str):
+def folder_art_alias_reset(queue: QueueDep, settings: SettingsDep, id: str):
     """Revenir au nom du dossier pour la recherche SteamGridDB (nom mémorisé effacé)."""
-    folder = _find_folder(id)
-    sgdb.oublier_alias(deps._settings, folder["id"])
+    folder = _find_folder(settings, queue, id)
+    sgdb.oublier_alias(settings, folder["id"])
     art_choice.oublier()
     return {"ok": True}
 
@@ -163,17 +164,17 @@ class FolderCover(BaseModel):
 
 
 @router.post("/api/folders/cover")
-def folder_cover_set(body: FolderCover):
+def folder_cover_set(queue: QueueDep, settings: SettingsDep, body: FolderCover):
     """Écrit le candidat choisi dans `<dossier>/.wsquashfs/cover` : l'illustration est intégrée
     à l'empaquetage. Aucune reconstruction. Refusé pendant l'empaquetage du dossier, et une fois
     l'image créée (son illustration se change alors depuis la fiche de l'image)."""
-    folder = _find_folder(body.id)
+    folder = _find_folder(settings, queue, body.id)
     if folder["task"]:
         raise HTTPException(status_code=409, detail="empaquetage en file ou en cours : illustration refusée")
     if folder["image_exists"]:
         raise HTTPException(status_code=409, detail="image déjà créée : son illustration se change depuis la fiche de l'image")
     try:
-        art = art_choice.candidat_fichier(deps._settings, _cible(folder), body.key, "full")
+        art = art_choice.candidat_fichier(settings, _cible(folder), body.key, "full")
     except art_choice.CandidatError as exc:
         raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
     try:
@@ -184,10 +185,10 @@ def folder_cover_set(body: FolderCover):
 
 
 @router.get("/api/folders/analyze")
-def folder_analyze(id: str, exe: str | None = None, refresh: bool = False):
+def folder_analyze(settings: SettingsDep, queue: QueueDep, id: str, exe: str | None = None, refresh: bool = False):
     """Analyse et proposition d'autorun justifiée (SPEC § 2.5) ; `exe`
     choisit un autre candidat."""
-    folder = _find_folder(id)
+    folder = _find_folder(settings, queue, id)
     result = report(_analysis(folder, refresh), exe)
     return {**folder, **result}
 
@@ -201,9 +202,9 @@ def _autorun_file(folder: Path) -> Path | None:
 
 
 @router.get("/api/folders/autorun")
-def folder_autorun(id: str):
+def folder_autorun(settings: SettingsDep, queue: QueueDep, id: str):
     """`autorun.cmd` du dossier tel qu'il est sur le disque (panneau du dossier)."""
-    folder = _find_folder(id)
+    folder = _find_folder(settings, queue, id)
     path = _autorun_file(Path(folder["path"]))
     if path is None:
         return {"found": False, "text": "", "eol": "\r\n", "encoding": "utf-8", "sha": None}
@@ -223,11 +224,11 @@ class FolderAutorun(BaseModel):
 
 
 @router.put("/api/folders/autorun")
-def folder_autorun_write(id: str, body: FolderAutorun):
+def folder_autorun_write(settings: SettingsDep, queue: QueueDep, id: str, body: FolderAutorun):
     """Enregistre `autorun.cmd` dans le dossier, avant empaquetage (l'empaquetage le reprend
     comme autorun existant). Refusé pendant l'empaquetage du dossier, ou si le fichier a
     changé depuis sa lecture."""
-    folder = _find_folder(id)
+    folder = _find_folder(settings, queue, id)
     root = Path(folder["path"])
     autorun = Autorun.parse(body.text.replace("\r\n", "\n"))
     autorun.eol, autorun.trailing_eol = body.eol, True
@@ -289,9 +290,9 @@ def _renamed_folder(folders: dict[str, dict], folder_id: str) -> dict | None:
 
 
 @router.post("/api/folders/pack")
-def folders_pack(body: PackRequest):
+def folders_pack(settings: SettingsDep, queue: QueueDep, body: PackRequest):
     """Une tâche d'empaquetage par dossier ; les refus sont listés avec la raison."""
-    folders = _folders()
+    folders = _folders(settings, queue)
     created, skipped = [], []
     for item in body.items:
         folder = folders.get(item.id) or _renamed_folder(folders, item.id)
@@ -313,7 +314,7 @@ def folders_pack(body: PackRequest):
         title = "empaquetage" + (" + .wine" if body.rename_wine else "") + \
             (" + suppression du dossier" if body.delete_source else "")
         try:
-            task = deps.queue.submit("pack", folder["image_id"], pack_target(source), params, title,
+            task = queue.submit("pack", folder["image_id"], pack_target(source), params, title,
                                 night=body.when == "night")
         except TaskConflict as exc:
             skipped.append({"id": item.id, "reason": str(exc)})
@@ -323,9 +324,9 @@ def folders_pack(body: PackRequest):
 
 
 @router.post("/api/folders/delete")
-def folders_delete(body: MassIds):
+def folders_delete(queue: QueueDep, settings: SettingsDep, body: MassIds):
     """Supprime des dossiers DÉJÀ empaquetés (l'image existe et se lit)."""
-    folders = _folders()
+    folders = _folders(settings, queue)
     done, skipped = [], []
     for folder_id in body.ids:
         folder = folders.get(folder_id)
@@ -333,7 +334,7 @@ def folders_delete(body: MassIds):
             skipped.append({"id": folder_id, "reason": "dossier inconnu"})
             continue
         image = pack_target(Path(folder["path"]))
-        if not image.exists() or not scan.unsquashfs_ok(deps._settings, image):
+        if not image.exists() or not scan.unsquashfs_ok(settings, image):
             skipped.append({"id": folder_id,
                             "reason": "image absente ou illisible : dossier gardé"})
             continue
@@ -343,7 +344,7 @@ def folders_delete(body: MassIds):
         # L'image doit contenir tout le dossier (mêmes fichiers, mêmes tailles) : une image d'une
         # autre version, ou un dossier modifié depuis l'empaquetage, garde le dossier
         try:
-            differ = folder_not_in_image(deps._settings, Path(folder["path"]), image)
+            differ = folder_not_in_image(settings, Path(folder["path"]), image)
         except ManagerError as exc:
             skipped.append({"id": folder_id, "reason": f"{exc} : dossier gardé"})
             continue

@@ -87,12 +87,12 @@ def ui(tmp_path, monkeypatch):
     from tests.test_saves import make_settings
     settings = make_settings(tmp_path)
     settings.mode = "connecte"                                   # routes des clients : mode connecté
-    monkeypatch.setattr(deps, "_settings", settings)
+    monkeypatch.setattr(deps, "settings", settings)
     return TestClient(main.app, headers={"x-wsfs-token": ""})     # en-tête de l'interface
 
 
 def test_activity_route_returns_events_after_since(ui):
-    activity.record(deps._settings, {"id": "m", "name": "SteamBox"}, {"event": "start", "game": "A", "at": 1})
+    activity.record(deps.settings, {"id": "m", "name": "SteamBox"}, {"event": "start", "game": "A", "at": 1})
     all_ = ui.get("/api/clients/activity").json()
     assert all_["seq"] == 1 and len(all_["events"]) == 1 and all_["live"]["m"][0]["game"] == "A"
     assert ui.get("/api/clients/activity", params={"since": 1}).json()["events"] == []
