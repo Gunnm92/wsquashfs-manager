@@ -52,7 +52,7 @@ def test_quick_error_exit_is_a_crash(mapi):  # noqa: F811
 def test_events_need_a_token_and_a_valid_body(mapi):  # noqa: F811
     client, _, headers_a, _ = mapi
     assert client.post("/v1/events", json={"event": "start", "game": "Jeu"}).status_code == 401
-    assert client.post("/v1/events", headers=headers_a, json={"event": "autre", "game": "Jeu"}).status_code == 422
+    assert client.post("/v1/events", headers=headers_a, json={"event": "autre", "game": "Jeu"}).status_code == 400
     assert client.post("/v1/events", headers=headers_a, json={"event": "start", "game": "../x"}).status_code == 400
     assert activity.snapshot()["events"] == []
 

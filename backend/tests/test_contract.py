@@ -128,8 +128,8 @@ def test_manager_events_follow_the_contract(mapi):  # noqa: F811
         request_problems = cc.check_request("POST", "/v1/events", headers_a, json.dumps(body).encode())
         assert not request_problems, request_problems
         assert check(client.post("/v1/events", json=body, headers=headers_a)).json() == {"ok": True}
-    check(client.post("/v1/events", json={"event": "pause", "game": "X"}, headers=headers_a))      # 422
-    check(client.post("/v1/events", json={"event": "start"}, headers=headers_a))                    # 422
+    check(client.post("/v1/events", json={"event": "pause", "game": "X"}, headers=headers_a))      # 400
+    check(client.post("/v1/events", json={"event": "start"}, headers=headers_a))                    # 400
     check(client.post("/v1/events", json={"event": "start", "game": "../x"}, headers=headers_a))    # 400
 
 
@@ -156,7 +156,7 @@ def test_manager_saves_routes_follow_the_contract(mapi):  # noqa: F811
     check(client.post("/v1/saves/state", json={"game": GAME, "fingerprint": current}, headers=headers_b))
     check(client.post("/v1/saves/state", json={"game": GAME, "fingerprint": "autre"}, headers=headers_b))   # 409
     check(client.post("/v1/saves/state", json={"game": "../x", "fingerprint": "a"}, headers=headers_b))     # 400
-    check(client.post("/v1/saves/state", json={"fingerprint": "a"}, headers=headers_b))                     # 422
+    check(client.post("/v1/saves/state", json={"fingerprint": "a"}, headers=headers_b))                     # 400
     check(put_tar(client, headers_a, b"texte"))                                                      # 400
     check(put_tar(client, headers_a, gz("v1"), fingerprint="abc"))                                    # 400
     check(client.put("/v1/saves/tar", params={"game": GAME}, content=gz("v1"),
@@ -324,3 +324,82 @@ def test_the_contract_rejects_what_it_should():
     assert cc.check_request("GET", "/v1/saves/list", {}, b"") != []            # X-Wsq-Machine obligatoire
     assert cc.check_request("POST", "/v1/events", {"X-Wsq-Machine": "m"}, b'{"event": "pause", "game": "x"}') != []
     assert cc.check_response("GET", "/v1/saves/tar", 200, {"content-type": "application/gzip"}, b"") != []
+
+
+# ------------------------------------------------------------------ alignement manager / agent
+
+def test_manager_list_gives_the_content_fingerprint(mapi):  # noqa: F811
+    """`content` de la liste du manager : l'empreinte de contenu de sa version (celle que le lanceur
+    a envoyée dans X-Wsq-Content), comme `content` de la liste d'un agent."""
+    client, _, headers_a, _ = mapi
+    data = gz("v1")
+    put_tar(client, {**headers_a, "X-Wsq-Content": fp(gz("contenu"))}, data)
+    listed = check(client.get("/v1/saves/list", headers=headers_a)).json()["games"]
+    assert listed[0]["content"] == fp(gz("contenu"))
+    put_tar(client, headers_a, gz("v2"))                        # sans empreinte de contenu : inconnue
+    assert client.get("/v1/saves/list", headers=headers_a).json()["games"][0]["content"] == ""
+    assert cc.check_schema("SavesList", {"games": listed}) == []        # même schéma que l'agent
+
+
+def test_manager_errors_have_the_agent_format_and_messages(mapi):  # noqa: F811
+    """Mêmes codes, même format {"detail": "<texte>"} et mêmes messages que l'agent du lanceur
+    (internal/agent/saves.go, http.go) : jamais la liste de validation de FastAPI."""
+    client, _, headers_a, _ = mapi
+    bad_body = client.post("/v1/saves/state", json={"fingerprint": "a"}, headers=headers_a)
+    assert bad_body.status_code == 400 and bad_body.json() == {"detail": "requête illisible"}
+    assert client.post("/v1/saves/state", content=b"pas du json", headers=headers_a).json() == \
+        {"detail": "requête illisible"}
+    assert client.post("/v1/events", json={"event": "pause", "game": "X"}, headers=headers_a).status_code == 400
+    assert client.get("/v1/saves/tar", params={"game": "../x"}, headers=headers_a).json() == {"detail": "jeu invalide"}
+    assert client.get("/v1/saves/tar", params={"game": "Absent"}, headers=headers_a).json() == \
+        {"detail": "aucune sauvegarde pour ce jeu"}
+    no_machine = client.get("/v1/saves/list", headers={"Authorization": "Bearer jeton-a"})
+    assert no_machine.status_code == 400 and no_machine.json() == {"detail": "identifiant de machine absent ou invalide"}
+    state = client.post("/v1/saves/state", json={"game": "Absent", "fingerprint": "a"}, headers=headers_a)
+    assert state.status_code == 404 and state.json() == {"detail": "aucune sauvegarde pour ce jeu"}
+    put_tar(client, headers_a, gz("v1"))
+    changed = client.post("/v1/saves/state", json={"game": GAME, "fingerprint": "autre"}, headers=headers_a)
+    assert changed.status_code == 409
+
+
+@pytest.mark.parametrize("host, url, bare", [
+    ("192.168.1.20", "https://192.168.1.20:8790", "192.168.1.20"),
+    ("poste-jeu", "https://poste-jeu:8790", "poste-jeu"),
+    ("[2001:db8::1]", "https://[2001:db8::1]:8790", "2001:db8::1"),
+    ("[fd00:1:2:3::9]", "https://[fd00:1:2:3::9]:8790", "fd00:1:2:3::9"),
+])
+def test_pair_code_hosts(host, url, bare, monkeypatch):
+    """Code `wsq://SECRET@HÔTE:PORT#EMPREINTE` : l'hôte IPv6 est entre crochets (comme l'écrit le
+    lanceur) ; l'URL les garde, le socket reçoit l'adresse sans crochets."""
+    fingerprint = "AB" * 32
+    parsed = agent_mod.parse_pair_code(f"wsq://jeton_1@{host}:8790#{fingerprint}")
+    assert parsed == {"url": url, "secret": "jeton_1", "fingerprint": fingerprint}
+    seen = []
+
+    def fake_cert(addr, timeout):
+        seen.append(addr)
+        raise OSError("hors réseau")
+
+    monkeypatch.setattr(agent_mod.ssl, "get_server_certificate", fake_cert)
+    with pytest.raises(agent_mod.AgentProbeError, match="injoignable"):
+        agent_mod.fetch_certificate(parsed["url"], fingerprint)
+    assert seen == [(bare, 8790)]
+
+
+def test_pair_code_refuses_a_bare_ipv6_host():
+    with pytest.raises(ValueError):
+        agent_mod.parse_pair_code(f"wsq://jeton_1@2001:db8::1:8790#{'AB' * 32}")
+
+
+def test_update_on_an_old_agent_says_so(pinned_host):
+    """POST /v1/update inconnu (404 en texte brut du routeur Go : agent < 11) : « agent trop ancien »."""
+    host, _, _ = pinned_host
+    host.client = httpx.Client(base_url="https://agent.test", transport=httpx.MockTransport(
+        lambda request: httpx.Response(404, text="404 page not found\n")))
+    with pytest.raises(agent_mod.ManagerError) as err:
+        host.update()
+    assert str(err.value) == agent_mod.OLD_AGENT_MESSAGE
+    host.client = httpx.Client(base_url="https://agent.test", transport=httpx.MockTransport(
+        lambda request: httpx.Response(409, json={"detail": "mise à jour déjà en cours"})))
+    with pytest.raises(agent_mod.ManagerError, match="déjà en cours"):
+        host.update()

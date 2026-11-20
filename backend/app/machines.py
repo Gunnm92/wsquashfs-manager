@@ -8,7 +8,9 @@ import logging
 import threading
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from . import deps
 from .config import Settings
@@ -73,3 +75,10 @@ machine_app = FastAPI(title="wsquashfs-manager (clients)", version="0.2.0",
 
 
 machine_app.include_router(machine_api.build_router(lambda: deps._settings))
+
+
+@machine_app.exception_handler(RequestValidationError)
+def _unreadable_request(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Corps invalide : 400 {"detail": "requête illisible"}, comme l'agent du lanceur (pas la liste
+    d'erreurs de validation de FastAPI), pour que le client Go lise le même format partout."""
+    return JSONResponse(status_code=400, content={"detail": "requête illisible"})

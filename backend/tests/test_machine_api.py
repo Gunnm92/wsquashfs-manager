@@ -88,7 +88,8 @@ def test_list_gives_the_state_of_the_calling_machine(mapi):
                 profile="prefixe", source="steambox")
     saves_store.record_state(settings, GAME, "aaaa0001", fp(data))
     listed = client.get("/v1/saves/list", headers=headers_a).json()["games"]
-    assert listed == [{"name": GAME, "fingerprint": fp(data), "newest": 42, "size": 7, "state": fp(data)}]
+    assert listed == [{"name": GAME, "fingerprint": fp(data), "newest": 42, "size": 7, "content": "",
+                       "state": fp(data)}]
     assert client.get("/v1/saves/list", headers=headers_b).json()["games"][0]["state"] == ""
 
 
@@ -195,7 +196,7 @@ def test_state_is_refused_when_the_manager_has_another_version(mapi):
     other = client.post("/v1/saves/state", json={"game": GAME, "fingerprint": fp(gz("autre"))}, headers=headers_a)
     assert other.status_code == 409
     absent = client.post("/v1/saves/state", json={"game": "Absent", "fingerprint": fp(gz("v1"))}, headers=headers_a)
-    assert absent.status_code == 409
+    assert absent.status_code == 404 and absent.json() == {"detail": "aucune sauvegarde pour ce jeu"}
 
 
 def test_states_are_per_machine_and_survive_a_new_version(mapi):

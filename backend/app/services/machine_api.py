@@ -9,7 +9,8 @@ Chaque requête porte :
   son empreinte SHA-256 est gardée (config.json). Le jeton identifie le client ;
 - `X-Wsq-Machine` : identifiant de synchro du lanceur, contrôlé seulement.
 
-Routes : GET /v1/info, POST /v1/events (activité, activity.py), GET /v1/saves/list, GET et PUT /v1/saves/tar?game=,
+Les erreurs ont le format de l'agent, {"detail": "<texte>"}, y compris un corps invalide
+(400, voir machines.py). Routes : GET /v1/info, POST /v1/events (activité, activity.py), GET /v1/saves/list, GET et PUT /v1/saves/tar?game=,
 POST /v1/saves/state. Les états par machine sont dans meta.json de la réserve du jeu.
 Après un envoi réussi, les autres clients en retard (synchro auto) reçoivent la version du
 manager (saves.sync_auto, en arrière-plan).
@@ -64,7 +65,7 @@ class StateBody(BaseModel):
 
 def _check_game(game: str) -> None:
     if not saves_svc.valid_game(game):
-        raise HTTPException(status_code=400, detail="nom de jeu invalide")
+        raise HTTPException(status_code=400, detail="jeu invalide")
 
 
 def build_router(settings_of: Callable[[], Settings]) -> APIRouter:
@@ -84,7 +85,7 @@ def build_router(settings_of: Callable[[], Settings]) -> APIRouter:
         if found is None:
             raise HTTPException(status_code=401, detail="jeton refusé")
         if not _MACHINE_HEADER.fullmatch(request.headers.get("x-wsq-machine", "")):
-            raise HTTPException(status_code=400, detail="en-tête X-Wsq-Machine absent ou invalide")
+            raise HTTPException(status_code=400, detail="identifiant de machine absent ou invalide")
         return found
 
     Machine = Annotated[dict, Depends(caller)]
@@ -108,6 +109,7 @@ def build_router(settings_of: Callable[[], Settings]) -> APIRouter:
             meta = saves_store.reserve_meta(settings, name) or {}
             games.append({"name": name, "fingerprint": str(meta.get("fingerprint") or ""),
                           "newest": int(meta.get("newest") or 0), "size": int(meta.get("size") or 0),
+                          "content": saves_store.current_content(settings, name),
                           "state": saves_store.machine_state(settings, name, machine["id"]),
                           **({"dir": meta["dir"]} if saves_svc.clean_dir(meta.get("dir")) else {})})
         return {"games": games}
@@ -119,7 +121,7 @@ def build_router(settings_of: Callable[[], Settings]) -> APIRouter:
         current = saves_store.reserve_dir(settings, game) / saves_store.CURRENT
         meta = saves_store.reserve_meta(settings, game) or {}
         if not current.is_file() or not meta.get("fingerprint"):
-            raise HTTPException(status_code=404, detail="aucune sauvegarde")
+            raise HTTPException(status_code=404, detail="aucune sauvegarde pour ce jeu")
         headers = {"X-Wsq-Fingerprint": str(meta["fingerprint"])}
         if meta.get("profile"):
             headers["X-Wsq-Profile"] = str(meta["profile"])
@@ -221,7 +223,9 @@ def build_router(settings_of: Callable[[], Settings]) -> APIRouter:
         # meta.json) ne peut plus remettre l'ancienne empreinte par-dessus un envoi concurrent
         with saves_store.STORE_LOCK:
             current = saves_store.current_fingerprint(settings, body.game)
-            if not current or current.lower() != body.fingerprint.lower():
+            if not current:             # rien dans la réserve pour ce jeu : comme l'agent, 404
+                raise HTTPException(status_code=404, detail="aucune sauvegarde pour ce jeu")
+            if current.lower() != body.fingerprint.lower():
                 raise HTTPException(status_code=409, detail="la version du manager a changé entre-temps : "
                                                             "relancer la synchronisation")
             saves_store.record_state(settings, body.game, machine["id"], body.fingerprint)

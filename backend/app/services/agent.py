@@ -71,7 +71,8 @@ def agent_cert_path(settings: Settings) -> Path:
     return settings.state_dir / "agent-cert.pem"
 
 
-PAIR_CODE_RE = re.compile(r"^wsq://([A-Za-z0-9_-]+)@([^\s/:@#]+):(\d+)#([0-9A-Fa-f]{64})$")
+# Hôte : nom ou IPv4, ou adresse IPv6 entre crochets ([fe80::1], comme l'écrit le lanceur)
+PAIR_CODE_RE = re.compile(r"^wsq://([A-Za-z0-9_-]+)@(\[[\w:.%-]+\]|[^\s/:@#\[\]]+):(\d+)#([0-9A-Fa-f]{64})$")
 PAIR_VERSION = 7                # premier agent qui échange le secret du code contre un jeton durable
 PAIR_EXPIRED = ("code d'association expiré ou déjà utilisé : relancer « wsquashfs-launcher --pair » "
                 "sur le client, puis coller le nouveau code")
@@ -115,10 +116,10 @@ def fetch_certificate(url: str, expected: str, timeout: float = 10) -> tuple[str
     (sans deux-points). Renvoie (pem, empreinte). Aucune requête HTTP ici : un refus
     arrive avant tout envoi du secret."""
     url = url.strip().rstrip("/")
-    match = re.match(r"^https://([^\s/:]+):(\d+)$", url)
+    match = re.match(r"^https://(\[[^\s/\]]+\]|[^\s/:\[\]]+):(\d+)$", url)
     if not match:
         raise AgentProbeError(422, "adresse : https://hôte:port (ex. https://192.168.1.20:8790)")
-    host, port = match.group(1), int(match.group(2))
+    host, port = match.group(1).strip("[]"), int(match.group(2))     # IPv6 : sans crochets pour le socket
     try:
         pem = ssl.get_server_certificate((host, port), timeout=timeout)
     except OSError as exc:
@@ -244,7 +245,9 @@ class AgentHost:
 
     def update(self) -> dict:
         """Mise à jour du lanceur du client (agent 11, POST /v1/update) ; l'agent se relance s'il a changé."""
-        return self._call("POST", "/v1/update", timeout=330).json()
+        # Même traitement d'erreurs que les routes saves : un 404 en texte brut (agent < 11) donne le
+        # message « agent trop ancien »
+        return self._saves_request("POST", "/v1/update", timeout=330).json()
 
     def trial(self, rel: str, duration: int) -> tuple[dict, bytes]:
         data = self._call("POST", "/v1/trial", json={"rel": rel, "duration": duration},
@@ -312,7 +315,7 @@ class AgentHost:
             detail = ""
         if response.status_code in (404, 405) and not detail:
             # Route inconnue (réponse texte du routeur Go, sans « detail ») : agent d'avant
-            # la synchro des sauvegardes (version < 5)
+            # la synchro des sauvegardes (version < 3)
             return ManagerError(OLD_AGENT_MESSAGE)
         detail = detail or response.text[:200] or f"erreur {response.status_code}"
         if response.status_code == 409:
