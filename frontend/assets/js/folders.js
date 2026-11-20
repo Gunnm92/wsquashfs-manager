@@ -4,11 +4,12 @@ import { openCover, openCoverLot } from "./art-choice.js";
 import { reportSkipped } from "./actions.js";
 import { api } from "./api.js";
 import { forgetArt, thumb } from "./art.js";
-import { $, badge, cap, dotIc, el, emptyState, helpLink, hideAnimated, icon, showAnimated, size, stagger, storage } from "./core.js";
+import { countLabel, layoutToggle, paintTodo, plural, selectAllBox, sortHeader, toggleSelbar, todoChip } from "./collection.js";
+import { $, badge, cap, dotIc, el, emptyState, helpLink, icon, size, stagger } from "./core.js";
 import { notice, proposalItems } from "./detail/autorun.js";
 import { autorunEditor } from "./detail/kv-form.js";
 import { currentFolder, folderState, init as initFolderDetail, openFolder, refreshFolder } from "./folder-detail.js";
-import { todoChip } from "./library.js";
+import { closeMenu, filterDropdown } from "./menu.js";
 import { queued } from "./tasks.js";
 import { whenOf } from "./when.js";
 
@@ -95,12 +96,13 @@ function renderFolderTodo() {
       folders.state = folders.state === c.id ? "" : c.id;
       renderFolders();
     }));
-  $("g-todo").replaceChildren(...chips);
-  $("g-todo-label").hidden = !chips.length;
   const active = FOLDER_TODO.find(([id]) => id === folders.state);
-  $("g-clear-filter").hidden = !active;
-  $("g-clear-filter-label").textContent = active ? cap(active[1]) : "";
+  paintTodo({ todo: "g-todo", clear: "g-clear-filter" }, chips, active ? cap(active[1]) : "");
 }
+
+const FOLDERS = ["dossier", "dossiers"];
+
+let paintLayout = () => {};      // posé par init : bascule liste / jaquettes
 
 let listSig = null;      // filtre, système, recherche et tri : les lignes entrent en cascade
 
@@ -112,14 +114,8 @@ function renderFolderList(visible) {
   const text = (f) => key === "system" ? `${f.system || ""} ${f.folder}` : f.folder;
   const rows = [...visible].sort((a, b) => (key === "state" ? folderStatus(a)[2] - folderStatus(b)[2] : 0) * dir
     || text(a).localeCompare(text(b), "fr", { numeric: true, sensitivity: "base" }) * (key === "state" ? 1 : dir));
-  const all = el("input", { type: "checkbox", checked: rows.length > 0 && rows.every((f) => folders.selected.has(f.id)),
-    title: "Tout sélectionner (filtre actuel)" });
-  all.onchange = () => { rows.forEach((f) => all.checked ? folders.selected.add(f.id) : folders.selected.delete(f.id)); renderFolders(); };
-  const sortBtn = (k, label, cls = "") => {
-    const b = el("button", { className: cls, textContent: label + (key === k ? (dir > 0 ? " ↑" : " ↓") : "") });
-    b.onclick = () => { folders.sort = { key: k, dir: key === k ? -dir : 1 }; renderFolders(); };
-    return b;
-  };
+  const all = selectAllBox(rows.map((f) => f.id), folders.selected, renderFolders);
+  const sortBtn = sortHeader(folders.sort, (sort) => { folders.sort = sort; renderFolders(); });
   $("g-thead").replaceChildren(all, sortBtn("folder", "Dossier"), sortBtn("system", "Système", "c-system"),
     el("span", { className: "c-profile", textContent: "Contenu", title: "autorun.cmd, image .wsquashfs" }), sortBtn("state", "État", "c-state"));
   $("g-list-rows").replaceChildren(...stagger(rows.map((f) => {
@@ -146,19 +142,17 @@ function renderFolderList(visible) {
 function renderFolders() {
   const systems = [...new Set(folders.items.map((f) => f.system).filter(Boolean))].sort();
   if (folders.system && !systems.includes(folders.system)) folders.system = "";
+  // Filtre Système : liste déroulante comme Images et Sauvegardes (seulement s'il y a plusieurs systèmes)
+  closeMenu();
   $("g-system").hidden = systems.length < 2;
-  $("g-system").replaceChildren(...[["", "Tous"], ...systems.map((s) => [s, cap(s)])].map(([value, label]) => {
-    const b = el("button", { className: folders.system === value ? "on" : "", textContent: label });
-    b.onclick = () => { folders.system = value; renderFolders(); };
-    return b;
-  }));
+  $("g-system").replaceChildren(filterDropdown({ label: "Système", all: "Tous les systèmes", total: folders.items.length,
+    options: systems.map((v) => [v, null, "", cap(v), folders.items.filter((f) => f.system === v).length]), value: folders.system,
+    onChoose: (value) => { folders.system = value; renderFolders(); } }));
   renderFolderTodo();
   const visible = visibleFolders(), list = folders.layout === "list", total = folders.items.length;
-  $("g-title").textContent = `${total} dossier${total > 1 ? "s" : ""}`;
-  $("g-visible").textContent = `${visible.length} sur ${total}`;
-  for (const b of $("g-layout").children) b.classList.toggle("on", b.dataset.layout === folders.layout);
-  $("g-list").hidden = !list;
-  $("g-rows").hidden = list;
+  $("g-title").textContent = plural(total, FOLDERS);
+  $("g-visible").textContent = countLabel(visible.length, total, FOLDERS);
+  paintLayout();
   $("g-all-label").hidden = list;              // en liste : case de l'en-tête
   if (list) {
     $("g-rows").replaceChildren();
@@ -167,7 +161,7 @@ function renderFolders() {
     return;
   }
   $("g-list-rows").replaceChildren();
-  $("g-all").checked = visible.length > 0 && visible.every((f) => folders.selected.has(f.id));
+  selectAllBox(visible.map((f) => f.id), folders.selected, renderFolders, $("g-all"));
   // Tuiles comme la bibliothèque (jaquette = illustration du dossier, sinon initiales)
   $("g-rows").replaceChildren(...visible.map((f) => {
     const selected = folders.selected.has(f.id), [label, cls] = folderStatus(f);
@@ -194,8 +188,7 @@ function renderFolders() {
 }
 
 function renderFolderSelection() {
-  if (folders.selected.size) showAnimated($("g-selection"), "is-leaving"); else hideAnimated($("g-selection"), "is-leaving", 200);
-  $("g-count").textContent = folders.selected.size > 1 ? `${folders.selected.size} dossiers` : "1 dossier";
+  toggleSelbar($("g-selection"), folders.selected.size, $("g-count"), FOLDERS);
 }
 
 // Revue : une carte par dossier, analysée l'une après l'autre
@@ -293,7 +286,8 @@ export function init() {
     cover: coverOf,
     pack: (f) => { folders.selected.clear(); folders.selected.add(f.id); renderFolders(); $("g-review").click(); },
   });
-  folders.layout = storage.get("wsfs-folder-layout") === "grid" ? "grid" : "list";
+  paintLayout = layoutToggle($("g-layout"), { key: "wsfs-folder-layout", get: () => folders.layout, set: (v) => { folders.layout = v; },
+    onChange: renderFolders, list: "g-list", grid: "g-rows" });
   // Illustrations de la sélection (une écriture par dossier), avant la suppression
   const coverBtn = el("button", { type: "button", className: "btn bare", id: "g-cover",
     title: "Illustration de chaque dossier sélectionné : écrite dans le dossier, intégrée à la compression" },
@@ -304,15 +298,7 @@ export function init() {
   });
   $("g-delete").before(coverBtn);
   $("g-search").addEventListener("input", renderFolders);
-  $("g-layout").onclick = (event) => {
-    const b = event.target.closest("button[data-layout]");
-    if (!b) return;
-    folders.layout = b.dataset.layout;
-    storage.set("wsfs-folder-layout", folders.layout);
-    renderFolders();
-  };
   $("g-clear-filter").onclick = () => { folders.state = ""; renderFolders(); };
-  $("g-all").onchange = () => { visibleFolders().forEach((f) => $("g-all").checked ? folders.selected.add(f.id) : folders.selected.delete(f.id)); renderFolders(); };
   $("g-clear").onclick = () => { folders.selected.clear(); renderFolders(); };
   $("g-delete").onclick = async () => {
     const ids = folders.items.filter((f) => folders.selected.has(f.id) && f.image_exists).map((f) => f.id);

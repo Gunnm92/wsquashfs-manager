@@ -189,7 +189,6 @@ export const emptyState = (iconName, title, hint) => el("div", { className: "emp
   el("strong", { textContent: title }), hint ? el("span", { textContent: hint }) : null);
 
 export function init() {
-  state.layout = storage.get("wsfs-layout") === "grid" ? "grid" : "list";
   // Hauteur de l'en-tête : la fiche et l'aide se calent dessous
   new ResizeObserver(([entry]) => document.documentElement.style.setProperty("--top-h",
     `${Math.round(entry.target.getBoundingClientRect().height)}px`)).observe(document.querySelector("header.top"));

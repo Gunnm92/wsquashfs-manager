@@ -2,7 +2,8 @@
 
 import { api } from "./api.js";
 import { thumb } from "./art.js";
-import { $, bigSize, cap, dotIc, el, emptyState, hideAnimated, icon, showAnimated, size, stagger, state, storage, toast } from "./core.js";
+import { countLabel, layoutToggle, paintTodo, plural, selectAllBox, sortHeader, toggleSelbar, todoChip } from "./collection.js";
+import { $, bigSize, cap, dotIc, el, emptyState, icon, size, stagger, state, toast } from "./core.js";
 import { markCurrent, openDetail, renderDetailHeader } from "./detail/detail.js";
 import { chosenClient, paintRefreshAgo } from "./header.js";
 import { gamesOf, imageFile, inst, instPins, machineOf } from "./install.js";
@@ -54,6 +55,10 @@ function scopedItems() {
   const scope = scopeOf();
   return scope?.status === "ok" ? scope.items : state.items;
 }
+
+const IMAGES = ["image", "images"];
+
+let paintLayout = () => {};      // posé par init : bascule liste / jaquettes
 
 const SORTS = { name: (i) => i.name, size: (i) => i.size, saves_size: (i) => i.saves_present ? i.saves_size : -1, state: (i) => i.state };
 
@@ -168,7 +173,6 @@ export function renderFilters() {
     if (!options.some(([v]) => v === f[def.key])) f[def.key] = "";
     return filterDropdown({ ...def, total, options, value: f[def.key], onChoose: (value) => { f[def.key] = value; renderLibrary(); } });
   }).filter(Boolean));
-  for (const b of $("layout").children) b.classList.toggle("on", b.dataset.layout === state.layout);
 }
 
 // Une image correspond-elle à la valeur d'un filtre ?
@@ -233,16 +237,15 @@ export function renderLibrary() {
   const scope = scopeOf(), items = scope?.status === "ok" ? scope.items : state.items;
   const visible = sorted(filtered(items)), base = items.length;
   const total = items.reduce((n, i) => n + (i.size || 0), 0);
-  const images = (n) => `${n} ${n > 1 ? "images" : "image"}`;
+  const images = (n) => plural(n, IMAGES);
   $("count-images").textContent = state.items.length;      // onglet : le total (Sauvegardes et Dossiers : à traiter)
   $("lib-count").textContent = scope?.status === "ok" ? `${images(base)} sur ${scope.client.name}` : images(base);
   $("lib-size").textContent = bigSize(total, 2);
-  $("visible-count").textContent = visible.length === base ? images(base) : `${visible.length} sur ${base}`;
+  $("visible-count").textContent = countLabel(visible.length, base, IMAGES);
   paintScope(scope);
   renderTodo();
   const grid = state.layout === "grid";
-  $("list").hidden = grid;
-  $("grid").hidden = !grid;
+  paintLayout();
   const scopeKey = scope?.status === "ok" ? scope.client.id : "";
   const sig = [JSON.stringify(state.filter), scopeKey, $("f-search").value, state.sort.key, state.sort.dir, state.layout].join("|");
   const enter = sig !== listSig;
@@ -264,15 +267,8 @@ export function renderLibrary() {
     if (!visible.length) $("grid").append(el("div", { className: "fcard-empty" }, empty));
     $("rows").replaceChildren();
   } else {
-    const allSelected = visible.length > 0 && visible.every((i) => state.selected.has(i.id));
-    const all = el("input", { type: "checkbox", checked: allSelected, title: "Tout sélectionner (filtre actuel)" });
-    all.onchange = () => { visible.forEach((i) => all.checked ? state.selected.add(i.id) : state.selected.delete(i.id)); renderLibrary(); };
-    const sortBtn = (key, label, cls = "") => {
-      const arrow = state.sort.key === key ? (state.sort.dir > 0 ? " ↑" : " ↓") : "";
-      const b = el("button", { className: cls, textContent: label + arrow });
-      b.onclick = () => { state.sort = { key, dir: state.sort.key === key ? -state.sort.dir : 1 }; renderLibrary(); };
-      return b;
-    };
+    const all = selectAllBox(visible.map((i) => i.id), state.selected, renderLibrary);
+    const sortBtn = sortHeader(state.sort, (sort) => { state.sort = sort; renderLibrary(); });
     $("thead").replaceChildren(all, sortBtn("name", "Jeu"), el("span", { className: "c-prefix", textContent: "Prefix" }),
       sortBtn("size", "Taille", "r"), sortBtn("saves_size", "Sauveg.", "r c-saves"), sortBtn("state", "État", "c-state"),
       el("span", { className: "c-pad", textContent: "Manette" }), el("span", { className: "c-profile", textContent: "Réglages" }));
@@ -368,30 +364,12 @@ export function renderTodo() {
   }
   const failed = state.tasks.filter((t) => t.status === "failed").length;
   if (failed) chips.push(todoChip(failed, `${failed > 1 ? "tâches" : "tâche"} en échec`, "alert", "err", false, openTasks));
-  $("todo").replaceChildren(...chips);
-  $("todo-label").hidden = !chips.length;
-  paintFilterClear();
-}
-
-export function todoChip(n, label, iconName, tone, on, onClick) {
-  const chip = el("button", { type: "button", className: `todo-chip ${tone}${on ? " on" : ""}` },
-    icon(iconName, "sm"), el("b", { textContent: n }), el("span", { textContent: label }));
-  chip.setAttribute("aria-pressed", String(on));
-  chip.onclick = onClick;
-  return chip;
-}
-
-// Filtre « À traiter » actif, affiché en clair dans la barre ; un clic le retire
-function paintFilterClear() {
-  const id = state.filter.special, def = SPECIALS.find((d) => d[0] === id);
-  $("filter-clear").hidden = !def;
-  $("filter-clear-label").textContent = def ? cap(def[1][0]) : "";
+  const active = SPECIALS.find((d) => d[0] === special);      // filtre actif, rappelé dans la barre
+  paintTodo({ todo: "todo", clear: "filter-clear" }, chips, active ? cap(active[1][0]) : "");
 }
 
 function renderSelection() {
-  const n = state.selected.size;
-  if (n) showAnimated($("selection"), "is-leaving"); else hideAnimated($("selection"), "is-leaving", 200);
-  $("sel-count").textContent = n > 1 ? `${n} images` : "1 image";
+  toggleSelbar($("selection"), state.selected.size, $("sel-count"), IMAGES);
   paintSelectionActions();
 }
 
@@ -404,9 +382,9 @@ async function loadConfig() {
 export function init() {
   $("filter-clear").onclick = () => { state.filter.special = ""; renderLibrary(); };
   $("f-search").addEventListener("input", renderLibrary);
-  for (const b of $("layout").children) {
-    b.onclick = () => { state.layout = b.dataset.layout; storage.set("wsfs-layout", state.layout); renderLibrary(); };
-  }
+  paintLayout = layoutToggle($("layout"), { key: "wsfs-layout", get: () => state.layout, set: (v) => { state.layout = v; },
+    onChange: renderLibrary, list: "list", grid: "grid" });
+  paintLayout();
   $("btn-refresh").onclick = () => { loadLibrary(false, true); loadConfig(); loadSaves(); };
   $("btn-sel-clear").onclick = () => { state.selected.clear(); renderLibrary(); };
 }

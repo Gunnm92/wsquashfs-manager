@@ -2,11 +2,12 @@
 
 import { api } from "./api.js";
 import { paintInitials, putArt, showArt } from "./art.js";
-import { $, ago, bigSize, el, emptyState, hideAnimated, icon, setUnavailable, showAnimated, size, stagger, state, storage, when } from "./core.js";
+import { countLabel, detailPanel, layoutToggle, markCurrent, paintTodo, plural, selectAllBox, sortHeader, toggleSelbar, todoChip } from "./collection.js";
+import { $, ago, bigSize, el, emptyState, icon, setUnavailable, size, stagger, state, storage, when } from "./core.js";
 import { notice } from "./detail/autorun.js";
 import { openDetail } from "./detail/detail.js";
 import { paintClients, showView } from "./header.js";
-import { renderLibrary, todoChip } from "./library.js";
+import { renderLibrary } from "./library.js";
 import { filterDropdown, menus, openMenuNode } from "./menu.js";
 import { loadActivity } from "./activity.js";
 import { busyIcons } from "./aicons.js";
@@ -47,6 +48,14 @@ const sectionRank = (key) => key === "sys:win" ? 0 : key === "switch" ? 2 : key 
 // Filtre de plateforme et tri des colonnes, mémorisés dans le navigateur (relus par init : core.js
 // n'est pas encore initialisé quand ce module est évalué)
 const SORT_KEY = "wsfs-saves-sort", PLATFORM_KEY = "wsfs-saves-platform", LAYOUT_KEY = "wsfs-saves-layout";
+
+const SAVES = ["sauvegarde", "sauvegardes"], GAMES = ["jeu", "jeux"];
+
+// Fiche d'un jeu (colonne de la liste réduite, panneau en glissement), créée au premier usage
+let panel = null;
+const sheet = () => panel ??= detailPanel($("saves-main"), $("sv-detail"));
+
+let paintLayout = () => {};      // posé par init : bascule liste / jaquettes
 
 export const OS_ICONS = ["linux", "steamos", "steambox", "batocera"];   // icônes choisissables d'un client
 
@@ -256,7 +265,7 @@ function paintSvList() {
   const total = base.reduce((n, r) => n + (r.copy?.size || 0), 0);
   // En-tête comme Images : « N sauvegardes » (« sur <client> » s'il est choisi), la taille seule ;
   // hors ligne, les tailles viennent de la copie du manager (dernière synchro), dit l'infobulle
-  const saves = (n) => `${n} sauvegarde${n > 1 ? "s" : ""}`;
+  const saves = (n) => plural(n, SAVES);
   $("sv-count").textContent = scope ? `${saves(base.length)} sur ${scope.name}` : saves(base.length);
   $("sv-size").textContent = base.length ? bigSize(total, 2) : "";
   $("sv-size").title = !scope ? "Sur tous les clients" : scope.ok ? `Sur ${scope.name}` : `${scope.name} hors ligne : tailles à sa dernière synchro`;
@@ -270,40 +279,24 @@ function paintSvList() {
   const chips = [];
   if (conflicts) chips.push(todoChip(conflicts, conflicts > 1 ? "conflits" : "conflit", "alert", "warn", sv.todo === "conflict", toggle("conflict")));
   if (syncs) chips.push(todoChip(syncs, "à synchroniser", "refresh", "accent", sv.todo === "sync", toggle("sync")));
-  $("sv-todo").replaceChildren(...chips);
-  $("sv-todo-label").hidden = !chips.length;
-  const todoName = { conflict: "Conflits", sync: "À synchroniser" }[sv.todo] || "";
-  $("s-clear-filter").hidden = !todoName;
-  $("s-clear-filter-label").textContent = todoName;
-  $("s-visible").textContent = visible.length === base.length ? saves(base.length) : `${visible.length} sur ${base.length}`;
+  paintTodo({ todo: "sv-todo", clear: "s-clear-filter" }, chips, { conflict: "Conflits", sync: "À synchroniser" }[sv.todo] || "");
+  $("s-visible").textContent = countLabel(visible.length, base.length, SAVES);
 
   const sig = [scope?.id ?? "all", sv.todo, sv.platform, sv.sort.key, sv.sort.dir, $("s-search").value.trim()].join("|");
   const enter = sig !== svSig;
   svSig = sig;
-  const all = el("input", { type: "checkbox", checked: visible.length > 0 && visible.every((r) => sv.selected.has(r.g.game)),
-    title: "Tout sélectionner (filtre actuel)" });
-  all.onchange = () => { visible.forEach((r) => (all.checked ? sv.selected.add(r.g.game) : sv.selected.delete(r.g.game))); paintSvList(); paintSelection(); };
+  const all = selectAllBox(visible.map((r) => r.g.game), sv.selected, () => { paintSvList(); paintSelection(); });
   // En-têtes triables, comme dans Images ; une date se trie d'abord de la plus récente
-  const sortBtn = (key, label, cls = "", first = 1) => {
-    const arrow = sv.sort.key === key ? (sv.sort.dir > 0 ? " ↑" : " ↓") : "";
-    const b = el("button", { type: "button", className: cls, textContent: label + arrow,
-      title: key === "synced" ? "Trier par dernière synchro : ce qui a changé récemment" : `Trier par ${label.toLowerCase()}` });
-    b.onclick = () => {
-      sv.sort = { key, dir: sv.sort.key === key ? -sv.sort.dir : first };
-      storage.set(SORT_KEY, JSON.stringify(sv.sort));
-      paintSvList();
-    };
-    return b;
-  };
+  const head = sortHeader(sv.sort, (sort) => { sv.sort = sort; storage.set(SORT_KEY, JSON.stringify(sort)); paintSvList(); });
+  const sortBtn = (key, label, cls = "", first = 1) => head(key, label, cls, { first,
+    title: key === "synced" ? "Trier par dernière synchro : ce qui a changé récemment" : `Trier par ${label.toLowerCase()}` });
   $("s-thead").replaceChildren(all, sortBtn("name", "Jeu"), sortBtn("size", "Taille", "c-size r", -1),
     sortBtn("played", "Dernière partie", "c-when", -1), sortBtn("synced", "Synchro", "", -1), el("span"));
   paintPlatformFilter(base);
 
   const images = imageIds();
   const grid = sv.layout === "grid";
-  $("s-list").hidden = grid;
-  $("s-grid").hidden = !grid;
-  for (const b of $("s-layout").children) b.classList.toggle("on", b.dataset.layout === sv.layout);
+  paintLayout();
   if (grid) {
     $("s-grid").replaceChildren(...visible.map((r) => svCard(r, images)));
     if (!visible.length) $("s-grid").append(el("div", { className: "fcard-empty" }, base.length
@@ -506,16 +499,15 @@ const STATUS_TONE = { ok: "", send: "accent", get: "accent", conflict: "warn", n
 
 export function openSave(game) {
   sv.current = game;
-  $("saves-main").classList.add("with-detail");
-  if ($("sv-detail").hidden) showAnimated($("sv-detail"), "is-leaving");
+  sheet().open();
   paintSvList();
   paintSaveDetail();
 }
 
 export function closeSave() {
   sv.current = null;
-  hideAnimated($("sv-detail"), "is-leaving", 200, () => $("saves-main").classList.remove("with-detail"));
-  for (const node of document.querySelectorAll("#s-rows .current, #s-grid .current")) node.classList.remove("current");
+  sheet().close();
+  markCurrent("#s-rows [data-id], #s-grid [data-id]", null);
 }
 
 function paintSaveDetail() {
@@ -682,11 +674,8 @@ function targetItems() {
 // Barre de sélection : « Copier depuis [source] → vers [cibles] », Synchroniser, Copier vers le manager,
 // Supprimer… ; une action impossible reste visible, grisée, avec sa raison (setUnavailable)
 function paintSelection() {
-  const bar = $("s-selection"), n = sv.selected.size;
-  if (n === 0 || !sv.loaded) { hideAnimated(bar, "is-leaving", 200); return; }
-  showAnimated(bar, "is-leaving");
+  if (!toggleSelbar($("s-selection"), sv.loaded ? sv.selected.size : 0, $("s-count"), GAMES)) return;
   if (!sv.machines.some((m) => m.id === sv.source) && sv.source !== AUTO && sv.source !== RESERVE) sv.source = AUTO;
-  $("s-count").textContent = n > 1 ? `${n} jeux` : "1 jeu";
   const games = sv.games.filter((g) => sv.selected.has(g.game));
   const targets = pushTargets();
   const others = reachableIds().filter((id) => id !== sv.source);
@@ -729,14 +718,8 @@ export function init() {
   $("s-search").addEventListener("input", paintSvList);
   $("svd-close").onclick = closeSave;
   sv.platform = storage.get(PLATFORM_KEY) || "";
-  sv.layout = storage.get(LAYOUT_KEY) === "grid" ? "grid" : "list";
-  $("s-layout").onclick = (event) => {
-    const b = event.target.closest("button[data-layout]");
-    if (!b || b.dataset.layout === sv.layout) return;
-    sv.layout = b.dataset.layout;
-    storage.set(LAYOUT_KEY, sv.layout);
-    paintSvList();
-  };
+  paintLayout = layoutToggle($("s-layout"), { key: LAYOUT_KEY, get: () => sv.layout, set: (v) => { sv.layout = v; },
+    onChange: paintSvList, list: "s-list", grid: "s-grid" });
   try {
     const stored = JSON.parse(storage.get(SORT_KEY) || "null");
     if (["name", "size", "played", "synced"].includes(stored?.key) && Math.abs(stored.dir) === 1) sv.sort = stored;

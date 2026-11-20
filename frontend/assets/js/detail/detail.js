@@ -3,7 +3,8 @@
 import { paintSaves } from "../actions.js";
 import { api } from "../api.js";
 import { showArt } from "../art.js";
-import { $, cap, el, hideAnimated, icon, setUnavailable, showAnimated, size, state, storage, toast, when } from "../core.js";
+import { detailPanel, markCurrent as markCurrentRow } from "../collection.js";
+import { $, cap, el, icon, setUnavailable, size, state, storage, toast, when } from "../core.js";
 import { loadAutorun, syncForm } from "./autorun.js";
 import { loadFiles, renderHistory } from "./files.js";
 import { loadUpdateDefaults } from "./version.js";
@@ -28,8 +29,12 @@ export const KEY_LABELS = { DIR: "Dossier du jeu", CMD: "Exécutable", GAME_VERS
   SAVEDIR: "Dossier des sauvegardes", SAVEFILES: "Fichiers de sauvegarde", DXVK: "DXVK", VKD3D: "VKD3D", D7VK: "D7VK",
   VIRTUAL_DESKTOP: "Bureau virtuel", NVAPI: "NVAPI", VKREFLEX: "VKReflex", FSR: "FSR", FSR4: "FSR 4", ESYNC: "ESYNC", FSYNC: "FSYNC" };
 
+// Fiche latérale (colonne de la liste réduite, panneau en glissement), créée au premier usage : le DOM est prêt
+let panel = null;
+const sheet = () => panel ??= detailPanel($("main"), $("detail"));
+
 export async function openDetail(id) {
-  if (state.current?.id === id && !$("detail").hidden) return;
+  if (state.current?.id === id && sheet().isOpen()) return;
   if (!leaveEdit()) return;
   state.tab = null;
   state.autorunEdit = false;
@@ -37,8 +42,7 @@ export async function openDetail(id) {
   delete $("u-anchor").dataset.edited;
   $("u-source").value = ""; $("u-version").value = "";
   state.pendingKeys.clear();
-  $("main").classList.add("with-detail");
-  showAnimated($("detail"), "is-leaving");
+  sheet().open();
   markCurrent();
   renderDetailHeader();
   showTab("apercu");
@@ -48,7 +52,7 @@ export async function openDetail(id) {
 function closeDetail() {
   if (!leaveEdit()) return;
   // Sortie en glissement ; la colonne de la liste ne reprend sa place qu'à la fin
-  hideAnimated($("detail"), "is-leaving", 200, () => $("main").classList.remove("with-detail"));
+  sheet().close();
   state.current = null;
   state.tab = null;
   markCurrent();
@@ -262,10 +266,8 @@ export function leaveEdit(force = false) {
 
 // Surligne la fiche ouverte sans redessiner la liste
 export function markCurrent() {
-  for (const node of document.querySelectorAll("#rows [data-id], #grid [data-id]")) {
-    node.classList.toggle("current", node.dataset.id === state.current?.id);
-    node.classList.toggle("selected", state.selected.has(node.dataset.id));
-  }
+  markCurrentRow("#rows [data-id], #grid [data-id]", state.current?.id);
+  for (const node of document.querySelectorAll("#rows [data-id], #grid [data-id]")) node.classList.toggle("selected", state.selected.has(node.dataset.id));
 }
 
 export function init() {
