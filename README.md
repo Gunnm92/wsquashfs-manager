@@ -40,6 +40,8 @@ Une seule instance à la fois : une seconde refuse de démarrer (elle prendrait
 les mêmes tâches). Tests : `backend/.venv/bin/python -m pytest` (dans
 `backend/`, les reconstructions réelles exigent squashfs-tools).
 
+Le dialogue avec l'agent du lanceur est décrit par `backend/contract/agent-api.yaml` (OpenAPI 3.1, copie du contrat du lanceur : `make contract` la recopie ; `backend/tests/test_contract.py` vérifie que le manager le respecte).
+
 **Mode** (Réglages, section « Mode ») : *autonome* — le manager ne fait que construire
 (Images, Dossiers) : aucun client, pas d'écoute des clients, pas de sauvegardes
 ni d'installation ; les routes qui touchent un client répondent 409. *connecté* —

@@ -57,6 +57,7 @@ from app.services.agent import (
 from app.services.errors import ManagerError
 from app.services.jobs import Job
 from app.services.tasks import TaskQueue
+from tests import contract_check as cc
 
 TOKEN = "jeton-saves"                 # jeton durable de l'agent (rendu par /v1/pair, jamais dans un code)
 SECRET = "secret-du-code"             # secret d'un code d'association : usage unique
@@ -107,7 +108,11 @@ class SavesAgent(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
-    def _send(self, code, body=b"", ctype="application/json", headers=None):
+    def _send(self, code, body=b"", ctype="application/json", headers=None, contract=True):
+        # Le faux agent ne doit pas pouvoir diverger du vrai : chaque réponse est contrôlée (contrat).
+        # contract=False : panne injectée par un test (réponse que le vrai agent ne rend pas).
+        if contract:
+            cc.record(cc.check_response(self.command, self.path, code, {"content-type": ctype, **(headers or {})}, body))
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
@@ -129,16 +134,24 @@ class SavesAgent(BaseHTTPRequestHandler):
     def do_GET(self):
         url = urlsplit(self.path)
         self._record("GET", url.path)
+        cc.record(cc.check_request(self.command, self.path, self.headers))
         if not self._auth():
             return
         if url.path == "/v1/info":
             if self.st["info_fail"]:
-                return self._send(500, b'{"detail":"info indisponible"}')
-            return self._send(200, json.dumps({"version": self.st["version"], "host": self.st["host"],
-                                               "user": "arcade", "os": self.st["os"], "auto": self.st["auto"],
-                                               "manager": self.st["manager_fp"],
-                                               **({"manager_ui": self.st["manager_ui"]}
-                                                  if self.st["manager_ui"] is not None else {})}).encode())
+                return self._send(500, b'{"detail":"info indisponible"}', contract=False)
+            # Tous les champs du vrai agent (contrat) : un agent plus ancien en a moins, mais le faux
+            # agent suit celui de la version courante ; manager_ui absent si le test le demande.
+            info = {"version": self.st["version"], "host": self.st["host"], "user": "arcade",
+                    "launcher": "/usr/bin/wsquashfs-launcher", "roms": ["/home/arcade/roms"],
+                    "session_process": "emulationstation", "os": self.st["os"],
+                    "games_dir": "/home/arcade/Games", "games_dir_set": False, "auto": self.st["auto"],
+                    "manager": self.st["manager_fp"], "manager_ui": self.st["manager_ui"] or "",
+                    "build": "", "playing": [], "controllers": []}
+            if self.st["manager_ui"] is None:
+                del info["manager_ui"]
+            # sans manager_ui : agent d'avant la version 10, hors du contrat courant
+            return self._send(200, json.dumps(info).encode(), contract=self.st["manager_ui"] is not None)
         if url.path == "/v1/saves/list":
             if self.st.get("no_saves_routes"):         # agent v2 : route inconnue du routeur Go
                 return self._send(404, b"404 page not found\n", ctype="text/plain; charset=utf-8")
@@ -174,17 +187,22 @@ class SavesAgent(BaseHTTPRequestHandler):
                 return
             if self.st["no_manager"]:                   # agent sans la déclaration du manager
                 return self._send(404, b"404 page not found\n", ctype="text/plain; charset=utf-8")
-            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))) or b"{}")
+            raw = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            cc.record(cc.check_request(self.command, self.path, self.headers, raw))
+            body = json.loads(raw or b"{}")
             self.st["manager"] = body
             self.st["manager_fp"] = body.get("fingerprint", "")
             if self.st["manager_ui"] is not None:      # agent qui rend manager_ui dans /v1/info
                 self.st["manager_ui"] = body.get("ui", "")
-            return self._send(200, b'{"ok":true}')
+            return self._send(200, json.dumps({"manager": body.get("fingerprint", "").upper(),
+                                               "auto": self.st["auto"]}).encode())
         if url.path == "/v1/saves/dirs":
             self._record("PUT", url.path)
             if not self._auth():
                 return
-            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))) or b"{}")
+            raw = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            cc.record(cc.check_request(self.command, self.path, self.headers, raw))
+            body = json.loads(raw or b"{}")
             if str(body.get("path", "")).startswith(("/", "..")):      # hors du HOME de la machine
                 return self._send(400, b'{"detail":"le dossier doit etre un sous-dossier de HOME"}')
             self.st["dirs"] = [d for d in self.st["dirs"] if d["name"] != body["name"]] + [
@@ -197,6 +215,7 @@ class SavesAgent(BaseHTTPRequestHandler):
             return
         length = int(self.headers.get("Content-Length", "0"))
         body = self.rfile.read(length)
+        cc.record(cc.check_request(self.command, self.path, self.headers, body))
         if game in self.st["busy"]:
             return self._send(409, b'{"detail":"jeu en cours"}')
         if length > self.st.get("max", 1 << 30):
@@ -208,12 +227,14 @@ class SavesAgent(BaseHTTPRequestHandler):
         self.st["games"][game] = {"data": body, "profile": profile, "newest": self.st.get("now", 1000),
                                   "size": len(body)}
         self.st["archived"] += [game] if archived else []
-        self._send(200, json.dumps({"fingerprint": fp_of(body), "archived": archived}).encode())
+        self._send(200, json.dumps({"fingerprint": fp_of(body),
+                                               "archived": f"/saves/backups/{game}.tar.gz" if archived else ""}).encode())
 
     def do_DELETE(self):
         url = urlsplit(self.path)
         game = parse_qs(url.query).get("game", [""])[0]
         self._record("DELETE", url.path, game=game)
+        cc.record(cc.check_request(self.command, self.path, self.headers))
         if not self._auth():
             return
         if url.path == "/v1/saves/dirs":
@@ -225,7 +246,8 @@ class SavesAgent(BaseHTTPRequestHandler):
         if url.path != "/v1/saves/tar":
             return self._send(404, b'{"detail":"route inconnue"}')
         if self.st["old_status"]:                       # agent plus ancien : route absente
-            return self._send(self.st["old_status"], b'{"detail":"non trouve"}')
+            # routeur Go : réponse texte, sans « detail »
+            return self._send(self.st["old_status"], b"route inconnue\n", ctype="text/plain; charset=utf-8")
         if game in self.st["busy"]:
             return self._send(409, b'{"detail":"jeu en cours"}')
         if game not in self.st["games"]:
@@ -238,8 +260,10 @@ class SavesAgent(BaseHTTPRequestHandler):
     def do_POST(self):
         url = urlsplit(self.path)
         length = int(self.headers.get("Content-Length", "0"))
-        body = json.loads(self.rfile.read(length) or b"{}")
+        raw = self.rfile.read(length)
+        body = json.loads(raw or b"{}")
         self._record("POST", url.path, body=body)
+        cc.record(cc.check_request(self.command, self.path, self.headers, raw))
         if url.path == "/v1/pair":
             code, payload = pair_reply(self.st, self.headers)
             if payload is None:
@@ -250,7 +274,7 @@ class SavesAgent(BaseHTTPRequestHandler):
         if url.path == "/v1/saves/state":
             if body.get("game") in self.st["conflict"]:
                 return self._send(409, b'{"detail":"machine modifiee entre-temps"}')
-            return self._send(200, b"{}")
+            return self._send(200, json.dumps({"fingerprint": body.get("fingerprint", "")}).encode())
         self._send(404, b'{"detail":"route inconnue"}')
 
 
@@ -302,6 +326,7 @@ def agents(tmp_path):
     for server in servers:
         server.shutdown()
         server.server_close()
+    assert not (found := cc.take_violations()), found    # le faux agent a divergé du contrat
 
 
 def make_settings(tmp: Path, **kw) -> Settings:

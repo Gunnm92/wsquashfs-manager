@@ -41,6 +41,7 @@ from app.services.agent import AgentRejected, AgentUnreachable, fingerprint_pem
 from app.services.errors import ManagerError
 from app.services.jobs import Job, JobCancelled
 from app.services.tasks import TaskQueue
+from tests import contract_check as cc
 
 BLOCK = 1 << 20
 GIB = 1 << 30
@@ -69,6 +70,8 @@ class GamesAgent(BaseHTTPRequestHandler):
             body, ctype = text.encode(), "text/plain; charset=utf-8"
         else:
             body, ctype = json.dumps(payload).encode(), "application/json"
+        # Le faux agent ne doit pas pouvoir diverger du vrai : chaque réponse est contrôlée (contrat)
+        cc.record(cc.check_response(self.command, self.path, code, {"content-type": ctype}, body))
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
@@ -102,10 +105,11 @@ class GamesAgent(BaseHTTPRequestHandler):
     def do_GET(self):
         url = urlsplit(self.path)
         query = parse_qs(url.query)
+        cc.record(cc.check_request("GET", self.path, self.headers))
         if not self._auth():
             return
         if url.path == "/v1/info":
-            return self._send(200, {"version": "6", "host": self.st["host"], "user": "arcade", "os": "linux"})
+            return self._send(200, cc.sample_info(host=self.st["host"]))
         if self._old(url.path):
             return
         name = query.get("name", [""])[0]
@@ -123,6 +127,7 @@ class GamesAgent(BaseHTTPRequestHandler):
         query = parse_qs(url.query)
         length = int(self.headers.get("Content-Length", "0"))
         body = self.rfile.read(length)                  # toujours lu : la connexion reste propre
+        cc.record(cc.check_request("PUT", self.path, self.headers))     # le corps (octets) n'est pas du JSON
         if not self._auth() or self._old(url.path):
             return
         st = self.st
@@ -150,7 +155,9 @@ class GamesAgent(BaseHTTPRequestHandler):
     def do_POST(self):
         url = urlsplit(self.path)
         length = int(self.headers.get("Content-Length", "0"))
-        body = json.loads(self.rfile.read(length) or b"{}")
+        raw = self.rfile.read(length)
+        body = json.loads(raw or b"{}")
+        cc.record(cc.check_request("POST", self.path, self.headers, raw))
         if url.path == "/v1/pair":
             code, payload = pair_reply(self.st, self.headers)
             return self._send(code, payload, text="404 page not found\n" if payload is None else None)
@@ -186,6 +193,7 @@ class GamesAgent(BaseHTTPRequestHandler):
     def do_DELETE(self):
         url = urlsplit(self.path)
         name = parse_qs(url.query).get("name", [""])[0]
+        cc.record(cc.check_request("DELETE", self.path, self.headers))
         if not self._auth() or self._old(url.path):
             return
         st = self.st
@@ -229,6 +237,7 @@ def games_agents(tmp_path):
     for server in servers:
         server.shutdown()
         server.server_close()
+    assert not (found := cc.take_violations()), found      # le faux agent a divergé du contrat
 
 
 def make_image(tmp: Path, size: int, name: str = NAME, seed: int = 1) -> Path:

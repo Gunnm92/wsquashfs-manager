@@ -22,6 +22,7 @@ from app.config import Settings
 from app.services import agent as agent_client
 from app.services import trial
 from app.services.errors import ManagerError
+from tests import contract_check as cc
 
 PNG = b"\x89PNG\r\n\x1a\nfake"
 TOKEN = "jeton-de-test"                  # jeton durable, rendu par /v1/pair
@@ -51,6 +52,8 @@ class FakeAgent(BaseHTTPRequestHandler):
         pass
 
     def _send(self, code, body=b"", ctype="application/json"):
+        # Le faux agent ne doit pas pouvoir diverger du vrai : chaque réponse est contrôlée (contrat)
+        cc.record(cc.check_response(self.command, self.path, code, {"content-type": ctype}, body))
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
@@ -82,16 +85,17 @@ class FakeAgent(BaseHTTPRequestHandler):
 
     def do_GET(self):
         FakeAgent.seen.append(("GET", self.path))
+        cc.record(cc.check_request("GET", self.path, self.headers))
         if not self._ok():
             return
         if self.path.startswith("/v1/info"):
-            return self._send(200, json.dumps({"version": "1", "host": "fake", "user": "arcade"}).encode())
+            return self._send(200, json.dumps(cc.sample_info()).encode())
         if self.path.startswith("/v1/doctor"):
             doctor = {"code": 0, "sections": [], "verdict": "✓ Prêt à lancer des jeux",
                       "runners": [{"name": "GE-Proton", "path": "/opt/ge"}]}
             return self._send(200, json.dumps(doctor).encode())
         if self.path.startswith("/v1/runner/list"):
-            return self._send(200, json.dumps({"entries": RUNNER_TREE}).encode())
+            return self._send(200, json.dumps({"path": "/opt/ge", "entries": RUNNER_TREE}).encode())
         if self.path.startswith("/v1/runner/tar"):
             return self._send(200, b"TARDATA", "application/x-tar")
         self._send(404, b'{"detail":"route inconnue"}')
@@ -99,12 +103,16 @@ class FakeAgent(BaseHTTPRequestHandler):
     def do_POST(self):
         FakeAgent.seen.append(("POST", self.path))
         length = int(self.headers.get("Content-Length", "0"))
-        body = json.loads(self.rfile.read(length) or b"{}")
+        raw = self.rfile.read(length)
+        body = json.loads(raw or b"{}")
+        cc.record(cc.check_request("POST", self.path, self.headers, raw))
         if self.path == "/v1/pair":
             return self._pair(body)
         if not self._ok():
             return
         FakeAgent.bodies.append((self.path, body))
+        if self.path == "/v1/maintenance":
+            return self._send(200, json.dumps({"action": body.get("action"), "code": 0, "output": ""}).encode())
         if body.get("rel") == "win/Absent.wsquashfs":
             return self._send(404, b'{"detail":"image introuvable : win/Absent.wsquashfs"}')
         report = {"code": 0, "elapsed": 60, "launcher_alive": True, "game_seen": True, "games": [],
@@ -127,6 +135,7 @@ def agent(tmp_path_factory):
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield {"url": f"https://127.0.0.1:{server.server_address[1]}", "pem": cert.read_text(), "tmp": tmp}
     server.shutdown()
+    assert not (found := cc.take_violations()), found    # le faux agent a divergé du contrat
 
 
 def settings_for(tmp: Path, pem: str | None, url: str = "", token: str = TOKEN) -> Settings:

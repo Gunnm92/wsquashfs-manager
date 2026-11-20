@@ -6,7 +6,7 @@ TAG      ?= latest
 DOCKER   ?= DOCKER_HOST=tcp://docker-socket-proxy:2375 DOCKER_TLS_VERIFY= DOCKER_CERT_PATH= docker
 FULL_IMAGE := $(REGISTRY)/$(IMAGE):$(TAG)
 
-.PHONY: build push test
+.PHONY: build push test contract
 # Builder buildx « docker-container » : --load pour récupérer l'image en
 # local, --push pour la publier (comme SteamBox).
 build:
@@ -17,3 +17,8 @@ push:
 
 test:
 	cd backend && .venv/bin/python -m pytest -q
+
+# Contrat commun avec le lanceur (agent) : la source de vérité est celle du dépôt du lanceur,
+# backend/contract/agent-api.yaml en est la copie (un test vérifie qu'elles sont identiques).
+contract:
+	cp ../wsquashfs-launcher/contract/agent-api.yaml backend/contract/agent-api.yaml
