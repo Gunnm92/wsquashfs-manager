@@ -185,3 +185,33 @@ def test_damaged_images_found_and_restored(tmp_path, monkeypatch):
     # seul un fichier signalé peut être remis
     r = client.post("/api/recovery/restore", json={"old": str(roms / "saine.wsquashfs.old")})
     assert r.status_code == 404
+
+
+@needs_tools
+def test_damaged_edit_found_and_restored(tmp_path, monkeypatch):
+    """Édition en place (.sb-old) : une image devenue illisible est remise comme avant l'édition."""
+    from app.services import sqedit
+    from app.services.rebuild import Changes
+    roms = tmp_path / "roms" / "windows"
+    roms.mkdir(parents=True)
+    image = roms / "edite.wsquashfs"
+    _squash(tmp_path / "src", image)
+    before = image.read_bytes()
+    sqedit.edit(image, Changes(write={"autorun.cmd": b"CMD=autre.exe\r\n"}))
+    assert scan.find_damaged(deps.settings.model_copy(update={"roms_dirs": [str(tmp_path / "roms")]})) == []
+    with open(image, "r+b") as f:
+        f.write(b"\0" * 96)                                     # superbloc détruit
+    monkeypatch.setattr(deps.settings, "roms_dirs", [str(tmp_path / "roms")])
+    monkeypatch.setattr(deps, "queue", TaskQueue(tmp_path / "state" / "tasks.json",
+                                                 deps.queue.handlers))
+    monkeypatch.setattr(scan, "image_in_use", lambda image: False)
+    monkeypatch.setattr(library_index, "refresh_library", lambda settings, force: [])
+    client = TestClient(main.app, headers={"x-wsfs-token": ""})
+
+    found = client.get("/api/recovery").json()
+    assert [(d["id"], d["problem"], d["old_size"]) for d in found] == [
+        ("windows/edite", "image illisible", 0)]
+    r = client.post("/api/recovery/restore", json={"old": found[0]["old"]})
+    assert r.status_code == 200
+    assert image.read_bytes() == before and not sqedit.sb_old_path(image).exists()
+    assert client.get("/api/recovery").json() == []

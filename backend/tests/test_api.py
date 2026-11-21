@@ -267,9 +267,11 @@ def test_end_to_end_edit_rebuild_validate(tmp_path, monkeypatch, queue):
     assert info["hidraw"] is None and info["has_old"] and info["state"] == "has_old"
     assert client.get("/api/tasks", params={"image": "win/Jeu"}).json()[0]["id"] == task_id
 
+    assert image.with_name("Jeu.wsquashfs.sb-old").exists()         # édition en place
     info = client.post("/api/image/old/validate", params={"id": "win/Jeu"}).json()
     assert not info["has_old"]
     assert not image.with_name("Jeu.wsquashfs.old").exists()
+    assert not image.with_name("Jeu.wsquashfs.sb-old").exists()
 
 
 # ------------------------------------------------------------------ fichiers, sauvegardes

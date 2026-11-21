@@ -118,9 +118,9 @@ def run_autorun(settings: Settings, task: Task, job: Job) -> str:
     else:
         result = rebuild(settings, image, Changes(write={"autorun.cmd": plan.after}), job,
                          in_use=scan.image_in_use)
-        message = (f"Terminé en {result.duration:.0f} s (mode {result.mode}) : "
+        message = (f"Terminé en {result.duration:.0f} s (mode {result.mode_label}) : "
                    f"{result.size_before / 1e6:.0f} → {result.size_after / 1e6:.0f} Mo, "
-                   f"original conservé en {result.backup.name}")
+                   f"{result.kept}")
     # Surcharge inscrite dans l'image : elle n'a plus lieu d'être
     if task.params.get("drop_override"):
         override_path(image).unlink(missing_ok=True)
@@ -328,8 +328,8 @@ def run_files(settings: Settings, task: Task, job: Job) -> str:
     message = "Image inchangée"
     if not plan.changes.is_empty():
         result = rebuild(settings, image, plan.changes, job, in_use=scan.image_in_use)
-        message = (f"Terminé en {result.duration:.0f} s (mode {result.mode}), "
-                   f"original conservé en {result.backup.name}")
+        message = (f"Terminé en {result.duration:.0f} s (mode {result.mode_label}), "
+                   f"{result.kept}")
     elif scan.image_in_use(image):
         raise ManagerError("jeu en cours d'utilisation")
     if plan.saves_writes:
@@ -455,9 +455,9 @@ _SOURCE_LABEL = {"sgdb": "icône SteamGridDB", "es": "jaquette EmulationStation"
 
 def _replace_cover(settings: Settings, image: Path, art, present: bool, job: Job,
                    choisie: bool = False) -> str:
-    """Remplace l'illustration par une reconstruction ciblée (mksquashfs en ajout ne
-    peut pas remplacer un fichier) : l'original reste en .old. Rien si l'illustration
-    intégrée est déjà identique octet pour octet."""
+    """Remplace l'illustration par `rebuild` : édition en place, ou reconstruction ciblée si
+    elle est refusée (mksquashfs en ajout ne peut pas remplacer un fichier ; l'original reste
+    alors en .old). Rien si l'illustration intégrée est déjà identique octet pour octet."""
     from .rebuild import COVER, Changes, rebuild
 
     cover = art.path.read_bytes()
@@ -474,8 +474,7 @@ def _replace_cover(settings: Settings, image: Path, art, present: bool, job: Job
     result = rebuild(settings, image, Changes(copy={COVER: art.path}), job,
                      in_use=scan.image_in_use)
     label = _SOURCE_LABEL.get(art.kind, art.kind)
-    return (f"Illustration remplacée ({label}) : "
-            f"l'ancienne image est gardée en {result.backup.name}")
+    return f"Illustration remplacée ({label}) : {result.kept}"
 
 
 # ------------------------------------------------------------------ sauvegardes

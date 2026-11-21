@@ -12,7 +12,7 @@ from .config import Settings
 from .models import ImageInfo, ImageState, Task
 from .services import operations, scan
 from .services.errors import ManagerError
-from .services.rebuild import backup_path
+from .services.rebuild import pending_backup
 from .services.tasks import TaskConflict, TaskQueue
 
 MODE_AUTONOME_DETAIL = "mode autonome : fonction connectée désactivée (Réglages › Mode)"
@@ -33,7 +33,7 @@ def blocked_reason(queue: TaskQueue, info: ImageInfo, rebuild: bool = True) -> s
     `rebuild`)."""
     if info.state == ImageState.IN_USE:
         return "jeu en cours d'utilisation"
-    if rebuild and backup_path(info.path).exists():
+    if rebuild and pending_backup(info.path) is not None:
         return "sauvegarde .old à valider ou restaurer d'abord"
     if queue.active_for(info.id):
         return "une tâche est déjà en attente ou en cours"

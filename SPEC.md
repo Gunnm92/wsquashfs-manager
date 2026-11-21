@@ -365,6 +365,23 @@ plus les fichiers du patch. Vérifié avant de démarrer.
 Repli si FUSE est indisponible : extraction complète (`unsquashfs`) puis
 `mksquashfs`, avec l'espace disque correspondant (≈ 2 × taille décompressée).
 
+#### Édition en place (petites retouches)
+
+Illustration, autorun, quelques fichiers ou liens : l'éditeur en place
+(`services/sqedit.py`, Python pur) évite toute reconstruction. Les nouvelles
+données (≤ 64 Mio, non compressées) sont écrites à la fin du fichier, puis de
+nouvelles tables (inodes et dossiers d'origine recopiés, plus les seuls inodes
+et listes des dossiers touchés jusqu'à la racine ; fragments, ids et xattrs
+recopiés, index décalés ; table d'export supprimée), et un nouveau superbloc
+bascule l'image (`fsync` avant et après). Le superbloc d'origine est gardé dans
+`<jeu>.wsquashfs.sb-old` : « valider » le supprime, « revenir à l'ancienne » le
+remet et retronque le fichier. Quelques secondes pour 100 Go, sans copie
+`.old`. Le prix : l'espace des anciennes tables et des données remplacées reste
+perdu (compteur dans `<jeu>.wsquashfs.sqedit`) jusqu'à une reconstruction
+complète. Refus (reconstruction complète alors, raison au journal) :
+arborescence entière à ajouter, plus de 64 Mio, fichier à liens physiques
+multiples, type d'inode ou compression inconnus, sauvegarde déjà présente.
+
 ### 3.2 Édition d'autorun
 
 - Réécriture **ligne à ligne** : les commentaires (`REM`, `#`), l'ordre des

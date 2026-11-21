@@ -12,6 +12,7 @@ dependencies = [
     "pefile>=2023.2",
     "httpx>=0.27",
     "pillow>=10",
+    "zstandard>=0.23",
 ]
 
 [project.scripts]

@@ -13,6 +13,7 @@ from app.models import Task
 from app.services import scan
 from app.services.errors import ManagerError
 from app.services.jobs import Job
+from app.services.rebuild import validate_backup
 from app.services.update import default_anchor, plan_update, run_update
 
 pytestmark = pytest.mark.skipif(not shutil.which("mksquashfs"), reason="squashfs-tools absent")
@@ -103,5 +104,5 @@ def test_run_update_rebuilds_and_sets_aside_masked_saves(env):
     aside = next(settings.saves_dir.glob("Jeu.avant-maj-*"))
     assert (aside / "drive_c/Game/Game.exe").read_bytes() == b"ancienne copie"
     # Rejouée sur l'image à jour : plus rien à faire
-    image.with_name("Jeu.wsquashfs.old").unlink()
+    validate_backup(image)
     assert run_update(settings, task, Job()).startswith("Rien à mettre à jour")

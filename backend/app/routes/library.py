@@ -16,6 +16,8 @@ from ..models import ImageInfo
 from ..services import art_choice, scan, sgdb
 from ..services.artwork import embedded_cover, es_artwork, forget_embedded_misses
 from ..services.durable import restore
+from ..services.errors import ManagerError
+from ..services.rebuild import restore_backup
 from ..services.sgdb import forget_sgdb_misses
 
 router = APIRouter()
@@ -50,7 +52,13 @@ def recovery_restore(settings: SettingsDep, queue: QueueDep, body: RecoveryResto
     image = Path(damaged[body.old]["image"])
     if image.exists() and scan.image_in_use(image):
         raise HTTPException(status_code=409, detail="jeu en cours")
-    restore(Path(body.old), image)
+    if body.old.endswith(".sb-old"):
+        try:
+            restore_backup(image)       # édition en place défaite : superbloc remis
+        except ManagerError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    else:
+        restore(Path(body.old), image)
     library_index.refresh_library(settings, force=False)
     return {"restored": str(image)}
 

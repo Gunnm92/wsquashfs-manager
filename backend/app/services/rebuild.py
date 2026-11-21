@@ -1,6 +1,10 @@
 """Reconstruction transactionnelle des images ``.wsquashfs`` (SPEC § 3.1, § 3.4).
 
-Une image squashfs ne se modifie pas en place. Deux façons de la reconstruire :
+Une petite retouche (illustration, autorun, quelques fichiers, liens) passe d'abord par
+l'**édition en place** (`sqedit`) : quelques secondes, quel que soit le poids de l'image ; elle
+garde l'ancien superbloc dans ``<jeu>.wsquashfs.sb-old`` (valider = le supprimer, restaurer = le
+remettre). Quand l'éditeur refuse (`sqedit.Unsupported` : arborescence entière, plus de 64 Mio,
+fichier à liens multiples…), l'image est reconstruite en entier. Deux façons de le faire :
 
 - **flux** (« stream », squashfs-tools 4.7 et plus) : `unsquashfs -pf -`
   décrit toute l'image, données comprises, sur sa sortie ; le manager retire
@@ -31,10 +35,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..config import Settings, work_area
-from . import diskspace, squashfs
+from . import diskspace, sqedit, squashfs
 from .durable import fsync_dir, restore, swap_keep_old
 from .errors import ManagerError
-from .jobs import Job
+from .jobs import Job, JobCancelled
 from .links import pseudo_quote
 from .scan import list_files_uncached, read_autorun_bytes
 
@@ -56,12 +60,25 @@ class Changes:
 
 @dataclass
 class RebuildResult:
-    mode: str                 # "stream" | "extract"
+    mode: str                 # "edit" (édition en place) | "stream" | "extract"
     size_before: int
     size_after: int
-    backup: Path
+    backup: Path              # <image>.old, ou <image>.sb-old après une édition en place
     duration: float
+    dead_bytes: int = 0       # édition en place : espace perdu cumulé (non compacté)
 
+    @property
+    def mode_label(self) -> str:
+        return {"edit": "édition en place", "stream": "flux", "extract": "extraction"}.get(
+            self.mode, self.mode)
+
+    @property
+    def kept(self) -> str:
+        """Ce qui reste de l'ancienne version, pour les messages à l'utilisateur."""
+        if self.mode == "edit":
+            lost = f" (espace perdu cumulé : {self.dead_bytes / 1e6:.0f} Mo)" if self.dead_bytes else ""
+            return f"l'ancienne version peut être restaurée{lost}"
+        return f"original conservé en {self.backup.name}"
 
 
 # ------------------------------------------------------------------ chemins
@@ -72,6 +89,15 @@ def backup_path(image: Path) -> Path:
 
 def part_path(image: Path) -> Path:
     return image.with_name(image.name + ".part")
+
+
+def pending_backup(image: Path) -> Path | None:
+    """Sauvegarde à valider ou restaurer : ``.sb-old`` (édition en place) ou ``.old``
+    (reconstruction complète), None sans."""
+    for path in (sqedit.sb_old_path(image), backup_path(image)):
+        if path.exists():
+            return path
+    return None
 
 
 def expected_listing(old: list[str], changes: Changes) -> set[str]:
@@ -400,8 +426,8 @@ def rebuild(settings: Settings, image: Path, changes: Changes, job: Job | None =
     if changes.is_empty():
         raise ManagerError("aucun changement à appliquer")
     backup, part = backup_path(image), part_path(image)
-    if backup.exists():
-        raise ManagerError(f"sauvegarde existante à valider ou restaurer : {backup.name}")
+    if (pending := pending_backup(image)) is not None:
+        raise ManagerError(f"sauvegarde existante à valider ou restaurer : {pending.name}")
     if part.exists():
         raise ManagerError(f"reconstruction inachevée présente : {part.name}")
     for tool in (settings.unsquashfs, settings.mksquashfs):
@@ -410,6 +436,15 @@ def rebuild(settings: Settings, image: Path, changes: Changes, job: Job | None =
     if in_use and in_use(image):
         raise ManagerError("jeu en cours d'utilisation")
     add_cover(settings, image, changes, job)
+
+    old_listing = list_files_uncached(settings, image)
+    if old_listing is None:
+        raise ManagerError("arborescence de l'image illisible (unsquashfs -l)")
+    expected = expected_listing(old_listing, changes)
+    if not changes.trees:
+        edited = _edit_in_place(settings, image, changes, job, in_use, expected, began)
+        if edited is not None:
+            return edited
 
     mode = squashfs.choose_mode(settings)
     if mode == "stream":
@@ -421,10 +456,6 @@ def rebuild(settings: Settings, image: Path, changes: Changes, job: Job | None =
     diskspace.check_space(diskspace.space_needed(settings, image, changes, mode))
     before = image.stat()
     owner_opts = _owner_opts(settings, image, job)
-    old_listing = list_files_uncached(settings, image)
-    if old_listing is None:
-        raise ManagerError("arborescence de l'image illisible (unsquashfs -l)")
-    expected = expected_listing(old_listing, changes)
 
     swapped = False
     try:
@@ -441,9 +472,38 @@ def rebuild(settings: Settings, image: Path, changes: Changes, job: Job | None =
     finally:
         if not swapped:
             part.unlink(missing_ok=True)
+    sqedit.reset_dead(image)          # image neuve, compacte : plus d'espace perdu
     job.progress("terminé", 1.0)
     return RebuildResult(mode=mode, size_before=before.st_size, size_after=image.stat().st_size,
                          backup=backup, duration=time.monotonic() - began)
+
+
+def _edit_in_place(settings: Settings, image: Path, changes: Changes, job: Job,
+                   in_use: Callable[[Path], bool] | None, expected: set[str],
+                   began: float) -> RebuildResult | None:
+    """Édition en place (sqedit) puis la même vérification qu'une reconstruction ; si elle
+    échoue, l'ancienne version est remise. None : l'éditeur refuse, reconstruire en entier."""
+    job.progress("édition en place", 0.05)
+    try:
+        edit = sqedit.edit(image, changes, in_use)
+    except sqedit.Unsupported as exc:
+        job.log(f"Édition en place impossible ({exc}) : reconstruction complète")
+        return None
+    job.log(f"Mode : édition en place ({edit.new_size - edit.old_size} octets ajoutés, "
+            f"espace perdu cumulé {edit.dead_bytes / 1e6:.1f} Mo)")
+    try:
+        job.progress("vérification", 0.5)
+        squashfs.verify(settings, image, expected, changes)
+        job.check()
+    except ManagerError as exc:
+        sqedit.undo(image)
+        if isinstance(exc, JobCancelled):
+            raise
+        raise ManagerError(f"{exc} ; ancienne version restaurée") from exc
+    job.progress("terminé", 1.0)
+    return RebuildResult(mode="edit", size_before=edit.old_size, size_after=edit.new_size,
+                         backup=edit.backup, duration=time.monotonic() - began,
+                         dead_bytes=edit.dead_bytes)
 
 
 def _swap(image: Path, part: Path, backup: Path, before: os.stat_result,
@@ -465,10 +525,14 @@ def _swap(image: Path, part: Path, backup: Path, before: os.stat_result,
         raise ManagerError(f"échange final impossible : {exc}") from exc
 
 
-# ------------------------------------------------------------------ .old
+# ------------------------------------------------------------------ .old et .sb-old
 
 def validate_backup(image: Path) -> None:
-    """« Valider » : la nouvelle image convient, l'ancienne est supprimée."""
+    """« Valider » : la nouvelle image convient, l'ancienne est supprimée (.old) ou son
+    superbloc oublié (.sb-old, édition en place)."""
+    if sqedit.sb_old_path(image).exists():
+        sqedit.commit(image)
+        return
     backup = backup_path(image)
     if not backup.exists():
         raise ManagerError("aucune sauvegarde .old")
@@ -477,7 +541,11 @@ def validate_backup(image: Path) -> None:
 
 
 def restore_backup(image: Path) -> None:
-    """« Revenir à l'ancienne » : la nouvelle image est remplacée par l'.old."""
+    """« Revenir à l'ancienne » : la nouvelle image est remplacée par l'.old, ou l'édition en
+    place défaite (ancien superbloc remis, fichier retronqué)."""
+    if sqedit.sb_old_path(image).exists():
+        sqedit.undo(image)
+        return
     backup = backup_path(image)
     if not backup.exists():
         raise ManagerError("aucune sauvegarde .old")
@@ -485,18 +553,21 @@ def restore_backup(image: Path) -> None:
 
 
 def purge_backups(images: list[Path], retention_days: int | None) -> list[Path]:
-    """Supprime les .old plus vieux que la rétention. L'âge est celui de
-    l'échange (ctime : mis à jour par le renommage), pas celui du jeu."""
+    """Supprime les .old plus vieux que la rétention (les .sb-old sont validés). L'âge est
+    celui de l'échange (ctime : mis à jour par le renommage), pas celui du jeu."""
     if retention_days is None:
         return []
     limit = time.time() - retention_days * 86400
     removed = []
     for image in images:
-        backup = backup_path(image)
-        try:
-            if backup.stat().st_ctime < limit:
-                backup.unlink()
-                removed.append(backup)
-        except OSError:
-            continue
+        for backup in (backup_path(image), sqedit.sb_old_path(image)):
+            try:
+                if backup.stat().st_ctime < limit:
+                    if backup == backup_path(image):
+                        backup.unlink()
+                    else:
+                        sqedit.commit(image)
+                    removed.append(backup)
+            except (OSError, ManagerError):
+                continue
     return removed

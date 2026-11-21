@@ -228,8 +228,8 @@ def run_relink(settings: Settings, task: Task, job: Job) -> str:
     files, links = image_state(settings, image)
     left = classify(links, files)
     message = (f"{len(report.fixable)} lien(s) réécrit(s) ; {result.size_before / 1e9:.1f} → "
-               f"{result.size_after / 1e9:.1f} Go en {result.duration:.0f} s, original conservé "
-               f"en {result.backup.name}")
+               f"{result.size_after / 1e9:.1f} Go en {result.duration:.0f} s, "
+               f"{result.kept}")
     if left.count:
         message += f" ; {left.count} lien(s) encore à revoir"
     return message
@@ -260,7 +260,7 @@ def run_runner(settings: Settings, task: Task, job: Job) -> str:
     message = (f"{plan.dest_prefix} ajouté, {len(plan.after.fixable)} lien(s) réécrit(s)"
                f"{f', {plan.key}={plan.dest}' if plan.autorun else ''} ; "
                f"{result.size_before / 1e9:.1f} → {result.size_after / 1e9:.1f} Go en "
-               f"{result.duration:.0f} s, original conservé en {result.backup.name}")
+               f"{result.duration:.0f} s, {result.kept}")
     if left.count:
         message += f" ; {left.count} lien(s) encore à revoir"
     return message

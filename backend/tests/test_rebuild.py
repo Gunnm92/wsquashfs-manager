@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from app.config import Settings
-from app.services import diskspace, rebuild, squashfs
+from app.services import diskspace, rebuild, sqedit, squashfs
 from app.services.errors import ManagerError
 from app.services.jobs import Job, JobCancelled
 from app.services.rebuild import (
@@ -61,6 +61,16 @@ def settings(tmp_path: Path) -> Settings:
     return Settings(tmp_dir=tmp_path / "tmp", rebuild_mode="extract")
 
 
+@pytest.fixture
+def full_rebuild(monkeypatch):
+    """L'éditeur en place refuse : les tests de la reconstruction complète (flux, extraction,
+    échange, .old) passent par elle."""
+    def refuse(*_args, **_kwargs):
+        raise sqedit.Unsupported("refusé par le test")
+
+    monkeypatch.setattr(sqedit, "edit", refuse)
+
+
 # ------------------------------------------------------------------ logique pure
 
 def test_safe_rel_refuses_escapes():
@@ -82,7 +92,7 @@ def test_expected_listing_adds_parents_and_removes_subtrees():
 # ------------------------------------------------------------------ vraies images
 
 @needs_tools
-def test_rebuild_replaces_autorun_and_keeps_old(image: Path, settings: Settings):
+def test_full_rebuild_replaces_autorun_and_keeps_old(image: Path, settings: Settings, full_rebuild):
     before = image.read_bytes()
     listing_before = _listing(image)
     phases = []
@@ -102,7 +112,7 @@ def test_rebuild_replaces_autorun_and_keeps_old(image: Path, settings: Settings)
 
 @needs_tools
 @pytest.mark.parametrize("mode", ["stream", "extract"])
-def test_rebuild_adds_and_deletes_files(image: Path, tmp_path: Path, mode: str):
+def test_rebuild_adds_and_deletes_files(image: Path, tmp_path: Path, mode: str, full_rebuild):
     if mode == "stream" and not _squashfs_47():
         pytest.skip("mode flux : squashfs-tools 4.7 requis")
     settings = Settings(tmp_dir=tmp_path / "tmp", rebuild_mode=mode)
@@ -115,6 +125,89 @@ def test_rebuild_adds_and_deletes_files(image: Path, tmp_path: Path, mode: str):
     assert "Game Dir/plugins/new.dll" in files
     assert "Game Dir/old.dll" not in files
     assert _cat(image, "Game Dir/plugins/new.dll") == b"P" * 1000
+
+
+@needs_tools
+def test_rebuild_edits_in_place_and_keeps_superblock(image: Path, settings: Settings):
+    before = image.read_bytes()
+    listing_before = _listing(image)
+    log = []
+    new = b"REM test\r\nCMD=game.exe\r\nDIR=Game Dir\r\nGAME_VERSION=1.2\r\n"
+
+    result = rebuild.rebuild(settings, image, Changes(write={"autorun.cmd": new}),
+                             Job(on_log=log.append))
+
+    assert result.mode == "edit" and result.mode_label == "édition en place"
+    assert result.backup == sqedit.sb_old_path(image) and result.backup.exists()
+    assert "restaurée" in result.kept and result.dead_bytes > 0
+    assert _cat(image, "autorun.cmd") == new
+    assert _listing(image) == listing_before
+    assert not image.with_name(image.name + ".old").exists()
+    assert not image.with_name(image.name + ".part").exists()
+    assert any("édition en place" in line for line in log)
+    assert rebuild.pending_backup(image) == result.backup
+    with pytest.raises(ManagerError, match="sauvegarde existante"):
+        rebuild.rebuild(settings, image, Changes(write={"autorun.cmd": b"CMD=x\r\n"}))
+    # Valider garde la nouvelle version ; restaurer remet l'image d'origine à l'octet près
+    restore_backup(image)
+    assert image.read_bytes() == before
+    rebuild.rebuild(settings, image, Changes(write={"autorun.cmd": new}))
+    validate_backup(image)
+    assert rebuild.pending_backup(image) is None and _cat(image, "autorun.cmd") == new
+
+
+@needs_tools
+def test_edit_in_place_failed_verification_restores(image: Path, settings: Settings, monkeypatch):
+    before = image.read_bytes()
+
+    def bad_verify(*_args):
+        raise ManagerError("vérification : arborescence inattendue")
+
+    monkeypatch.setattr(squashfs, "verify", bad_verify)
+    with pytest.raises(ManagerError, match="vérification.*restaurée"):
+        rebuild.rebuild(settings, image, Changes(write={"autorun.cmd": b"CMD=x\r\n"}))
+    assert image.read_bytes() == before
+    assert rebuild.pending_backup(image) is None
+
+
+@needs_tools
+def test_edit_in_place_cancelled_after_edit_restores(image: Path, settings: Settings, monkeypatch):
+    before = image.read_bytes()
+    job = Job()
+    real = squashfs.verify
+
+    def verify_then_cancel(*args):
+        real(*args)
+        job.cancel()
+
+    monkeypatch.setattr(squashfs, "verify", verify_then_cancel)
+    with pytest.raises(JobCancelled):
+        rebuild.rebuild(settings, image, Changes(write={"autorun.cmd": b"CMD=x\r\n"}), job)
+    assert image.read_bytes() == before
+
+
+@needs_tools
+def test_unsupported_edit_falls_back_to_full_rebuild(image: Path, settings: Settings, monkeypatch):
+    """Au-delà de la limite, l'éditeur refuse : la raison est journalisée, l'image est
+    reconstruite (original en .old)."""
+    monkeypatch.setattr(sqedit, "MAX_NEW_DATA", 10)
+    log = []
+    result = rebuild.rebuild(settings, image, Changes(write={"autorun.cmd": b"CMD=game.exe\r\n" * 4}),
+                             Job(on_log=log.append))
+    assert result.mode == "extract" and result.backup.name.endswith(".wsquashfs.old")
+    assert any(line.startswith("Édition en place impossible") and "Mio" in line for line in log)
+    assert _cat(image, "autorun.cmd") == b"CMD=game.exe\r\n" * 4
+    assert not sqedit.dead_path(image).exists()
+
+
+@needs_tools
+def test_full_rebuild_resets_dead_bytes(image: Path, settings: Settings, monkeypatch):
+    rebuild.rebuild(settings, image, Changes(write={"autorun.cmd": b"CMD=a\r\n"}))
+    validate_backup(image)
+    assert sqedit.dead_bytes(image) > 0
+    monkeypatch.setattr(sqedit, "MAX_NEW_DATA", 1)
+    rebuild.rebuild(settings, image, Changes(write={"autorun.cmd": b"CMD=b\r\n"}))
+    assert sqedit.dead_bytes(image) == 0
 
 
 @needs_tools
@@ -142,7 +235,7 @@ def test_game_started_during_rebuild_keeps_original(image: Path, settings: Setti
 
 
 @needs_tools
-def test_failed_verification_leaves_original(image: Path, settings: Settings, monkeypatch):
+def test_failed_verification_leaves_original(image: Path, settings: Settings, monkeypatch, full_rebuild):
     before = image.read_bytes()
 
     def bad_apply(root: Path, changes: Changes) -> None:
@@ -156,7 +249,7 @@ def test_failed_verification_leaves_original(image: Path, settings: Settings, mo
 
 
 @needs_tools
-def test_cancel_cleans_up(image: Path, settings: Settings, monkeypatch):
+def test_cancel_cleans_up(image: Path, settings: Settings, monkeypatch, full_rebuild):
     before = image.read_bytes()
     job = Job()
     real = squashfs.run_progress
@@ -175,7 +268,7 @@ def test_cancel_cleans_up(image: Path, settings: Settings, monkeypatch):
 
 
 @needs_tools
-def test_space_check_blocks_before_work(image: Path, settings: Settings, monkeypatch):
+def test_space_check_blocks_before_work(image: Path, settings: Settings, monkeypatch, full_rebuild):
     monkeypatch.setattr(diskspace.shutil, "disk_usage",
                         lambda path: shutil._ntuple_diskusage(10**12, 10**12, 10))
     with pytest.raises(ManagerError, match="espace insuffisant"):
@@ -207,12 +300,32 @@ def test_validate_and_restore_backup(tmp_path: Path):
     assert not image.with_name("Jeu.wsquashfs.old").exists()
 
 
+def test_validate_and_restore_edit_backup(tmp_path: Path, image: Path):
+    before = image.read_bytes()
+    sqedit.edit(image, Changes(write={"autorun.cmd": b"CMD=z\r\n"}))
+    restore_backup(image)
+    assert image.read_bytes() == before
+    sqedit.edit(image, Changes(write={"autorun.cmd": b"CMD=z\r\n"}))
+    validate_backup(image)
+    assert not sqedit.sb_old_path(image).exists() and _cat(image, "autorun.cmd") == b"CMD=z\r\n"
+    with pytest.raises(ManagerError):
+        validate_backup(image)
+
+
 def test_purge_backups_respects_retention(tmp_path: Path):
     image = tmp_path / "Jeu.wsquashfs"
     image.with_name("Jeu.wsquashfs.old").write_bytes(b"old")
     assert purge_backups([image], None) == []
     assert purge_backups([image], 1) == []          # tout juste échangé
     assert purge_backups([image], -1) == [image.with_name("Jeu.wsquashfs.old")]
+
+
+@needs_tools
+def test_purge_validates_old_edits(image: Path):
+    sqedit.edit(image, Changes(write={"autorun.cmd": b"CMD=z\r\n"}))
+    assert purge_backups([image], 1) == []
+    assert purge_backups([image], -1) == [sqedit.sb_old_path(image)]
+    assert not sqedit.sb_old_path(image).exists() and _cat(image, "autorun.cmd") == b"CMD=z\r\n"
 
 
 # ------------------------------------------------------------------ progression
@@ -246,7 +359,7 @@ def test_run_progress_cancel_kills_process(tmp_path: Path):
 
 
 @needs_tools
-def test_default_work_dir_is_next_to_image_and_removed(image: Path, tmp_path: Path, monkeypatch):
+def test_default_work_dir_is_next_to_image_and_removed(image: Path, tmp_path: Path, monkeypatch, full_rebuild):
     """Sans tmp_dir, le travail se fait à côté de l'image (même disque) ;
     le dossier caché disparaît ensuite."""
     seen = []
@@ -268,7 +381,7 @@ def test_fallback_reason_is_explained(tmp_path):
 
 
 @needs_tools
-def test_rebuilt_image_belongs_to_service_user(tmp_path: Path):
+def test_rebuilt_image_belongs_to_service_user(tmp_path: Path, full_rebuild):
     """Image root (Batocera) : la nouvelle image appartient à l'utilisateur du
     service (arcade dans SteamBox), ce que le lanceur sans privilèges préfère."""
     src = tmp_path / "src"

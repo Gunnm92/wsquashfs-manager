@@ -90,22 +90,29 @@ def _find_images(roms_dirs: list[str], max_depth: int,
 
 
 def find_damaged(settings: Settings) -> list[dict]:
-    """Images absentes ou illisibles dont l'ancienne version (.old) est
-    intacte : ce qu'une coupure pendant un échange aurait pu laisser."""
+    """Images absentes ou illisibles dont l'ancienne version (.old, ou .sb-old d'une édition
+    en place) est intacte : ce qu'une coupure pendant un échange aurait pu laisser."""
+    from .sqedit import undo_possible
     out = []
-    for old, system in _find_images(settings.roms_dirs, settings.scan_max_depth,
-                                    ".wsquashfs.old"):
-        image = old.with_name(old.name[:-len(".old")])
-        if not image.exists():
-            problem = "image absente"
-        elif not unsquashfs_ok(settings, image):
-            problem = "image illisible"
-        else:
-            continue
-        if not unsquashfs_ok(settings, old):
-            continue                    # rien de sain à remettre
-        out.append({"id": image_id(image, system), "image": str(image), "old": str(old),
-                    "problem": problem, "old_size": old.stat().st_size})
+    for suffix in (".wsquashfs.old", ".wsquashfs.sb-old"):
+        for old, system in _find_images(settings.roms_dirs, settings.scan_max_depth, suffix):
+            image = old.with_name(old.name[:-len(suffix)] + ".wsquashfs")
+            if not image.exists():
+                problem = "image absente"
+            elif not unsquashfs_ok(settings, image):
+                problem = "image illisible"
+            else:
+                continue
+            if suffix.endswith(".sb-old"):
+                if not image.exists() or not undo_possible(image):
+                    continue            # le superbloc seul ne remet rien sans l'image
+                old_size = 0
+            elif not unsquashfs_ok(settings, old):
+                continue                # rien de sain à remettre
+            else:
+                old_size = old.stat().st_size
+            out.append({"id": image_id(image, system), "image": str(image), "old": str(old),
+                        "problem": problem, "old_size": old_size})
     return out
 
 
@@ -406,7 +413,8 @@ def forget_saves(stem: str | None = None) -> None:
 
 
 def _old_size(image: Path) -> int:
-    """Taille de l'ancienne version (<image>.old) : un simple stat, sans relire l'image."""
+    """Taille de l'ancienne version (<image>.old) : un simple stat, sans relire l'image. Une
+    édition en place (.sb-old) ne garde pas de copie : 0."""
     try:
         return image.with_name(image.name + ".old").stat().st_size
     except OSError:
@@ -421,7 +429,8 @@ def _apply_dynamic(settings: Settings, info: ImageInfo, prefixes: set[str],
     image = info.path
     in_use = is_in_use(image.stem, prefixes, mounts, settings.launcher_cache, held)
     info.saves_present, info.saves_size = _saves_size(settings, image.stem, in_use, force)
-    info.has_old = image.with_name(image.name + ".old").exists()
+    info.has_old = (image.with_name(image.name + ".old").exists()
+                    or image.with_name(image.name + ".sb-old").exists())
     info.old_size = _old_size(image) if info.has_old else 0
     info.extras = [e for e in info.extras if e != ".keys"]
     if image.with_name(image.name + ".keys").exists():    # fichier À CÔTÉ de l'image

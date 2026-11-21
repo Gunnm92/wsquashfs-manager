@@ -21,6 +21,7 @@ from app.services.operations import (
     run_files,
     run_verify,
 )
+from app.services.rebuild import validate_backup
 
 pytestmark = pytest.mark.skipif(not shutil.which("mksquashfs"), reason="squashfs-tools absent")
 
@@ -88,8 +89,8 @@ def test_run_fakeping_rebuilds_and_updates_saves_layer(env):
     assert b'"dinput8"="native,builtin"' in _cat(image, "user.reg")
     saved = saved_reg.read_text()
     assert '"dinput8"="native,builtin"' in saved and '"x"="y"' in saved
-    # Deuxième passage : tout est déjà en place (le .old n'est pas en cause)
-    image.with_name(image.name + ".old").unlink()
+    # Deuxième passage : tout est déjà en place (la sauvegarde n'est pas en cause)
+    validate_backup(image)
     assert run_files(settings, task, Job()) == "Déjà à jour : image non reconstruite"
 
 

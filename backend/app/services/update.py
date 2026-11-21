@@ -214,9 +214,9 @@ def run_update(settings: Settings, task: Task, job: Job) -> str:
     if plan.changes.is_empty():
         return "Rien à mettre à jour : image déjà à jour"
     result = rebuild(settings, image, plan.changes, job, in_use=scan.image_in_use)
-    message = (f"Mise à jour terminée en {result.duration:.0f} s (mode {result.mode}) : "
+    message = (f"Mise à jour terminée en {result.duration:.0f} s (mode {result.mode_label}) : "
                f"{result.size_before / 1e9:.2f} → {result.size_after / 1e9:.2f} Go, "
-               f"original conservé en {result.backup.name}")
+               f"{result.kept}")
     if plan.version:
         message += f" ; GAME_VERSION={plan.version}"
     aside = set_aside_masked(settings, image, plan.masked) if p.get("clean_saves") else None
