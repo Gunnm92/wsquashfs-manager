@@ -2389,3 +2389,52 @@ def test_reserve_dir_hors_state(tmp_path):
     moved = Settings(state_dir=tmp_path / "state", runtime_config_file=tmp_path / "config.json",
                      reserve_dir=tmp_path / "backup")
     assert saves_store.reserve_dir(moved, "Jeu") == tmp_path / "backup" / "Jeu"
+
+
+def _three_versions(settings):
+    for i in range(3):
+        data = gz(f"v{i}")
+        saves_store.store(settings, "Jeu", part_with(settings, "Jeu", data), fingerprint=f"F{i}", newest=100 + i,
+                          size=len(data), profile=None, source=f"client{i}")
+    saves_store.record_state(settings, "Jeu", "steambox", "F2")
+
+
+def test_restore_version_swaps_and_keeps_current_archived(tmp_path):
+    settings = make_settings(tmp_path)
+    _three_versions(settings)
+    versions = saves_store.archive_versions(settings, "Jeu")
+    assert [v["newest"] for v in versions] == [101, 100] and versions[0]["source"] == "client1"
+    assert versions[0]["archived_at"] > 0
+    oldest = versions[-1]["name"]
+    done = saves_store.restore_version(settings, "Jeu", oldest)
+    d = saves_store.reserve_dir(settings, "Jeu")
+    assert done["ok"] and done["archived"]
+    assert (d / "current.tar.gz").read_bytes() == gz("v0")
+    meta = saves_store.reserve_meta(settings, "Jeu")
+    assert meta["fingerprint"] == "F0" and meta["newest"] == 100 and meta["restored_from"] == oldest
+    assert meta["states"] == {"steambox": "F2"}            # états d'aujourd'hui : steambox paraît en retard
+    after = saves_store.archive_versions(settings, "Jeu")
+    assert sorted(v["newest"] for v in after) == [101, 102]  # l'ancienne courante est archivée, rien de perdu
+    assert not (d / f"{oldest}.tar.gz").exists() and not (d / f"{oldest}.json").exists()
+    back = next(v["name"] for v in after if v["newest"] == 102)
+    saves_store.restore_version(settings, "Jeu", back)        # et on peut revenir en arrière
+    assert (d / "current.tar.gz").read_bytes() == gz("v2")
+
+
+def test_restore_version_unknown_is_refused(tmp_path):
+    settings = make_settings(tmp_path)
+    _three_versions(settings)
+    with pytest.raises(ManagerError, match="version inconnue"):
+        saves_store.restore_version(settings, "Jeu", "20000101-000000")
+    assert saves_store.reserve_meta(settings, "Jeu")["fingerprint"] == "F2"
+
+
+def test_api_versions_and_restore(api):
+    client, settings, _queue = api
+    _three_versions(settings)
+    listed = client.get("/api/saves/versions", params={"game": "Jeu"}).json()["versions"]
+    assert len(listed) == 2
+    bad = client.post("/api/saves/restore", json={"game": "Jeu", "version": "20000101-000000"})
+    assert bad.status_code == 422 and "version inconnue" in bad.json()["detail"]
+    ok = client.post("/api/saves/restore", json={"game": "Jeu", "version": listed[1]["name"], "push": False})
+    assert ok.status_code == 200 and ok.json()["task"]

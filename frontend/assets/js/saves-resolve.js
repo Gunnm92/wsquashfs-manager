@@ -1,6 +1,8 @@
-// saves-resolve.js — Sauvegardes : fenêtre « Départager » (copie du manager et versions de conflit).
+// saves-resolve.js — Sauvegardes : fenêtres « Départager » (copie du manager et versions de conflit)
+// et « Restaurer » (versions précédentes gardées par le manager).
 
-import { $, el, icon, size, when } from "./core.js";
+import { api } from "./api.js";
+import { $, ago, el, icon, size, when } from "./core.js";
 import { busy, dayText, gameLabel, machineName } from "./saves.js";
 import { runSaveOp } from "./saves-ops.js";
 
@@ -44,4 +46,40 @@ export function openResolve(g) {
   });
   $("rs-cands").replaceChildren(...cards);
   $("dlg-resolve").showModal();
+}
+
+// Fenêtre « Restaurer » : versions précédentes du manager, lues à l'ouverture (/api/saves/versions)
+export async function openRestore(g) {
+  $("rv-title").textContent = `Restaurer · ${gameLabel(g)}`;
+  $("rv-push").checked = true;
+  $("rv-cands").replaceChildren(el("p", { className: "muted", textContent: "Lecture des versions…" }));
+  $("dlg-restore").showModal();
+  let versions = [];
+  try {
+    versions = (await api(`/api/saves/versions?game=${encodeURIComponent(g.game)}`)).versions || [];
+  } catch (err) {
+    $("rv-cands").replaceChildren(el("p", { className: "notice err", textContent: String(err.message || err) }));
+    return;
+  }
+  if (!versions.length) {
+    $("rv-cands").replaceChildren(el("p", { className: "muted", textContent: "Aucune version précédente sur le manager." }));
+    return;
+  }
+  const cards = versions.map((v) => {
+    const go = el("button", { type: "button", className: "btn secondary sm", disabled: busy(), textContent: "Restaurer celle-ci" });
+    go.onclick = () => {
+      const push = $("rv-push").checked;
+      $("dlg-restore").close();
+      runSaveOp("/api/saves/restore", { game: g.game, version: v.name, push });
+    };
+    return el("div", { className: "rs-card" },
+      el("div", { className: "rs-origin" }, icon("history", "sm"),
+        el("b", { textContent: v.archived_at ? `Remplacée ${ago(v.archived_at)}` : v.name, title: v.archived_at ? when(v.archived_at) : "" })),
+      el("div", { className: "rs-meta" },
+        el("span", { textContent: v.newest ? `Dernière partie : ${dayText(v.newest)}` : "Date de partie inconnue", title: v.newest ? when(v.newest) : "" }),
+        el("span", { textContent: v.size ? size(v.size) : "Taille inconnue" }),
+        v.source ? el("span", { textContent: `Venue de ${v.source}` }) : null),
+      go);
+  });
+  $("rv-cands").replaceChildren(...cards);
 }

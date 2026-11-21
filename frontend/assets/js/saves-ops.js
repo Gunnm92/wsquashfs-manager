@@ -76,7 +76,9 @@ async function followTask(taskId, onEnd, onTick = null) {
 function syncItems(task) {
   const r = task?.params?.result;
   if (!r) return null;
-  if (r.pull || r.push) return [...(r.pull?.results || []), ...(r.push?.results || [])];
+  // Départage ou restauration : sa propre ligne d'abord, puis les envois qui ont suivi
+  const own = [r.resolve, r.restore].filter(Boolean).map((d) => ({ game: task.params.game, ok: d.ok, message: d.message }));
+  if (r.pull || r.push) return [...own, ...(r.pull?.results || []), ...(r.push?.results || [])];
   return r.results || [];
 }
 

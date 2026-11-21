@@ -13,7 +13,7 @@ import { loadActivity } from "./activity.js";
 import { busyIcons } from "./aicons.js";
 import { connected } from "./mode.js";
 import { menuItem, onMachine } from "./saves-machines.js";
-import { openResolve } from "./saves-resolve.js";
+import { openResolve, openRestore } from "./saves-resolve.js";
 import { openSaveDelete, pullGames, pushFrom, pushManager, pushReserve, pushSelection, reachManagerTargets, syncResultNode } from "./saves-ops.js";
 import { paintSettingsClients } from "./settings.js";
 
@@ -607,6 +607,7 @@ function paintSaveDetail() {
   // Manager : envoyer sa version aux clients joignables qui en ont une autre, supprimer sa copie
   const managerActs = r ? acts(
     !conflict && reachManagerTargets(g).length ? act("install", `Envoyer la version du manager à ${names(reachManagerTargets(g))}`, () => pushReserve(g)) : null,
+    r.archives ? act("history", "Restaurer une version précédente…", () => openRestore(g)) : null,
     act("trash", "Supprimer la copie du manager…", () => openSaveDelete([g], "manager"), true)) : null;
   const cards = [card("Clients", clientRows), card("Manager", managerRows, managerActs)];
   if (g.conflicts?.length) {

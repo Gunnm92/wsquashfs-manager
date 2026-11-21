@@ -172,3 +172,30 @@ def saves_resolve(settings: SettingsDep, queue: QueueDep, body: SavesResolve):
     title = f"sauvegardes : départager {body.game} ({'manager' if body.keep == 'manager' else 'version retenue'})"
     task = queue.submit("saves", None, None, params, title)
     return {"task": task.id}
+
+
+@router.get("/api/saves/versions")
+def saves_versions(settings: SettingsDep, game: str):
+    """Versions précédentes d'un jeu gardées par le manager, la plus récente d'abord."""
+    if not saves_svc.valid_game(game):
+        raise HTTPException(status_code=422, detail=f"nom de jeu invalide : {game}")
+    return {"versions": saves_store.archive_versions(settings, game)}
+
+
+class SavesRestore(BaseModel):
+    game: str = Field(min_length=1, max_length=200)
+    version: str = Field(min_length=1, max_length=40)   # horodatage d'une version précédente
+    push: bool = True                                   # ensuite, envoyer aux clients en retard
+
+
+@router.post("/api/saves/restore")
+def saves_restore(settings: SettingsDep, queue: QueueDep, body: SavesRestore):
+    """Une version précédente redevient la copie du manager (la courante est archivée) ; ensuite,
+    envoi aux clients en retard si `push` (tâche « saves »). 422 si le jeu ou la version est inconnu."""
+    if not saves_svc.valid_game(body.game):
+        raise HTTPException(status_code=422, detail=f"nom de jeu invalide : {body.game}")
+    if body.version not in saves_store.archives(settings, body.game):
+        raise HTTPException(status_code=422, detail=f"version inconnue : {body.version}")
+    params = {"op": "restore", "game": body.game, "version": body.version, "push": body.push}
+    task = queue.submit("saves", None, None, params, f"sauvegardes : restaurer {body.game}")
+    return {"task": task.id}

@@ -22,6 +22,7 @@ from pathlib import Path
 
 from ..config import Settings
 from .durable import fsync_dir, publish_new, swap_keep_old, write_atomic
+from .errors import ManagerError
 from .saves import DIR_PREFIX, check_game, clean_dir, valid_game
 
 KEEP_ARCHIVES = 3                   # versions datées gardées par jeu
@@ -267,6 +268,76 @@ def remove_from_manager(settings: Settings, game: str) -> dict:
         fsync_dir(d)
         prune(d)
     return {"ok": True, "message": "supprimée du manager (version archivée)", "archived": True}
+
+
+def archive_versions(settings: Settings, game: str) -> list[dict]:
+    """Versions datées du jeu, la plus récente d'abord : {name, archived_at, newest, size, source,
+    fetched_at}. `name` : horodatage (nom du fichier sans .tar.gz) ; `archived_at` : date à
+    laquelle la version a été remplacée (lue dans le nom, heure locale), en secondes epoch."""
+    d = reserve_dir(settings, game)
+    out = []
+    for name in archives_in(d):
+        try:
+            meta = json.loads((d / f"{name}.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            meta = {}
+        meta = meta if isinstance(meta, dict) else {}
+        try:
+            archived_at = int(datetime.strptime(name[:15], "%Y%m%d-%H%M%S").timestamp())  # noqa: DTZ007 — heure locale (new_stamp)
+        except ValueError:
+            archived_at = 0
+        out.append({"name": name, "archived_at": archived_at, "newest": int(meta.get("newest") or 0),
+                    "size": int(meta.get("size") or 0), "source": str(meta.get("source") or ""),
+                    "fetched_at": str(meta.get("fetched_at") or "")})
+    return out
+
+
+def restore_version(settings: Settings, game: str, name: str) -> dict:
+    """La version datée `name` redevient la version courante du manager ; la courante est archivée
+    à son tour (comme lors d'un remplacement), on peut donc revenir en arrière. Les états par
+    client sont gardés : un client qui n'a pas bougé depuis son dernier échange apparaît en retard
+    et reçoit la version restaurée (synchro auto ou envoi) ; un client qui a joué depuis passe en
+    conflit. ManagerError si la version est inconnue. {ok, message, archived}."""
+    d = reserve_dir(settings, game)
+    with STORE_LOCK:
+        if name not in archives_in(d):
+            raise ManagerError(f"version inconnue : {name}")
+        chosen, current, meta_path = d / f"{name}.tar.gz", d / CURRENT, d / META
+        prior = reserve_meta(settings, game) or {}
+        try:
+            old = json.loads((d / f"{name}.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            old = {}
+        meta = dict(old) if isinstance(old, dict) else {}
+        for key in ("states", "synced"):             # états par client : ceux d'aujourd'hui
+            if isinstance(prior.get(key), dict):
+                meta[key] = prior[key]
+            else:
+                meta.pop(key, None)
+        meta["restored_from"] = name
+        if not meta.get("fingerprint"):
+            raise ManagerError(f"version {name} sans empreinte (.json absent) : restauration refusée")
+        text = json.dumps(meta, indent=2, ensure_ascii=False) + "\n"
+        archived = ""
+        if current.exists():
+            stamp = new_stamp(d)
+            swap_keep_old(current, chosen, d / f"{stamp}.tar.gz")
+            archived = f"{stamp}.tar.gz"
+            if meta_path.exists():
+                meta_part = d / "meta.json.part"
+                write_part(meta_part, text)
+                swap_keep_old(meta_path, meta_part, d / f"{stamp}.json")
+            else:
+                write_atomic(meta_path, text)
+        else:
+            publish_new(chosen, current)
+            write_atomic(meta_path, text)
+        (d / f"{name}.json").unlink(missing_ok=True)
+        fsync_dir(d)
+        prune(d)
+    return {"ok": True, "archived": archived,
+            "message": f"version du {name[6:8]}/{name[4:6]}/{name[:4]} {name[9:11]}:{name[11:13]} restaurée"
+                       + (" ; la précédente est archivée" if archived else "")}
 
 
 def synced_times(settings: Settings, game: str) -> tuple[dict[str, int], int]:

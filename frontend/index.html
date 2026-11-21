@@ -725,6 +725,16 @@
     <button class="btn secondary" data-close>Annuler</button></div>
 </dialog>
 
+<dialog id="dlg-restore">
+  <div class="dlg-head"><h2 id="rv-title">Restaurer</h2>
+    <button class="iconbtn" data-close title="Fermer" aria-label="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
+  <p class="dlg-intro">La version choisie redevient la copie du manager ; l'actuelle est archivée, tu peux y revenir. Un client qui a joué depuis sa dernière synchro passe en conflit au lieu d'être écrasé.</p>
+  <div class="rs-cands" id="rv-cands"></div>
+  <label class="rs-push"><input type="checkbox" id="rv-push" checked><span>Envoyer ensuite aux clients en retard (les clients en synchro auto la reçoivent de toute façon au prochain passage)</span></label>
+  <div class="dlg-foot"><span class="spacer"></span>
+    <button class="btn secondary" data-close>Annuler</button></div>
+</dialog>
+
 <dialog id="dlg-login" class="small">
   <form method="dialog" id="login-form">
     <h2>Connexion</h2>

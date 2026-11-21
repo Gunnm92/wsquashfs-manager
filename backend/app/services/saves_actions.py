@@ -29,6 +29,7 @@ from .saves_store import (
     record_state,
     reserve_dir,
     reserve_meta,
+    restore_version,
     write_part,
 )
 from .saves_sync import best, delete, note, present_listing, pull, pull_one, push, push_from
@@ -261,6 +262,19 @@ def run_saves(settings: Settings, task: Task, job: Job) -> str:
         game, keep = str(p.get("game") or ""), str(p.get("keep") or "")
         done = resolve(settings, game, keep, job)
         result = {"resolve": done, "push": {"results": []}}
+        items = [{"game": game, "ok": done["ok"], "message": done["message"]}]
+        label = f"de {game}"
+        if p.get("push"):
+            behind = [m["id"] for entry in status(settings, [game], refresh=True)["games"]
+                      for m in entry["machines"] if m["action"] == "descendre"]
+            if behind:
+                result["push"] = push(settings, behind, [game], job)
+                items += result["push"]["results"]
+    elif op == "restore":
+        game, version = str(p.get("game") or ""), str(p.get("version") or "")
+        check_game(game)
+        done = restore_version(settings, game, version)
+        result = {"restore": done, "push": {"results": []}}
         items = [{"game": game, "ok": done["ok"], "message": done["message"]}]
         label = f"de {game}"
         if p.get("push"):
