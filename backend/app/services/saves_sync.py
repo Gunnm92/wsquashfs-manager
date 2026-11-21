@@ -301,9 +301,11 @@ def decide(base: str, client: str, manager: str, *, client_newest: int, manager_
     - « à jour » : même empreinte, ou même contenu (faux conflit : l'appelant note la base) ;
     - « remonter » : le client est en avance (le manager n'a pas bougé depuis la base, ou n'a pas
       le jeu, ou la base est inconnue et la copie du client est plus récente : le manager archive) ;
-    - « descendre » : le client est en retard (il n'a pas bougé depuis la base) ;
-    - « conflit » : les deux ont changé depuis la base, ou base inconnue et copie du client pas plus
-      récente."""
+    - « descendre » : le client est en retard (il n'a pas bougé depuis la base, ou la base est
+      inconnue et la copie du client est plus ancienne : rien n'est remplacé, le manager pousse) ;
+    - « conflit » : les deux ont changé depuis la base, ou base inconnue et copies de même date.
+    Base inconnue : la copie la plus récente gagne, comme decideSync du lanceur (contract/cases/
+    sync-decisions.yaml, dont cette fonction et decideSync donnent les mêmes résultats)."""
     if not client:
         return "absente" if manager else "rien"
     if not manager:
@@ -316,7 +318,9 @@ def decide(base: str, client: str, manager: str, *, client_newest: int, manager_
         if client != base:
             return "remonter" if manager == base else "conflit"
         return "descendre"
-    return "remonter" if client_newest > manager_newest else "conflit"
+    if client_newest == manager_newest:
+        return "conflit"
+    return "remonter" if client_newest > manager_newest else "descendre"
 
 
 def sync_auto(settings: Settings, games: list[str] | None = None,

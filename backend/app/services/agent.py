@@ -200,6 +200,25 @@ class InstallChecksum(ManagerError):
 
 OLD_AGENT_MESSAGE = ("agent trop ancien : wsquashfs-launcher --update sur ce client, "
                      "puis relancer son agent")
+TOKEN_REFUSED = "jeton refusé : refaire l'association (wsquashfs-launcher --pair)"
+
+
+def _error_body(response: httpx.Response) -> tuple[dict, str]:
+    """(corps JSON d'une réponse d'erreur, son champ « detail ») ; détail "" si le corps n'est pas un
+    objet JSON ou n'a pas de « detail »."""
+    try:
+        data = response.json()
+    except ValueError:
+        return {}, ""
+    if not isinstance(data, dict):
+        return {}, ""
+    return data, str(data.get("detail", ""))
+
+
+def _old_agent(response: httpx.Response, detail: str) -> bool:
+    """Route inconnue : 404 ou 405 sans « detail » (réponse en texte brut du routeur Go) : agent trop
+    ancien pour cette route."""
+    return response.status_code in (404, 405) and not detail
 
 
 class AgentHost:
@@ -228,13 +247,10 @@ class AgentHost:
         except httpx.HTTPError as exc:
             raise AgentUnreachable(f"agent injoignable ({self.url}) : {exc}") from exc
         if response.status_code == 401:
-            raise ManagerError("jeton refusé : refaire l'association (wsquashfs-launcher --pair)")
+            raise ManagerError(TOKEN_REFUSED)
         if response.status_code >= 400:
-            try:
-                detail = response.json().get("detail", response.text)
-            except ValueError:
-                detail = response.text
-            raise ManagerError(f"agent : {detail}")
+            _, detail = _error_body(response)
+            raise ManagerError(f"agent : {detail or response.text}")
         return response
 
     def info(self) -> dict:
@@ -307,15 +323,9 @@ class AgentHost:
 
     def _saves_error(self, response: httpx.Response, conflict: str | None = None) -> ManagerError:
         if response.status_code == 401:
-            return ManagerError("jeton refusé : refaire l'association (wsquashfs-launcher --pair)")
-        try:
-            data = response.json()
-            detail = str(data.get("detail", "")) if isinstance(data, dict) else ""
-        except ValueError:
-            detail = ""
-        if response.status_code in (404, 405) and not detail:
-            # Route inconnue (réponse texte du routeur Go, sans « detail ») : agent d'avant
-            # la synchro des sauvegardes (version < 3)
+            return ManagerError(TOKEN_REFUSED)
+        _, detail = _error_body(response)
+        if _old_agent(response, detail):
             return ManagerError(OLD_AGENT_MESSAGE)
         detail = detail or response.text[:200] or f"erreur {response.status_code}"
         if response.status_code == 409:
@@ -447,13 +457,9 @@ class AgentHost:
 
     def _games_error(self, response: httpx.Response, conflict: str | None) -> ManagerError:
         if response.status_code == 401:
-            return ManagerError("jeton refusé : refaire l'association (wsquashfs-launcher --pair)")
-        try:
-            data = response.json()
-            detail = str(data.get("detail", "")) if isinstance(data, dict) else ""
-        except ValueError:
-            data, detail = {}, ""
-        if response.status_code in (404, 405) and not detail:
+            return ManagerError(TOKEN_REFUSED)
+        data, detail = _error_body(response)
+        if _old_agent(response, detail):
             return ManagerError(OLD_AGENT_MESSAGE)
         if response.status_code == 409:
             if detail == "décalage":

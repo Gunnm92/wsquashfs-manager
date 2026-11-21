@@ -19,6 +19,9 @@ test:
 	cd backend && .venv/bin/python -m pytest -q
 
 # Contrat commun avec le lanceur (agent) : la source de vérité est celle du dépôt du lanceur,
-# backend/contract/agent-api.yaml en est la copie (un test vérifie qu'elles sont identiques).
+# backend/contract/ en est la copie (agent-api.yaml et les tables cases/ ; un test vérifie qu'elles sont
+# identiques). Le dossier cases/ est recopié entier : une table supprimée côté lanceur disparaît aussi.
 contract:
 	cp ../wsquashfs-launcher/contract/agent-api.yaml backend/contract/agent-api.yaml
+	rm -rf backend/contract/cases
+	cp -r ../wsquashfs-launcher/contract/cases backend/contract/cases

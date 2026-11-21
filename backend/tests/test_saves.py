@@ -1723,22 +1723,35 @@ def test_behind_pushes_the_manager_version_to_an_auto_machine_that_is_behind(age
     assert "mise à jour auto" in journal and '"status":"done"' in journal
 
 
-@pytest.mark.parametrize("recorded", ["", "autre"], ids=["état inconnu", "état d'une autre version"])
-def test_behind_never_overwrites_a_machine_changed_locally(agents, tmp_path, recorded):
+def test_behind_never_overwrites_a_machine_changed_locally(agents, tmp_path):
     b = agents("b-machine", games={"Jeu": (gz("local"), None, 500)}, auto=True)
     settings = make_settings(tmp_path)
     associate(settings, b)
     bid = machine_ids(settings)["b-machine"]
     b["st"]["log"].clear()
-    saves_store.record_state(settings, "Jeu", bid, recorded and fp_of(gz(recorded)))
+    saves_store.record_state(settings, "Jeu", bid, fp_of(gz("autre")))
     store_manager_version(settings, "Jeu", gz("v2"))
     results = saves_sync.sync_auto(settings)
     assert [r["action"] for r in results] == ["conflit"]
     assert not writes(b) and b["st"]["games"]["Jeu"]["data"] == gz("local")
-    assert saves_store.machine_state(settings, "Jeu", bid) == (recorded and fp_of(gz(recorded)))
+    assert saves_store.machine_state(settings, "Jeu", bid) == fp_of(gz("autre"))
     status = saves_status.status(settings, ["Jeu"])
     assert status["games"][0]["conflict"] is True
     assert next(s for s in status["games"][0]["machines"] if s["id"] == bid)["conflict"] is True
+
+
+def test_behind_with_unknown_base_pushes_the_newer_manager_version(agents, tmp_path):
+    """Base inconnue : la copie la plus récente gagne. Ici la version du manager (datée maintenant) est
+    plus récente que celle du client (date 500) : elle est poussée ; le client archive la sienne."""
+    b = agents("b-machine", games={"Jeu": (gz("local"), None, 500)}, auto=True)
+    settings = make_settings(tmp_path)
+    associate(settings, b)
+    b["st"]["log"].clear()
+    store_manager_version(settings, "Jeu", gz("v2"))
+    results = saves_sync.sync_auto(settings)
+    assert [r["action"] for r in results] == ["poussée"]
+    assert b["st"]["games"]["Jeu"]["data"] == gz("v2")
+    assert saves_status.status(settings, ["Jeu"])["games"][0]["machines"][0]["action"] == "à jour"
 
 
 def test_behind_never_touches_a_machine_without_auto(agents, tmp_path):
@@ -1952,8 +1965,8 @@ HEX_A, HEX_B, HEX_C = "ab" * 32, "cd" * 32, "ef" * 32
     ("ef", "cd", "ab", 9, 1, "conflit"),                     # les deux ont changé
     ("EF", "cd", "AB", 0, 0, "conflit"),
     ("", "cd", "ab", 10, 5, "remonter"),                     # base inconnue : le plus récent
+    ("", "cd", "ab", 4, 5, "descendre"),                     # base inconnue : le plus ancien reçoit
     ("", "cd", "ab", 5, 5, "conflit"),
-    ("", "cd", "ab", 4, 5, "conflit"),
 ])
 def test_decide_three_way_table(base, client, manager, cn, mn, action):
     assert saves_sync.decide(base, client, manager, client_newest=cn, manager_newest=mn) == action
@@ -2192,21 +2205,22 @@ def test_resolve_keep_manager_without_stored_version_sends_it_to_the_client(agen
     b, settings, _bid = one_auto(agents, tmp_path, {"Jeu": (gz("local"), None, 500)})
     store_v(settings, "Jeu", "manager")                              # base inconnue, copie plus ancienne
     row = saves_status.status(settings, ["Jeu"])["games"][0]
-    assert row["machines"][0]["action"] == "conflit" and row["conflicts"] == [] and row["conflict"]
+    assert row["machines"][0]["action"] == "descendre" and row["conflicts"] == [] and not row["conflict"]
     task = Task(id="r2", kind="saves", params={"op": "resolve", "game": "Jeu", "keep": "manager", "push": True})
     saves_actions.run_saves(settings, task, Job())
-    assert "recevra" in task.params["result"]["resolve"]["message"]
-    assert b["st"]["games"]["Jeu"]["data"] == gz("manager")
+    assert b["st"]["games"]["Jeu"]["data"] == gz("manager")       # poussée par la tâche (action « descendre »)
     after = saves_status.status(settings, ["Jeu"], refresh=True)["games"][0]
     assert after["machines"][0]["action"] == "à jour" and not after["conflict"]
 
 
-def test_resolve_marks_the_client_as_behind_before_pushing(agents, tmp_path):
+def test_resolve_keep_manager_leaves_an_older_client_to_the_push(agents, tmp_path):
+    """Pas de conflit (base inconnue, copie plus ancienne) : le départage ne marque rien ; le client est
+    « en retard » et c'est la poussée (descendre) qui lui envoie la version du manager."""
     _b, settings, bid = one_auto(agents, tmp_path, {"Jeu": (gz("local"), None, 500)})
     store_v(settings, "Jeu", "manager")
     result = saves_actions.resolve(settings, "Jeu", "manager")
-    assert result["ok"] and result["behind"] == [bid]
-    assert saves_store.machine_state(settings, "Jeu", bid) == fp_of(gz("local"))
+    assert result["ok"] and result["behind"] == []
+    assert saves_store.machine_state(settings, "Jeu", bid) == ""
     assert saves_status.status(settings, ["Jeu"])["games"][0]["machines"][0]["action"] == "descendre"
 
 
@@ -2264,7 +2278,7 @@ def test_client_declared_base_is_the_fallback(agents, tmp_path):
     assert (machine["action"], machine["base_source"]) == ("descendre", "client")
     b["st"]["states"] = {}
     machine = saves_status.status(settings, ["Jeu"])["games"][0]["machines"][0]
-    assert (machine["action"], machine["base_source"]) == ("conflit", "")
+    assert (machine["action"], machine["base_source"]) == ("descendre", "")
 
 
 def test_manager_base_wins_over_the_client_declared_one(agents, tmp_path):
