@@ -79,6 +79,7 @@ puis Docker → Add Container → Template : `wsquashfs-manager`. Champs :
 | Roms | `/roms` | dossier des roms Batocera ; les systèmes se cochent dans Réglages |
 | Sauvegardes du lanceur | `/saves` | sauvegardes de wsquashfs-launcher dans SteamBox |
 | Appdata | `/data` | file de tâches, caches, réglages |
+| Réserve des sauvegardes | `/backup` | copie des sauvegardes gardée par le manager (versions datées) ; autre emplacement : variable `WSQUASHFS_MGR_RESERVE_DIR` |
 | Mot de passe | `WSQUASHFS_MGR_PASSWORD` | obligatoire : sans lui, le conteneur refuse de démarrer |
 | PUID / PGID (avancé) | 99 / 100 | propriétaire des images créées (nobody:users = `arcade` de SteamBox) |
 
@@ -140,7 +141,7 @@ client **source** (celle qui est la plus avancée) vers les autres clients.
 - **Icône** : `os` de `/v1/info` (ID de `/etc/os-release` : `steamos`,
   `batocera`, sinon `linux`), remplaçable à la main (`PATCH`, champ `icon` de
   le client ; `saves_game_host_icon` pour le client d'essai).
-- **Copie du manager** : `state_dir/saves-reserve/<jeu>/` : `current.tar.gz`,
+- **Copie du manager** : `<réserve>/<jeu>/` (réserve : `WSQUASHFS_MGR_RESERVE_DIR`, `/backup` par défaut dans le conteneur, `state_dir/saves-reserve` hors conteneur) : `current.tar.gz`,
   `meta.json` (empreinte, newest, taille, profil, source, date de réception) ;
   avant chaque remplacement, l'ancienne version devient
   `AAAAMMJJ-HHMMSS.tar.gz` (3 gardées). Écritures atomiques (durable.py).

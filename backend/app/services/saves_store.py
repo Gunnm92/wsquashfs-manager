@@ -1,6 +1,6 @@
 """Réserve du manager : archives des sauvegardes, versions de conflit, états par client.
 
-- Réserve : `state_dir/saves-reserve/<jeu>/` avec `current.tar.gz`, `meta.json`
+- Réserve : `reserve_dir/<jeu>/` (par défaut `state_dir/saves-reserve`) avec `current.tar.gz`, `meta.json`
   et, avant chaque remplacement, l'ancienne version datée (3 gardées).
 - États : l'empreinte commune d'un jeu avec chaque client (`record_state`,
   `base_state`) et les dates de dernière synchro.
@@ -32,7 +32,7 @@ STORE_LOCK = threading.Lock()       # meta.json de la réserve : un écrit à la
 
 
 def reserve_root(settings: Settings) -> Path:
-    return settings.state_dir / RESERVE_DIR
+    return settings.reserve_dir or settings.state_dir / RESERVE_DIR
 
 
 def reserve_dir(settings: Settings, game: str) -> Path:

@@ -2380,3 +2380,12 @@ def test_record_state_date_la_synchro_et_synced_times_prend_la_plus_recente(tmp_
     saves_store.record_state(settings, "Jeu", "bbbb0002", fp_of(gz("v1")))
     assert saves_store.synced_times(settings, "Jeu") == ({"aaaa0001": 2_000_000_000, "bbbb0002": 2_000_000_500}, 2_000_000_500)
     assert saves_store.synced_times(settings, "Absent") == ({}, 0)
+
+
+def test_reserve_dir_hors_state(tmp_path):
+    """WSQUASHFS_MGR_RESERVE_DIR : la réserve quitte state_dir (montage /backup du conteneur)."""
+    base = Settings(state_dir=tmp_path / "state", runtime_config_file=tmp_path / "config.json")
+    assert saves_store.reserve_root(base) == tmp_path / "state" / saves_store.RESERVE_DIR
+    moved = Settings(state_dir=tmp_path / "state", runtime_config_file=tmp_path / "config.json",
+                     reserve_dir=tmp_path / "backup")
+    assert saves_store.reserve_dir(moved, "Jeu") == tmp_path / "backup" / "Jeu"

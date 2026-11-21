@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     runtime_config_file: Path = Path.home() / ".config/wsquashfs-manager/config.json"
     # État de la file de tâches (survit à un redémarrage, SPEC § 4)
     state_dir: Path = Path.home() / ".local/state/wsquashfs-manager"
+    # Copie des sauvegardes gardée par le manager (current.tar.gz, versions datées) ;
+    # None = state_dir/saves-reserve. Dans le conteneur : /backup par défaut (Dockerfile),
+    # un montage à part, hors de l'appdata.
+    reserve_dir: Path | None = None
 
     # File de tâches : 1 par défaut, c'est surtout du disque
     task_concurrency: int = 1

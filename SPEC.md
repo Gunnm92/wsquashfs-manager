@@ -234,7 +234,7 @@ explicite, la machine source étant choisie.
   renvoyés. Révocation côté machine : `--pair forget <machine>` ou `--pair reset`.
   La machine de jeu en mode agent est listée d'office (`game-host`), non
   supprimable, sauf si une machine enregistrée a la même adresse.
-- **Copie du manager** (« Manager » à l'écran) : `state_dir/saves-reserve/<jeu>/current.tar.gz` et `meta.json`
+- **Copie du manager** (« Manager » à l'écran) : `<réserve>/<jeu>/current.tar.gz` (réserve : `WSQUASHFS_MGR_RESERVE_DIR`, `/backup` par défaut dans le conteneur, `state_dir/saves-reserve` hors conteneur) et `meta.json`
   (`fingerprint`, `newest`, `size`, `profile`, `source`, `fetched_at`). Un remplacement
   d'une version différente archive l'ancienne en `AAAAMMJJ-HHMMSS.tar.gz` (+
   `.json`), 3 versions datées gardées. Même empreinte : rien d'archivé. Nom de
