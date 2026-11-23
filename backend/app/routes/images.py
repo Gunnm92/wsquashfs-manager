@@ -323,7 +323,7 @@ def image_relink(info: ImageDep, queue: QueueDep, body: RelinkRequest):
     """Réécrit en relatif les liens du prefix vers le runner déjà joint à l'image
     (reconstruction, original gardé en .old)."""
     library_index.require_image(info)
-    task =task_submit.submit(queue, info, "relink", {}, "liens réécrits en relatif", night=body.when == "night")
+    task = task_submit.submit(queue, info, "relink", {}, "liens réécrits en relatif", night=body.when == "night")
     return {"task": task.id}
 
 
