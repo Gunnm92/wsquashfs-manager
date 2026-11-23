@@ -198,6 +198,13 @@ class InstallChecksum(ManagerError):
     """Empreinte de l'image installée différente de celle envoyée (422 au commit)."""
 
 
+class ConfigConflict(ManagerError):
+    """Fichier de réglages communs changé sur le client depuis la lecture (409)."""
+
+
+CONFIG_OLD_MESSAGE = "lanceur trop ancien sur ce client : le mettre à jour"
+
+
 OLD_AGENT_MESSAGE = ("agent trop ancien : wsquashfs-launcher --update sur ce client, "
                      "puis relancer son agent")
 TOKEN_REFUSED = "jeton refusé : refaire l'association (wsquashfs-launcher --pair)"
@@ -505,3 +512,41 @@ class AgentHost:
         return self._games("DELETE", "/v1/games/file", timeout=timeout,
                            conflict="jeu monté ou en cours : suppression refusée",
                            params={"name": name}).json()
+
+    # ---------------------------------------------------------- réglages communs
+    # Routes /v1/config* (services/machine_config.py) : fichiers ~/.config/wsquashfs/ du client.
+    # Un agent plus ancien répond 404 (sans détail) : sa mise à jour est demandée.
+
+    def config(self, timeout: float = 30) -> dict:
+        """GET /v1/config → {gpu, defaults:{path,text,sha}, optiscaler:{installed,version,template,
+        overrides:{path,text,sha}}, env}."""
+        return self._config_request("GET", "/v1/config", timeout=timeout).json()
+
+    def config_defaults_put(self, text: str, base_sha: str | None) -> dict:
+        """Écrit defaults.autorun (texte vide : fichier supprimé) → {sha}. ConfigConflict si changé."""
+        return self._config_request("PUT", "/v1/config/defaults", timeout=30,
+                                    json={"text": text, "base_sha": base_sha}).json()
+
+    def config_optiscaler_put(self, text: str, base_sha: str | None) -> dict:
+        """Écrit le modèle partiel optiscaler.ini (texte vide : fichier supprimé) → {sha}."""
+        return self._config_request("PUT", "/v1/config/optiscaler", timeout=30,
+                                    json={"text": text, "base_sha": base_sha}).json()
+
+    def _config_request(self, method: str, path: str, *, timeout: float, **kwargs) -> httpx.Response:
+        try:
+            response = self.client.request(method, path, headers=self._head(), timeout=timeout, **kwargs)
+        except httpx.HTTPError as exc:
+            raise self._unreachable(exc) from exc
+        if response.status_code >= 400:
+            raise self._config_error(response)
+        return response
+
+    def _config_error(self, response: httpx.Response) -> ManagerError:
+        if response.status_code == 401:
+            return ManagerError(TOKEN_REFUSED)
+        _, detail = _error_body(response)
+        if _old_agent(response, detail):
+            return ManagerError(CONFIG_OLD_MESSAGE)
+        if response.status_code == 409:
+            return ConfigConflict(detail or "fichier modifié entre-temps : recharger")
+        return ManagerError(detail or response.text[:200] or f"erreur {response.status_code}")
