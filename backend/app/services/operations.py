@@ -44,6 +44,7 @@ from .jobs import Job
 from .links import classify, folder_links, image_links, relink_options
 from .rebuild import Changes, rebuild
 from .registry import prefix_reg, set_value
+from .scan import folder_stem  # réexporté : les appelants l'importent d'ici
 from .squashfs import (
     USER_XATTRS,
     file_sizes,
@@ -494,53 +495,21 @@ def reset_saves(settings: Settings, image: Path) -> Path:
 
 # ------------------------------------------------------------------ empaquetage (création)
 
-FOLDER_SUFFIXES = (".pc", ".wine")
-
-
-def folder_stem(name: str) -> str:
-    """« Jeu.pc » / « Jeu.wine » → « Jeu » (nom de l'image et des sauvegardes)."""
-    for suffix in FOLDER_SUFFIXES:
-        if name.lower().endswith(suffix) and len(name) > len(suffix):
-            return name[:-len(suffix)]
-    return name
-
-
 def find_folders(settings: Settings) -> list[dict]:
-    """Dossiers de jeux à empaqueter (`*.pc`, `*.wine`) dans roms/<système>/,
-    avec la même déduction du système que les images."""
+    """Dossiers de jeux à empaqueter (`*.pc`, `*.wine`) dans roms/<système>/, avec la même
+    déduction du système que les images (`scan.find_game_folders`)."""
     out = []
-    seen: set[Path] = set()
-    for d in settings.roms_dirs:
-        root = Path(d).expanduser()
-        if not root.is_dir():
-            continue
-        is_system_dir = root.resolve().parent.name == "roms"
-        parents = [(root, root.resolve().name if is_system_dir else None)]
-        if not is_system_dir:
-            parents += [(p, p.name) for p in sorted(root.iterdir())
-                        if p.is_dir() and not p.name.startswith(".")
-                        and not p.name.lower().endswith(FOLDER_SUFFIXES)]
-        for parent, system in parents:
-            try:
-                entries = sorted(parent.iterdir())
-            except OSError:
-                continue
-            for entry in entries:
-                if (not entry.is_dir() or entry.is_symlink()
-                        or not entry.name.lower().endswith(FOLDER_SUFFIXES)
-                        or entry.resolve() in seen):
-                    continue
-                seen.add(entry.resolve())
-                stem = folder_stem(entry.name)
-                image = entry.with_name(stem + ".wsquashfs")
-                has_autorun = any(p.name.lower() == "autorun.cmd" for p in _safe_iterdir(entry))
-                out.append({
-                    "id": f"{system}/{entry.name}" if system else entry.name,
-                    "system": system, "name": stem, "folder": entry.name,
-                    "path": str(entry), "kind": entry.name.rsplit(".", 1)[-1].lower(),
-                    "has_autorun": has_autorun,
-                    "image_id": scan.image_id(image, system), "image_exists": image.exists(),
-                })
+    for entry, system in scan.find_game_folders(settings.roms_dirs):
+        stem = folder_stem(entry.name)
+        image = entry.with_name(stem + ".wsquashfs")
+        has_autorun = any(p.name.lower() == "autorun.cmd" for p in _safe_iterdir(entry))
+        out.append({
+            "id": f"{system}/{entry.name}" if system else entry.name,
+            "system": system, "name": stem, "folder": entry.name,
+            "path": str(entry), "kind": entry.name.rsplit(".", 1)[-1].lower(),
+            "has_autorun": has_autorun,
+            "image_id": scan.image_id(image, system), "image_exists": image.exists(),
+        })
     return out
 
 

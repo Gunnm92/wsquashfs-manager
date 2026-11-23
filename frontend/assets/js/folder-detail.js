@@ -3,9 +3,11 @@
 
 import { api } from "./api.js";
 import { thumb } from "./art.js";
-import { $, cap, el, hideAnimated, showAnimated, toast } from "./core.js";
+import { $, cap, el, hideAnimated, showAnimated, state, toast } from "./core.js";
 import { notice, proposalItems } from "./detail/autorun.js";
-import { KEY_LABELS } from "./detail/detail.js";
+import { KEY_LABELS, openDetail } from "./detail/detail.js";
+import { showView } from "./header.js";
+import { loadLibrary } from "./library.js";
 import { KEY_RE, autorunEditor, getKey, textLines } from "./detail/kv-form.js";
 
 const panel = { folder: null, data: null, editor: null, editing: false, baseline: "" };
@@ -70,6 +72,17 @@ function paintHead() {
     el("span", { textContent: cap(f.system) || "—" }), sep(), el("span", { textContent: `.${f.kind}` }));
   $("fd-pack").disabled = Boolean(f.task || f.image_exists);
   $("fd-edit").hidden = panel.editing || Boolean(f.task);
+  $("fd-open-game").hidden = f.kind !== "pc";      // un `.wine` n'est pas un jeu
+}
+
+// Fiche commune (Images) du jeu de ce dossier `.pc` : lancement, sauvegardes, surcharge
+async function openGame() {
+  const id = panel.folder?.id;
+  if (!id) return;
+  if (!state.byId?.has(id)) await loadLibrary();
+  if (!state.byId?.has(id)) { toast("Jeu introuvable dans la bibliothèque", "alert", true); return; }
+  showView("images");
+  openDetail(id);
 }
 
 async function loadFolderAutorun() {
@@ -205,4 +218,5 @@ export function init({ reload, cover, pack }) {
   $("fd-save").onclick = save;
   $("fd-cover-btn").onclick = () => hooks.cover(panel.folder);
   $("fd-pack").onclick = () => { if (confirmLeave()) hooks.pack(panel.folder); };
+  $("fd-open-game").onclick = openGame;
 }

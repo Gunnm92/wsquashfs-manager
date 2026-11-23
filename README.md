@@ -406,6 +406,18 @@ PAC-MAN, `-Shipping` de Horizon Chase), pour la future base de connaissances.
 `CMD` : seuls les guillemets **doubles** sont compris par le lanceur
 (`CMD="Mon Jeu.exe"`) ; `CMD='Mon Jeu.exe'` est signalé.
 
+## Dossiers de jeu (`*.pc`) dans la bibliothèque
+
+Un dossier `<jeu>.pc` est un jeu à part entière, lancé en direct (overlay en
+lecture seule), sans image. Il apparaît dans la vue Images (badge « dossier »,
+filtre Type) avec sa fiche, ses sauvegardes sous la clé `<jeu>` (comme l'image) et
+sa surcharge d'autorun dans `<jeu>.pc.autorun`, à côté du dossier. Reconstruction,
+mise à jour de version, ancienne version (.old) et installation sur un client
+ne s'appliquent qu'aux images : elles répondent 409. Les dossiers `*.wine` (prefix
+intégré) restent dans la vue Dossiers, atelier d'empaquetage, et ne sont pas des jeux.
+La taille d'un dossier n'est recomptée qu'au rafraîchissement (Actualiser) ou quand
+sa racine ou son `autorun.cmd` change, pas à chaque lecture.
+
 ## Reconstruction d'une image
 
 Une image squashfs ne se modifie pas en place (SPEC § 3.1) :

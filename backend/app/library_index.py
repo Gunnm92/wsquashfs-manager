@@ -18,6 +18,9 @@ library: dict[str, ImageInfo] = {}
 
 library_lock = threading.Lock()
 
+# Refus pour un dossier de jeu (`*.pc`) : il n'a pas d'image à reconstruire ni à éditer
+DOSSIER_RECONSTRUCTION = "dossier : pas d'image à reconstruire"
+
 
 def refresh_library(settings: Settings, force: bool) -> list[ImageInfo]:
     """Rescanne les dossiers roms/ et remplace l'index."""
@@ -45,6 +48,14 @@ def find_image(settings: Settings, image_id: str) -> ImageInfo:
             info = library.get(image_id)
     if info is None:
         raise HTTPException(status_code=404, detail=f"image inconnue : {image_id}")
+    return info
+
+
+def require_image(info: ImageInfo, detail: str = DOSSIER_RECONSTRUCTION) -> ImageInfo:
+    """L'entrée est une image `.wsquashfs` : 409 pour un dossier de jeu, qui n'a rien à
+    reconstruire (son autorun se règle par la surcharge)."""
+    if info.kind == "folder":
+        raise HTTPException(status_code=409, detail=detail)
     return info
 
 

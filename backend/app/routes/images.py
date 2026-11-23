@@ -38,6 +38,7 @@ def image_detail(info: ImageDep, queue: QueueDep):
 @router.get("/api/image/files")
 def image_files(info: ImageDep, settings: SettingsDep, q: str = "", limit: int = 2000):
     """Arborescence de l'image (lecture seule), avec recherche (casse ignorée)."""
+    library_index.require_image(info, "dossier : pas d'image, donc pas de fichiers d'image")
     files = scan.list_files(settings, info.path)
     needle = q.lower()
     matches = [f for f in files if needle in f.lower()] if needle else files
@@ -48,6 +49,7 @@ def image_files(info: ImageDep, settings: SettingsDep, q: str = "", limit: int =
 def image_analyze(info: ImageDep, settings: SettingsDep, exe: str | None = None):
     """Proposition d'autorun pour une image existante (SPEC § 2.5), même
     moteur que pour les dossiers ; l'image n'est ni montée ni modifiée."""
+    library_index.require_image(info, "dossier : analyse réservée aux images (vue Dossiers)")
     key = f"image:{info.path}"
     cached = analyze_mod.analyses.get(key)
     if cached and cached[0] == info.mtime:
@@ -89,6 +91,7 @@ class UpdateRequest(BaseModel):
 @router.get("/api/image/update")
 def update_defaults(info: ImageDep, settings: SettingsDep):
     """Point d'ancrage proposé (DIR= de l'autorun) et version actuelle."""
+    library_index.require_image(info)
     return {"anchor": default_anchor(settings, info.path), "version": info.version}
 
 
@@ -104,6 +107,7 @@ def _update_plan(settings: Settings, info: ImageInfo, body: UpdateRequest):
 def update_preview(info: ImageDep, settings: SettingsDep, queue: QueueDep, body: UpdateRequest):
     """Aperçu de la montée de version : ajoutés, remplacés, identiques,
     supprimés, fichiers masqués par les sauvegardes, version."""
+    library_index.require_image(info)
     plan = _update_plan(settings, info, body)
     free = shutil.disk_usage(existing_parent(info.path.parent)).free
     return {**plan.summary(), "space": {"needed": info.size + plan.summary()["copy_size"],
@@ -113,6 +117,7 @@ def update_preview(info: ImageDep, settings: SettingsDep, queue: QueueDep, body:
 
 @router.post("/api/image/update")
 def update_run(info: ImageDep, settings: SettingsDep, queue: QueueDep, body: UpdateRequest):
+    library_index.require_image(info)
     plan = _update_plan(settings, info, body)
     if plan.changes.is_empty():
         raise HTTPException(status_code=409, detail="rien à mettre à jour")
@@ -193,6 +198,7 @@ def _plan(settings: Settings, info: ImageInfo, params: dict, validate: bool = Tr
 @router.post("/api/image/autorun/preview")
 def autorun_preview(info: ImageDep, settings: SettingsDep, body: AutorunEdit):
     """Valide le contenu proposé sans écrire ni créer de tâche."""
+    library_index.require_image(info)
     plan = _plan(settings, info, body.params())
     return {"text": plan.after_text, "changed": plan.changed, "issues": plan.issues}
 
@@ -200,6 +206,7 @@ def autorun_preview(info: ImageDep, settings: SettingsDep, body: AutorunEdit):
 @router.post("/api/image/autorun")
 def autorun_edit(info: ImageDep, settings: SettingsDep, queue: QueueDep, body: AutorunEdit):
     """Planifie la reconstruction de l'image avec le nouvel autorun."""
+    library_index.require_image(info)
     params = body.params()
     has_override = override_path(info.path).exists()
     if has_override:
@@ -260,6 +267,7 @@ class TrialRequest(BaseModel):
 def image_links_report(info: ImageDep, settings: SettingsDep):
     """Liens du prefix vers un runner hors de l'image ou absent, et
     réparations proposées avec les runners installés sur le client d'essai."""
+    library_index.require_image(info, "dossier : pas de prefix d'image, donc pas de liens à réparer")
     steambox_error = None
     if settings.mode == "autonome":
         runners = []            # pas de machine en autonome : constat seul, sans proposition
@@ -288,6 +296,7 @@ class RunnerRequest(BaseModel):
 def image_runner(info: ImageDep, settings: SettingsDep, queue: QueueDep, body: RunnerRequest):
     """Joint un runner du client d'essai à l'image (ou complète un runner intégré),
     liens du prefix réécrits ; seulement depuis un runner installé (--doctor)."""
+    library_index.require_image(info)
     try:
         installed = {r["path"].rstrip("/") for r in trial_svc.doctor(settings).get("runners", [])}
     except ManagerError as exc:
@@ -313,6 +322,7 @@ class RelinkRequest(BaseModel):
 def image_relink(info: ImageDep, queue: QueueDep, body: RelinkRequest):
     """Réécrit en relatif les liens du prefix vers le runner déjà joint à l'image
     (reconstruction, original gardé en .old)."""
+    library_index.require_image(info)
     task = task_submit.submit(queue, info, "relink", {}, "liens réécrits en relatif", night=body.when == "night")
     return {"task": task.id}
 

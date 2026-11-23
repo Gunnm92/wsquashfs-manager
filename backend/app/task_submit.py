@@ -31,6 +31,8 @@ def connected_task(handler, settings: Settings):
 def blocked_reason(queue: TaskQueue, info: ImageInfo, rebuild: bool = True) -> str | None:
     """Ce qui empêche d'agir sur l'image maintenant (de la reconstruire si
     `rebuild`)."""
+    if info.kind == "folder" and rebuild:
+        return library_index.DOSSIER_RECONSTRUCTION
     if info.state == ImageState.IN_USE:
         return "jeu en cours d'utilisation"
     if rebuild and pending_backup(info.path) is not None:
@@ -42,6 +44,11 @@ def blocked_reason(queue: TaskQueue, info: ImageInfo, rebuild: bool = True) -> s
 
 def submit(queue: TaskQueue, info: ImageInfo, kind: str, params: dict, title: str,
            rebuild: bool = True, night: bool = False) -> Task:
+    if info.kind == "folder" and kind != "trial":
+        # Un dossier de jeu ne passe par la file que pour l'essai (le lanceur le lance en direct)
+        raise HTTPException(status_code=409, detail=(
+            library_index.DOSSIER_RECONSTRUCTION if rebuild
+            else "dossier : action réservée aux images .wsquashfs"))
     reason = blocked_reason(queue, info, rebuild)
     if reason:
         raise HTTPException(status_code=409, detail=reason)
@@ -56,7 +63,8 @@ def old_action(settings: Settings, queue: TaskQueue, image_id: str, action: Call
     """Valide ou restaure le .old d'une image. `fresh` : bibliothèque relue après coup (une
     action en masse la relit une seule fois à la fin : un scan complet par image prend des
     secondes)."""
-    info = library_index.find_image(settings, image_id)
+    info = library_index.require_image(library_index.find_image(settings, image_id),
+                                       "dossier : pas d'image, donc pas d'ancienne version (.old)")
     if queue.active_for(info.id):
         raise HTTPException(status_code=409, detail="une tâche est en cours sur cette image")
     if info.state == ImageState.IN_USE or scan.image_in_use(info.path):

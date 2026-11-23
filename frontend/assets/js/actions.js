@@ -4,7 +4,7 @@ import { openCover, openCoverLot } from "./art-choice.js";
 import { api } from "./api.js";
 import { $, el, helpLink, icon, setUnavailable, size, state, storage, toast, withBusy } from "./core.js";
 import { notice } from "./detail/autorun.js";
-import { TRIAL_DURS, oldAction, paintTrial, setAutorunEdit, showTab, syncLine, trialPrefs } from "./detail/detail.js";
+import { TRIAL_DURS, isDossier, oldAction, paintTrial, setAutorunEdit, showTab, syncLine, trialPrefs } from "./detail/detail.js";
 import { loadLibrary } from "./library.js";
 import { openMenuNode } from "./menu.js";
 import { connected, hostName, hostOn, stripAnsi } from "./mode.js";
@@ -137,13 +137,17 @@ export function init() {
   $("d-cover-menu").onclick = () => openCover(state.current);
   $("d-more").onclick = () => {
     const i = state.current;
-    openMenuNode($("d-more").parentElement, [
-      menuItem("Modifier l'autorun", "pen", () => { showTab("autorun"); if (state.tab === "autorun") setAutorunEdit(true); }),
+    // Un dossier de jeu n'a ni nouvelle version, ni ancienne version (.old), ni illustration à reconstruire
+    const imageOnly = isDossier(i) ? [] : [
       menuItem("Nouvelle version…", "upload", () => showTab("version")),
       el("div", { className: "dd-sub", textContent: "Illustration" }),
       coverItem(),
       setUnavailable(menuItem("Supprimer l'ancienne version", "archive-x", () => oldAction("validate", `Supprimer définitivement l'ancienne version de « ${i.name} » (.old) ?`)), i.has_old ? "" : NO_OLD),
       setUnavailable(menuItem("Restaurer l'ancienne version", "undo", () => oldAction("restore", "Remettre l'ancienne version à la place de l'image actuelle (.old) ? La reconstruction sera perdue.")), i.has_old ? "" : NO_OLD),
+    ];
+    openMenuNode($("d-more").parentElement, [
+      menuItem("Modifier l'autorun", "pen", () => { showTab("autorun"); if (state.tab === "autorun") setAutorunEdit(true); }),
+      ...imageOnly,
       ...(connected() ? [setUnavailable(menuItem("Copier les sauvegardes", "save", () => copySaves()), trialReason() || (i.saves_present ? "" : NO_SAVES))] : []),
       setUnavailable(menuItem("Réinitialiser les sauvegardes", "trash", () => resetSaves([i.id]).catch((error) => alert(error.message)), { danger: true }), i.saves_present ? "" : NO_SAVES),
     ], $("d-more"));
