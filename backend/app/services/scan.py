@@ -138,7 +138,14 @@ def unsquashfs_ok(settings: Settings, image: Path) -> bool:
 
 def read_autorun_bytes(settings: Settings, image: Path) -> bytes | None:
     """Lit l'autorun sans monter l'image (`unsquashfs -cat`), octets bruts
-    (l'encodage est conservé à la réécriture). None s'il n'y en a pas."""
+    (l'encodage est conservé à la réécriture). None s'il n'y en a pas. Pour un dossier de
+    jeu (`*.pc`), c'est le `autorun.cmd` de sa racine, lu directement."""
+    if image.is_dir():
+        auto = folder_autorun_path(image)
+        try:
+            return auto.read_bytes() if auto is not None else None
+        except OSError:
+            return None
     return unsquashfs_cat(settings, image, "autorun.cmd")
 
 
@@ -175,7 +182,10 @@ def list_files_uncached(settings: Settings, image: Path) -> list[str] | None:
 def list_files(settings: Settings, image: Path) -> list[str]:
     """Arborescence de l'image, mise en cache par (taille, mtime) : un prefix
     compte des dizaines de milliers d'entrées, relues à chaque validation
-    d'autorun et à chaque aperçu d'action en masse."""
+    d'autorun et à chaque aperçu d'action en masse. Pour un dossier de jeu, l'arborescence
+    est lue sur le disque, sans cache (le mtime du dossier ne dit rien de ses sous-dossiers)."""
+    if image.is_dir():
+        return _tree_listing(image)
     try:
         stat = image.stat()
     except OSError:
@@ -196,11 +206,25 @@ def list_files(settings: Settings, image: Path) -> list[str]:
     return files
 
 
+def _tree_listing(root: Path) -> list[str]:
+    """Chemins relatifs (« / ») des fichiers et dossiers sous `root`, liens non suivis."""
+    out: list[str] = []
+    for cur, dirnames, filenames in os.walk(root, followlinks=False):
+        rel = Path(cur).relative_to(root)
+        prefix = "" if rel == Path(".") else rel.as_posix() + "/"
+        out.extend(prefix + name for name in [*dirnames, *filenames])
+    return sorted(out)
+
+
 def detect_type(files: list[str]) -> ImageType:
     """Type d'après les fichiers À LA RACINE de l'image. Un prefix Proton
     (Heroic, Steam) contient aussi system.reg : `config_info` est testé
     d'abord."""
-    root = {p.lower() for p in files if "/" not in p}
+    return _type_of_root({p.lower() for p in files if "/" not in p})
+
+
+def _type_of_root(root: set[str]) -> ImageType:
+    """Type d'après les noms (minuscules) de la racine d'une image ou d'un dossier."""
     if "config_info" in root:
         return ImageType.WINE_PROTON
     if "system.reg" in root:
@@ -429,12 +453,15 @@ def _apply_dynamic(settings: Settings, info: ImageInfo, prefixes: set[str],
     image = info.path
     in_use = is_in_use(image.stem, prefixes, mounts, settings.launcher_cache, held)
     info.saves_present, info.saves_size = _saves_size(settings, image.stem, in_use, force)
-    info.has_old = (image.with_name(image.name + ".old").exists()
-                    or image.with_name(image.name + ".sb-old").exists())
-    info.old_size = _old_size(image) if info.has_old else 0
-    info.extras = [e for e in info.extras if e != ".keys"]
-    if image.with_name(image.name + ".keys").exists():    # fichier À CÔTÉ de l'image
-        info.extras.insert(0, ".keys")
+    if info.kind == "folder":           # pas d'image : ni ancienne version ni clé à côté
+        info.has_old, info.old_size = False, 0
+    else:
+        info.has_old = (image.with_name(image.name + ".old").exists()
+                        or image.with_name(image.name + ".sb-old").exists())
+        info.old_size = _old_size(image) if info.has_old else 0
+        info.extras = [e for e in info.extras if e != ".keys"]
+        if image.with_name(image.name + ".keys").exists():    # fichier À CÔTÉ de l'image
+            info.extras.insert(0, ".keys")
     # Surcharge <jeu>.wsquashfs.autorun : valeurs effectives (comme le lanceur)
     override = read_override(image)
     info.override = sorted({k for k, _, _ in override.items()}) if override else []
@@ -449,6 +476,110 @@ def _apply_dynamic(settings: Settings, info: ImageInfo, prefixes: set[str],
     else:
         info.state = ImageState.OK
     return info
+
+
+# ----------------------------------------------------------------- dossiers de jeu
+
+# Dossiers de travail (empaquetage) : `.pc` = jeu Windows en dossier, lancé directement
+# (mode Batocera) ; `.wine` = prefix intégré, reste dans la vue Dossiers.
+FOLDER_SUFFIXES = (".pc", ".wine")
+GAME_FOLDER_SUFFIX = ".pc"
+
+
+def folder_stem(name: str) -> str:
+    """« Jeu.pc » / « Jeu.wine » → « Jeu » (nom de l'image et des sauvegardes)."""
+    for suffix in FOLDER_SUFFIXES:
+        if name.lower().endswith(suffix) and len(name) > len(suffix):
+            return name[:-len(suffix)]
+    return name
+
+
+def folder_id(folder: Path, system: str | None) -> str:
+    return f"{system}/{folder.name}" if system else folder.name
+
+
+def find_game_folders(roms_dirs: list[str]) -> list[tuple[Path, str | None]]:
+    """Dossiers `*.pc` et `*.wine` directement dans roms/<système>/ (ou dans roms/ lui-même
+    quand c'est un dossier de système) : [(chemin, système)]. Sans descendre plus bas, comme
+    la déduction du système des images."""
+    out: list[tuple[Path, str | None]] = []
+    seen: set[Path] = set()
+    for d in roms_dirs:
+        root = Path(d).expanduser()
+        if not root.is_dir():
+            continue
+        is_system_dir = root.resolve().parent.name == "roms"
+        parents = [(root, root.resolve().name if is_system_dir else None)]
+        if not is_system_dir:
+            parents += [(p, p.name) for p in sorted(root.iterdir())
+                        if p.is_dir() and not p.name.startswith(".")
+                        and not p.name.lower().endswith(FOLDER_SUFFIXES)]
+        for parent, system in parents:
+            try:
+                entries = sorted(parent.iterdir())
+            except OSError:
+                continue
+            for entry in entries:
+                if (not entry.is_dir() or entry.is_symlink()
+                        or not entry.name.lower().endswith(FOLDER_SUFFIXES)
+                        or entry.resolve() in seen):
+                    continue
+                seen.add(entry.resolve())
+                out.append((entry, system))
+    return out
+
+
+def folder_autorun_path(folder: Path) -> Path | None:
+    """`autorun.cmd` à la racine du dossier (casse ignorée), None s'il n'y en a pas."""
+    direct = folder / "autorun.cmd"
+    if direct.is_file():
+        return direct
+    try:
+        for entry in folder.iterdir():
+            if entry.name.lower() == "autorun.cmd" and entry.is_file():
+                return entry
+    except OSError:
+        pass
+    return None
+
+
+def _folder_signature(folder: Path) -> list[float]:
+    """Ce qui change quand le contenu de la racine ou l'autorun change. Un changement plus
+    profond n'est vu qu'au rafraîchissement (force) : la taille est recomptée alors."""
+    st = folder.stat()
+    auto = folder_autorun_path(folder)
+    if auto is None:
+        return [st.st_mtime, -1, 0.0]
+    a = auto.stat()
+    return [st.st_mtime, a.st_size, a.st_mtime]
+
+
+def scan_folder(settings: Settings, folder: Path, system: str | None) -> ImageInfo:
+    """Dossier de jeu `*.pc` : taille, type (racine) et champs de l'autorun, sans image.
+    Les dépendances joint-runner et fakeping ne sont pas calculées (elles exigent l'arborescence
+    complète, lue seulement pour une image)."""
+    st = folder.stat()
+    info = ImageInfo(
+        id=folder_id(folder, system),
+        kind="folder",
+        path=folder,
+        name=folder_stem(folder.name),
+        system=system,
+        size=_tree_size(folder),
+        mtime=st.st_mtime,
+        type=_type_of_root({e.name.lower() for e in _safe_entries(folder)}),
+    )
+    autorun_text = _read_autorun_from_image(settings, folder)
+    if autorun_text:
+        _autorun_fields(info, Autorun.parse(autorun_text))
+    return info
+
+
+def _safe_entries(folder: Path) -> list[Path]:
+    try:
+        return list(folder.iterdir())
+    except OSError:
+        return []
 
 
 # ----------------------------------------------------------------- scan
@@ -526,10 +657,28 @@ def scan_all(settings: Settings, force: bool = False) -> list[ImageInfo]:
     if cache.get("version") != _CACHE_VERSION:
         cache = {}
     entries = cache.get("images", {})
+    folder_entries = cache.get("folders", {})
 
     prefixes, mounts, held = _running_prefixes(), _mount_points(), _held_lock_inodes()
     results: list[ImageInfo] = []
     new_entries: dict[str, dict] = {}
+    new_folders: dict[str, dict] = {}
+    for folder, system in find_game_folders(settings.roms_dirs):
+        if not folder.name.lower().endswith(GAME_FOLDER_SUFFIX):
+            continue                    # `.wine` : atelier d'empaquetage, pas un jeu
+        key = str(folder)
+        try:
+            sig = _folder_signature(folder)
+        except OSError:
+            continue
+        entry = folder_entries.get(key)
+        if entry and not force and entry.get("sig") == sig:
+            info = ImageInfo.model_validate(entry["info"])
+            info.system, info.id = system, folder_id(folder, system)
+        else:
+            info = scan_folder(settings, folder, system)
+        new_folders[key] = {"sig": sig, "info": info.model_dump(mode="json")}
+        results.append(_apply_dynamic(settings, info, prefixes, mounts, held, force))
     for image, system in _find_images(settings.roms_dirs, settings.scan_max_depth):
         key = str(image)
         try:
@@ -550,6 +699,6 @@ def scan_all(settings: Settings, force: bool = False) -> list[ImageInfo]:
         }
         results.append(_apply_dynamic(settings, info, prefixes, mounts, held, force))
 
-    write_atomic(cache_file, json.dumps({"version": _CACHE_VERSION, "images": new_entries},
-                                        indent=1), durable=False)
+    write_atomic(cache_file, json.dumps({"version": _CACHE_VERSION, "images": new_entries,
+                                         "folders": new_folders}, indent=1), durable=False)
     return results

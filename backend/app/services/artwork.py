@@ -288,7 +288,10 @@ def _embedded_dir(settings: Settings) -> Path:
 def embedded_cover(settings: Settings, image: Path) -> Artwork | None:
     """Illustration intégrée à l'image (`.wsquashfs/cover`), lue sans monter l'image.
     Seule source de l'affichage. Mise en cache par chemin, taille et date : une absence
-    l'est aussi (`.none`), et l'image modifiée est relue."""
+    l'est aussi (`.none`), et l'image modifiée est relue. Pour un dossier de jeu (`*.pc`), c'est
+    le fichier posé dans le dossier, lu tel quel."""
+    if image.is_dir():
+        return _folder_cover(image)
     try:
         st = image.stat()
     except OSError:
@@ -327,6 +330,20 @@ def embedded_cover(settings: Settings, image: Path) -> Artwork | None:
         out = cache / f"{stamp}{ext}"
         out.write_bytes(data)
         return Artwork(out, media, "embedded")
+
+
+def _folder_cover(folder: Path) -> Artwork | None:
+    """Illustration d'un dossier de jeu : `.wsquashfs/cover` de la racine du dossier."""
+    cover = folder / EMBEDDED
+    try:
+        with cover.open("rb") as f:
+            head = f.read(16)
+    except OSError:
+        return None
+    if not head:
+        return None
+    _, media = _sniff(head)
+    return Artwork(cover, media, "embedded")
 
 
 def forget_embedded_misses(settings: Settings) -> None:

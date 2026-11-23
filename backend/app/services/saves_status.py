@@ -150,12 +150,13 @@ def _systems_scan(settings: Settings, ttl: float = 300) -> dict:
             except OSError:
                 return
             for entry in entries:
-                for ext in _SYSTEM_EXTS:
-                    if entry.name.endswith(ext):
-                        name = entry.name[: -len(ext)]
-                        if name not in found or (system == "win" and found[name] != "win"):
-                            found[name] = system
-                        loose.setdefault(_loose_name(name), set()).add(system)
+                names = [entry.name[: -len(ext)] for ext in _SYSTEM_EXTS if entry.name.endswith(ext)]
+                if entry.name.lower().endswith(".pc") and entry.is_dir(follow_symlinks=False):
+                    names.append(entry.name[:-len(".pc")])      # dossier de jeu : même nom de jeu
+                for name in names:
+                    if name not in found or (system == "win" and found[name] != "win"):
+                        found[name] = system
+                    loose.setdefault(_loose_name(name), set()).add(system)
         for root in roots:
             scan_dir(root, Path(root).name)          # un dossier de système donné directement
             try:

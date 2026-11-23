@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -40,6 +40,7 @@ class AutorunKey(BaseModel):
 
 class ImageInfo(BaseModel):
     id: str = ""                   # "<système>/<nom>" : le nom seul n'est pas unique
+    kind: Literal["image", "folder"] = "image"   # dossier *.pc : jeu lancé directement, sans image
     path: Path
     name: str
     system: str | None = None      # dossier roms/<système>
