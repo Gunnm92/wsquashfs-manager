@@ -84,7 +84,17 @@ export function gameOfItem(i) {
   return name;
 }
 
-const imageIds = () => new Map(state.items.map((i) => [gameOfItem(i), i.id]));   // jeu → identifiant d'image
+// Jeu → identifiant de sa fiche : l'image d'abord ; à défaut son dossier `*.pc` (même nom, mêmes
+// sauvegardes). Une seule entrée par jeu : l'image l'emporte quand les deux existent.
+const imageIds = () => {
+  const ids = new Map();
+  for (const i of state.items) if (i.kind === "folder") ids.set(gameOfItem(i), i.id);
+  for (const i of state.items) if (i.kind !== "folder") ids.set(gameOfItem(i), i.id);
+  return ids;
+};
+// Jeu présent à la fois comme image et comme dossier `*.pc` (la fiche de l'image est ouverte)
+const imageAndFolder = (game) => state.items.some((i) => i.kind === "folder" && gameOfItem(i) === game)
+  && state.items.some((i) => i.kind !== "folder" && gameOfItem(i) === game);
 
 export const busy = () => Boolean(sv.op);
 
@@ -615,7 +625,9 @@ function paintSaveDetail() {
       [size(v.size), v.newest ? `partie ${dayText(v.newest)}` : ""].filter(Boolean).join(" · "))),
       linkBtn("Départager…", () => openResolve(g))));
   }
-  $("svd-body").replaceChildren(...cards);
+  const twin = imageAndFolder(g.game)
+    ? [el("p", { className: "dnote", textContent: `Le dossier ${g.game}.pc existe aussi : mêmes sauvegardes, lancé directement.` })] : [];
+  $("svd-body").replaceChildren(...twin, ...cards);
 }
 
 export function paintStatus() {

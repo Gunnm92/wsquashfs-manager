@@ -31,6 +31,7 @@ export const STATES = { ok: ["Prêt", "Image saine"], in_use: ["En cours", "Jeu 
 // même icône, de la même couleur, que dans la colonne « Prefix et réglages ».
 // Le client se choisit dans l'en-tête (il filtre la liste, voir scopeOf).
 const FILTERS = [
+  { key: "kind", label: "Type", all: "Images et dossiers", options: () => [["image", "layers", "", "images"], ["folder", "folder", "t-accent", "dossiers de jeu"]] },
   { key: "system", label: "Système", all: "Tous les systèmes", options: () => [...new Set(state.items.map((i) => i.system).filter(Boolean))].sort().map((v) => [v, null, "", cap(v)]) },
   { key: "type", label: "Prefix", all: "Tous les prefix", options: () => [["wine", "wine", "t-accent", "wine"], ["wine_proton", "atom", "t-violet", "proton"], ["game_only", "app", "t-neutral", "aucun"]] },
   { key: "runner", label: "Runner", all: "Tous les runners", options: () => [["default", null, "", "aucun"], ["custom", "cpu", "t-accent", "custom"], ["joined", "clip", "t-accent", "intégré"]] },
@@ -101,6 +102,11 @@ const stateBadge = (i) => {
 };
 
 const versionLabel = (i) => el("span", { className: `ver${i.version ? "" : " none"}`, textContent: i.version || "sans version" });
+
+// Dossier de jeu (`*.pc`) : lancé directement, sans image .wsquashfs. Marqué dans la liste et les jaquettes.
+const kindFlag = (i) => i.kind === "folder"
+  ? el("span", { className: "flag kind", textContent: "dossier", title: "Dossier de jeu (.pc) : lancé directement, sans image .wsquashfs" })
+  : null;
 
 // Lecture longue de la bibliothèque (nouvelles images, scan complet) :
 // bandeau au-dessus de la liste, avec le temps écoulé
@@ -179,6 +185,7 @@ export function renderFilters() {
 function matches(i, key, value) {
   if (!value) return true;
   switch (key) {
+    case "kind": return value === "folder" ? i.kind === "folder" : i.kind !== "folder";
     case "system": return i.system === value;
     case "type": return value === "wine" ? ["wine_batocera", "wine_other"].includes(i.type) : i.type === value;
     case "runner": return value === "default" ? i.runner === "default" : value === "joined" ? Boolean(i.runner_joined) : i.runner !== "default";
@@ -259,7 +266,7 @@ export function renderLibrary() {
       const card = el("div", { className: `gcard${state.selected.has(i.id) ? " selected" : ""}` },
         el("div", { className: "gart" }, thumb(i, "gcover", "poster"), selectBox(i), stateBadge(i), profileBadges(i), instPins(i)),
         el("div", { className: "meta" }, el("div", { className: "n", textContent: i.name, title: i.name }),
-          el("div", { className: "sub" }, versionLabel(i), el("span", { textContent: size(i.size) }))));
+          el("div", { className: "sub" }, versionLabel(i), kindFlag(i), el("span", { textContent: size(i.size) }))));
       card.dataset.id = i.id;
       card.onclick = () => openDetail(i.id);
       return card;
@@ -287,7 +294,7 @@ function listRow(i, enter) {
   const row = el("div", { className: `grow item${state.selected.has(i.id) ? " selected" : ""}${enter ? " enter" : ""}` },
     selectBox(i),
     el("div", { className: "iname" }, thumb(i), el("div", { className: "t" },
-      el("span", { className: "n", textContent: i.name, title: i.name }), versionLabel(i), instPins(i))),
+      el("span", { className: "n", textContent: i.name, title: i.name }), versionLabel(i), kindFlag(i), instPins(i))),
     el("span", { className: `prefix c-prefix${i.type === "game_only" ? " none" : ""}`, textContent: PREFIX_LABEL[i.type] || "Inconnu" }),
     el("span", { className: "gsize", textContent: size(i.size) }),
     el("span", { className: "gsize c-saves", textContent: i.saves_present ? size(i.saves_size) : "" }),

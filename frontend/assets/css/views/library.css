@@ -43,6 +43,7 @@ main.images.with-detail { grid-template-columns: minmax(0, 1fr) minmax(380px, 44
   white-space: nowrap; background: var(--s3); color: var(--text); }
 .flag.attach { background: var(--s3); color: var(--text); }
 .flag.warn { background: var(--warn-a14); color: var(--warn); }
+.flag.kind { background: var(--s3); color: var(--accent-300); }
 .ilist .gsize { color: var(--text); }
 .ilist .c-saves { color: var(--muted); }
 /* État : « Prêt » discret ; les exceptions se lisent d'un coup d'œil (couleur + libellé court) */

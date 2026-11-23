@@ -6,7 +6,7 @@ import { openHelp } from "./help.js";
 export const state = {
   items: [], byId: new Map(), selected: new Set(), current: null,
   sort: { key: "name", dir: 1 }, keys: [], tasks: [],
-  filter: { system: "", type: "", runner: "", pad: "", extra: "", special: "" },
+  filter: { kind: "", system: "", type: "", runner: "", pad: "", extra: "", special: "" },
   layout: "list",
   autorun: null,          // dernière lecture de l'autorun de la fiche
   pendingKeys: new Set(), // clés ajoutées au formulaire, pas encore renseignées

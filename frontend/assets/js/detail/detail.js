@@ -73,7 +73,22 @@ export function renderDetailHeader() {
   }
   paintOld(i);
   paintApercu();
+  paintKind(i);
   if (state.tab === "saves") paintSaves();
+}
+
+// Dossier de jeu (`*.pc`) : pas d'image. Ni fichiers, ni journal, ni nouvelle version, ni
+// illustration, ni vérification, ni reconstruction, ni analyse des runners : seuls restent
+// l'aperçu, les sauvegardes, la surcharge de l'autorun et l'essai.
+export const isDossier = (i = state.current) => i?.kind === "folder";
+
+function paintKind(i) {
+  const dossier = isDossier(i);
+  for (const tab of ["files", "journal"]) $("d-tabs").querySelector(`[data-tab="${tab}"]`).hidden = dossier;
+  $("d-verify").hidden = dossier;
+  $("d-cover-menu").hidden = dossier;
+  $("d-links").closest(".box").hidden = dossier;
+  for (const id of ["a-save", "a-check", "a-propose"]) $(id).hidden = dossier;
 }
 
 // En-tête : une ligne d'état (Prêt · Prefix · version · taille) au lieu de pastilles
@@ -156,9 +171,10 @@ function paintApercu() {
   else hiddenFields.push("Surcharge");
 
   const versionText = i.version ? i.version.replace(/^v/i, "") : "sans version";
+  const dossier = isDossier(i);
   const imageRows = [
     row("Emplacement", i.path, { mono: true }),
-    row("Version", versionText, { mono: true, action: link("Mettre à jour", () => showTab("version")) }),
+    row("Version", versionText, { mono: true, action: dossier ? null : link("Mettre à jour", () => showTab("version")) }),
     row("Modifiée", when(i.mtime)),
   ];
 
@@ -171,7 +187,7 @@ function paintApercu() {
   $("d-apercu").replaceChildren(
     card("Sauvegardes", "Gérer", () => showTab("saves"), saveRows),
     card("Lancement", "Détails", () => showTab("autorun"), launchRows),
-    card("Image", null, null, imageRows));
+    card(dossier ? "Dossier" : "Image", null, null, imageRows));
   $("d-apercu").querySelectorAll(".dcard")[2].append(inst);
   $("d-apercu-note").hidden = !hiddenFields.length;
   $("d-apercu-note").replaceChildren(icon("info"), document.createTextNode(`Champs vides masqués : ${hiddenFields.join(", ")}.`));

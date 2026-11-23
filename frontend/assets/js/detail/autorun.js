@@ -108,10 +108,14 @@ function renderOverrideBox(data) {
       await loadAutorun();
     } catch (error) { alert(error.message); }
   };
+  // Dossier de jeu : pas d'image à reconstruire, la surcharge reste celle du dossier
+  const dossier = state.current?.kind === "folder";
+  const note = dossier ? `Surcharge active (${data.override.keys.join(", ")}) : appliquée par le lanceur au prochain lancement.`
+    : `Surcharge active (${data.override.keys.join(", ")}) : appliquée par le lanceur, mais pas par Batocera tant qu'elle n'est pas inscrite dans l'image.`;
   box.append(el("div", { className: "fbanner tall" }, icon("filepen"), el("div", { className: "body" },
-    el("span", { textContent: `Surcharge active (${data.override.keys.join(", ")}) : appliquée par le lanceur, mais pas par Batocera tant qu'elle n'est pas inscrite dans l'image.` }),
+    el("span", { textContent: note }),
     el("pre", { className: "bat", textContent: data.override.text }),
-    el("div", { className: "row" }, commit, drop))));
+    el("div", { className: "row" }, ...(dossier ? [] : [commit]), drop))));
 }
 
 export async function commitOverrides(ids) {
@@ -225,7 +229,7 @@ export function init() {
       await loadAutorun();          // recharge l'autorun effectif
       showTab("autorun");
       $("ar-result").replaceChildren(notice("ok", data.keys.length
-        ? `Surcharge écrite (${data.keys.join(", ")}) : effet au prochain lancement, sans reconstruction. Une fois validée, « Inscrire dans l'image ».`
+        ? `Surcharge écrite (${data.keys.join(", ")}) : effet au prochain lancement, sans reconstruction.${state.current?.kind === "folder" ? "" : " Une fois validée, « Inscrire dans l'image »."}`
         : "Identique à l'image : surcharge supprimée.", "zap"),
         ...(data.issues.length ? [el("ul", { className: "issues" }, ...data.issues.map((x) => el("li", { className: x.level, textContent: x.message })))] : []));
     } catch (error) {
