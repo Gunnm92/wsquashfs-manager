@@ -42,8 +42,6 @@ GROUPS: list[tuple[str, list[str]]] = [
 # Clés propres à une image (chemins, commandes) : jamais dans les réglages communs
 EXCLUDED = ["CMD", "DIR", "GAME_VERSION", "SAVEDIR", "SAVEFILES", "PRE", "ATTACH", "ATTACH_PROCESS"]
 # Aide de repli quand KEY_HELP ne connaît pas la clé
-FALLBACK_HELP = {"OPTISCALER": ("Active OptiScaler (modèle optiscaler.ini du lanceur).", ["1", "0"])}
-
 # Préréglages : remplissent le formulaire sans rien enregistrer. `ini` : (section, clé, valeur),
 # gardé seulement si la clé existe dans le modèle OptiScaler de la machine.
 PRESETS: list[dict] = [
@@ -74,7 +72,7 @@ def keys_payload() -> dict:
     for title, keys in GROUPS:
         items = []
         for key in keys:
-            help_text, choices = KEY_HELP.get(key) or FALLBACK_HELP.get(key, ("", []))
+            help_text, choices = KEY_HELP.get(key, ("", []))
             items.append({"key": key, "help": help_text, "choices": list(choices)})
         groups.append({"title": title, "keys": items})
     return {"groups": groups, "excluded": list(EXCLUDED), "presets": presets_for(None)}

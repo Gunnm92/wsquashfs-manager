@@ -39,7 +39,7 @@ def test_contract_is_complete_and_well_formed():
     assert doc["jsonSchemaDialect"] == "https://json-schema.org/draft/2020-12/schema"
     assert doc["info"]["version"].isdigit()
     listed = cc.routes()
-    assert len(listed) == 24
+    assert len(listed) == 27
     for method, path, op in listed:
         label = f"{method} {path}"
         assert isinstance(op["x-since-agent"], int) and 1 <= op["x-since-agent"] <= int(doc["info"]["version"]), label
@@ -212,6 +212,16 @@ CANNED: dict[tuple[str, str], tuple[int, object, dict]] = {
     ("PUT", "/v1/games/file"): (200, {"part_size": 3}, {}),
     ("POST", "/v1/games/commit"): (200, {"name": "Jeu.wsquashfs", "size": 3}, {}),
     ("DELETE", "/v1/games/file"): (200, {"removed": True}, {}),
+    ("GET", "/v1/config"): (200, {"gpu": {"nvidia": False, "amd": True},
+                                  "defaults": {"path": "/h/.config/wsquashfs/defaults.autorun",
+                                               "text": "FSR4=1\n", "sha": FP},
+                                  "optiscaler": {"installed": True, "version": "v0.9.5",
+                                                 "template": "[FSR]\nFsr4Update=auto\n",
+                                                 "overrides": {"path": "/h/.config/wsquashfs/optiscaler.ini",
+                                                               "text": "", "sha": None}},
+                                  "env": {}}, {}),
+    ("PUT", "/v1/config/defaults"): (200, {"sha": FP}, {}),
+    ("PUT", "/v1/config/optiscaler"): (200, {"sha": None}, {}),
 }
 
 
@@ -288,6 +298,9 @@ def test_agent_host_requests_follow_the_contract(pinned_host, tmp_path):
     host.games_put("Jeu.wsquashfs", 0, [b"abc"], 3, 3)
     host.games_commit("Jeu.wsquashfs", 3, FP)
     host.games_delete("Jeu.wsquashfs")
+    assert host.config()["gpu"]["amd"] is True
+    host.config_defaults_put("FSR4=1\n", FP)
+    host.config_optiscaler_put("", None)
     assert not problems, problems
     # Chaque route de l'agent que le manager appelle l'a été (hors pair : voir test_agent_pair_request).
     called = set(seen)
