@@ -1,6 +1,7 @@
 // header.js — En-tête : vues, clients, menu ⚙, actualisation.
 
 import { $, bigSize, el, hideAnimated, icon, isShown, motionOff, replay, showAnimated, state, storage } from "./core.js";
+import { loadConfig } from "./config.js";
 import { loadFolders } from "./folders.js";
 import { loadHelp } from "./help.js";
 import { inst } from "./install.js";
@@ -24,6 +25,7 @@ export function showView(name) {
   swapView(name);
   storage.set("wsfs-view", name);
   if (name === "folders") loadFolders();
+  if (name === "config") loadConfig();
   if (name === "saves") loadSaves();
   if (name === "images" && state.items.length) renderLibrary();   // icônes « Sauveg. » à jour
   if (name === "help") return loadHelp();
@@ -33,8 +35,8 @@ export function showView(name) {
 
 // Changement de vue animé : la vue quittée s'efface (VIEW_OUT ms), puis la nouvelle arrive du
 // côté de l'onglet choisi (ordre de la navigation). Un clic pendant la transition l'emporte.
-const VIEW_IDS = { saves: "saves-main", images: "main", folders: "folders-main", help: "help-main", settings: "settings-main" };
-const VIEW_ORDER = ["saves", "images", "folders", "help", "settings"];
+const VIEW_IDS = { saves: "saves-main", images: "main", folders: "folders-main", config: "config-main", help: "help-main", settings: "settings-main" };
+const VIEW_ORDER = ["saves", "images", "folders", "config", "help", "settings"];
 const VIEW_OUT = 150;
 let viewTurn = 0;
 let shownView = null;

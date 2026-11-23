@@ -29,6 +29,7 @@ from .routes import (
     saves,
     tasks,
 )
+from .routes import config as config_routes
 from .routes import (
     settings as settings_routes,
 )
@@ -106,6 +107,7 @@ app.include_router(saves.router)
 app.include_router(clients.router)
 app.include_router(install.router)
 app.include_router(assets.router)
+app.include_router(config_routes.router)
 
 
 def check_access(settings: Settings) -> None:
