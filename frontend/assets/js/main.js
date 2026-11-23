@@ -24,6 +24,7 @@ import { init as initHeader } from "./header.js";
 import { init as initFolders, loadFolders } from "./folders.js";
 import { init as initWhen } from "./when.js";
 import { init as initInstallDialog } from "./install-dialog.js";
+import { init as initConfig } from "./config.js";
 
 import { api } from "./api.js";
 import { $, state, storage } from "./core.js";
@@ -62,6 +63,7 @@ initFolders();
 initWhen();
 initInstallDialog();
 initInstall();
+initConfig();
 
 (async () => {
   fillWhen();
@@ -76,7 +78,7 @@ initInstall();
   // folders et help restent mémorisés
   // Sauvegardes par défaut en mode connecté, Images en autonome (folders et help restent mémorisés)
   const stored = storage.get("wsfs-view");
-  const view = ["folders", "help", "settings"].includes(stored) ? stored : connected() ? "saves" : "images";
+  const view = ["folders", "config", "help", "settings"].includes(stored) ? stored : connected() ? "saves" : "images";
   showView(view);              // charge aussi les sauvegardes si c'est la vue
   if (connected() && view !== "saves") loadSaves();   // compteur de l'onglet
   if (view !== "folders") loadFolders();               // compteur de l'onglet (dossiers à empaqueter)

@@ -11,7 +11,7 @@
 </style>
 <nav class="help-nav" aria-label="Pages de l'aide">
   <button data-page="start" class="on"><svg class="ico"><use href="#i-sparkles"/></svg><span><b>Bien démarrer</b><small>Le principe en 2 minutes</small></span></button>
-  <button data-page="ui"><svg class="ico"><use href="#i-grid"/></svg><span><b>L'interface</b><small>Images, fiche, Dossiers, Réglages</small></span></button>
+  <button data-page="ui"><svg class="ico"><use href="#i-grid"/></svg><span><b>L'interface</b><small>Images, fiche, Dossiers, Configuration, Réglages</small></span></button>
   <button data-page="guides"><svg class="ico"><use href="#i-list"/></svg><span><b>Guides</b><small>Les tâches courantes, pas à pas</small></span></button>
   <button data-page="saves"><svg class="ico"><use href="#i-save"/></svg><span><b>Sauvegardes</b><small>Garder ses parties sur tous les clients</small></span></button>
   <button data-page="types"><svg class="ico"><use href="#i-package"/></svg><span><b>Prefix des images</b><small>wine, proton, aucun (jeu seul)</small></span></button>
@@ -107,6 +107,16 @@
       <li><b>État</b> : <i>À faire</i> (pas d'autorun), <i>À traiter</i> (autorun présent, prêt à compresser), <i>En attente</i> et <i>En cours</i> (compression), <i>Fait</i> (image créée). Pastilles de filtre : à faire, à traiter, faits.</li>
       <li><b>Analyser et compresser…</b> (après sélection) : chaque dossier reçoit un autorun proposé et justifié, modifiable, puis l'image est créée. Options : renommer <code>.pc</code> en <code>.wine</code>, supprimer le dossier après vérification (jamais avant).</li>
       <li><b>Supprimer les dossiers déjà compressés</b> : seulement ceux dont l'image existe, vérifiée avant.</li>
+    </ul>
+
+    <h2 id="h-config">Configuration</h2>
+    <ul data-f>
+      <li>Les <b>réglages communs</b> du lanceur (<code>DXVK</code>, <code>FSR4</code>, <code>NVAPI</code>, <code>WINE</code>…) s'appliquent à toutes les images d'une machine ou d'une plateforme, sans toucher à chaque <code>autorun.cmd</code>. L'ordre, du plus faible au plus fort : défauts du lanceur, machine, plateforme, image, surcharge du jeu.</li>
+      <li><b>Machines</b> : le fichier <code>~/.config/wsquashfs/defaults.autorun</code> du client, lu et écrit par son agent. Les variables <code>WSQUASHFS_*</code> posées sur le client l'emportent sur ce fichier : la fiche les signale.</li>
+      <li><b>Plateformes</b> : <code>_defaults.autorun</code> dans le dossier du système (<code>roms/&lt;système&gt;/</code>). Il est lu à côté de l'image : un jeu installé sur un client ne le voit pas.</li>
+      <li><b>Modèle OptiScaler (<code>optiscaler.ini</code>, <code>_optiscaler.ini</code>)</b> : l'onglet OptiScaler.ini ne garde que ce qui diffère du modèle complet installé sur le client (<i>modèle partiel</i>). Le lanceur l'applique une fois, quand il copie l'OptiScaler.ini dans un jeu qui n'en a pas : les jeux qui l'ont déjà ne sont pas modifiés.</li>
+      <li><b>Préréglages</b> (AMD, NVIDIA, Génération d'images) remplissent le formulaire sans rien enregistrer. <b>Enregistrer</b> affiche d'abord les changements, puis écrit.</li>
+      <li>Une machine dont le lanceur est trop ancien affiche « lanceur trop ancien sur ce client : le mettre à jour » : mets-le à jour (wsquashfs-launcher --update) puis relance son agent.</li>
     </ul>
 
     <h2>Réglages</h2>

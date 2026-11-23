@@ -13,6 +13,7 @@
 @import url("css/views/detail.css") layer(views);
 @import url("css/views/tasks.css") layer(views);
 @import url("css/views/folders.css") layer(views);
+@import url("css/views/config.css") layer(views);
 @import url("css/views/doctor.css") layer(views);
 @import url("css/views/mass.css") layer(views);
 @import url("css/views/help.css") layer(views);
