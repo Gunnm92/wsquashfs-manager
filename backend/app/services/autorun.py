@@ -26,7 +26,7 @@ from pathlib import Path
 # Clés connues du lanceur / Batocera (SPEC § 2.2).
 KNOWN_KEYS = {
     "CMD", "DIR", "GAME_VERSION", "WINE", "PROTON", "RUNNER", "ARCH", "HIDRAW",
-    "DXVK", "VKD3D", "D7VK", "NVAPI", "VKREFLEX", "FSR", "FSR4", "ESYNC", "FSYNC",
+    "DXVK", "VKD3D", "D7VK", "NVAPI", "VKREFLEX", "FSR", "FSR4", "OPTISCALER", "ESYNC", "FSYNC",
     "VIRTUAL_DESKTOP", "LANG",
     "ENV", "SAVEDIR", "SAVEFILES", "PRE", "ATTACH", "ATTACH_PROCESS",
 }
@@ -58,6 +58,10 @@ KEY_HELP: dict[str, tuple[str, list[str]]] = {
     "FSR": ("FSR de Wine en plein écran (WINE_FULLSCREEN_FSR). Défaut 0.", ["1", "0"]),
     "FSR4": (("FSR4 : pose amdxcffx64.dll dans le prefix, carte AMD seulement ; le jeu "
               "décide de s'en servir. Défaut 0."), ["1", "0"]),
+    "OPTISCALER": (("OptiScaler (--setup optiscaler sur le client) relié dans le dossier de "
+                    "l'exe : 1 (chargé comme dxgi.dll) ou un autre nom de DLL si le jeu a déjà "
+                    "son dxgi.dll. Interrupteur : surcharge ou dossier, pas l'image. Défaut 0."),
+                   ["1", "winmm", "version", "0"]),
     "ESYNC": ("Synchronisation esync (défaut 0).", ["1", "0"]),
     "FSYNC": ("Synchronisation fsync (défaut 0).", ["1", "0"]),
     "VIRTUAL_DESKTOP": ("Bureau virtuel Wine, ex. 1920x1080.", ["1920x1080", "1280x720"]),

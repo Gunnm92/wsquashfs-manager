@@ -12,7 +12,7 @@ export const KEY_RE = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/;
 export const KEY_ICONS = { CMD: "terminal", DIR: "folder", GAME_VERSION: "tag", PRE: "play", ATTACH: "link", ATTACH_PROCESS: "cpu",
   WINE: "wine", PROTON: "atom", RUNNER: "drive", ARCH: "cpu", LANG: "book", ENV: "code", HIDRAW: "usb",
   SAVEDIR: "folder", SAVEFILES: "file", DXVK: "monitor", VKD3D: "monitor", D7VK: "monitor", VIRTUAL_DESKTOP: "grid",
-  NVAPI: "cpu", VKREFLEX: "zap", FSR: "monitor", FSR4: "monitor", ESYNC: "zap", FSYNC: "zap" };
+  NVAPI: "cpu", VKREFLEX: "zap", FSR: "monitor", FSR4: "monitor", OPTISCALER: "monitor", ESYNC: "zap", FSYNC: "zap" };
 
 export const keyInfo = (key) => state.keys.find((k) => k.key === key);
 

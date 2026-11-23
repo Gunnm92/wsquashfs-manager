@@ -266,5 +266,5 @@ def test_override_from_env_is_minimal_and_round_trips():
 
 
 def test_gpu_keys_known():
-    a = Autorun.parse("CMD=a.exe\nNVAPI=auto\nVKREFLEX=0\nFSR=1\nFSR4=1\n")
+    a = Autorun.parse("CMD=a.exe\nNVAPI=auto\nVKREFLEX=0\nFSR=1\nFSR4=1\nOPTISCALER=1\n")
     assert a.unknown_keys() == []

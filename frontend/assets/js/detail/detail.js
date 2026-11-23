@@ -27,7 +27,7 @@ export const KEY_LABELS = { DIR: "Dossier du jeu", CMD: "Exécutable", GAME_VERS
   ATTACH: "Commande pendant le jeu", ATTACH_PROCESS: "Processus attaché", WINE: "Version de Wine", PROTON: "Version de Proton",
   RUNNER: "Runner", ARCH: "Architecture", LANG: "Langue", ENV: "Variables d'environnement", HIDRAW: "Manettes en accès direct",
   SAVEDIR: "Dossier des sauvegardes", SAVEFILES: "Fichiers de sauvegarde", DXVK: "DXVK", VKD3D: "VKD3D", D7VK: "D7VK",
-  VIRTUAL_DESKTOP: "Bureau virtuel", NVAPI: "NVAPI", VKREFLEX: "VKReflex", FSR: "FSR", FSR4: "FSR 4", ESYNC: "ESYNC", FSYNC: "FSYNC" };
+  VIRTUAL_DESKTOP: "Bureau virtuel", NVAPI: "NVAPI", VKREFLEX: "VKReflex", FSR: "FSR", FSR4: "FSR 4", OPTISCALER: "OptiScaler", ESYNC: "ESYNC", FSYNC: "FSYNC" };
 
 // Fiche latérale (colonne de la liste réduite, panneau en glissement), créée au premier usage : le DOM est prêt
 let panel = null;
