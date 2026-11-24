@@ -25,8 +25,8 @@ main.images.with-detail { grid-template-columns: minmax(0, 1fr) minmax(380px, 44
 .filter-clear { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px 0 12px; border: 0; border-radius: var(--radius-pill);
   background: var(--accent-900); color: var(--accent-300); font-size: 12.5px; font-weight: 600; animation: pop var(--dur-base) var(--ease-out); }
 
-/* Liste des images : colonnes Jeu, Prefix, Taille, Sauveg., État, Manette, Réglages */
-.ilist .grow { grid-template-columns: 28px minmax(240px, 2.2fr) 110px 90px 90px 150px 70px minmax(110px, 200px); gap: 12px; padding: 8px 14px; }
+/* Liste des images : colonnes Jeu, Manette, Taille, Prefix, Sauveg., État, Réglages */
+.ilist .grow { grid-template-columns: 28px minmax(240px, 2.2fr) 70px 90px 110px 90px 150px minmax(110px, 200px); gap: 12px; padding: 8px 14px; }
 .ilist .pad { display: inline-flex; align-items: center; color: var(--faint); }
 .ilist .pad.hidraw { color: var(--accent2-300); }
 .ilist .grow.head { padding: 10px 14px; }
@@ -51,15 +51,15 @@ main.images.with-detail { grid-template-columns: minmax(0, 1fr) minmax(380px, 44
 .ilist .state.warn, .ilist .state.has_old { color: var(--warn); }
 .ilist .state.in_use { color: var(--accent-300); font-weight: 700; }
 .ilist .state.modified { color: var(--accent-300); }
-/* Fiche ouverte : Jeu, Prefix, Taille, État (Réglages et Sauveg. masquées, l'état reste visible) */
-main.images.with-detail .ilist .grow { grid-template-columns: 28px minmax(180px, 1fr) 90px 80px 130px; }
+/* Fiche ouverte : Jeu, Taille, Prefix, État (Manette, Réglages et Sauveg. masquées, l'état reste visible) */
+main.images.with-detail .ilist .grow { grid-template-columns: 28px minmax(180px, 1fr) 80px 90px 130px; }
 /* Barre d'outils de la vue Images : recherche et menus à 36 px, comme la v2 */
 .lib .search input:not([type=checkbox]) { height: 36px; }
 .lib .dd-btn { height: 36px; }
 main.images.with-detail .ilist :is(.c-profile, .c-saves, .c-pad) { display: none; }
 /* Écrans étroits (dans la couche views, après la grille de base de la liste) */
 @media (max-width: 1100px) {
-  .ilist .grow { grid-template-columns: 28px minmax(200px, 1fr) 100px 90px 150px; }
+  .ilist .grow { grid-template-columns: 28px minmax(200px, 1fr) 90px 100px 150px; }
   .ilist .grow.item .state, .ilist .grow.head .c-state { font-size: 12.5px; gap: 7px; visibility: visible; }
   .ilist :is(.c-profile, .c-saves, .c-pad) { display: none; }
 }

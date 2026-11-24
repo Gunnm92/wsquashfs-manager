@@ -5,7 +5,8 @@ import { reportSkipped } from "./actions.js";
 import { api } from "./api.js";
 import { forgetArt, thumb } from "./art.js";
 import { countLabel, layoutToggle, paintTodo, plural, selectAllBox, sortHeader, toggleSelbar, todoChip } from "./collection.js";
-import { $, badge, cap, dotIc, el, emptyState, folderKind, helpLink, icon, size, stagger } from "./core.js";
+import { $, badge, cap, dotIc, el, emptyState, folderKind, helpLink, icon, size, stagger, state } from "./core.js";
+import { PREFIX_LABEL, padCell, versionLabel } from "./library.js";
 import { notice, proposalItems } from "./detail/autorun.js";
 import { autorunEditor } from "./detail/kv-form.js";
 import { currentFolder, folderState, init as initFolderDetail, openFolder, refreshFolder } from "./folder-detail.js";
@@ -106,31 +107,55 @@ let paintLayout = () => {};      // posé par init : bascule liste / jaquettes
 
 let listSig = null;      // filtre, système, recherche et tri : les lignes entrent en cascade
 
+// Ligne de bibliothèque du dossier (même identifiant) : taille, version, préfixe, sauvegardes, manette
+const libOf = (f) => state.byId?.get(f.id);
+
+// Préfixe du dossier : `.pc` = jeu lancé tel quel ; `.wine` = prefix de travail, à empaqueter
+function kindCell(f, lib) {
+  const pc = f.kind === "pc";
+  return el("span", { className: `prefix c-prefix${pc ? " none" : ""}`, title: pc ? `${f.folder} : jeu en dossier, lancé tel quel` : `${f.folder} : prefix de travail, à empaqueter` },
+    dotIc(pc ? "terminal" : "cpu", pc ? "t-violet" : "t-accent", pc ? "Dossier .pc" : "Dossier .wine"),
+    el("span", { textContent: pc ? "Aucun" : (PREFIX_LABEL[lib?.type] || "Wine") }));
+}
+
 function renderFolderList(visible) {
   const { key, dir } = folders.sort;
   const sig = JSON.stringify([folders.state, folders.system, folders.sort, $("g-search").value.trim()]);
   const enter = sig !== listSig;
   listSig = sig;
   const text = (f) => key === "system" ? `${f.system || ""} ${f.folder}` : f.folder;
-  const rows = [...visible].sort((a, b) => (key === "state" ? folderStatus(a)[2] - folderStatus(b)[2] : 0) * dir
-    || text(a).localeCompare(text(b), "fr", { numeric: true, sensitivity: "base" }) * (key === "state" ? 1 : dir));
+  const byName = (a, b) => text(a).localeCompare(text(b), "fr", { numeric: true, sensitivity: "base" });
+  const sizeOf = (f) => libOf(f)?.size || 0;
+  const rows = [...visible].sort((a, b) => {
+    if (key === "state") return (folderStatus(a)[2] - folderStatus(b)[2]) * dir || byName(a, b);
+    if (key === "size") return (sizeOf(a) - sizeOf(b)) * dir || byName(a, b);
+    return byName(a, b) * dir;
+  });
   const all = selectAllBox(rows.map((f) => f.id), folders.selected, renderFolders);
   const sortBtn = sortHeader(folders.sort, (sort) => { folders.sort = sort; renderFolders(); });
+  // Mêmes colonnes et même ordre que Images (Jeu, Manette, Taille, Prefix, Sauveg., État, Réglages), plus Système
   $("g-thead").replaceChildren(all, sortBtn("folder", "Dossier"), sortBtn("system", "Système", "c-system"),
-    el("span", { className: "c-profile", textContent: "Contenu", title: "autorun.cmd, image .wsquashfs" }), sortBtn("state", "État", "c-state"));
+    el("span", { className: "c-pad", textContent: "Manette" }), sortBtn("size", "Taille", "r"),
+    el("span", { className: "c-prefix", textContent: "Prefix" }), el("span", { className: "c-saves", textContent: "Sauveg." }),
+    sortBtn("state", "État", "c-state"), el("span", { className: "c-profile", textContent: "Contenu", title: "autorun.cmd, image .wsquashfs" }));
   $("g-list-rows").replaceChildren(...stagger(rows.map((f) => {
     const selected = folders.selected.has(f.id), [label, cls] = folderStatus(f);
     const current = currentFolder() === f.id;
+    const lib = libOf(f);
     const row = el("div", { className: `grow item${selected ? " selected" : ""}${current ? " current" : ""}${enter ? " enter" : ""}` },
       folderBox(f),
       el("div", { className: "iname" }, openable(thumb(f, "thumb", "folder"), f),
         el("div", { className: "t" }, el("span", { className: "n", textContent: f.name, title: f.folder }),
-          el("span", { className: "sub" }, folderKind(f)),
+          versionLabel(lib || {}),
           el("button", { type: "button", className: "linklike", textContent: "Illustration…",
             onclick: (event) => { event.stopPropagation(); coverOf(f); } }))),
       el("span", { className: "c-system", textContent: cap(f.system) || "—" }),
-      folderProfile(f),
-      el("span", { className: `state ${cls} c-state`, textContent: label, title: label }));
+      padCell(lib || {}),
+      el("span", { className: "gsize", textContent: lib ? size(lib.size) : "—" }),
+      kindCell(f, lib),
+      el("span", { className: "gsize c-saves", textContent: lib?.saves_present ? size(lib.saves_size) : "" }),
+      el("span", { className: `state ${cls} c-state`, textContent: label, title: label }),
+      folderProfile(f));
     row.onclick = () => openFolder(f).then(renderFolders);
     return row;
   })));

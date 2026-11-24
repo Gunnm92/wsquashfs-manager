@@ -101,7 +101,7 @@ const stateBadge = (i) => {
   return el("span", { className: `state ${i.state} c-state`, textContent: label, title: `${label} — ${tip}` });
 };
 
-const versionLabel = (i) => el("span", { className: `ver${i.version ? "" : " none"}`, textContent: i.version || "sans version" });
+export const versionLabel = (i) => el("span", { className: `ver${i.version ? "" : " none"}`, textContent: i.version || "sans version" });
 
 // Dossier de jeu (`*.pc`) : lancé directement, sans image .wsquashfs. Marqué dans la liste et les jaquettes.
 const kindFlag = (i) => i.kind === "folder"
@@ -276,9 +276,11 @@ export function renderLibrary() {
   } else {
     const all = selectAllBox(visible.map((i) => i.id), state.selected, renderLibrary);
     const sortBtn = sortHeader(state.sort, (sort) => { state.sort = sort; renderLibrary(); });
-    $("thead").replaceChildren(all, sortBtn("name", "Jeu"), el("span", { className: "c-prefix", textContent: "Prefix" }),
-      sortBtn("size", "Taille", "r"), sortBtn("saves_size", "Sauveg.", "r c-saves"), sortBtn("state", "État", "c-state"),
-      el("span", { className: "c-pad", textContent: "Manette" }), el("span", { className: "c-profile", textContent: "Réglages" }));
+    // Ordre des colonnes : Jeu, puis Manette, Taille, Prefix, Sauvegardes, État, Réglages (comme Dossiers)
+    $("thead").replaceChildren(all, sortBtn("name", "Jeu"), el("span", { className: "c-pad", textContent: "Manette" }),
+      sortBtn("size", "Taille", "r"), el("span", { className: "c-prefix", textContent: "Prefix" }),
+      sortBtn("saves_size", "Sauveg.", "r c-saves"), sortBtn("state", "État", "c-state"),
+      el("span", { className: "c-profile", textContent: "Réglages" }));
     $("rows").replaceChildren(...stagger(visible.map((i) => listRow(i, enter))));
     if (!visible.length) $("rows").append(empty);
     $("grid").replaceChildren();
@@ -288,18 +290,18 @@ export function renderLibrary() {
 }
 
 // Une ligne de la liste : case, jaquette et nom (version), préfixe, taille, sauvegardes, état, manette, réglages actifs
-const PREFIX_LABEL = { wine_batocera: "Wine", wine_other: "Wine", wine_proton: "Proton", game_only: "Aucun", unknown: "Inconnu" };
+export const PREFIX_LABEL = { wine_batocera: "Wine", wine_other: "Wine", wine_proton: "Proton", game_only: "Aucun", unknown: "Inconnu" };
 
 function listRow(i, enter) {
   const row = el("div", { className: `grow item${state.selected.has(i.id) ? " selected" : ""}${enter ? " enter" : ""}` },
     selectBox(i),
     el("div", { className: "iname" }, thumb(i), el("div", { className: "t" },
       el("span", { className: "n", textContent: i.name, title: i.name }), versionLabel(i), kindFlag(i), instPins(i))),
-    el("span", { className: `prefix c-prefix${i.type === "game_only" ? " none" : ""}`, textContent: PREFIX_LABEL[i.type] || "Inconnu" }),
+    padCell(i),
     el("span", { className: "gsize", textContent: size(i.size) }),
+    el("span", { className: `prefix c-prefix${i.type === "game_only" ? " none" : ""}`, textContent: PREFIX_LABEL[i.type] || "Inconnu" }),
     el("span", { className: "gsize c-saves", textContent: i.saves_present ? size(i.saves_size) : "" }),
     listState(i),
-    padCell(i),
     listFlags(i));
   row.dataset.id = i.id;
   row.onclick = () => openDetail(i.id);
@@ -307,7 +309,7 @@ function listRow(i, enter) {
 }
 
 // Manette : le logo seul (le nom en infobulle) ; DualSense ressort, Xbox (le défaut) reste discrète
-function padCell(i) {
+export function padCell(i) {
   const name = i.hidraw ? "DualSense" : "Xbox";
   return el("span", { className: `c-pad pad ${i.hidraw ? "hidraw" : "xinput"}`, role: "img", ariaLabel: `Manette : ${name}`,
     title: i.hidraw ? "Manette : DualSense (accès direct, clé HIDRAW)" : "Manette : Xbox" }, icon(i.hidraw ? "dualsense" : "xbox"));
