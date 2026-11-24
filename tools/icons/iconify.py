@@ -18,7 +18,7 @@ ICONS = {
     "shield":    ("line-md:security", None),
     "sync":      ("line-md:rotate-270", None),
     "save":      ("line-md:folder-arrow-down", None),
-    "disk":      ("lucide:hard-drive", None),
+    "disk":      ("lucide:disc-3", None),
     "display":   ("line-md:monitor-twotone", None),
     "folders":   ("line-md:folder-twotone", None),
     # clients, manettes, essai, reconstruction : jeux au trait
