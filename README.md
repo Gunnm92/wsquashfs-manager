@@ -317,9 +317,10 @@ raccourci de lancement reste à ajouter à la main.
 - **Envoi** : par blocs de 256 Mio (PUT à partir d'un décalage). Avant l'envoi,
   l'espace libre doit couvrir le reste de l'image plus 1 Gio, sinon rien n'est
   envoyé. L'empreinte SHA-256 est vérifiée par le client au commit.
-- **Reprise** : une coupure ou un décalage différent relance l'envoi après 1, 2,
-  4, 8, puis 16 s (5 reprises au plus). Le client dit ce qu'il a déjà reçu ;
-  l'empreinte est recalculée depuis le début de l'image jusqu'à cet endroit. Une
+- **Reprise** : une coupure ou un décalage différent relance l'envoi après 5, 10, 20,
+  30, puis 60 s, tant qu'il y a des progrès (abandon après 30 min sans aucun octet reçu).
+  Le journal de la tâche indique chaque reprise. Le client dit ce qu'il a déjà reçu ;
+  l'empreinte SHA-256 n'est pas recalculée depuis le début : seul l'écart est relu. Une
   empreinte refusée au commit recommence un envoi complet, une fois.
 - **Déjà installé** : même nom et même taille → réussite sans envoi. Une autre
   version → échec (la désinstaller d'abord).

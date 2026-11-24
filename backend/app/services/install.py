@@ -6,9 +6,9 @@ par son agent (`/v1/games/*`, agent v6). Le manager y envoie l'image par blocs
 valider par l'empreinte SHA-256 (commit).
 
 - Espace : le libre doit couvrir le reste de l'envoi plus 1 Gio, sinon rien n'est envoyé.
-- Reprise : une coupure ou un décalage différent → jusqu'à 5 reprises (pauses
-  croissantes) ; à chaque reprise, le client dit ce qu'il a déjà, et l'empreinte
-  est recalculée depuis le début de l'image jusqu'à cet endroit.
+- Reprise : une coupure ou un décalage différent → reprises (pauses croissantes,
+  jusqu'à 30 min sans aucun progrès) ; à chaque reprise, le client dit ce qu'il a déjà, et l'empreinte
+  est reprise là où elle en était : seul l'écart entre les deux est relu, jamais le préfixe déjà haché.
 - Empreinte refusée au commit (422) : le client a effacé son envoi partiel ; un
   nouvel envoi complet, depuis 0, au plus.
 - Annulation : entre deux blocs. Un client en échec n'empêche pas les autres.
@@ -33,7 +33,8 @@ from .jobs import Job, JobCancelled
 
 BLOCK_SIZE = 256 << 20          # octets par PUT
 READ_SIZE = 1 << 20             # lecture locale et hachage
-RETRY_PAUSES = (1, 2, 4, 8, 16)  # une reprise par pause : 5 au plus
+RETRY_PAUSES = (5, 10, 20, 30, 60)  # pause avant chaque reprise ; la dernière se répète
+MAX_OUTAGE = 30 * 60            # injoignable sans progrès plus de ce temps (s) : envoi abandonné, le .part reste
 RESERVE = 1 << 30               # espace libre gardé en plus de ce qui reste à envoyer
 EXT = ".wsquashfs"
 
@@ -117,18 +118,28 @@ def _progress(job: Job | None, phase: str, done: int, total: int) -> None:
 
 # ------------------------------------------------------------------ envoi
 
-def _digest_prefix(image: Path, upto: int):
-    """SHA-256 des `upto` premiers octets de l'image (lus depuis le disque)."""
-    digest = hashlib.sha256()
-    left = upto
+def _hash_to(stats: dict, image: Path, target: int, job: Job | None, label: str) -> None:
+    """Amène le SHA-256 de l'image jusqu'à `target` octets. L'état (`stats["digest"]`, couvrant
+    `stats["hashed"]` octets) est gardé pendant toute l'installation : une reprise ne relit que
+    l'écart, pas tout le préfixe. Affiche la progression et reste annulable."""
+    if target < stats["hashed"]:                      # le client a moins que ce qu'on a haché : on repart de zéro
+        stats["digest"], stats["hashed"] = hashlib.sha256(), 0
+    if target == stats["hashed"]:
+        return
+    digest, done = stats["digest"], stats["hashed"]
     with image.open("rb") as f:
-        while left:
-            data = f.read(min(READ_SIZE, left))
+        f.seek(done)
+        while done < target:
+            _check(job)
+            data = f.read(min(READ_SIZE, target - done))
             if not data:
                 raise ManagerError("image modifiée pendant l'envoi")
             digest.update(data)
-            left -= len(data)
-    return digest
+            done += len(data)
+            stats["hashed"] = done
+            if job and (done % (256 << 20) < READ_SIZE or done == target):
+                _progress(job, f"vérification de ce qui est déjà reçu sur {label} : "
+                               f"{_size_text(done)} / {_size_text(target)}", done, target)
 
 
 def _blocks(f, length: int, digest) -> Iterator[bytes]:
@@ -158,16 +169,20 @@ def _transfer(host: AgentHost, name: str, size: int, image: Path, job: Job | Non
     if part > size:                     # envoi plus gros que l'image : on repart de zéro
         host.games_delete(name)
         part = 0
-    digest = _digest_prefix(image, part)
+    if part and job:
+        job.log(f"reprise de l'envoi sur {label} : {_size_text(part)} déjà reçus sur {_size_text(size)}")
+    _hash_to(stats, image, part, job, label)
     with image.open("rb") as f:
         while part < size:
             _check(job)
             length = min(BLOCK_SIZE, size - part)
             f.seek(part)
-            reply = host.games_put(name, part, _blocks(f, length, digest), length, size)
+            trial = stats["digest"].copy()           # ne devient l'état qu'une fois le bloc confirmé
+            reply = host.games_put(name, part, _blocks(f, length, trial), length, size)
             new = int(reply.get("part_size", -1))
             if new != part + length:
                 raise InstallOffset(new)
+            stats["digest"], stats["hashed"] = trial, part + length
             stats["sent"] += length
             part = new
             elapsed = max(time.monotonic() - stats["t0"], 1e-3)
@@ -175,7 +190,8 @@ def _transfer(host: AgentHost, name: str, size: int, image: Path, job: Job | Non
             left = _duration_text((size - part) / rate) if part < size else "validation"
             _progress(job, f"envoi sur {label} : {_size_text(part)} / {_size_text(size)} "
                            f"· {rate / (1 << 20):.1f}".replace(".", ",") + f" Mio/s · reste {left}", part, size)
-    host.games_commit(name, size, digest.hexdigest())
+    _hash_to(stats, image, size, job, label)
+    host.games_commit(name, size, stats["digest"].hexdigest())
 
 
 def _send(host: AgentHost, settings: Settings, machine_id: str, name: str, size: int, image: Path,
@@ -184,6 +200,8 @@ def _send(host: AgentHost, settings: Settings, machine_id: str, name: str, size:
     après un commit perdu trouve l'image déjà en place)."""
     attempt = 0
     restarted = False
+    outage_at = None                  # début de l'injoignabilité en cours (None : rien ne va mal)
+    sent_at_outage = 0
     while True:
         try:
             if attempt and _installed_size(host.games_list(), name) == size:
@@ -196,11 +214,27 @@ def _send(host: AgentHost, settings: Settings, machine_id: str, name: str, size:
                 raise ManagerError(f"empreinte refusée deux fois par {label} : envoi abandonné") from exc
             restarted = True
         except (AgentUnreachable, InstallOffset) as exc:
-            if attempt >= len(RETRY_PAUSES):
-                raise ManagerError(f"envoi interrompu, reprises épuisées : {exc}") from exc
-            time.sleep(RETRY_PAUSES[attempt])
+            now = time.monotonic()
+            if outage_at is None or stats["sent"] > sent_at_outage:
+                outage_at, sent_at_outage = now, stats["sent"]     # des octets sont passés : nouvelle fenêtre
+            if now - outage_at > MAX_OUTAGE:
+                raise ManagerError(f"envoi interrompu, reprises épuisées après {int(now - outage_at)} s "
+                                   f"sans progrès : {exc}") from exc
+            pause = RETRY_PAUSES[min(attempt, len(RETRY_PAUSES) - 1)]
+            if job:
+                job.log(f"coupure ({exc}) : nouvel essai dans {int(pause)} s, l'envoi reprendra là où {label} en est")
+            _pause(job, pause)
             attempt += 1
-            _check(job)
+
+def _pause(job: Job | None, seconds: float) -> None:
+    """Attend `seconds` en restant annulable (une annulation coupe la pause)."""
+    end = time.monotonic() + seconds
+    while True:
+        _check(job)
+        left = end - time.monotonic()
+        if left <= 0:
+            return
+        time.sleep(min(1.0, left))
 
 
 def _result(machine_id: str, label: str) -> dict:
@@ -212,7 +246,7 @@ def _install_one(settings: Settings, machine_id: str, name: str, size: int, imag
                  job: Job | None) -> dict:
     label = _label(settings, machine_id)
     out = _result(machine_id, label)
-    stats = {"sent": 0, "t0": time.monotonic()}
+    stats = {"sent": 0, "t0": time.monotonic(), "digest": hashlib.sha256(), "hashed": 0}
     try:
         _install_on(settings, machine_id, name, size, image, job, label, out, stats)
     except JobCancelled:

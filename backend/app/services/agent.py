@@ -479,6 +479,8 @@ class AgentHost:
         if response.status_code == 422:
             return InstallChecksum(detail or "empreinte incorrecte")
         if response.status_code == 400:
+            if detail == "envoi interrompu":     # lecture du bloc coupée : l'agent garde ce qui est reçu
+                return InstallOffset(int(data.get("part_size") or 0))     # reprise à partir de là
             return AgentRejected(detail or "demande refusée par l'agent")
         return ManagerError(detail or response.text[:200] or f"erreur {response.status_code}")
 

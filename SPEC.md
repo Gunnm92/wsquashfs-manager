@@ -313,9 +313,9 @@ ajouter à la main sur la machine.
   SHA-256 local est calculé en relisant le préfixe déjà reçu, puis au fil des
   blocs envoyés.
 - **Reprise** : `AgentUnreachable` ou décalage (`InstallOffset`) → pause
-  `RETRY_PAUSES` (1, 2, 4, 8, 16 s), puis nouvel essai qui relit `part_size`,
-  recalcule l'empreinte du préfixe et reprend ; si l'image est déjà installée à la
-  bonne taille (commit perdu), c'est une réussite. 5 reprises au plus. Commit 422
+  `RETRY_PAUSES` (5, 10, 20, 30, 60 s, la dernière se répète ; `MAX_OUTAGE` 30 min sans progrès), puis nouvel essai qui relit `part_size`,
+  reprend l'empreinte SHA-256 là où elle en était (seul l'écart est relu) ; si l'image est déjà installée à la
+  bonne taille (commit perdu), c'est une réussite. Reprises tant que des octets passent. Commit 422
   (`InstallChecksum`) : un seul nouvel envoi depuis 0.
 - **Annulation** : vérifiée entre deux blocs ; l'envoi partiel reste sur la machine
   (repris à l'envoi suivant).
@@ -420,8 +420,12 @@ délai configurable ; bouton « revenir à l'ancienne ».
 - Les reconstructions sont longues (5 Go ≈ 1 à 2 min) : exécutées en
   arrière-plan, dans une file, avec progression (sortie de `mksquashfs`),
   journal par tâche, annulation (nettoyage du `.part`).
-- Concurrence limitée (1 par défaut : c'est surtout du disque), priorité
-  basse (`nice`/`ionice`).
+- Voies (`task_lanes.py`) : le travail disque est limité à `task_concurrency`
+  (1 par défaut : c'est surtout du disque), priorité basse (`nice`/`ionice`) ;
+  chaque client a sa propre voie, une seule tâche de transfert à la fois par
+  client, pour qu'un envoi lent ne bloque pas les autres clients. Une tâche
+  « tous les clients » (synchro automatique, départage, restauration) attend
+  que tous soient libres.
 - Verrous : jamais deux tâches sur la même image ; refus si le jeu est en
   cours (même test que le lanceur : montage actif, `WINEPREFIX` dans
   `/proc`).

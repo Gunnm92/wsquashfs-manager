@@ -13,6 +13,7 @@ import random
 import shutil
 import ssl
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
@@ -54,6 +55,7 @@ def fast(monkeypatch):
     """Blocs de 1 Mio et pauses nulles : les reprises et envois multiples restent courts."""
     monkeypatch.setattr(install, "BLOCK_SIZE", BLOCK)
     monkeypatch.setattr(install, "RETRY_PAUSES", (0, 0, 0, 0, 0))
+    monkeypatch.setattr(install, "MAX_OUTAGE", 0.3)      # une coupure qui dure : abandon après 0,3 s
 
 
 class GamesAgent(BaseHTTPRequestHandler):
@@ -143,6 +145,13 @@ class GamesAgent(BaseHTTPRequestHandler):
             return self._send(507, {"detail": "espace insuffisant sur la machine"})
         st["puts"] += 1
         st["log"].append({"offset": offset, "length": length})
+        if st.get("slow"):
+            time.sleep(st["slow"])               # machine lente à recevoir (écriture disque du client)
+        if st.get("cut_400_at_put") == st["puts"]:
+            # Lecture du bloc coupée côté client : l'agent garde la moitié reçue et répond 400 « envoi interrompu »
+            st["cut_400_at_put"] = None
+            st["parts"][name] = current + body[: length // 2]
+            return self._send(400, {"detail": "envoi interrompu", "part_size": len(st["parts"][name])})
         if st["cut_at_put"] == st["puts"]:
             # Coupure au milieu de l'envoi : la moitié du bloc est gardée, pas de réponse
             st["cut_at_put"] = None
@@ -215,12 +224,12 @@ def games_agents(tmp_path):
     servers = []
 
     def make(host: str, *, games=None, parts=None, capacity=4 * GIB, home="/home/arcade",
-             cut_at_put=None, bad_commits=0, old=False, mounted=()):
+             cut_at_put=None, bad_commits=0, old=False, mounted=(), slow=0):
         cert, key = make_cert(tmp_path / host)
         st = {"host": host, "token": TOKEN, "home": home, "dir": home + "/jeux", "dir_set": False,
               "capacity": capacity, "games": dict(games or {}), "parts": dict(parts or {}),
               "mounted": set(mounted), "old": old, "puts": 0, "log": [], "cut_at_put": cut_at_put,
-              "bad_commits": bad_commits, "rejected": 0, "committed": [],
+              "bad_commits": bad_commits, "rejected": 0, "committed": [], "slow": slow,
               "secret": SECRET, "pair_open": True, "old_pair": False, "pairs": [], "bound": None}
         handler = type("H", (GamesAgent,), {"st": st})
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
@@ -636,3 +645,91 @@ def test_short_or_failed_transfer_does_not_change_the_rate(games_agents, tmp_pat
     install.install(settings, make_image(tmp_path, 1000), [mid])      # sous MIN_MEASURED
     assert install.measured_rates(settings) == {}
     assert install.status(settings)["machines"][0]["rate"] == 0
+
+
+def test_resumed_upload_says_so_in_the_journal(games_agents, tmp_path):
+    """Un envoi qui reprend après une coupure l'indique dans le journal de la tâche."""
+    steambox = games_agents("steambox")
+    settings, mid = one_machine(tmp_path, steambox)
+    image = make_image(tmp_path, 3 * BLOCK)
+    steambox["st"]["parts"][NAME] = image.read_bytes()[:BLOCK]      # déjà reçu : 1 Mio
+    logs = []
+    job = Job(on_log=logs.append)
+    item = install.install(settings, image, [mid], job=job)["results"][0]
+    assert item["ok"] is True, item["message"]
+    assert any(line.startswith("reprise de l'envoi sur steambox") and "déjà reçus" in line for line in logs), logs
+
+
+def test_long_outage_with_progress_keeps_the_window_open(games_agents, tmp_path, monkeypatch):
+    """Une coupure suivie de progrès ouvre une nouvelle fenêtre : pas d'abandon en plein envoi."""
+    steambox = games_agents("steambox")
+    settings, mid = one_machine(tmp_path, steambox)
+    image = make_image(tmp_path, 3 * BLOCK)
+    monkeypatch.setattr(install, "MAX_OUTAGE", 0.2)
+    real_put = install.AgentHost.games_put
+    calls = {"n": 0}
+
+    def flaky(self, *args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] % 2 == 1:                     # une coupure avant chaque bloc, puis progrès
+            raise AgentUnreachable("coupure (simulée)")
+        time.sleep(0.15)                            # chaque bloc prend un peu de temps
+        return real_put(self, *args, **kwargs)
+
+    monkeypatch.setattr(install.AgentHost, "games_put", flaky)
+    item = install.install(settings, image, [mid])["results"][0]
+    assert item["ok"] is True, item["message"]
+
+
+def test_resume_shows_the_verification_of_the_prefix(games_agents, tmp_path):
+    """Pendant la relecture de ce qui est déjà chez le client, la progression l'affiche (pas de 0 % muet)."""
+    steambox = games_agents("steambox")
+    settings, mid = one_machine(tmp_path, steambox)
+    image = make_image(tmp_path, 3 * BLOCK)
+    steambox["st"]["parts"][NAME] = image.read_bytes()[:2 * BLOCK]
+    phases = []
+    job = Job(on_progress=lambda phase, fraction: phases.append(phase))
+    item = install.install(settings, image, [mid], job=job)["results"][0]
+    assert item["ok"] is True, item["message"]
+    assert any(p.startswith("vérification de ce qui est déjà reçu") for p in phases), phases[:3]
+
+
+def test_block_read_cut_on_the_client_resumes(games_agents, tmp_path):
+    """400 « envoi interrompu » de l'agent (lecture du bloc coupée) : reprise là où il en est, pas d'échec."""
+    steambox = games_agents("steambox")
+    settings, mid = one_machine(tmp_path, steambox)
+    size = 3 * BLOCK
+    image = make_image(tmp_path, size)
+    steambox["st"]["cut_400_at_put"] = 2
+    item = install.install(settings, image, [mid])["results"][0]
+    assert item["ok"] is True, item["message"]
+    assert puts(steambox)[:3] == [0, BLOCK, BLOCK + BLOCK // 2]          # reprise au milieu du bloc coupé
+    assert steambox["st"]["games"][NAME] == image.read_bytes()
+
+
+def test_resume_does_not_rehash_what_was_already_hashed(games_agents, tmp_path, monkeypatch):
+    """Une reprise ne relit pas le préfixe : le travail de hachage vaut l'image, plus au plus le bloc coupé."""
+    steambox = games_agents("steambox")
+    settings, mid = one_machine(tmp_path, steambox)
+    size = 3 * BLOCK
+    image = make_image(tmp_path, size)
+    steambox["st"]["cut_400_at_put"] = 2                       # coupure au milieu du 2e bloc
+    work = []
+    real_hash_to, real_blocks = install._hash_to, install._blocks
+
+    def spy_hash_to(stats, image_path, target, job, label):
+        before = stats["hashed"]
+        real_hash_to(stats, image_path, target, job, label)
+        work.append(target - before)
+
+    def spy_blocks(f, length, digest):
+        for chunk in real_blocks(f, length, digest):
+            work.append(len(chunk))
+            yield chunk
+
+    monkeypatch.setattr(install, "_hash_to", spy_hash_to)
+    monkeypatch.setattr(install, "_blocks", spy_blocks)
+    item = install.install(settings, image, [mid])["results"][0]
+    assert item["ok"] is True, item["message"]
+    assert size <= sum(work) <= size + BLOCK, (sum(work), size)   # pas de relecture du préfixe déjà haché
+    assert steambox["st"]["games"][NAME] == image.read_bytes()
