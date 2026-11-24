@@ -52,6 +52,14 @@ const TONES = { info: "t-accent", warn: "t-accent", ok: "t-ok", err: "t-err", vi
 
 export const badge = (text, kind = "") => el("span", { className: `chip plain ${TONES[kind] || "t-neutral"}`, textContent: text });
 
+// Nature d'un dossier, d'après son extension (le nom affiché est sans elle) : `.pc` = jeu lancé tel quel
+// (mode Batocera), `.wine` = prefix de travail à empaqueter
+export const folderKind = (f) => {
+  const b = f.kind === "pc" ? badge("jeu", "info") : badge("prefix", "violet");
+  b.title = f.kind === "pc" ? `${f.folder} : jeu en dossier, lancé tel quel` : `${f.folder} : prefix de travail, à empaqueter`;
+  return b;
+};
+
 const chip = (iconName, label, tone, anchor = null, title = "") => {
   const node = el(anchor ? "a" : "span", { className: `chip ${tone}`, title }, icon(iconName, "sm"), label);
   if (anchor) {

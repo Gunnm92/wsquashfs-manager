@@ -3,7 +3,7 @@
 
 import { api } from "./api.js";
 import { thumb } from "./art.js";
-import { $, cap, el, hideAnimated, showAnimated, state, toast } from "./core.js";
+import { $, cap, el, folderKind, hideAnimated, showAnimated, state, toast } from "./core.js";
 import { notice, proposalItems } from "./detail/autorun.js";
 import { KEY_LABELS, openDetail } from "./detail/detail.js";
 import { showView } from "./header.js";
@@ -61,7 +61,8 @@ export function refreshFolder(items) {
 
 function paintHead() {
   const f = panel.folder;
-  $("fd-title").textContent = f.folder;
+  $("fd-title").textContent = f.name;
+  $("fd-title").title = f.folder;
   // Jaquette + pastille d'illustration (comme la fiche image)
   const art = thumb(f, "cover", "folder");
   art.id = "fd-cover-art";
@@ -69,7 +70,7 @@ function paintHead() {
   const sep = () => el("span", { className: "sep", textContent: "·" });
   const { label, st: cls } = folderState(f);
   $("fd-status").replaceChildren(el("span", { className: cls, textContent: label }), sep(),
-    el("span", { textContent: cap(f.system) || "—" }), sep(), el("span", { textContent: `.${f.kind}` }));
+    el("span", { textContent: cap(f.system) || "—" }), sep(), folderKind(f));
   $("fd-pack").disabled = Boolean(f.task || f.image_exists);
   $("fd-edit").hidden = panel.editing || Boolean(f.task);
   $("fd-open-game").hidden = f.kind !== "pc";      // un `.wine` n'est pas un jeu

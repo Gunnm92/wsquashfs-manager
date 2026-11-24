@@ -5,7 +5,7 @@ import { reportSkipped } from "./actions.js";
 import { api } from "./api.js";
 import { forgetArt, thumb } from "./art.js";
 import { countLabel, layoutToggle, paintTodo, plural, selectAllBox, sortHeader, toggleSelbar, todoChip } from "./collection.js";
-import { $, badge, cap, dotIc, el, emptyState, helpLink, icon, size, stagger } from "./core.js";
+import { $, badge, cap, dotIc, el, emptyState, folderKind, helpLink, icon, size, stagger } from "./core.js";
 import { notice, proposalItems } from "./detail/autorun.js";
 import { autorunEditor } from "./detail/kv-form.js";
 import { currentFolder, folderState, init as initFolderDetail, openFolder, refreshFolder } from "./folder-detail.js";
@@ -124,8 +124,8 @@ function renderFolderList(visible) {
     const row = el("div", { className: `grow item${selected ? " selected" : ""}${current ? " current" : ""}${enter ? " enter" : ""}` },
       folderBox(f),
       el("div", { className: "iname" }, openable(thumb(f, "thumb", "folder"), f),
-        el("div", { className: "t" }, el("span", { className: "n", textContent: f.folder, title: f.folder }),
-          el("span", { className: "sub", textContent: `.${f.kind}` }),
+        el("div", { className: "t" }, el("span", { className: "n", textContent: f.name, title: f.folder }),
+          el("span", { className: "sub" }, folderKind(f)),
           el("button", { type: "button", className: "linklike", textContent: "Illustration…",
             onclick: (event) => { event.stopPropagation(); coverOf(f); } }))),
       el("span", { className: "c-system", textContent: cap(f.system) || "—" }),
@@ -169,10 +169,10 @@ function renderFolders() {
     const card = el("div", { className: `gcard${selected ? " selected" : ""}${current ? " current" : ""}`, tabIndex: 0, role: "button" },
       el("div", { className: "gart" }, openable(thumb(f, "gcover", "folder-poster"), f), folderBox(f),
         el("span", { className: `state ${cls}`, textContent: label, title: label }), folderProfile(f)),
-      el("div", { className: "meta" }, el("div", { className: "n", textContent: f.folder, title: f.folder }),
-        el("div", { className: "sub" }, el("span", { textContent: cap(f.system) || "—" }), el("span", { textContent: `.${f.kind}` }))));
+      el("div", { className: "meta" }, el("div", { className: "n", textContent: f.name, title: f.folder }),
+        el("div", { className: "sub" }, el("span", { textContent: cap(f.system) || "—" }), folderKind(f))));
     card.dataset.id = f.id;
-    card.setAttribute("aria-label", `${f.folder} : ouvrir`);
+    card.setAttribute("aria-label", `${f.name} : ouvrir`);
     const open = () => openFolder(f).then(renderFolders);
     card.onclick = open;
     card.onkeydown = (event) => {
@@ -198,7 +198,7 @@ function renderCard(card) {
   const r = card.report, node = card.node;
   const include = el("input", { type: "checkbox", checked: card.include, disabled: card.sent, title: "Inclure ce dossier" });
   include.onchange = () => { card.include = include.checked; node.classList.toggle("off", !card.include); updatePackButton(); };
-  const head = el("div", { className: "head" }, include, el("strong", { textContent: card.folder.folder }),
+  const head = el("div", { className: "head" }, include, el("strong", { textContent: card.folder.name, title: card.folder.folder }), folderKind(card.folder),
     badge(r.prefix === "none" ? "jeu seul" : `prefix ${r.prefix}${r.arch ? " " + r.arch : ""}`, r.prefix === "none" ? "" : "violet"),
     r.engine ? badge(r.engine, "info") : null,
     el("span", { className: "muted", style: "font-size:12.5px", textContent: `${size(r.size)} · ${r.file_count} fichiers` }),
@@ -246,7 +246,7 @@ function renderCard(card) {
 }
 
 async function analyzeCard(card, exe = null) {
-  card.node.replaceChildren(el("div", { className: "head" }, el("span", { className: "spinner" }), el("strong", { textContent: card.folder.folder }), el("span", { className: "muted", textContent: "analyse…" })));
+  card.node.replaceChildren(el("div", { className: "head" }, el("span", { className: "spinner" }), el("strong", { textContent: card.folder.name, title: card.folder.folder }), folderKind(card.folder), el("span", { className: "muted", textContent: "analyse…" })));
   try {
     const r = await api(`/api/folders/analyze?id=${encodeURIComponent(card.folder.id)}${exe ? `&exe=${encodeURIComponent(exe)}` : ""}`);
     card.report = r;
@@ -257,7 +257,7 @@ async function analyzeCard(card, exe = null) {
     renderCard(card);
   } catch (error) {
     card.include = false;
-    card.node.replaceChildren(notice("err", `${card.folder.folder} : ${error.message}`));
+    card.node.replaceChildren(notice("err", `${card.folder.name} : ${error.message}`));
   }
   updatePackButton();
 }
