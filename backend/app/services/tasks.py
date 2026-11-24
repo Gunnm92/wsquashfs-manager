@@ -1,6 +1,8 @@
 """File de tâches persistante (SPEC § 4).
 
-- exécution en arrière-plan, concurrence limitée (1 par défaut) ;
+- exécution en arrière-plan par voies (voir task_lanes) : le travail disque
+  est limité à `task_concurrency` (1 par défaut), chaque client a sa propre
+  voie (un envoi lent ne bloque pas les autres clients) ;
 - une seule tâche active (en attente ou en cours) par image ;
 - état sur disque : une tâche interrompue par un redémarrage est remise en
   attente et son ``.part`` supprimé ;
@@ -22,6 +24,7 @@ import os
 import secrets
 import threading
 import time
+from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
 
@@ -30,8 +33,15 @@ from .durable import append_line, write_atomic
 from .errors import ManagerError
 from .jobs import Job, JobCancelled
 from .rebuild import part_path
+from .task_lanes import ALL_CLIENTS, CLIENT_PREFIX, DISK, image_lane
 
 Handler = Callable[[Task, Job], str | None]
+Lanes = Callable[[Task], frozenset[str]]
+
+
+def _default_lanes(task: Task) -> frozenset[str]:
+    """Sans configuration : travail disque et une voie par image."""
+    return frozenset({DISK, image_lane(task.image)} if task.image else {DISK})
 
 ACTIVE = (TaskStatus.PENDING, TaskStatus.RUNNING)
 NOT_RESUMED = ("trial",)        # tâches « en cours » au redémarrage : échec, pas de reprise
@@ -51,19 +61,22 @@ class QueueLocked(RuntimeError):
 
 class TaskQueue:
     def __init__(self, state_file: Path, handlers: dict[str, Handler], concurrency: int = 1,
-                 night_now: Callable[[], bool] = lambda: True):
+                 night_now: Callable[[], bool] = lambda: True, lanes: Lanes = _default_lanes):
         self.state_file = state_file
         # Journal permanent des tâches terminées : historique de chaque image,
         # conservé quand on efface la liste des tâches
         self.history_file = state_file.with_name("history.jsonl")
         self.handlers = handlers
+        # Capacité de la voie « disque » ; les voies client et image sont à 1
         self.concurrency = max(1, concurrency)
+        self.lanes = lanes
         # Vrai pendant la plage horaire des tâches « de nuit »
         self.night_now = night_now
         self._tasks: dict[str, Task] = {}
         self._jobs: dict[str, Job] = {}
         self._cond = threading.Condition(threading.RLock())
-        self._threads: list[threading.Thread] = []
+        self._io = threading.Lock()                     # une écriture de l'état à la fois (voir _save)
+        self._threads: list[threading.Thread] = []      # répartiteur et tâches en cours
         self._stopping = False
 
     # -------------------------------------------------------------- état
@@ -106,17 +119,22 @@ class TaskQueue:
                     if task.image_path:
                         part_path(Path(task.image_path)).unlink(missing_ok=True)
                 self._tasks[task.id] = task
-            self._save()
+        self._save()
 
     def _save(self) -> None:
-        with self._cond:
-            finished = sorted((t for t in self._tasks.values() if t.status not in ACTIVE),
-                              key=lambda t: t.created_at)
-            for old in finished[:-_HISTORY_LIMIT]:
-                del self._tasks[old.id]
-            text = json.dumps([t.model_dump(mode="json") for t in self._tasks.values()],
-                              indent=1)
-        write_atomic(self.state_file, text, durable=True)
+        """Écrit l'état sur le disque (fsync). Le verrou d'état n'est tenu que pour
+        la copie : l'écriture se fait hors de lui, pour que les lectures (affichage
+        de la bibliothèque, état des tâches) n'attendent pas un disque occupé.
+        Ne jamais l'appeler sous `_cond` : ordre des verrous = écriture puis état."""
+        with self._io:
+            with self._cond:
+                finished = sorted((t for t in self._tasks.values() if t.status not in ACTIVE),
+                                  key=lambda t: t.created_at)
+                for old in finished[:-_HISTORY_LIMIT]:
+                    del self._tasks[old.id]
+                text = json.dumps([t.model_dump(mode="json") for t in self._tasks.values()],
+                                  indent=1)
+            write_atomic(self.state_file, text, durable=True)
 
     def _persist(self) -> None:
         """Enregistrement depuis les workers : un échec d'écriture (disque plein…)
@@ -141,9 +159,9 @@ class TaskQueue:
                         image_path=str(image_path) if image_path else None, params=params,
                         night=night, created_at=time.time())
             self._tasks[task.id] = task
-            self._save()
             self._cond.notify_all()
-            return task
+        self._save()
+        return task
 
     def active_for(self, image: str) -> Task | None:
         with self._cond:
@@ -193,16 +211,20 @@ class TaskQueue:
             task = self._tasks.get(task_id)
             if task is None:
                 raise KeyError(task_id)
+            finished = None
             if task.status == TaskStatus.PENDING:
                 task.status = TaskStatus.CANCELLED
                 task.finished_at = time.time()
                 task.log.append("Annulée avant démarrage")
-                self._record(task)
-                self._save()
+                finished = task.model_copy(deep=True)
             elif task.status == TaskStatus.RUNNING:
                 task.log.append("Annulation demandée")
                 self._jobs[task_id].cancel()
-            return task.model_copy(deep=True)
+            result = task.model_copy(deep=True)
+        if finished is not None:                 # écriture hors du verrou d'état
+            self._record(finished)
+            self._save()
+        return result
 
     def run_now(self, task_id: str) -> Task:
         """Une tâche programmée la nuit démarre dès que possible."""
@@ -210,29 +232,31 @@ class TaskQueue:
             task = self._tasks.get(task_id)
             if task is None:
                 raise KeyError(task_id)
-            if task.status == TaskStatus.PENDING and task.night:
+            changed = task.status == TaskStatus.PENDING and task.night
+            if changed:
                 task.night = False
                 task.log.append("Programmation de nuit levée : lancement dès que possible")
-                self._save()
                 self._cond.notify_all()
-            return task.model_copy(deep=True)
+            result = task.model_copy(deep=True)
+        if changed:
+            self._save()
+        return result
 
     def clear_finished(self) -> int:
         with self._cond:
             done = [k for k, t in self._tasks.items() if t.status not in ACTIVE]
             for k in done:
                 del self._tasks[k]
-            self._save()
-            return len(done)
+        self._save()
+        return len(done)
 
     # -------------------------------------------------------------- exécution
 
     def start(self) -> None:
         self._stopping = False
-        for i in range(self.concurrency):
-            thread = threading.Thread(target=self._worker, name=f"tâches-{i}", daemon=True)
-            thread.start()
-            self._threads.append(thread)
+        dispatcher = threading.Thread(target=self._dispatch, name="tâches-répartiteur", daemon=True)
+        dispatcher.start()
+        self._threads.append(dispatcher)
 
     def stop(self) -> None:
         with self._cond:
@@ -240,47 +264,82 @@ class TaskQueue:
             for job in self._jobs.values():
                 job.cancel()
             self._cond.notify_all()
-        for thread in self._threads:
+            threads = list(self._threads)
+        for thread in threads:
             thread.join(timeout=10)
         self._threads.clear()
 
+    def _busy(self) -> Counter[str]:
+        """Nombre de tâches en cours par voie."""
+        busy: Counter[str] = Counter()
+        for task in self._tasks.values():
+            if task.status == TaskStatus.RUNNING:
+                busy.update(self.lanes(task))
+        return busy
+
+    def _free(self, lanes: frozenset[str], busy: Counter[str]) -> bool:
+        """Vrai si la tâche peut démarrer : voie disque sous sa capacité, voie
+        client ou image libre. « client:* » occupe tous les clients à la fois."""
+        for lane in lanes:
+            if lane == DISK:
+                if busy[DISK] >= self.concurrency:
+                    return False
+            elif lane == ALL_CLIENTS:
+                if any(count and key.startswith(CLIENT_PREFIX) for key, count in busy.items()):
+                    return False
+            elif busy[lane] or (lane.startswith(CLIENT_PREFIX) and busy[ALL_CLIENTS]):
+                return False
+        return True
+
     def _next(self) -> Task | None:
-        """Plus ancienne tâche en attente dont l'image n'est pas déjà occupée ;
-        une tâche de nuit attend la plage horaire (réévalué toutes les 5 s)."""
-        busy = {t.image for t in self._tasks.values() if t.status == TaskStatus.RUNNING}
+        """Plus ancienne tâche en attente dont les voies sont libres ; une tâche de nuit
+        attend la plage horaire (réévalué toutes les 5 s)."""
+        busy = self._busy()
         night = self.night_now()
         pending = sorted((t for t in self._tasks.values() if t.status == TaskStatus.PENDING
                           and (night or not t.night)), key=lambda t: t.created_at)
-        return next((t for t in pending if t.image is None or t.image not in busy), None)
+        return next((t for t in pending if self._free(self.lanes(t), busy)), None)
 
-    def _worker(self) -> None:
+    def _dispatch(self) -> None:
+        """Répartiteur : lance chaque tâche dont les voies sont libres, dans son propre fil.
+        Un client occupé n'empêche pas les autres tâches de démarrer."""
         while not self._stopping:
             try:
-                self._work_once()
-            except Exception:  # noqa: BLE001 — le worker doit survivre à tout
+                self._start_next()
+            except Exception:  # noqa: BLE001 — le répartiteur doit survivre à tout
                 log.exception("file de tâches : erreur imprévue, reprise dans %s s", _RETRY_DELAY)
                 with self._cond:
                     self._cond.wait(timeout=_RETRY_DELAY)
 
-    def _work_once(self) -> None:
-        """Attend puis exécute une tâche."""
+    def _start_next(self) -> None:
+        """Lance la prochaine tâche démarrable, ou attend (5 s, ou jusqu'à un changement)."""
         with self._cond:
-            while not self._stopping and (task := self._next()) is None:
-                self._cond.wait(timeout=5)
             if self._stopping:
                 return
-            assert task is not None
+            task = self._next()
+            if task is None:
+                self._cond.wait(timeout=5)
+                return
             task.status = TaskStatus.RUNNING
             task.started_at = time.time()
             task.log.append("Démarrée")
             job = Job(on_progress=functools.partial(self._progress, task),
                       on_log=functools.partial(self._log, task))
             self._jobs[task.id] = job
-            self._persist()
-        self.run_one(task, job)
+            self._threads = [t for t in self._threads if t.is_alive()]
+            thread = threading.Thread(target=self._run, args=(task, job), name=f"tâche-{task.id}", daemon=True)
+            self._threads.append(thread)
+            thread.start()
+        self._persist()                          # hors du verrou d'état
+
+    def _run(self, task: Task, job: Job) -> None:
+        try:
+            self.run_one(task, job)
+        except Exception:  # noqa: BLE001 — une tâche ne doit pas tuer la file
+            log.exception("file de tâches : erreur imprévue pendant « %s »", task.title or task.kind)
 
     def run_one(self, task: Task, job: Job) -> None:
-        """Exécute une tâche déjà marquée « en cours » (appelé par les workers)."""
+        """Exécute une tâche déjà marquée « en cours » (appelé par le répartiteur)."""
         try:
             message = self.handlers[task.kind](task, job)
         except JobCancelled:
@@ -310,10 +369,11 @@ class TaskQueue:
             if message:
                 task.log.append(message)
             self._jobs.pop(task.id, None)
-            if status != TaskStatus.PENDING:
-                self._record(task)
-            self._persist()
+            finished = task.model_copy(deep=True) if status != TaskStatus.PENDING else None
             self._cond.notify_all()
+        if finished is not None:                 # écritures hors du verrou d'état
+            self._record(finished)
+        self._persist()
 
     def _progress(self, task: Task, phase: str, fraction: float) -> None:
         with self._cond:

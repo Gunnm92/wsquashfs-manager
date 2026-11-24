@@ -268,3 +268,87 @@ def test_history_survives_clearing(tmp_path: Path):
     assert [t.title for t in history] == ["annulée", "première"]
     assert history[1].log[-1] == "fait"
     assert queue.list("s/autre") == []
+
+
+def test_transfers_to_different_clients_run_in_parallel(tmp_path: Path):
+    """Un envoi bloqué vers le client A n'empêche ni un envoi vers B, ni un 2e envoi vers B."""
+    gate = threading.Event()
+
+    def xfer(task, job):
+        if task.params["lane"] == "client:a":
+            gate.wait(5)
+        return None
+
+    queue = TaskQueue(tmp_path / "tasks.json", {"xfer": xfer},
+                      lanes=lambda t: frozenset({t.params["lane"]}))
+    slow = queue.submit("xfer", "s/a", None, {"lane": "client:a"})
+    queue_a = queue.submit("xfer", "s/c", None, {"lane": "client:a"})
+    other = queue.submit("xfer", "s/b", None, {"lane": "client:b"})
+    queue.start()
+    try:
+        assert _wait(queue, other.id) == TaskStatus.DONE            # B n'attend pas A
+        assert _task(queue, slow.id).status == TaskStatus.RUNNING
+        assert _task(queue, queue_a.id).status == TaskStatus.PENDING  # même client : attend
+        gate.set()
+        assert _wait(queue, slow.id) == TaskStatus.DONE
+        assert _wait(queue, queue_a.id) == TaskStatus.DONE
+    finally:
+        gate.set()
+        queue.stop()
+
+
+def test_all_clients_lane_waits_for_every_client(tmp_path: Path):
+    """Une tâche « tous les clients » attend que les clients soient libres, et ceux-ci
+    attendent qu'elle se termine."""
+    gate = threading.Event()
+
+    def xfer(task, job):
+        if task.params["lane"] == "client:a":
+            gate.wait(5)
+        return None
+
+    queue = TaskQueue(tmp_path / "tasks.json", {"xfer": xfer},
+                      lanes=lambda t: frozenset({t.params["lane"]}))
+    busy = queue.submit("xfer", "s/a", None, {"lane": "client:a"})
+    everyone = queue.submit("xfer", "s/t", None, {"lane": "client:*"})
+    free = queue.submit("xfer", "s/b", None, {"lane": "client:b"})
+    queue.start()
+    try:
+        assert _wait(queue, free.id) == TaskStatus.DONE            # B libre : passe devant
+        assert _task(queue, everyone.id).status == TaskStatus.PENDING  # A occupé : tous attendent
+        gate.set()
+        assert _wait(queue, busy.id) == TaskStatus.DONE
+        assert _wait(queue, everyone.id) == TaskStatus.DONE
+    finally:
+        gate.set()
+        queue.stop()
+
+
+def test_disk_tasks_stay_one_at_a_time(tmp_path: Path):
+    """Voie disque à `concurrency` (1) : deux travaux disque ne tournent pas ensemble,
+    même sur des images différentes ; un transfert, lui, peut tourner à côté."""
+    gate = threading.Event()
+    running = []
+
+    def work(task, job):
+        running.append(task.id)
+        if task.kind == "disk":
+            gate.wait(5)
+        return None
+
+    queue = TaskQueue(tmp_path / "tasks.json", {"disk": work, "xfer": work}, concurrency=1,
+                      lanes=lambda t: frozenset({"disque"}) if t.kind == "disk"
+                      else frozenset({"client:a"}))
+    first = queue.submit("disk", "s/a", None, {})
+    second = queue.submit("disk", "s/b", None, {})
+    transfer = queue.submit("xfer", "s/c", None, {})
+    queue.start()
+    try:
+        assert _wait(queue, transfer.id) == TaskStatus.DONE         # transfert : pas bloqué
+        assert _task(queue, second.id).status == TaskStatus.PENDING   # disque : un à la fois
+        gate.set()
+        assert _wait(queue, first.id) == TaskStatus.DONE
+        assert _wait(queue, second.id) == TaskStatus.DONE
+    finally:
+        gate.set()
+        queue.stop()

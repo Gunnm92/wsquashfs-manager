@@ -29,6 +29,7 @@ from .services.operations import (
 )
 from .services.runners import run_relink, run_runner
 from .services.saves_actions import run_saves
+from .services.task_lanes import lanes_of
 from .services.tasks import TaskQueue
 from .services.trial import run_trial
 from .services.update import run_update
@@ -61,6 +62,7 @@ queue = TaskQueue(
     },
     concurrency=settings.task_concurrency,
     night_now=lambda: in_night(settings),
+    lanes=lambda task: lanes_of(task, current_settings()),      # une voie par client, une voie disque
 )
 
 
