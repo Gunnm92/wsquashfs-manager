@@ -1,35 +1,65 @@
-// config.js — Configuration : réglages communs du lanceur, par machine (fichier chez l'agent du client) et par
-// plateforme (_defaults.autorun et _optiscaler.ini dans le dossier du système). Colonne des machines et des
-// plateformes ; fiche avec le formulaire des clés (onglet « Réglages du lanceur ») et le modèle OptiScaler
-// (onglet « OptiScaler.ini », config-optiscaler.js). Enregistrer : aperçu des changements, puis confirmation.
+// config.js — Configuration : réglages communs du lanceur, en couches comme le lanceur les lit.
+// Le client choisi en haut de page donne la couche « machine » (fichiers chez son agent) ; le menu
+// Plateforme donne la couche « plateforme » (_defaults.autorun et _optiscaler.ini du dossier du système),
+// avec en regard la valeur héritée de la machine. « Toutes les plateformes » : on règle la machine.
+// Enregistrer : aperçu des changements, puis confirmation.
 
 import { api } from "./api.js";
-import { detailPanel, markCurrent } from "./collection.js";
-import { $, el, emptyState, icon, toast } from "./core.js";
+import { $, el, emptyState, state, storage, toast } from "./core.js";
 import { notice } from "./detail/autorun.js";
+import { filterDropdown } from "./menu.js";
+import { connected } from "./mode.js";
 import { iniBody, iniDirty, iniPreset, optiscalerDraft, optiscalerNode } from "./config-optiscaler.js";
+
+const PLATFORM_KEY = "wsfs-config-platform";
 
 const cfg = {
   keys: null,            // /api/config/keys : groupes, aide, préréglages
-  machines: [],
-  folders: [],
-  current: null,         // { kind: "machine" | "folder", id }
+  machines: [],          // clients associés (GPU, OptiScaler)
+  folders: [],           // plateformes
+  platform: "",          // plateforme choisie ("" : toutes → couche machine)
+  scopeSig: "",          // portée de la fiche affichée
+  scope: null,           // { kind: "machine" | "folder", id, machine }
   view: null,            // fiche lue
-  tab: "lanceur",
-  values: {},            // formulaire des clés du lanceur : { CLÉ: valeur }
+  inherit: null,         // fiche de la machine, pour les valeurs héritées d'une plateforme
+  values: {},            // réglages du lanceur : { CLÉ: valeur }
   raw: null,             // texte brut du defaults.autorun, null : formulaire
-  ini: null,             // brouillon de l'onglet OptiScaler.ini
+  ini: null,             // brouillon OptiScaler
   loaded: false,
 };
 
-const panel = () => detailPanel($("config-main"), $("cdetail"));
 const GROUP_KEYS = () => cfg.keys.groups.flatMap((g) => g.keys.map((k) => k.key));
-const base = () => `/api/config/${cfg.current.kind === "machine" ? "machines" : "folders"}/${encodeURIComponent(cfg.current.id)}`;
 
-// ------------------------------------------------------------------ lecture et listes
+// Client de l'en-tête retenu pour la machine (null : « Tous », mode autonome ou client inconnu)
+function chosenMachine() {
+  if (!connected() || state.client === "all") return null;
+  return cfg.machines.find((m) => m.id === state.client) ?? null;
+}
+
+function scopeOf() {
+  const machine = chosenMachine();
+  if (cfg.platform) return { kind: "folder", id: cfg.platform, machine };
+  return machine ? { kind: "machine", id: machine.id, machine } : null;
+}
+
+const sigOf = (scope) => (scope ? `${scope.kind}:${scope.id}:${scope.machine?.id ?? ""}` : "");
+
+function base(scope = cfg.scope) {
+  return scope.kind === "machine" ? `/api/config/machines/${encodeURIComponent(scope.id)}`
+    : `/api/config/folders/${encodeURIComponent(scope.id)}`;
+}
+const machineQuery = () => (cfg.scope?.kind === "folder" && cfg.scope.machine ? `machine=${encodeURIComponent(cfg.scope.machine.id)}` : "");
+const withQuery = (path, ...parts) => {
+  const q = parts.filter(Boolean).join("&");
+  return q ? `${path}?${q}` : path;
+};
+
+const gpuText = (gpu) => (gpu ? [gpu.nvidia && "NVIDIA", gpu.amd && "AMD"].filter(Boolean).join(" + ") || "GPU non reconnu" : "");
+
+// ------------------------------------------------------------------ chargement
 
 export async function loadConfig() {
-  $("c-machines").replaceChildren(el("div", { className: "notice info", role: "status" }, el("span", { className: "spinner" }), el("span", { textContent: "Lecture des clients…" })));
+  if (!cfg.loaded) $("c-body").replaceChildren(busy("Lecture des clients et des plateformes…"));
   try {
     cfg.keys ??= await api("/api/config/keys");
     const [machines, folders] = await Promise.all([api("/api/config/machines"), api("/api/config/folders")]);
@@ -37,75 +67,79 @@ export async function loadConfig() {
     cfg.folders = folders.folders;
     cfg.loaded = true;
   } catch (error) {
-    $("c-machines").replaceChildren(notice("err", error.message));
-    return;
-  }
-  paintLists();
-  if (cfg.current) markCurrent(".cfg-row", `${cfg.current.kind}:${cfg.current.id}`);
-}
-
-function listRow(key, title, lines, extra = []) {
-  const row = el("button", { type: "button", className: "cfg-row" },
-    el("span", { className: "cfg-t" }, el("b", { textContent: title }), ...lines.map((l) => el("small", { className: "muted", textContent: l }))),
-    el("span", { className: "cfg-x" }, ...extra));
-  row.dataset.id = key;
-  row.onclick = () => openFiche(key);
-  return row;
-}
-
-function paintLists() {
-  const machines = cfg.machines.map((m) => {
-    const gpu = m.gpu ? [m.gpu.nvidia && "NVIDIA", m.gpu.amd && "AMD"].filter(Boolean).join(" + ") || "GPU inconnu" : "GPU non lu";
-    const opti = m.optiscaler ? (m.optiscaler.installed ? `OptiScaler ${m.optiscaler.version}`.trim() : "OptiScaler non installé") : "";
-    const lines = [gpu, opti || m.error].filter(Boolean);
-    return listRow(`machine:${m.id}`, m.name, lines, m.error ? [el("span", { className: "chip plain t-err", textContent: "injoignable" })] : []);
-  });
-  $("c-machines").replaceChildren(...(machines.length ? machines : [emptyState("monitor", "Aucune machine associée", "Associer un client dans Sauvegardes.")]));
-  const folders = cfg.folders.map((f) => listRow(`folder:${f.id}`, f.system, [f.path], [
-    f.defaults ? el("span", { className: "chip plain t-accent", textContent: "réglages" }) : null,
-    f.optiscaler ? el("span", { className: "chip plain t-violet", textContent: "OptiScaler" }) : null]));
-  $("c-folders").replaceChildren(...(folders.length ? folders : [emptyState("folder", "Aucun système avec des images", "Les plateformes apparaissent dès qu'une image est dans roms/<système>/.")]));
-  $("c-summary").textContent = `${cfg.machines.length} machine${cfg.machines.length > 1 ? "s" : ""} · ${cfg.folders.length} plateforme${cfg.folders.length > 1 ? "s" : ""}`;
-}
-
-// ------------------------------------------------------------------ fiche
-
-async function openFiche(key) {
-  const [kind, id] = [key.slice(0, key.indexOf(":")), key.slice(key.indexOf(":") + 1)];
-  if (cfg.current && dirty() && !confirm("Quitter sans enregistrer les modifications ?")) return;
-  cfg.current = { kind, id };
-  cfg.view = null;
-  markCurrent(".cfg-row", key);
-  panel().open();
-  $("c-dtitle").textContent = id;
-  $("c-body").replaceChildren(el("div", { className: "notice info" }, el("span", { className: "spinner" }), el("span", { textContent: "Lecture…" })));
-  await reopen();
-}
-
-// Relit la fiche (après un enregistrement, ou pour annuler les modifications)
-async function reopen() {
-  if (!cfg.current) return;
-  try {
-    cfg.view = await api(base());
-  } catch (error) {
     $("c-body").replaceChildren(notice("err", error.message));
     return;
   }
-  const v = cfg.view;
-  cfg.values = { ...v.defaults.values };
-  cfg.raw = null;
-  cfg.ini = optiscalerDraft(v.optiscaler);
-  if (cfg.current.kind === "machine") {
-    $("c-dtitle").textContent = v.machine.name;
-    $("c-dsub").textContent = v.gpu ? `GPU : ${[v.gpu.nvidia && "NVIDIA", v.gpu.amd && "AMD"].filter(Boolean).join(" + ") || "non détecté"}` : "";
-  } else {
-    $("c-dtitle").textContent = v.folder.system;
-    $("c-dsub").textContent = v.folder.path;
+  if (!cfg.platform) cfg.platform = storage.get(PLATFORM_KEY) || "";
+  if (cfg.platform && !cfg.folders.some((f) => f.id === cfg.platform)) cfg.platform = "";
+  cfg.scopeSig = "";            // relue : un autre onglet a pu écrire
+  paintConfig();
+}
+
+// Redessine la page : appelée au chargement, au changement de plateforme et de client (en-tête)
+export function paintConfig() {
+  if (!cfg.loaded || document.body.dataset.view !== "config") return;
+  paintFilters();
+  const scope = scopeOf();
+  const sig = sigOf(scope);
+  if (sig === cfg.scopeSig) return;
+  if (cfg.view && dirty()) toast("Modifications non enregistrées abandonnées", "alert");
+  cfg.scopeSig = sig;
+  cfg.scope = scope;
+  cfg.view = null;
+  if (!scope) { paintEmpty(); return; }
+  openScope();
+}
+
+function paintFilters() {
+  const options = cfg.folders.map((f) => [f.id, f.defaults || f.optiscaler ? "check" : null, "t-accent", f.system, null]);
+  $("c-filters").replaceChildren(...(cfg.folders.length ? [filterDropdown({
+    label: "Plateforme", all: "Toutes les plateformes", total: null, options, value: cfg.platform,
+    onChoose: (value) => {
+      if (value !== cfg.platform && dirty() && !confirm("Changer de plateforme sans enregistrer les modifications ?")) return;
+      cfg.platform = value;
+      storage.set(PLATFORM_KEY, value);
+      cfg.view = null;          // l'abandon vient d'être accepté
+      paintConfig();
+    } })] : []));
+}
+
+function paintEmpty() {
+  $("c-actions").hidden = true;
+  const hasClients = connected() && cfg.machines.length;
+  $("c-summary").textContent = "";
+  $("c-body").replaceChildren(hasClients
+    ? emptyState("monitor", "Sélectionne un client", "Choisis un client en haut de page pour régler sa machine, ou une plateforme dans le menu.")
+    : emptyState("folder", "Choisis une plateforme", "Les réglages d'une plateforme s'écrivent à côté de ses images (_defaults.autorun)."));
+}
+
+const busy = (text) => el("div", { className: "notice info", role: "status" }, el("span", { className: "spinner" }), el("span", { textContent: text }));
+
+async function openScope() {
+  const scope = cfg.scope, sig = cfg.scopeSig;
+  $("c-actions").hidden = true;
+  $("c-body").replaceChildren(busy(scope.kind === "machine" ? `Lecture de ${scope.machine.name}…` : "Lecture…"));
+  let view, inherit = null;
+  try {
+    [view, inherit] = await Promise.all([
+      api(withQuery(base(scope), scope.kind === "folder" && scope.machine ? `machine=${encodeURIComponent(scope.machine.id)}` : "")),
+      scope.kind === "folder" && scope.machine ? api(base({ kind: "machine", id: scope.machine.id })).catch(() => null) : null,
+    ]);
+  } catch (error) {
+    if (sig === cfg.scopeSig) $("c-body").replaceChildren(notice("err", error.message));
+    return;
   }
+  if (sig !== cfg.scopeSig) return;        // un autre choix entre-temps
+  cfg.view = view;
+  cfg.inherit = inherit;
+  cfg.values = { ...view.defaults.values };
+  cfg.raw = null;
+  cfg.ini = optiscalerDraft(view.optiscaler);
   paint();
 }
 
-// Modifications non enregistrées : réglages du lanceur ou OptiScaler.ini
+// ------------------------------------------------------------------ page
+
 function dirtyDefaults() {
   const v = cfg.view;
   if (!v) return false;
@@ -115,55 +149,70 @@ function dirtyDefaults() {
 
 const dirty = () => dirtyDefaults() || Boolean(cfg.ini && iniDirty(cfg.ini));
 
-function setTab(tab) {
-  cfg.tab = tab;
-  paint();
-}
-
 function paint() {
-  for (const b of $("c-tabs").querySelectorAll("button[data-tab]")) b.classList.toggle("on", b.dataset.tab === cfg.tab);
-  const body = cfg.tab === "lanceur" ? lanceurBody() : [optiscalerNode(cfg.ini, refreshSave, paint)];
-  $("c-body").replaceChildren(...body);
+  const v = cfg.view, scope = cfg.scope;
+  if (scope.kind === "machine") {
+    const opti = v.optiscaler.installed ? `OptiScaler ${v.optiscaler.version}`.trim() : "OptiScaler non installé";
+    $("c-summary").textContent = `${v.machine.name} · ${[gpuText(v.gpu), opti].filter(Boolean).join(" · ")}`;
+  } else {
+    $("c-summary").textContent = `Plateforme ${v.folder.system}${scope.machine ? ` · valeurs héritées de ${scope.machine.name}` : ""}`;
+  }
+  const nodes = [];
+  const intro = scope.kind === "machine"
+    ? `Réglages de ${v.machine.name} pour toutes les plateformes. Une plateforme ou un jeu peut les remplacer.`
+    : `Réglages de la plateforme ${v.folder.system}, écrits à côté de ses images : ils remplacent ceux de la machine.`;
+  nodes.push(el("p", { className: "muted fine", textContent: intro }));
+  for (const text of new Set([...v.warnings.lanceur])) nodes.push(notice("info", text));
+  nodes.push(presetBar());
+  nodes.push(el("section", { className: "cfg-sec" }, el("h2", { className: "cfg-h", textContent: "Lanceur" }), ...lanceurNodes()));
+  nodes.push(el("section", { className: "cfg-sec" }, el("h2", { className: "cfg-h", textContent: "OptiScaler" }), ...optiscalerNodes()));
+  $("c-body").replaceChildren(...nodes);
+  $("c-actions").hidden = false;
   refreshSave();
 }
 
 function refreshSave() {
-  $("c-save").disabled = !dirty();
-  $("c-reset").disabled = !dirty();
+  const d = dirty();
+  $("c-save").disabled = !d;
+  $("c-reset").disabled = !d;
+  $("c-dirty").textContent = d ? "Modifications non enregistrées" : "";
 }
 
-// ------------------------------------------------------------------ onglet « Réglages du lanceur »
+// ------------------------------------------------------------------ lanceur
 
-function lanceurBody() {
-  const v = cfg.view, nodes = [];
-  for (const text of v.warnings.lanceur) nodes.push(notice("info", text));
-  if (cfg.current.kind === "folder") {
-    nodes.push(el("p", { className: "muted fine", textContent: "Valeur effective : défaut du lanceur, puis les machines (fichier, variables WSQUASHFS_*), puis ce dossier." }));
-  }
-  nodes.push(presetBar());
+function lanceurNodes() {
   if (cfg.raw !== null) {
     const area = el("textarea", { rows: 12, spellcheck: false, value: cfg.raw });
     area.oninput = () => { cfg.raw = area.value; refreshSave(); };
-    nodes.push(area);
-  } else {
-    nodes.push(...cfg.keys.groups.map((group) => el("section", { className: "cfg-group" },
-      el("p", { className: "dsec", textContent: group.title }), ...group.keys.map((item) => keyRow(item)))));
+    return [area, el("div", { className: "cfg-tools" }, rawToggle())];
   }
-  nodes.push(el("div", { className: "dactions" }, rawToggle()));
-  return nodes;
+  return [...cfg.keys.groups.map((group) => el("div", { className: "cfg-group" },
+    el("p", { className: "dsec", textContent: group.title }), ...group.keys.map((item) => keyRow(item)))),
+  el("div", { className: "cfg-tools" }, rawToggle())];
+}
+
+// Valeur héritée de la machine pour une plateforme (fichier ou variable WSQUASHFS_*), sinon défaut du lanceur
+function inherited(key) {
+  const m = cfg.inherit, name = cfg.scope.machine?.name;
+  if (cfg.scope.kind !== "folder" || !m) return "";
+  const env = m.env?.find((e) => e.key === key);
+  if (env) return `hérité de ${name} (${env.var})`;
+  const value = m.defaults.values[key];
+  return value ? `hérité : ${value} (${name})` : "";
 }
 
 function keyRow(item) {
   const current = cfg.values[item.key] ?? "";
-  const envVar = cfg.view.env?.find((e) => e.key === item.key);
+  const envVar = cfg.scope.kind === "machine" ? cfg.view.env?.find((e) => e.key === item.key) : null;
+  const fallback = inherited(item.key) || "défaut du lanceur";
   let control;
   if (item.choices.length) {
     const options = [...new Set([...item.choices, ...(current && !item.choices.includes(current) ? [current] : [])])];
-    control = el("select", {}, new Option("défaut du lanceur", ""), ...options.map((o) => new Option(o, o)));
+    control = el("select", {}, new Option(fallback, ""), ...options.map((o) => new Option(o, o)));
     control.value = current;
     control.onchange = () => { cfg.values[item.key] = control.value; refreshSave(); };
   } else {
-    control = el("input", { value: current, placeholder: "défaut du lanceur", spellcheck: false, autocomplete: "off" });
+    control = el("input", { value: current, placeholder: fallback, spellcheck: false, autocomplete: "off" });
     control.oninput = () => { cfg.values[item.key] = control.value.trim(); refreshSave(); };
   }
   return el("div", { className: "cfg-kv" },
@@ -197,8 +246,8 @@ function presetBar() {
 function rawToggle() {
   const on = cfg.raw !== null;
   const b = el("button", { type: "button", className: "btn bare sm", disabled: !on && dirtyDefaults(),
-    title: "Éditer le defaults.autorun tel quel (après enregistrement ou annulation)" },
-    icon(on ? "list" : "code", "sm"), el("span", { textContent: on ? "Formulaire" : "Texte brut" }));
+    title: "Éditer le fichier tel quel (après enregistrement ou annulation)" },
+    el("span", { textContent: on ? "Formulaire" : "Texte brut" }));
   b.onclick = () => {
     cfg.raw = on ? null : cfg.view.defaults.text;
     paint();
@@ -206,23 +255,43 @@ function rawToggle() {
   return b;
 }
 
+// ------------------------------------------------------------------ OptiScaler
+
+// Valeurs du modèle partiel de la machine, pour les montrer en regard d'une plateforme
+function inheritedIni() {
+  const sections = cfg.scope.kind === "folder" ? cfg.inherit?.optiscaler?.sections : null;
+  const out = {};
+  for (const s of sections || []) for (const k of s.keys) if (k.override) (out[s.name] ??= {})[k.key] = k.value;
+  return out;
+}
+
+function optiscalerNodes() {
+  const v = cfg.view, scope = cfg.scope, nodes = [];
+  if (scope.kind === "machine" && !v.optiscaler.installed) {
+    return [notice("info", `OptiScaler n'est pas installé sur ${v.machine.name} : wsquashfs-launcher --setup optiscaler.`)];
+  }
+  for (const text of v.warnings.optiscaler) if (!v.warnings.lanceur.includes(text)) nodes.push(notice("info", text));
+  nodes.push(optiscalerNode(cfg.ini, refreshSave, paint, { inherited: inheritedIni(), from: scope.machine?.name ?? "" }));
+  return nodes;
+}
+
 // ------------------------------------------------------------------ enregistrement
 
-// Aperçu de chaque fichier modifié, confirmation, puis écriture (409 : la fiche est relue)
+// Aperçu de chaque fichier modifié, confirmation, puis écriture (409 : la page est relue)
 async function save() {
   const v = cfg.view, jobs = [];
   if (dirtyDefaults()) {
     const body = cfg.raw !== null ? { text: cfg.raw, base_sha: v.defaults.sha }
       : { values: Object.fromEntries(GROUP_KEYS().map((k) => [k, cfg.values[k] ?? ""])), base_sha: v.defaults.sha };
-    jobs.push({ label: "Réglages du lanceur", path: `${base()}/defaults`, body });
+    jobs.push({ label: "Réglages du lanceur", path: `${base()}/defaults`, query: "", body });
   }
   if (cfg.ini && iniDirty(cfg.ini)) {
-    jobs.push({ label: "OptiScaler.ini", path: `${base()}/optiscaler`, body: iniBody(cfg.ini, v.optiscaler.sha) });
+    jobs.push({ label: "OptiScaler.ini", path: `${base()}/optiscaler`, query: machineQuery(), body: iniBody(cfg.ini, v.optiscaler.sha) });
   }
   if (!jobs.length) return;
   let previews;
   try {
-    previews = await Promise.all(jobs.map((j) => api(`${j.path}?preview=1`, { method: "PUT", body: j.body })));
+    previews = await Promise.all(jobs.map((j) => api(withQuery(j.path, "preview=1", j.query), { method: "PUT", body: j.body })));
   } catch (error) {
     toast(error.message, "alert", true);
     return;
@@ -231,13 +300,13 @@ async function save() {
   if (!changes.length) { toast("Aucun changement à enregistrer"); return; }
   if (!(await confirmSave(changes))) return;
   try {
-    for (const change of changes) await api(change.path, { method: "PUT", body: change.body });
+    for (const change of changes) await api(withQuery(change.path, change.query), { method: "PUT", body: change.body });
     toast("Réglages enregistrés");
   } catch (error) {
     toast(error.message, "alert", true);
   }
-  await reopen();
-  loadConfig();
+  cfg.view = null;
+  await loadConfig();
 }
 
 // Fenêtre d'aperçu : diff de chaque fichier ; résout true si l'utilisateur confirme
@@ -255,13 +324,11 @@ function confirmSave(changes) {
 }
 
 export function init() {
-  $("c-close").onclick = () => {
-    if (dirty() && !confirm("Fermer sans enregistrer les modifications ?")) return;
-    cfg.current = null;
-    markCurrent(".cfg-row", null);
-    panel().close();
+  $("c-reset").onclick = () => {
+    if (!dirty() || !confirm("Abandonner les modifications ?")) return;
+    cfg.scopeSig = "";
+    cfg.view = null;
+    paintConfig();
   };
-  for (const b of $("c-tabs").querySelectorAll("button[data-tab]")) b.onclick = () => setTab(b.dataset.tab);
-  $("c-reset").onclick = () => { if (!dirty() || confirm("Abandonner les modifications ?")) reopen(); };
   $("c-save").onclick = save;
 }

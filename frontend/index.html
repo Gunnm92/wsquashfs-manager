@@ -408,39 +408,23 @@
 
 <!-- ================================================================ Configuration -->
 <main id="config-main" class="images" hidden>
-  <section class="lib">
+  <section class="lib cfg-page">
     <div class="lib-head">
       <h1 class="lib-title"><span>Configuration</span></h1>
       <span class="vsep" aria-hidden="true"></span>
       <span class="muted" id="c-summary"></span>
     </div>
-    <p class="muted fine">Réglages communs du lanceur wsquashfs-launcher. Une machine garde les siens chez elle ; une plateforme les écrit à côté de ses images.</p>
-    <div class="cfg-cols">
-      <div><p class="dsec">Machines</p><div class="cfg-list" id="c-machines"></div></div>
-      <div><p class="dsec">Plateformes</p><div class="cfg-list" id="c-folders"></div></div>
+    <div class="toolbar">
+      <div class="filters" id="c-filters"></div>
     </div>
-  </section>
-
-  <!-- Fiche : réglages du lanceur et modèle OptiScaler.ini d'une machine ou d'une plateforme -->
-  <aside id="cdetail" class="panel" hidden>
-    <header class="detail-head">
-      <div class="t">
-        <h2 id="c-dtitle"></h2>
-        <div class="status-line" id="c-dsub"></div>
-      </div>
-      <button class="iconbtn" id="c-close" title="Fermer" aria-label="Fermer"><svg class="ico"><use href="#i-x"/></svg></button>
-    </header>
-    <div class="pills on-s2 cfg-tabs" id="c-tabs" role="tablist">
-      <button type="button" data-tab="lanceur" class="on">Réglages du lanceur</button>
-      <button type="button" data-tab="opti">OptiScaler.ini</button>
-    </div>
-    <div class="dpane cfg-body" id="c-body"></div>
-    <div class="dactions">
+    <div class="cfg-body" id="c-body"></div>
+    <div class="cfg-actions" id="c-actions" hidden>
+      <span class="muted fine" id="c-dirty"></span>
       <span class="spacer"></span>
       <button class="btn secondary sm" id="c-reset" disabled>Annuler</button>
       <button class="btn primary sm" id="c-save" disabled title="Affiche les changements avant d'écrire"><svg class="ico sm"><use href="#i-check"/></svg>Enregistrer…</button>
     </div>
-  </aside>
+  </section>
 </main>
 
 <!-- ================================================================ Sauvegardes -->

@@ -103,12 +103,15 @@ def test_partial_parse_roundtrip_and_errors():
         mc.parse_partial_ini("[A]\x00\n")
 
 
-def test_merged_partial_applies_form_values_and_drops_model_defaults():
+def test_merged_partial_empty_unsets_and_explicit_values_stay():
     model = mc.model_values(mc.parse_optiscaler_schema(TEMPLATE))
     current = "[Upscalers]\nDx12Upscaler=fsr31\n"
-    # Le formulaire remet la valeur du modèle : la surcharge disparaît
-    text = mc.merged_partial(current, {"Upscalers": {"Dx12Upscaler": "auto"}, "FSR": {"Fsr4Update": "true"}}, model)
+    # Vide : la clé n'est plus réglée ici (la couche plus faible s'applique)
+    text = mc.merged_partial(current, {"Upscalers": {"Dx12Upscaler": ""}, "FSR": {"Fsr4Update": "true"}}, model)
     assert text == "[FSR]\nFsr4Update=true\n"
+    # Une valeur choisie reste écrite, même égale au modèle (remet auto par-dessus la machine)
+    text = mc.merged_partial(current, {"Upscalers": {"Dx12Upscaler": "auto"}}, model)
+    assert text == "[Upscalers]\nDx12Upscaler=auto\n"
     with pytest.raises(ValueError):
         mc.merged_partial("", {"A": {"k": "a=b"}}, model)
 
@@ -344,7 +347,7 @@ def test_machine_put_conflict_is_409_and_nothing_written(machine):
 
 def test_machine_optiscaler_put_writes_only_changes(machine):
     fake, client = machine
-    values = {"Upscalers": {"Dx12Upscaler": "fsr31"}, "FSR": {"Fsr4Update": "false"}}
+    values = {"Upscalers": {"Dx12Upscaler": "fsr31"}, "FSR": {"Fsr4Update": ""}}     # vide : non réglé ici
     done = client.put("/api/config/machines/salon/optiscaler", json={"values": values, "base_sha": None})
     assert done.status_code == 200
     assert fake.files["optiscaler"] == "[Upscalers]\nDx12Upscaler=fsr31\n"

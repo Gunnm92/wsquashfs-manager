@@ -1,7 +1,7 @@
 // header.js — En-tête : vues, clients, menu ⚙, actualisation.
 
 import { $, bigSize, el, hideAnimated, icon, isShown, motionOff, replay, showAnimated, state, storage } from "./core.js";
-import { loadConfig } from "./config.js";
+import { loadConfig, paintConfig } from "./config.js";
 import { loadFolders } from "./folders.js";
 import { loadHelp } from "./help.js";
 import { inst } from "./install.js";
@@ -120,6 +120,7 @@ function chooseClient(id) {
   paintClients();
   if (!$("main").hidden) renderLibrary();
   if (sv.loaded) paintSavesView();     // aussi le compteur de l'onglet, qui suit le client
+  paintConfig();                       // Configuration : la machine réglée est ce client
   paintSettingsClients();
 }
 

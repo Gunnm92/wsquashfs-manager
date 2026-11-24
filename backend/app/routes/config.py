@@ -206,14 +206,15 @@ def config_folders(settings: SettingsDep):
 
 
 @router.get("/api/config/folders/{folder_id}")
-def config_folder(settings: SettingsDep, folder_id: str):
-    """Réglages d'une plateforme ; le modèle OptiScaler vient d'une machine qui l'a installé."""
+def config_folder(settings: SettingsDep, folder_id: str, machine: str | None = None):
+    """Réglages d'une plateforme ; le modèle OptiScaler vient du client choisi (`machine`), sinon
+    de la première machine qui l'a installé."""
     folder = _folder(settings, folder_id)
     base = Path(folder["path"])
     with _erreurs():
         defaults_text, defaults_sha = mc.read_layer(base / mc.DEFAULTS_FILE)
         opti_text, opti_sha = mc.read_layer(base / mc.OPTI_FILE)
-        template = _reference_template(settings)
+        template = _reference_template(settings, machine) or (_reference_template(settings) if machine else "")
     model = mc.model_values(mc.parse_optiscaler_schema(template))
     return {
         "folder": folder,
@@ -240,14 +241,16 @@ def config_folder_defaults(settings: SettingsDep, folder_id: str, body: ConfigBo
 
 
 @router.put("/api/config/folders/{folder_id}/optiscaler")
-def config_folder_optiscaler(settings: SettingsDep, folder_id: str, body: OptiBody, preview: bool = False):
+def config_folder_optiscaler(settings: SettingsDep, folder_id: str, body: OptiBody, preview: bool = False,
+                             machine: str | None = None):
     """Écrit _optiscaler.ini dans le dossier de plateforme (texte vide : fichier supprimé)."""
     path = Path(_folder(settings, folder_id)["path"]) / mc.OPTI_FILE
     _choix(body.text, body.values)
     with _erreurs():
         current, sha = mc.read_layer(path)
         mc.check_sha(sha, body.base_sha)
-        model = mc.model_values(mc.parse_optiscaler_schema(_reference_template(settings)))
+        template = _reference_template(settings, machine) or (_reference_template(settings) if machine else "")
+        model = mc.model_values(mc.parse_optiscaler_schema(template))
         after = mc.compute_optiscaler(current, body.text, body.values, model)
         if preview:
             return _preview(current, after)

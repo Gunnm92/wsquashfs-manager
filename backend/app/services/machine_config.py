@@ -233,14 +233,14 @@ def parse_partial_ini(text: str) -> dict[str, dict[str, str]]:
 
 
 def render_partial_ini(values: dict[str, dict[str, str]],
-                       model: dict[str, dict[str, str]] | None = None) -> str:
-    """Fichier partiel : seulement ce qui diffère du modèle, sections dans l'ordre du modèle.
-    Rien à garder : texte vide (fichier supprimé)."""
+                       model: dict[str, dict[str, str]] | None = None, drop_defaults: bool = True) -> str:
+    """Fichier partiel, sections dans l'ordre du modèle ; `drop_defaults` : sans ce qui égale le
+    modèle. Rien à garder : texte vide (fichier supprimé)."""
     model = model or {}
     blocks = []
     for section in [*model, *(s for s in values if s not in model)]:
         lines = [f"{key}={value}" for key, value in values.get(section, {}).items()
-                 if model.get(section, {}).get(key) != value]
+                 if not drop_defaults or model.get(section, {}).get(key) != value]
         if lines:
             blocks.append("\n".join([f"[{section}]", *lines]))
     return "\n\n".join(blocks) + "\n" if blocks else ""
@@ -248,8 +248,10 @@ def render_partial_ini(values: dict[str, dict[str, str]],
 
 def merged_partial(current: str, values: dict[str, dict[str, str]],
                    model: dict[str, dict[str, str]] | None) -> str:
-    """Fichier partiel actuel, corrigé par les valeurs du formulaire (toutes les clés affichées),
-    puis réduit à ce qui diffère du modèle. ValueError si un nom ou une valeur est impossible."""
+    """Fichier partiel actuel, corrigé par les valeurs du formulaire. Une valeur vide retire la clé
+    (« non réglé ici » : la couche plus faible s'applique) ; une valeur choisie est gardée même si elle
+    égale le modèle (une plateforme peut remettre `auto` sur une machine qui a `fsr31`). ValueError si
+    un nom ou une valeur est impossible."""
     merged = parse_partial_ini(current) if current.strip() else {}
     for section, keys in values.items():
         if not _INI_KEY_RE.match(section):
@@ -257,8 +259,11 @@ def merged_partial(current: str, values: dict[str, dict[str, str]],
         for key, value in keys.items():
             if not _INI_KEY_RE.match(key) or any(c in value for c in "=\n\r\0"):
                 raise ValueError(f"valeur impossible pour [{section}] {key}")
-            merged.setdefault(section, {})[key] = value.strip()
-    text = render_partial_ini(merged, model)
+            if value.strip():
+                merged.setdefault(section, {})[key] = value.strip()
+            else:
+                merged.get(section, {}).pop(key, None)
+    text = render_partial_ini(merged, model, drop_defaults=False)
     if text:
         parse_partial_ini(text)         # relecture : ce qui sera écrit est un fichier valide
     return text
