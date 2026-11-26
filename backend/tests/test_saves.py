@@ -1486,6 +1486,48 @@ def test_api_machine_dirs_are_declared_through_the_agent(agents, api):
     assert client.get("/api/saves/machines/inconnue/dirs").status_code == 404
 
 
+def test_api_dir_is_propagated_to_chosen_clients(agents, api):
+    """Déclarer un dossier sur un client puis sur les clients cochés (`also`) : ceux-ci reçoivent le
+    chemin retenu par le premier, à partir de leur HOME, et remplacent leur ancien chemin ; un
+    client non coché garde le sien ; un client inconnu est signalé sans bloquer les autres."""
+    client, settings, _ = api
+    steambox, aibox, deck = agents("steambox"), agents("aibox"), agents("deck")
+    for agent in (steambox, aibox, deck):
+        associate(settings, agent)
+    ids = machine_ids(settings)
+    old = {"name": "Zelda", "path": ".local/share/hookshot/save"}
+    aibox["st"]["dirs"] = [dict(old)]
+    deck["st"]["dirs"] = [dict(old)]
+    reply = client.put(f"/api/saves/machines/{ids['steambox']}/dirs",
+                       json={"name": "Zelda", "path": ".local/share/longshot/save",
+                             "also": [ids["aibox"], "inconnue"]})
+    assert reply.status_code == 200
+    body = reply.json()
+    assert body["dirs"] == [{"name": "Zelda", "path": ".local/share/longshot/save"}]
+    assert [(o["id"], o["ok"]) for o in body["others"]] == [(ids["aibox"], True), ("inconnue", False)]
+    assert aibox["st"]["dirs"] == [{"name": "Zelda", "path": ".local/share/longshot/save"}]
+    assert deck["st"]["dirs"] == [old]                       # non coché : inchangé
+    listed = {m["name"]: m for m in client.get("/api/saves/dirs").json()["machines"]}
+    assert listed["aibox"]["ok"] and listed["aibox"]["dirs"] == aibox["st"]["dirs"]
+    assert listed["deck"]["dirs"] == [old]
+
+
+def test_api_dir_outside_home_is_not_propagated(agents, api, monkeypatch):
+    """Chemin retenu hors du HOME du premier client (absolu) : rien n'est envoyé aux autres."""
+    client, settings, _ = api
+    steambox, aibox = agents("steambox"), agents("aibox")
+    for agent in (steambox, aibox):
+        associate(settings, agent)
+    ids = machine_ids(settings)
+    real = clients.machine_dirs
+    monkeypatch.setattr(clients, "machine_dirs", lambda s, mid, change=(): (
+        {"dirs": [{"name": "x", "path": "/mnt/x"}], "eden": ""} if mid == ids["steambox"] else real(s, mid, change)))
+    body = client.put(f"/api/saves/machines/{ids['steambox']}/dirs",
+                      json={"name": "x", "path": "/mnt/x", "also": [ids["aibox"]]}).json()
+    assert body["others"][0]["ok"] is False and "hors du dossier personnel" in body["others"][0]["message"]
+    assert aibox["st"]["dirs"] == []
+
+
 def test_api_machine_dirs_on_an_older_agent(agents, api):
     """Agent v7 (route inconnue) : mise à jour demandée."""
     client, settings, _ = api

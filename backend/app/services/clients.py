@@ -20,6 +20,7 @@ import secrets
 import shutil
 import socket
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -332,6 +333,59 @@ def machine_dirs(settings: Settings, machine_id: str, change: tuple[str, ...] = 
     return {"dirs": [{"name": str(d.get("name", "")), "path": str(d.get("path", ""))}
                      for d in dirs if isinstance(d, dict)],
             "eden": str(data.get("eden") or "")}
+
+
+def all_machine_dirs(settings: Settings) -> list[dict]:
+    """Dossiers déclarés de chaque client, lus en parallèle : [{id, name, ok, dirs, message}]
+    (ok False : injoignable ou agent trop ancien, `message` dit pourquoi). Sert à montrer, en
+    déclarant un dossier, le chemin qu'a chaque autre client pour ce nom."""
+    def one(machine: dict) -> dict:
+        row = {"id": machine["id"], "name": machine["name"], "ok": False, "dirs": [], "message": ""}
+        try:
+            host = open_machine(settings, machine["id"], timeout=10)
+            data = host.saves_dirs()
+            dirs = data.get("dirs") if isinstance(data, dict) else None
+            if not isinstance(dirs, list):
+                raise ManagerError("réponse illisible du client (dossiers)")
+            row.update(ok=True, dirs=[{"name": str(d.get("name", "")), "path": str(d.get("path", ""))}
+                                      for d in dirs if isinstance(d, dict)])
+        except (KeyError, ManagerError, OSError) as exc:
+            row["message"] = str(exc)
+        return row
+
+    machines = machine_rows(settings)
+    if not machines:
+        return []
+    with ThreadPoolExecutor(max_workers=min(8, len(machines))) as pool:
+        return list(pool.map(one, machines))
+
+
+def declare_dir(settings: Settings, machine_id: str, name: str, path: str, also: list[str]) -> dict:
+    """Déclare (ou remplace) le dossier `name` sur `machine_id` avec le chemin tapé, puis sur
+    chaque client de `also` avec le chemin que le premier a retenu, à partir de son dossier
+    personnel (« ~/x » ou « /home/u/x » deviennent « x » : le HOME diffère d'un client à l'autre).
+    Rend les dossiers du premier client (comme machine_dirs) et `others` : [{id, name, ok,
+    message}]. Erreurs du premier client : comme machine_dirs (rien n'est propagé)."""
+    data = machine_dirs(settings, machine_id, ("put", name, path))
+    rel = next((d["path"] for d in data["dirs"] if d["name"] == name), "")
+    others = []
+    for other in dict.fromkeys(i for i in also if i != machine_id):
+        try:
+            label = find_machine(settings, other)["name"]
+        except KeyError:
+            others.append({"id": other, "name": other, "ok": False, "message": "client inconnu"})
+            continue
+        result = {"id": other, "name": label, "ok": False, "message": ""}
+        if not rel or rel.startswith("/"):
+            result["message"] = "chemin hors du dossier personnel : non propagé"
+        else:
+            try:
+                machine_dirs(settings, other, ("put", name, rel))
+                result.update(ok=True, message=f"déclaré : ~/{rel}")
+            except ManagerError as exc:
+                result["message"] = str(exc)
+        others.append(result)
+    return {**data, "others": others}
 
 
 def set_icon(settings: Settings, machine_id: str, icon: str | None) -> dict:

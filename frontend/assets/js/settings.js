@@ -13,6 +13,7 @@ import { loadSaves, osIcon, sv } from "./saves.js";
 import { machineMenu } from "./saves-machines.js";
 import { PAD_ICON, PAD_LABEL, controllersOf, playingOn, spanText } from "./activity.js";
 import { openPair } from "./saves-ops.js";
+import { loadSettingsDirs } from "./settings-dirs.js";
 
 // Vue « settings » (menu ⚙). Chaque valeur vient de state.config ou de /api/config/systems ;
 // « Enregistrer » n'envoie que ce qui a changé, par les routes existantes ; « Annuler » relit
@@ -292,6 +293,7 @@ const ONLY_CONNECTED_TEXT = "Disponible une fois le mode connecté enregistré."
 function loadSettingsConnected() {
   renderClients();
   paintSettingsDoctor();
+  loadSettingsDirs();
   if (!connected()) return;
   loadSaves();
   loadInstall();

@@ -52,6 +52,7 @@ def saves_machine_remove(settings: SettingsDep, machine_id: str):
 class SavesDir(BaseModel):
     name: str = Field(min_length=1, max_length=48)
     path: str = Field(min_length=1, max_length=1024)
+    also: list[str] = Field(default_factory=list, max_length=50)   # autres clients où le déclarer
 
 
 def _machine_dirs(settings: Settings, machine_id: str, change: tuple[str, ...] = ()) -> dict:
@@ -73,10 +74,27 @@ def saves_machine_dirs(settings: SettingsDep, machine_id: str):
     return _machine_dirs(settings, machine_id)
 
 
+@router.get("/api/saves/dirs")
+def saves_all_dirs(settings: SettingsDep):
+    """Dossiers déclarés de chaque client (injoignable : ok false et message)."""
+    return {"machines": clients_svc.all_machine_dirs(settings)}
+
+
 @router.put("/api/saves/machines/{machine_id}/dirs")
 def saves_machine_dir_put(settings: SettingsDep, machine_id: str, body: SavesDir):
-    """Déclare (ou remplace) un dossier sur le client : chemin de ce client, sous son HOME."""
-    return _machine_dirs(settings, machine_id, ("put", body.name.strip(), body.path.strip()))
+    """Déclare (ou remplace) un dossier sur le client : chemin de ce client, sous son HOME ; puis,
+    avec le même chemin à partir de leur HOME, sur les clients de `also` (résultat dans `others`)."""
+    name, path = body.name.strip(), body.path.strip()
+    if not body.also:
+        return _machine_dirs(settings, machine_id, ("put", name, path))
+    try:
+        return clients_svc.declare_dir(settings, machine_id, name, path, body.also)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"client inconnu : {machine_id}") from None
+    except AgentUnreachable as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except ManagerError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.delete("/api/saves/machines/{machine_id}/dirs")

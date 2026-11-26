@@ -508,6 +508,7 @@
     <a href="#st-mode" data-st="mode"><svg class="ico"><use href="#i-cpu"/></svg>Mode</a>
     <a href="#st-saves" data-st="saves" data-cfg-conn><svg class="ico"><use href="#i-save"/></svg>Sauvegardes</a>
     <a href="#st-clients" data-st="clients" data-cfg-conn><svg class="ico"><use href="#i-server"/></svg>Clients</a>
+    <a href="#st-syncdirs" data-st="syncdirs" data-cfg-conn><svg class="ico"><use href="#i-folder"/></svg>Dossiers synchronisés</a>
     <a href="#st-library" data-st="library"><svg class="ico"><use href="#i-book"/></svg>Bibliothèque</a>
     <a href="#st-tasks" data-st="tasks"><svg class="ico"><use href="#i-moon"/></svg>Tâches</a>
     <a href="#st-artwork" data-st="artwork"><svg class="ico"><use href="#i-image"/></svg>Illustrations</a>
@@ -550,6 +551,26 @@
       <div class="st-card">
         <div id="st-clients-list"></div>
         <div class="st-foot"><button type="button" class="btn secondary sm" id="st-pair"><svg class="ico sm"><use href="#i-plus"/></svg>Associer un client</button></div>
+      </div>
+    </section>
+
+    <section class="st-sec" id="st-syncdirs" data-st="syncdirs" data-cfg-conn>
+      <div class="st-head"><h2>Dossiers synchronisés</h2><p>Dossiers partagés comme des sauvegardes de jeu (par exemple celles d'un émulateur), avec leur chemin sur chaque client, à partir de son dossier personnel. Retirer une déclaration ne supprime aucun fichier.</p></div>
+      <div class="st-card">
+        <div id="st-sd-list"></div>
+        <div class="st-sd-form" id="st-sd-form" hidden>
+          <b id="st-sd-form-title">Nouveau dossier</b>
+          <div class="st-sd-fields">
+            <label class="field">Nom<input id="st-sd-name" maxlength="48" autocomplete="off" placeholder="Zelda Ocarina Of Time"></label>
+            <label class="field">Chemin depuis le dossier personnel<input id="st-sd-path" class="mono" autocomplete="off" placeholder=".local/share/longshot/save"></label>
+          </div>
+          <span class="st-sub">Déclarer sur</span>
+          <div class="sd-targets st-sd-targets" id="st-sd-targets"></div>
+          <p id="st-sd-err" class="notice err" hidden></p>
+          <div class="st-sd-buttons"><button type="button" class="btn secondary sm" id="st-sd-cancel">Annuler</button>
+            <button type="button" class="btn primary sm" id="st-sd-save"><svg class="ico sm"><use href="#i-check"/></svg>Enregistrer</button></div>
+        </div>
+        <div class="st-foot"><button type="button" class="btn secondary sm" id="st-sd-new"><svg class="ico sm"><use href="#i-plus"/></svg>Ajouter un dossier</button></div>
       </div>
     </section>
 
@@ -712,19 +733,6 @@
   <p id="pair-err" class="notice err" hidden></p>
   <div class="dlg-foot"><span class="spacer"></span>
     <button class="btn secondary" data-close>Fermer</button><button class="btn primary" id="pair-save"><svg class="ico sm"><use href="#i-link"/></svg>Associer</button></div>
-</dialog>
-
-<dialog id="dlg-dirs" class="small">
-  <div class="dlg-head"><h2 id="dirs-title">Dossiers synchronisés</h2><span class="spacer"></span>
-    <button class="iconbtn" data-close title="Fermer" aria-label="Fermer"><svg class="ico"><use href="#i-x"/></svg></button></div>
-  <p class="dlg-intro">Dossiers synchronisés comme des jeux (par exemple les sauvegardes d'un autre émulateur). Il suffit de le déclarer sur un client : il se propage ensuite comme une sauvegarde (un client qui le reçoit le déclare au même chemin, à partir de son dossier personnel). Retirer une déclaration ne supprime aucun fichier.</p>
-  <div class="dirs-list" id="dirs-list"></div>
-  <p class="dlg-intro" id="dirs-eden"></p>
-  <label class="field">Nom<input id="dirs-name" maxlength="48" autocomplete="off" placeholder="hookshot"></label>
-  <label class="field">Chemin depuis le dossier personnel du client<input id="dirs-path" autocomplete="off" placeholder=".local/share/hookshot/save"></label>
-  <p id="dirs-err" class="notice err" hidden></p>
-  <div class="dlg-foot"><span class="spacer"></span>
-    <button class="btn secondary" data-close>Fermer</button><button class="btn primary" id="dirs-add"><svg class="ico sm"><use href="#i-folder"/></svg>Déclarer</button></div>
 </dialog>
 
 <dialog id="dlg-save-delete" class="small">
